@@ -8,9 +8,9 @@ on a 2-vCPU CI runner found the same 51 antenna nets and inserted the same 54 di
 so its CPU time transfers from a local run to CI. Wall time on CI is that CPU time
 divided by an effective speed-up, plus the rest of the flow:
 
-  * 2.13 local cpu-min per CI minute on a 2-vCPU private-repo runner (measured: rc14's
-    first pass cost 552 cpu-min locally and took 04:19:18 on CI); a 4-vCPU public-repo
-    runner is assumed to reach 3.8 (unmeasured, below the ideal 4.26).
+  * 2.13 local cpu-min per CI minute on a 2-vCPU private-repo runner (rc14's first
+    pass: 552 cpu-min locally, 04:19:18 on CI) and 3.7 on a 4-vCPU public-repo runner
+    (rc14's whole gds job: 843 cpu-min of routing, 258 min on CI, results identical).
   * 30 min for every other step (CI reached detailed routing after 19 min; the v1.0 CI
     harden spent 32 min outside routing).
 
@@ -42,7 +42,7 @@ def main(run):
           + " + ".join(f"{p:.0f}" for p in passes) + f" = {total:.0f}")
     print(f"  first-iteration violations {first[0] if first else '?'}; "
           f"post-route antenna nets per pass {ants}")
-    for name, par in (("private (2 vCPU)", 2.13), ("public (4 vCPU)", 3.8)):
+    for name, par in (("private (2 vCPU)", 2.13), ("public (4 vCPU)", 3.7)):
         t = OTHER_MIN + total / par
         print(f"  CI {name}: ~{t:.0f} min ({'fits' if t < LIMIT_MIN else 'OVER'} the {LIMIT_MIN} min cap)")
 

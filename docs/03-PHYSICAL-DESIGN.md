@@ -24,8 +24,11 @@ with the reasoning for each setting in its comments and in
 | Antenna | 0 violations (75 diodes) |
 | IR drop | 0.12 mV worst |
 | Power (static estimate) | 2.60 mW; workload measurements in [power](15-POWER.md) |
-| Precheck | Tiny Tapeout precheck (tt-support-tools `d66cf17`) passes |
+| Precheck | Tiny Tapeout precheck (tt-support-tools `d66cf17`) passes: all nine checks, including KLayout SG13CMOS5L DRC |
 | Gate level | The chip-level test suite passes on the final netlist, including the execution digest against the ISS |
+
+The GitHub Actions harden reproduces these results exactly, metric for metric, from a
+clean checkout with the pinned toolchain (258 minutes on a standard public runner).
 
 Corners: `nom_slow_1p08V_125C`, `nom_typ_1p20V_25C`, `nom_fast_1p32V_m40C`. The
 remaining design-rule warnings are 124 max-slew and 34 max-capacitance nets at the slow
