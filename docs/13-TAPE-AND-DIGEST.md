@@ -27,7 +27,8 @@ One memory then covers four jobs:
 
 - **Device emulation.** [`i2c_eeprom.asm`](../firmware/i2c_eeprom.asm) is a 24C02
   whose 256 bytes live in the tape. It runs at Standard and Fast mode against a
-  scripted controller with timing checks.
+  scripted controller with timing checks. [`spi_target.asm`](../firmware/spi_target.asm)
+  serves the same kind of memory as a 25xx-style SPI part.
 - **Logic analyser.** [`logic_analyzer.asm`](../firmware/logic_analyzer.asm) is four
   instructions. Capture keeps running after every context halts, until the region
   fills (or forever in ring mode, which keeps pre-trigger history).

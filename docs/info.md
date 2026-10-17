@@ -30,7 +30,9 @@ model predicts exactly.
    `firmware/uart_tx.asm`.
 3. Send STOP, WRITE_IMEM (the image), READ_IMEM (to verify), WRITE_CFG (enabled contexts,
    entry points, pin ownership and open-drain pins), then START. The command set is in
-   `docs/12-HOST-PROTOCOL.md`; `sw/rp2350/escapement_demo.py` does this from MicroPython, and `sw/rp2350/bringup.py` runs the staged first-silicon checklist in `docs/16-BRING-UP.md`.
+   `docs/12-HOST-PROTOCOL.md`; `sw/rp2350/escapement_demo.py` does this from
+   MicroPython, and `sw/rp2350/bringup.py` runs the staged first-silicon checklist in
+   `docs/16-BRING-UP.md`.
 4. Observe the protocol on `uio[7:0]`. `uo[2]` is high while running and `uo[1]` signals
    an interrupt or a fault. After the run, READ_DBG returns telemetry, fault records and
    the execution digest; READ_TAPE returns captured edges.
@@ -42,5 +44,6 @@ every reselect.
 
 - An SPI host: the demo board's RP2350, or any microcontroller.
 - Protocol peers on `uio[7:0]` through a Pmod, for example a UART adapter, I2C devices
-  (with pull-up resistors, since I2C pins are open-drain), WS2812 LEDs or a 1-Wire
-  sensor.
+  (with pull-up resistors, since I2C pins are open-drain), WS2812 LEDs, a 1-Wire
+  sensor, an SPI controller, an ARM SWD target, or an IR LED driver and IR receiver
+  module.

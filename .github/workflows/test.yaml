@@ -46,3 +46,38 @@ jobs:
             test/tb.fst
             test/results.xml
             test/output/*
+
+  # Everything else that needs no PDK: assembler, ISS, certificate checker, bus models
+  # and the bring-up script (sw-test), a timing certificate for every firmware (cert),
+  # ISS vs RTL lockstep co-simulation (cosim-parallel) and the newer firmware through
+  # the chip's pins (pin-test).
+  verification:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Install iverilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: Setup python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install Python packages
+        run: pip install -r test/requirements.txt pytest-xdist==3.8.0
+
+      - name: Software tests
+        run: make sw-test
+
+      - name: Timing certificates
+        run: make cert
+
+      - name: Co-simulation
+        run: make cosim-parallel JOBS=4
+
+      - name: Firmware through the chip pins
+        run: |
+          make pin-test
+          ! grep failure test/results_pins.xml

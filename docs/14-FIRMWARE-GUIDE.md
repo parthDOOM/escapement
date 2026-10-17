@@ -43,6 +43,10 @@ tests never sent two requests back to back:
 - `ps2_device`: back-to-back scancodes;
 - `jtag_idcode`: back-to-back requests.
 
+`swd_idcode` applies the same rule inside one packet: each segment (request,
+turnaround and ACK, data, parity) starts on an empty queue with a fresh time base, so
+escert proves each segment on its own.
+
 **4. Make WAITP exact.** `WAITP` completes on a match or when `tmr` is reached. Keep
 `tmr` far in the future (`ADDT 0xFFFFFF` after each EMIT) and it completes on the first
 4-tick slot that sees the edge. Then it is a precise wait, not an 8-tick poll loop.
@@ -67,6 +71,9 @@ the 8th falling edge is seen (≤ 28 ticks), then do the slow work while the bus
 
 - One instruction takes 4 ticks: a 3-instruction bit loop (`EMITX`, `ADDT`, `DJNZ`)
   sustains up to 2 Mbit/s for a single pin.
+- A target on a bus it cannot stretch must finish every bit within one clock period.
+  `spi_target` polls SCK in a 12-tick loop; its longest bit is 15 instructions, which
+  rates it at 416 kHz. Where the bus allows stretching, use idiom 8 instead.
 - `LDT`/`STT` take a register as base address; keep one register at 0 while working
   with fixed scratch words (`can_tx`).
 - Four contexts run independently. A slow protocol in one context never changes another

@@ -180,6 +180,8 @@ the commits, register values and pin changes of the model.
 
 ```sh
 make sw-test cert test cosim-parallel host-test unit-test lint   # simulation and certificates
+make pin-test bringup-test                                       # newer firmware through the pins; bring-up script (~30 min)
+make gl-test gl-pin-test                                         # the same chip-level checks on the gate-level netlist
 make formal-quick                                                # bounded core proof, cover, never-late, clock gate
 make formal                                                      # adds the unbounded core proof (hours)
 make mutation JOBS=8                                             # mutation campaign, 8 mutants at a time
@@ -188,3 +190,7 @@ make mutation JOBS=8                                             # mutation camp
 The suites run in parallel where they can: `sw-test` uses every core when pytest-xdist is
 installed, `cosim-parallel` splits the random programs and the firmware runs across
 `JOBS` simulators, and the mutation campaign runs `JOBS` mutants at once.
+
+GitHub Actions runs the chip-level tests, `sw-test`, `cert`, `cosim-parallel` and
+`pin-test` on every push, and the harden with the gate-level tests whenever the design
+changes.

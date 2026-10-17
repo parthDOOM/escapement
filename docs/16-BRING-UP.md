@@ -107,7 +107,7 @@ compare.
     can_tx.asm             steady ok    digest 0xffaf382b = model at tick 160444
     ...
     uart_tx.asm            halt   ok    digest 0x63114ed9 model 0x63114ed9
-[5] PASS  12 of 12 firmware match the model
+[5] PASS  16 of 16 firmware match the model
 bring-up PASSED
 ```
 
