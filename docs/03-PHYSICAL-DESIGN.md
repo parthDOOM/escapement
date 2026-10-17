@@ -32,7 +32,8 @@ clean checkout with the pinned toolchain (258 minutes on a standard public runne
 
 Corners: `nom_slow_1p08V_125C`, `nom_typ_1p20V_25C`, `nom_fast_1p32V_m40C`. The
 remaining design-rule warnings are 124 max-slew and 34 max-capacitance nets at the slow
-corner; they are reported by the flow but do not cause timing violations.
+corner. They cause no timing violations. The worst are nets that the detailed router
+detours around the congested horizontal layer: one 375 µm connection is routed as 1.8 mm.
 
 ## Floorplan
 

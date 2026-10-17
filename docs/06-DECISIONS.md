@@ -141,5 +141,14 @@ is real. Long wires are buffered at 500 µm, which cut slow-corner slew warnings
   93 mm while cells rose to 24,791; reverted.
 - **Gating the remaining free-running flops** (time base, pipeline, host link,
   telemetry). They must run anyway, and each further gate saves less.
+- **Global-route layer derates.** Loosening Metal2 (0.25) made the first detailed-route
+  pass take 48% longer. Tightening it (0.45) pushed wiring onto Metal3, where overflow
+  rose from 264 to 711 and detailed routing stopped converging. Every layer keeps the
+  default derate.
+- **Repair after global routing, with a larger hold margin.** Sign-off stayed clean, but
+  532 more hold buffers bought only 9 ps of fast-corner hold slack, and slow-corner slew
+  warnings rose from 124 to 166. The worst slew nets are detours taken by the detailed
+  router (a 375 µm connection routed as 1.8 mm), which repair before detailed routing
+  cannot see.
 - **More detailed-routing optimisation iterations.** Values above 64 crash this OpenROAD
   build in `detailed_route`.
