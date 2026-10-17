@@ -1,0 +1,34 @@
+# Assume-guarantee proof of P2 "never late" for one context, for all time
+# (formal/esc_ctx_env.v). The core proves P6 (admission) and P7 (slot timing) on its own
+# (esc_core.sby); this file proves that a context fed only admitted pushes never has a
+# FIFO head past its deadline. Run: sby -f esc_ctx.sby kind | pdr | cover
+[tasks]
+kind
+pdr
+bmc
+
+[options]
+kind: mode prove
+kind: depth 6
+pdr: mode prove
+bmc: mode bmc
+bmc: depth 24
+
+[engines]
+kind: smtbmc yices
+pdr: abc pdr
+bmc: smtbmc yices
+
+[script]
+read -formal -DFORMAL esc_greg.v esc_ctx.v esc_ctx_env.v
+prep -top esc_ctx_env
+pdr: setundef -undriven -anyseq
+pdr: techmap
+pdr: opt -fast
+pdr: setundef -zero
+pdr: setundef -init -zero
+
+[files]
+../src/esc_ctx.v
+../src/esc_greg.v
+esc_ctx_env.v

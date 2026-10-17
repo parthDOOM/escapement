@@ -1,0 +1,46 @@
+# Formal verification of esc_core (docs/04-VERIFICATION.md). Run: sby -f esc_core.sby <task>
+#   cover : reachability of every property's precondition (vacuity guard)
+#   bmc   : bounded safety from reset (depth 32 is out of reach for yices; 16 is ~1 min)
+#   pdr   : UNBOUNDED safety by IC3/PDR (ABC); a PASS holds for every reachable state
+#   kind  : UNBOUNDED safety by k-induction (fails if the properties are not k-inductive)
+[tasks]
+bmc
+cover
+pdr
+kind
+
+[options]
+bmc: mode bmc
+bmc: depth 20
+cover: mode cover
+cover: depth 48
+pdr: mode prove
+kind: mode prove
+kind: depth 12
+
+[engines]
+bmc: smtbmc yices
+cover: smtbmc yices
+pdr: abc pdr
+kind: smtbmc yices
+
+[script]
+~pdr: read -formal -DFORMAL -DFORMAL_ANYNOW esc_greg.v esc_ctx.v esc_cap.v esc_core.v
+pdr: read -formal -DFORMAL -DESC_CORE_PDR esc_greg.v esc_ctx.v esc_cap.v esc_core.v
+prep -top esc_core
+# PDR needs defined initial values: every flop is async-reset and step 0 is assumed to be
+# in reset, so the pre-reset contents are irrelevant; the unbounded run reaches the 2^32
+# wrap without FORMAL_ANYNOW.
+# $shiftx part-selects (c_r0[32*cctx +: 32]) map to x for out-of-range indices, which a
+# 2-bit index over a 128-bit bus never reaches; zero them so the AIG has no x.
+pdr: setundef -undriven -anyseq
+pdr: techmap
+pdr: opt -fast
+pdr: setundef -zero
+pdr: setundef -init -zero
+
+[files]
+../src/esc_ctx.v
+../src/esc_cap.v
+../src/esc_greg.v
+../src/esc_core.v

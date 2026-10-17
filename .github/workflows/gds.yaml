@@ -1,0 +1,58 @@
+name: gds
+
+# Pinned to the exact revisions in scripts/versions.txt (docs/05-TOOLCHAIN.md).
+# tt-gds-action@ihp-cmos5l = 3412659 (LibreLane 3.1.0.dev3, IHP-Open-PDK 2bbec755)
+# tt-support-tools@ihp-sg13cmos5l = d66cf17
+# The template's `viewer` job (GDS viewer on GitHub Pages) is not used.
+
+on:
+  push:
+    # Harden only when something that affects the GDS or the GL test changes
+    # (a harden takes hours; docs/03-PHYSICAL-DESIGN.md).
+    paths:
+      - 'src/**'
+      - 'macro/**'
+      - 'info.yaml'
+      - 'test/Makefile'
+      - 'test/tb.v'
+      - 'test/test.py'
+      - '.github/workflows/gds.yaml'
+  workflow_dispatch:
+
+jobs:
+  gds:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Build GDS
+        uses: TinyTapeout/tt-gds-action@3412659307918422f3f0727917cf9b499aaca588
+        with:
+          pdk: ihp-sg13cmos5l
+          tools-ref: d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
+          librelane-version: 3.1.0.dev3
+
+  precheck:
+    needs: gds
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Run Tiny Tapeout Precheck
+        uses: TinyTapeout/tt-gds-action/precheck@3412659307918422f3f0727917cf9b499aaca588
+        with:
+          tools-ref: d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
+
+  gl_test:
+    needs: gds
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: GL test
+        uses: TinyTapeout/tt-gds-action/gl_test@3412659307918422f3f0727917cf9b499aaca588

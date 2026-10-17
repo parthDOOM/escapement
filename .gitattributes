@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.gds binary
+*.oas binary
+*.png binary
+macro/** -text

@@ -1,0 +1,106 @@
+# Escapement ISA v1.1 — machine-readable encoding.
+# Single source for the assembler, documentation tables and RTL decoder constants.
+# Execution SEMANTICS are normative only in docs/11-SEMANTICS.md and must never be
+# generated from this file (independent ISS/RTL verification, docs/04-VERIFICATION.md).
+#
+# Word: 32 bits. [31:24] opcode, [23:0] payload. Every payload bit not named by the
+# format is reserved and must be zero; a nonzero reserved bit or an unlisted opcode is
+# ILLEGAL. 0x00000000 and 0xFFFFFFFF are ILLEGAL by construction (opcodes 0x00, 0xFF).
+
+version: "1.1"
+word_bits: 32
+imem_words: 256
+tape_words: 256
+contexts: 4
+registers: [r0, r1, r2, r3]
+
+# Field positions are [msb, lsb] within the 32-bit word.
+formats:
+  N:   {}                                                   # no operands
+  I8:  {code: [7, 0]}
+  R:   {rd: [23, 22], rs: [21, 20]}
+  RD:  {rd: [23, 22]}
+  RS:  {rs: [21, 20]}
+  I16: {rd: [23, 22], imm: [15, 0]}
+  SH:  {rd: [23, 22], n: [4, 0]}
+  B:   {target: [7, 0]}
+  L16: {imm: [15, 0]}
+  T24: {imm: [23, 0]}
+  P:   {mask: [23, 16], value: [15, 8], oe: [7, 0]}
+  PR:  {mask: [23, 16], rs: [15, 14], oe: [7, 0]}
+  PX:  {mask: [23, 16], dir: [15, 15], oe: [7, 0]}
+  PE:  {mask: [23, 16], level: [15, 8], mode: [7, 7], window: [6, 0]}
+  PS:  {pin: [18, 16], dir: [15, 15]}
+  PW:  {mask: [23, 16], value: [15, 8]}
+  TM:  {ra: [23, 22], rb: [21, 20], imm: [7, 0]}       # tape word a = (R[rb][7:0] + imm) mod 256
+
+# dir: 0 = LSB-first, 1 = MSB-first.  mode: 0 = HOLD, 1 = ARRIVE.
+opcodes:
+  NOP:     {op: 0x01, format: N}
+  HALT:    {op: 0x02, format: N,   wait_class: true}
+  IRQ:     {op: 0x03, format: I8}
+  RET:     {op: 0x04, format: N}
+  MOV:     {op: 0x08, format: R}
+  MOVI:    {op: 0x09, format: I16}
+  MOVHI:   {op: 0x0A, format: I16}
+  ADD:     {op: 0x0B, format: R}
+  SUB:     {op: 0x0C, format: R}
+  AND:     {op: 0x0D, format: R}
+  OR:      {op: 0x0E, format: R}
+  XOR:     {op: 0x0F, format: R}
+  CMP:     {op: 0x10, format: R}
+  TSTI:    {op: 0x11, format: I16}
+  SHL:     {op: 0x12, format: SH}
+  SHR:     {op: 0x13, format: SH}
+  ADDI:    {op: 0x14, format: I16}
+  CMPI:    {op: 0x15, format: I16}
+  LDSH:    {op: 0x16, format: RS}
+  STSH:    {op: 0x17, format: RD}
+  JMP:     {op: 0x18, format: B}
+  JZ:      {op: 0x19, format: B}
+  JNZ:     {op: 0x1A, format: B}
+  JC:      {op: 0x1B, format: B}
+  JNC:     {op: 0x1C, format: B}
+  DJNZ:    {op: 0x1D, format: B}
+  LDLC:    {op: 0x1E, format: L16}
+  CALL:    {op: 0x1F, format: B}
+  RDTIME:  {op: 0x20, format: RD}
+  SETT:    {op: 0x21, format: RS}
+  ADDT:    {op: 0x22, format: T24}
+  WAITT:   {op: 0x23, format: N,   wait_class: true}
+  ADDTR:   {op: 0x24, format: RS}
+  EMIT:    {op: 0x28, format: P,   wait_class: true}
+  EMITR:   {op: 0x29, format: PR,  wait_class: true}
+  EMITX:   {op: 0x2A, format: PX,  wait_class: true}
+  EXPECT:  {op: 0x2B, format: PE,  wait_class: true}
+  SAMPLE:  {op: 0x2C, format: PS,  wait_class: true}
+  GETP:    {op: 0x30, format: RD}
+  WAITP:   {op: 0x31, format: PW,  wait_class: true}
+  GETI:    {op: 0x32, format: RD,  wait_class: true}   # v1.1: waits for in-flight SAMPLEs
+  GETX:    {op: 0x33, format: RD}
+  LDT:     {op: 0x34, format: TM}                      # v1.1 tape load
+  STT:     {op: 0x35, format: TM}                      # v1.1 tape store
+  CAPT:    {op: 0x36, format: RS}                      # v1.1 capture configure
+  GETC:    {op: 0x37, format: RD}                      # v1.1 capture status
+  POP:     {op: 0x38, format: RD,  wait_class: true}
+  PUSH:    {op: 0x39, format: RS,  wait_class: true}
+  RXREADY: {op: 0x3A, format: N}
+  TXREADY: {op: 0x3B, format: N}
+
+fault_causes:
+  ILLEGAL: 1
+  PC_RANGE: 2
+  ADMIT: 3
+  LATE_HEAD: 4
+
+admit_subcodes:
+  MASK: 1      # DRIVE/EXPECT with mask == 0
+  OWNER: 2     # DRIVE mask selects a pin this context does not own
+  PAST: 3      # deadline not in (now, now + 2^31)
+  ORDER: 4     # deadline not after the FIFO tail
+  OVERLAP: 5   # EXPECT window starts at or before the end of the previous EXPECT window
+
+event_kinds:
+  DRIVE: 1
+  EXPECT: 2
+  SAMPLE: 3

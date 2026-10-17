@@ -1,0 +1,21 @@
+# Pinned revisions of every tool in the Escapement flow (docs/05-TOOLCHAIN.md).
+# The workflows and scripts/local-harden.sh use exactly these.
+tt-template-repo = https://github.com/TinyTapeout/ttihp-verilog-template
+tt-template-branch = cmos5l
+tt-template-commit = b86a2a781484bcab7ba522dc5de540086695a430
+tt-gds-action-ref = TinyTapeout/tt-gds-action@ihp-cmos5l
+tt-gds-action-commit = 3412659307918422f3f0727917cf9b499aaca588
+tt-support-tools-branch = ihp-sg13cmos5l
+tt-support-tools-commit = d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
+pdk-name = ihp-sg13cmos5l
+pdk-repo = https://github.com/IHP-GmbH/IHP-Open-PDK
+pdk-commit = 2bbec755dc67ca3db0261c3d6163e15735d66710
+librelane-version = 3.1.0.dev3
+python-version = 3.11
+tiles = 6x4
+die-area-um = 0 0 1289.28 710.64
+sram-macro = RM_IHPSG13_1P_256x32_c2_bm_bist
+flow-container-digest = sha256:d109140b8f17fc54f4fca998beb8124f4949404ec52e339eebd2250854a18b5a (ghcr.io/librelane/librelane:3.1.0.dev3)
+oss-cad-suite-release = 2026-10-04 (oss-cad-suite-linux-x64-20261004.tgz; scripts/setup-wsl.sh)
+cocotb-version = 2.0.1 (test/requirements.txt)
+pytest-version = 8.4.2

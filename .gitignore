@@ -1,0 +1,31 @@
+.venv/
+__pycache__/
+*.pyc
+_build/
+*.vcd
+*.fst
+*.log
+sim_build/
+results.xml
+asic/runs/
+node_modules/
+.DS_Store
+.idea
+*.fst.hier
+runs
+tt_submission
+src/user_config.json
+src/config_merged.json
+test/sim_build
+test/__pycache__/
+test/results.xml
+test/gate_level_netlist.v
+cosim_failures/
+*.fst.hier
+# SymbiYosys work directories and logs
+formal/esc_*/
+formal/*.out
+formal/esc_v11.sby
+# local harden / tools checkout
+harden-*.log
+formal/esc_v11p.sby
