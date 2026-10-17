@@ -5,13 +5,14 @@ PYTHON ?= python3
 # from data, so it is checked by the replay tests instead of by escert.
 FIRMWARE := $(filter-out firmware/replay.asm,$(wildcard firmware/*.asm))
 
-.PHONY: help env sw-test cert test gl-test cosim cosim-parallel host-test bringup-test unit-test lint formal formal-quick mutation harden precheck clean
+.PHONY: help env sw-test cert test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test lint formal formal-quick mutation harden precheck clean
 
 help:
 	@echo "sw-test    assembler, ISS, certificate checker and bus-model tests (pytest)"
 	@echo "cert       static timing certificate for every firmware (escert)"
 	@echo "test       chip-level tests on the RTL (test/, as in CI)"
 	@echo "gl-test    chip-level tests on a gate-level netlist (test/gate_level_netlist.v)"
+	@echo "pin-test   SWD, SPI target and NEC firmware through the chip pins (gl-pin-test: on the netlist)"
 	@echo "cosim      ISS vs RTL lockstep co-simulation (COSIM_SEEDS random programs, default 200)"
 	@echo "cosim-parallel  the same, split over JOBS cores (default 8)"
 	@echo "host-test  host SPI interface tests"
@@ -37,6 +38,12 @@ cert:
 
 test:
 	cd test && $(MAKE) -B
+
+pin-test:
+	cd test && $(MAKE) -B COCOTB_TEST_MODULES=test_firmware_pins COCOTB_RESULTS_FILE=results_pins.xml
+
+gl-pin-test:
+	cd test && $(MAKE) -B GATES=yes COCOTB_TEST_MODULES=test_firmware_pins COCOTB_RESULTS_FILE=results_pins.xml
 
 gl-test:
 	cd test && $(MAKE) -B GATES=yes

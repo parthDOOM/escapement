@@ -60,7 +60,7 @@ the chip prepares data; its response is 0x00.
 | 0x11 | READ_IMEM | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … | Readback verification of a loaded image |
 | 0x12 | WRITE_CFG | ctx_enable, entry0, entry1, entry2, entry3, pin_owned, pin_owner[15:8], pin_owner[7:0], pin_od | zeros | 9 bytes; only while stopped. Takes effect at the next START |
 | 0x13 | WRITE_TAPE | addr, then words (4 bytes each) | zeros | As WRITE_IMEM, into the tape; only while stopped, else host error and no write |
-| 0x14 | READ_TAPE | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … | As READ_IMEM, from the tape (e.g. capture records after STOP) |
+| 0x14 | READ_TAPE | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … | As READ_IMEM, from the tape (e.g. capture records after STOP). Valid only while stopped and after capture has drained: during a run the core owns the tape port and the data returned is undefined |
 | 0x20 | START | — | — | One-cycle core `start` pulse at the end of the command byte; ignored (host error) while running |
 | 0x21 | STOP | — | — | One-cycle core `stop` pulse |
 | 0x30 | READ_DBG | {1'b0, sel[4], ctx[1:0], sel[3:0]}, dummy, 4 dummy | dbg_rdata (4 bytes) | Captured at the end of the select byte; the map is in 11-SEMANTICS §10 (sel 16 digest, 17 capture status, 18 capture config, 19 overflow tick) |

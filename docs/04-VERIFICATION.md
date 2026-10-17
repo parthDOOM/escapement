@@ -157,6 +157,7 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | Co-simulation (`make cosim`) | 4 | Pass |
 | Host interface (`make host-test`) | 9 | Pass |
 | Core unit tests (`make unit-test`) | 22 | Pass |
+| New firmware (SWD, SPI target, NEC) through the chip pins (`make pin-test`, `make gl-pin-test`) | 4 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 
