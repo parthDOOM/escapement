@@ -385,6 +385,28 @@ def eeprom_tape(image):
         image.tape[a] = (a * 7 + 3) & 0xFF
 
 
+def spi_target_case(mode):
+    """SPI target (25xx-style memory in the tape) at its rated limit, 416 kHz SCK, against
+    a controller model that checks MISO setup/hold: WRITE, READ back across a frame
+    boundary, a READ and a WRITE cut mid-byte, frames back to back (CS_n high 4 us)."""
+    from escmodels.spi import SpiController
+    mem = [(a * 7 + 3) & 0xFF for a in range(256)]
+
+    def factory():
+        frames = [([0x02, 0x10, 0xDE, 0xAD], None),
+                  ([0x03, 0x0F, 0, 0, 0, 0], [None, None, mem[0x0F], 0xDE, 0xAD, mem[0x12]]),
+                  ([0x03, 0x10, 0, 0], [None, None, 0xDE, 0xAD], 21),
+                  ([0x02, 0x11, 0x55, 0x66], None, 27),
+                  ([0x03, 0x11, 0], [None, None, 0x55])]
+        ctl = SpiController(4, 5, 6, 7, frames, mode=mode, t_high=30, t_low=30, t_css=25,
+                            t_idle=100)
+
+        def check(board, h):
+            return ([] if ctl.done else ["spi_target: controller script not finished"]) + board.errors()
+        return Board(ctl), None, check
+    return factory
+
+
 # name -> (firmware, ticks, factory() -> (board, host, check(board, host) -> list[str]))
 FIRMWARE_CASES = {
     "uart_rx": ("uart_rx.asm", 13500, case_uart_rx),
@@ -399,8 +421,11 @@ FIRMWARE_CASES = {
     "jtag_idcode": ("jtag_idcode.asm", 9000, case_jtag),
     "swd_idcode": ("swd_idcode.asm", 17000, case_swd),
     "nec_ir": ("../test/cosim/nec_ir_cosim.asm", 304000, case_nec_ir),
+    "spi_target": ("spi_target.asm", 11000, spi_target_case(0)),
+    "spi_target_mode3": ("spi_target.asm", 11000, spi_target_case(3)),
 }
 TAPE_PREP = {"i2c_eeprom": eeprom_tape}
+TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 
 
 @cocotb.test()

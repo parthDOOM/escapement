@@ -643,3 +643,130 @@ def test_nec_loopback_tx_carrier_through_tsop_into_rx():
             nec_report(0x1234, 0x5A, ext=True), nec_report(0xA5, 0x5A)]
     assert got == want, [hex(v) for v in got]
     assert not board.errors() and not m.ff.valid
+# --------------------------------------------------------------------------- SPI target
+
+SPIT_MEM = [(a * 7 + 3) & 0xFF for a in range(256)]
+SPIT_RELEASE = 100               # MISO must be released this soon after CS_n rises (4 us)
+# At the rated limits: SCK period 60 ticks (416 kHz), CS_n high 4 us, CS_n setup 1 us.
+SPIT_FAST = dict(t_high=30, t_low=30, t_css=25, t_idle=100)
+SPIT_FRAMES = [
+    ([0x02, 0x10, 0xDE, 0xAD, 0xBE, 0xEF], None),                     # WRITE
+    ([0x03, 0x10, 0, 0, 0, 0], [None, None, 0xDE, 0xAD, 0xBE, 0xEF]),  # READ it back
+    ([0x03, 0xFE, 0, 0, 0], [None, None, SPIT_MEM[0xFE], SPIT_MEM[0xFF], SPIT_MEM[0]]),  # wrap
+    ([0x9F, 0x00, 0x00], [0xFF, 0xFF, 0xFF]),                          # unknown: MISO released
+    ([0x02, 0x20, 0x11, 0x22], None, 28),                              # WRITE cut mid-byte
+    ([0x03, 0x20, 0, 0], [None, None, 0x11, SPIT_MEM[0x21]]),          # ... 0x22 was dropped
+    ([0x03, 0x11, 0, 0], [None, None, 0xAD, 0xBE], 20),                # READ cut mid-byte
+    ([0x03, 0x12], None),                                              # READ, no data bytes
+    ([0x03, 0x13, 0], [None, None, 0xEF]),
+]
+
+
+def spit_run(frames, mode, **timing):
+    """spi_target.asm (memory preloaded) against the SPI controller model, to completion."""
+    from escmodels.spi import SpiController
+    from esciss import Machine
+    image = assemble_file(FW / "spi_target.asm")
+    image.tape[:] = SPIT_MEM
+    ctl = SpiController(4, 5, 6, 7, frames, mode=mode, **timing)
+    board = Board(ctl)
+    m = Machine(image, board=board)
+    while not ctl.done and len(m.pins) < 500_000:
+        m.run(2000, stop_when_idle=False)
+    m.run(200, stop_when_idle=False)
+    return m, ctl, board
+
+
+def spit_miso_errors(m, ctl):
+    """MISO (pin 6) may be driven only inside a READ frame, after its address byte, and
+    must be released within SPIT_RELEASE ticks of CS_n rising."""
+    oe = [(p["uio_oe"] >> 6) & 1 for p in m.pins]
+    allowed = [False] * len(oe)
+    for (data, *_), fall, rise in zip(ctl.frames, ctl.cs_fall, ctl.cs_rise):
+        if data[0] == 0x03:
+            for t in range(fall, min(rise + SPIT_RELEASE, len(oe))):
+                allowed[t] = True
+    bad = [t for t in range(len(oe)) if oe[t] and not allowed[t]]
+    return [f"MISO driven at t={bad[0]} ({len(bad)} ticks)"] if bad else []
+
+
+@pytest.mark.parametrize("mode", [0, 3])
+def test_spi_target_memory(mode):
+    """25xx-style memory in firmware at the rated SCK limit: WRITE, READ back, address
+    wrap, an ignored command, frames cut mid-byte, all back to back with the minimum CS_n
+    high time. The controller model checks MISO setup/hold at every sampling edge."""
+    m, ctl, board = spit_run(SPIT_FRAMES, mode, **SPIT_FAST)
+    assert not board.errors(), board.errors()
+    assert not spit_miso_errors(m, ctl), spit_miso_errors(m, ctl)
+    assert m.tape[0x10:0x14] == [0xDE, 0xAD, 0xBE, 0xEF]
+    assert m.tape[0x20:0x22] == [0x11, SPIT_MEM[0x21]]
+    assert ctl.rx[1][2:] == [0xDE, 0xAD, 0xBE, 0xEF]
+    assert not m.ff.valid and m.ctx[2].min_lead == 1      # every edge admitted, lead 1
+
+
+def test_spi_target_certificate_matches_telemetry():
+    """escert proves lead >= 1 for every input; the simulated chip's telemetry agrees."""
+    from escert import certify
+    certs = certify(assemble_file(FW / "spi_target.asm"))
+    assert [(c.ctx, c.status, c.min_lead) for c in certs] == [(2, "CHECKED", 1)]
+    m, _, _ = spit_run(SPIT_FRAMES, 3, **SPIT_FAST)
+    assert m.ctx[2].min_lead >= certs[0].min_lead
+
+
+@pytest.mark.parametrize("mode", [0, 3])
+@pytest.mark.parametrize("high,low", [(30, 30), (12, 48), (36, 24)])
+def test_spi_target_rated_period_every_phase(mode, high, low):
+    """SCK period 60 ticks with the shortest high (12) and low (24) phases, at every
+    alignment of the controller's edges with the 4-tick slots and the 12-tick poll."""
+    for phase in range(12):
+        m, ctl, board = spit_run(SPIT_FRAMES[:4], mode, t_high=high, t_low=low, t_css=25,
+                                 t_idle=100, start_at=100 + phase)
+        assert not board.errors(), (phase, board.errors())
+        assert not m.ff.valid
+
+
+@pytest.mark.parametrize("high,low", [(29, 29), (11, 49), (37, 23)])
+def test_spi_target_limits_are_tight(high, low):
+    """Just below the limits (period 58, high 11, low 23) some alignment fails: the
+    rated numbers are the machine's real bound, not a margin."""
+    fails = 0
+    for mode in (0, 3):
+        for phase in range(12):
+            _, _, board = spit_run(SPIT_FRAMES[:2], mode, t_high=high, t_low=low, t_css=25,
+                                   t_idle=100, start_at=100 + phase)
+            fails += bool(board.errors())
+    assert fails > 0
+
+
+@pytest.mark.parametrize("mode", [0, 3])
+def test_spi_target_cs_rises_at_every_bit(mode):
+    """CS_n rises after every possible bit count of a READ and a WRITE frame: complete
+    WRITE bytes are stored, a cut byte is not, and the next frame is answered correctly."""
+    for cmd in (0x02, 0x03):
+        for cut in range(1, 33):
+            frames = [([cmd, 0x40, 0x5A, 0xA5], None, cut),
+                      ([0x03, 0x40, 0, 0], [None, None, None, None])]
+            m, ctl, board = spit_run(frames, mode, **SPIT_FAST)
+            stored = [0x5A, 0xA5] if cmd == 0x02 else []
+            want = [stored[i] if cut >= 24 + 8 * i and i < len(stored) else SPIT_MEM[0x40 + i]
+                    for i in range(2)]
+            assert m.tape[0x40:0x42] == want, (cmd, cut, m.tape[0x40:0x42])
+            assert ctl.rx[1][2:] == want, (cmd, cut, ctl.rx[1])
+            assert not board.errors() and not spit_miso_errors(m, ctl), (cmd, cut, board.errors())
+
+
+def test_spi_target_irregular_clock():
+    """An irregular controller: random phase lengths (high >= 12, low >= 48, so every
+    period is >= 60 in either mode), long pauses mid-byte and gaps between bytes. SPI is
+    static, so nothing may time out."""
+    import random
+    rng = random.Random(7)
+    hi = [rng.choice([12, 20, 33, 90, 400]) for _ in range(97)]
+    lo = [rng.choice([48, 75, 200, 1500]) for _ in range(89)]
+    frames = [([0x02, 0x80] + list(range(1, 9)), None),
+              ([0x03, 0x80, 0, 0, 0, 0, 0, 0, 0, 0], [None, None] + list(range(1, 9)))]
+    for mode in (0, 3):
+        m, ctl, board = spit_run(frames, mode, t_high=hi, t_low=lo, byte_gap=777, t_css=25,
+                                 t_idle=100)
+        assert not board.errors() and not spit_miso_errors(m, ctl), board.errors()
+        assert m.tape[0x80:0x88] == list(range(1, 9)) and not m.ff.valid

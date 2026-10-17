@@ -119,3 +119,46 @@ def test_nec_source_model_into_receiver_model():
                          tick_ns=400.0, modulated=True), bad, ticks=380_000)
     assert [e["ok"] for e in bad.events] == [False, True]
     assert any("inverse" in v for v in bad.violations) and any("slot" in v for v in bad.violations)
+def _run_board(board, dev, limit=200_000):
+    t = 0
+    while not dev.done and t < limit:
+        board(t, 0, 0)
+        t += 1
+    for _ in range(50):
+        board(t, 0, 0)
+        t += 1
+
+
+def test_spi_controller_model_against_spi_target_model():
+    """The SPI controller model and the (separately written) SPI target model agree in
+    all four modes: bytes both ways, and no timing complaint from either side."""
+    from escmodels import SpiTarget
+    from escmodels.spi import SpiController
+    for mode in range(4):
+        tgt = SpiTarget(4, 5, 6, 7, mode=mode, reply=b"\x3C\xC3\x81")
+        ctl = SpiController(4, 5, 6, 7, [([0xA5, 0x5A], [0x3C, 0xC3]), ([0xF0], [0x81])],
+                            mode=mode, t_high=20, t_low=20, t_ho=0)
+        board = Board(tgt, ctl)
+        _run_board(board, ctl)
+        assert tgt.frames == [[0xA5, 0x5A], [0xF0]], (mode, tgt.frames)
+        assert ctl.rx == [[0x3C, 0xC3], [0x81]], (mode, ctl.rx)
+        assert not board.errors(), (mode, board.errors())
+    ctl = SpiController(4, 5, 6, 7, [([0x00], [0x55])], t_ho=0)   # a wrong expectation
+    board = Board(SpiTarget(4, 5, 6, 7, mode=0, reply=b"\x3C"), ctl)
+    _run_board(board, ctl)
+    assert any("MISO 0x3c (8 bits), expected 0x55" in e for e in board.errors())
+
+
+def test_spi_controller_model_flags_miso_timing():
+    """A target whose MISO moves around the sampling edges is flagged."""
+    from escmodels import Device
+    from escmodels.spi import SpiController
+
+    class Jitter(Device):
+        def step(self, t, bus):
+            return (1 << 6, 0) if (t // 7) % 2 else (0, 1 << 6)
+
+    ctl = SpiController(4, 5, 6, 7, [([0x00, 0x00], None)], t_high=32, t_low=32)
+    board = Board(Jitter(), ctl)
+    _run_board(board, ctl)
+    assert any("MISO not held" in e for e in board.errors())
