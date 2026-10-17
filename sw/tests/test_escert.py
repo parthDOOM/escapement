@@ -18,7 +18,8 @@ import pytest
 from escasm import AsmError, assemble, assemble_file
 from escert import certify
 from escmodels import (Board, CanBus, I2cController, I2cTarget, JtagTap, OneWireDevice,
-                       Ps2Host, SpiTarget, UartRx, UartTx)
+                       Ps2Host, SpiTarget, SwdTarget, UartRx, UartTx)
+from escmodels.spi import SpiController
 from esciss import Machine
 
 REPO = Path(__file__).resolve().parents[2]
@@ -70,6 +71,12 @@ SHIPPED = {
     "can_tx.asm": (lambda: Board(CanBus(0, 1, 100)),
                    [(100, 0, (0x555 << 16) | 8), (150, 0, 0xFFFFFFFF), (200, 0, 0)], 40_000, None),
     "nec_tx.asm": (lambda: Board(), [(20, 0, 0x5AA5)], 30_000, None),
+    "swd_idcode.asm": (lambda: Board(SwdTarget(4, 5, waits=2)), [(20, 2, 0x80000004), (9000, 2, 0x1C)],
+                       30_000, None),
+    "spi_target.asm": (lambda: Board(SpiController(4, 5, 6, 7, [([0x02, 0x10, 0xDE, 0xAD], None),
+                                                               ([0x03, 0x10, 0, 0], None)],
+                                                   t_high=30, t_low=30, t_css=25, t_idle=100)),
+                       [], 6_000, None),
 }
 
 

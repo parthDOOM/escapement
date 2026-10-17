@@ -9,8 +9,9 @@ changes at absolute clock ticks. Each change is **admitted or refused when it is
 an admitted event happens on its exact tick, and an impossible one raises a visible fault
 instead of a late edge.
 
-UART, SPI, I2C, CAN, PS/2, WS2812, 1-Wire, JTAG and whole devices such as a 24C02 EEPROM
-are firmware. None of them is in the hardware.
+UART, SPI (controller and target), I2C, CAN, PS/2, WS2812, 1-Wire, JTAG, ARM SWD, NEC
+infrared and whole devices such as a 24C02 EEPROM or a 25xx SPI memory are firmware.
+None of them is in the hardware.
 
 > Escapement either meets the deadline it accepted, or tells you why it refused.
 

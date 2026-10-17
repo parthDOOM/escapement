@@ -32,7 +32,7 @@ digest, the capture state and all 256 tape words.
 | --- | ---: | ---: | ---: |
 | Random programs, version 1.0 machine | 1,000 | 67,370 | 0 |
 | Random programs with tape traffic, version 1.1 | 300 | 21,055 | 0 |
-| Firmware programs with their bus models | 11 | — | 0 |
+| Firmware programs with their bus models | 15 | — | 0 |
 | Regression run (`make cosim`, 200 random programs plus all firmware) | 4 tests | — | 0 |
 
 Random programs come from a constrained generator (`test/cosim/progen.py`) that mixes
@@ -101,6 +101,10 @@ replays into the fault, or NOT_PROVEN.
 | `can_tx` | CHECKED | 3 |
 | `ps2_device` | CHECKED | 4 |
 | `jtag_idcode` | CHECKED | 3 |
+| `spi_target` | CHECKED | 1 |
+| `nec_tx` | CHECKED | 9 |
+| `nec_rx` | CHECKED | no events |
+| `swd_idcode` | CHECKED | 3 |
 | `logic_analyzer` | CHECKED | no events |
 
 Every certificate is CHECKED for all inputs, without assumptions about bus timing:
@@ -137,6 +141,9 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | CAN 2.0A transmitter, 250 kbit/s | `can_tx` | Receiver model that destuffs, checks CRC-15 and acknowledges |
 | PS/2 device | `ps2_device` | PS/2 host model, back-to-back scancodes |
 | JTAG IDCODE read | `jtag_idcode` | JTAG TAP model, back-to-back requests |
+| SPI target: a 256-byte 25xx-style memory (READ, WRITE) in the tape, modes 0 and 3, up to 416 kHz | `spi_target` | SPI controller model that checks MISO setup and hold at every sampling edge; every edge alignment at the rated period, CS_n rising after every bit, back-to-back frames |
+| NEC infrared transmitter with 38 kHz carrier (repeat codes, extended address) and receiver | `nec_tx`, `nec_rx` | Receiver model that demodulates the carrier and checks frequency, duty and the Linux decoder's timing windows; remote-control model with ±10% clock error; transmitter → IR receiver module model → receiver loopback |
+| ARM Serial Wire Debug host: JTAG-to-SWD switch, DPIDR read, DP and AP reads and writes | `swd_idcode` | SW-DP target model from ADIv5.2 (IHI 0031G): WAIT retries, FAULT and ABORT, read parity errors, no-response back-off, turnaround contention |
 | UART and I2C concurrently | `combo_uart_i2c` | Both models at once, on separate contexts |
 | Logic analyser and replay | `logic_analyzer`, `replay` | Tick-exact replay of a captured UART trace; a too-dense trace is refused |
 
@@ -144,12 +151,13 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, tape tools | 170 | Pass |
+| Software (`make sw-test`): assembler, simulator, certificates, models, tape tools, bring-up script | 243 | Pass |
 | Chip level on the RTL (`make test`) | 5 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 5 | Pass |
 | Co-simulation (`make cosim`) | 4 | Pass |
 | Host interface (`make host-test`) | 9 | Pass |
 | Core unit tests (`make unit-test`) | 22 | Pass |
+| Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 
 The chip-level tests drive the real pins: they load firmware over SPI, run it, decode

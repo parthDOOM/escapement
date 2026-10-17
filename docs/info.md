@@ -14,8 +14,8 @@ instead of producing a late edge.
 The same event queues can check inputs (EXPECT: a level must hold, or arrive, within a
 window) and sample them at exact ticks (SAMPLE). A second 256 × 32 SRAM, the tape, holds
 firmware data and timestamped captures of the pins, so the chip can also act as a logic
-analyser and replay what it recorded. UART, SPI, I2C, CAN, PS/2, WS2812, 1-Wire, JTAG
-and an I2C EEPROM are all firmware.
+analyser and replay what it recorded. UART, SPI (controller and target), I2C, CAN, PS/2,
+WS2812, 1-Wire, JTAG, ARM SWD, NEC infrared and an I2C EEPROM are all firmware.
 
 A host loads programs and reads results over an SPI port on `ui[2:0]` / `uo[0]`. After a
 run, one register holds a 32-bit digest of everything the run did, which the reference
