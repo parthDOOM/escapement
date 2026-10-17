@@ -11,3 +11,4 @@ from .spi import SpiTarget  # noqa: F401
 from .ws2812 import Ws2812Decoder  # noqa: F401
 from .onewire import OneWireDevice, crc8_maxim  # noqa: F401
 from .host import HostScript  # noqa: F401
+from .swd import SwdTarget  # noqa: F401

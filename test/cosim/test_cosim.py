@@ -352,6 +352,21 @@ def case_jtag():
     return Board(tap, host), host, check
 
 
+def case_swd():
+    """SWD host: connect (JTAG-to-SWD) and DPIDR read, a SELECT write that is WAITed
+    twice, a posted AP read and RDBUFF (the AP's IDR)."""
+    from escmodels import SwdTarget
+    tgt = SwdTarget(4, 5, dpidr=0x2BA01477, waits=2, ap_regs={(0, 0xFC): 0x24770011})
+    host = HostScript([(20, 2, 0x80000004), (40, 2, 0x10), (50, 2, 0xF0),
+                       (8000, 2, 0x1E), (8010, 2, 0x1C)], drain=[2], poll=300)
+
+    def check(board, h):
+        ok = (h.received[2] == [1, 0x2BA01477, 0x201, 0, 1, 0, 1, 0x24770011]
+              and tgt.switches == 1 and tgt.writes == [(0, 0x8, 0xF0)])
+        return ([] if ok else [f"swd {[hex(v) for v in h.received[2]]}"]) + board.errors()
+    return Board(tgt, host), host, check
+
+
 def eeprom_tape(image):
     for a in range(256):
         image.tape[a] = (a * 7 + 3) & 0xFF
@@ -369,6 +384,7 @@ FIRMWARE_CASES = {
     "can_tx": ("can_tx.asm", 80000, case_can),
     "ps2_device": ("ps2_device.asm", 55000, case_ps2),
     "jtag_idcode": ("jtag_idcode.asm", 9000, case_jtag),
+    "swd_idcode": ("swd_idcode.asm", 17000, case_swd),
 }
 TAPE_PREP = {"i2c_eeprom": eeprom_tape}
 

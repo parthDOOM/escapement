@@ -263,3 +263,168 @@ def test_jtag_idcode_back_to_back():
         m.run(1, stop_when_idle=False)
     assert got == [0x4BA00477, 0x4BA00477] and tap.state == "RTI"
     assert not board.errors() and not m.ff.valid
+
+
+# --------------------------------------------------------------------------- SWD
+
+SWD = 2                                    # context of swd_idcode.asm
+SWD_CONNECT_DPIDR = 0x80000004             # connect, then DP read of DPIDR (A = 0x0)
+SWD_DPIDR, SWD_CTRLSTAT, SWD_RDBUFF = 0x04, 0x0C, 0x1C     # DP reads: RnW, A[2:3]
+SWD_ABORT, SWD_SELECT = 0x00, 0x10                          # DP writes
+SWD_AP_RD_C = 0x1E                         # AP read, A = 0xC (IDR with APBANKSEL 0xF)
+
+
+def swd_session(target, commands, source=None, per_cmd=60_000):
+    """Run swd_idcode.asm against `target`, one command at a time: each command is a
+    tuple of host words (the command, and the write data for a write). Returns the
+    (status, data) replies, the board and the machine."""
+    from escasm import assemble
+    from esciss import Machine
+    board = Board(target)
+    image = assemble(source, base_dir=FW) if source else assemble_file(FW / "swd_idcode.asm")
+    m = Machine(image, board=board)
+    replies = []
+    for words in commands:
+        for w in words:
+            m.host_rx_push(SWD, w)
+            m.run(1, stop_when_idle=False)
+        got = []
+        for _ in range(per_cmd // 50):
+            m.run(50, stop_when_idle=False)
+            v = m.host_tx_pop(SWD)
+            m.run(1, stop_when_idle=False)
+            if v is not None:
+                got.append(v)
+            if len(got) == 2:
+                break
+        replies.append(tuple(got))
+    return replies, board, m
+
+
+def swclk_phases(board, pin=4):
+    """(shortest high, shortest low) SWCLK phase in ticks, after the first edge."""
+    lv = board.level(pin)
+    edges = [t for t in range(1, len(lv)) if lv[t] != lv[t - 1]]
+    hi = [b - a for a, b in zip(edges, edges[1:]) if lv[a] == 1]
+    lo = [b - a for a, b in zip(edges, edges[1:]) if lv[a] == 0]
+    return min(hi), min(lo)
+
+
+@pytest.mark.parametrize("dpidr", [0x2BA01477, 0x0BB11477, 0x0BC12477, 0x6BA02477])
+def test_swd_connect_and_read_dpidr(dpidr):
+    """Line reset, JTAG-to-SWD (0xE79E), line reset, idle, DP read of DPIDR, on an SWJ-DP
+    that powers up in JTAG; then a plain second read. Waveform: SWCLK phases >= H."""
+    from escmodels import SwdTarget
+    tgt = SwdTarget(4, 5, dpidr=dpidr)
+    replies, board, m = swd_session(tgt, [(SWD_CONNECT_DPIDR,), (SWD_DPIDR,)])
+    assert replies == [(1, dpidr), (1, dpidr)], [tuple(map(hex, r)) for r in replies]
+    assert tgt.switches == 1 and tgt.line_resets == 1 and tgt.mode == "swd"
+    assert [(r["apndp"], r["rnw"], r["a"], r["ack"]) for r in tgt.log] == [(0, 1, 0, 1)] * 2
+    assert not board.errors(), board.errors()
+    assert swclk_phases(board) >= (16, 16)
+    assert not m.ff.valid and m.ctx[SWD].min_lead >= 3            # escert: >= 3
+
+
+def test_swd_ap_read_through_select_with_waits():
+    """Writes (ABORT, SELECT), a WAITed access retried until OK, a posted AP read and
+    RDBUFF: reads the AP's IDR."""
+    from escmodels import SwdTarget
+    tgt = SwdTarget(4, 5, waits=3, ap_regs={(0, 0xFC): 0x24770011})
+    replies, board, m = swd_session(tgt, [
+        (SWD_CONNECT_DPIDR,), (SWD_ABORT, 0x1E), (SWD_ABORT, 0x10),
+        (SWD_SELECT, 0x000000F0), (SWD_AP_RD_C,), (SWD_RDBUFF,)])
+    assert replies == [(1, 0x2BA01477), (1, 0), (1, 0), (0x301, 0), (1, 0), (1, 0x24770011)], \
+        [tuple(map(hex, r)) for r in replies]
+    assert tgt.writes == [(0, 0x0, 0x1E), (0, 0x0, 0x10), (0, 0x8, 0xF0)]
+    assert [r["ack"] for r in tgt.log] == [1, 1, 1, 2, 2, 2, 1, 1, 1]
+    assert not any(r.get("wdata_parity_error") for r in tgt.log)
+    assert not board.errors(), board.errors()
+    assert not m.ff.valid
+
+
+def test_swd_wait_gives_up_after_wait_max():
+    from escmodels import SwdTarget
+    tgt = SwdTarget(4, 5, waits=1000)
+    replies, board, m = swd_session(tgt, [(SWD_CONNECT_DPIDR,), (SWD_RDBUFF,)], per_cmd=120_000)
+    assert replies == [(1, 0x2BA01477), ((64 << 8) | 2, 0)]
+    assert [r["ack"] for r in tgt.log].count(2) == 64
+    assert not board.errors(), board.errors()
+
+
+def test_swd_fault_reported_and_cleared_by_abort():
+    """A sticky STICKYERR makes the target FAULT (DPIDR and CTRL/STAT still answer OK);
+    an ABORT write with STKERRCLR clears it."""
+    from escmodels import SwdTarget
+    tgt = SwdTarget(4, 5, sticky=1 << 5)
+    replies, board, m = swd_session(tgt, [
+        (SWD_CONNECT_DPIDR,), (SWD_RDBUFF,), (SWD_CTRLSTAT,), (SWD_ABORT, 1 << 2),
+        (SWD_RDBUFF,), (SWD_CTRLSTAT,)])
+    assert replies[:2] == [(1, 0x2BA01477), (4, 0)]
+    assert replies[2][0] == 1 and replies[2][1] & (1 << 5)
+    assert replies[3:5] == [(1, 0), (1, 0)]
+    assert replies[5][0] == 1 and not replies[5][1] & (1 << 5)
+    assert not board.errors(), board.errors()
+
+
+def test_swd_read_parity_error_reported():
+    from escmodels import SwdTarget
+    tgt = SwdTarget(4, 5, bad_parity=1)
+    replies, board, m = swd_session(tgt, [(SWD_CONNECT_DPIDR,), (SWD_DPIDR,)])
+    assert replies == [(1 | 8, 0x2BA01477), (1, 0x2BA01477)]
+    assert not board.errors(), board.errors()
+
+
+def test_swd_no_response_backs_off_then_connects():
+    """Without the switch sequence an SWJ-DP stays in JTAG and never answers: the line
+    reads 0b111 (pull-up), the host stays off the line for a data phase, line resets,
+    and reports; a connect then works."""
+    from escmodels import SwdTarget
+    tgt = SwdTarget(4, 5)
+    replies, board, m = swd_session(tgt, [(SWD_DPIDR,), (SWD_CONNECT_DPIDR,)])
+    assert replies == [(0x10 | 7, 0), (1, 0x2BA01477)]
+    assert not board.errors(), board.errors()
+
+
+def test_swd_back_to_back_commands():
+    from escmodels import SwdTarget
+    from esciss import Machine
+    tgt = SwdTarget(4, 5)
+    board = Board(tgt)
+    m = Machine(assemble_file(FW / "swd_idcode.asm"), board=board)
+    m.host_rx_push(SWD, SWD_CONNECT_DPIDR)
+    m.run(1, stop_when_idle=False)
+    m.host_rx_push(SWD, SWD_DPIDR)
+    got = []
+    for _ in range(400):
+        m.run(50, stop_when_idle=False)
+        v = m.host_tx_pop(SWD)
+        m.run(1, stop_when_idle=False)
+        if v is not None:
+            got.append(v)
+    assert got == [1, 0x2BA01477] * 2
+    assert not board.errors() and not m.ff.valid
+
+
+def test_swd_fastest_clock_h14():
+    """H = 14 (SWCLK 893 kHz), the fastest certified setting."""
+    from escasm import assemble
+    from escert import certify
+    from escmodels import SwdTarget
+    src = (FW / "swd_idcode.asm").read_text().replace(".default H, 16", ".default H, 14")
+    assert certify(assemble(src, base_dir=FW))[0].status == "CHECKED"
+    tgt = SwdTarget(4, 5, dpidr=0x0BC12477)
+    replies, board, m = swd_session(tgt, [(SWD_CONNECT_DPIDR,)], source=src)
+    assert replies == [(1, 0x0BC12477)] and not board.errors()
+    assert swclk_phases(board) >= (14, 14)
+
+
+def test_swd_target_model_flags_contention():
+    """Negative check of the model: a host that drives SWDIO high through the turnaround
+    instead of releasing it fights the target's ACK."""
+    from escmodels import SwdTarget
+    src = (FW / "swd_idcode.asm").read_text()
+    assert src.count("EMIT  DIO, 0, 0 ") == 1
+    src = src.replace("EMIT  DIO, 0, 0 ", "EMIT  DIO, DIO, DIO ")
+    tgt = SwdTarget(4, 5)
+    replies, board, m = swd_session(tgt, [(SWD_CONNECT_DPIDR,)], source=src)
+    assert any("contention" in e for e in board.errors()), board.errors()
