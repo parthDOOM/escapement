@@ -48,12 +48,12 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | --- | --- | --- |
 | P1 | An open-drain pin never drives high | Unbounded (PDR) |
 | **P2** | **Never late: no FIFO head is ever past its deadline** | Unbounded, assume-guarantee (below) |
-| P3 | An unowned pin is never driven | Bounded (BMC from reset) |
+| P3 | An unowned pin is never driven | Unbounded (PDR) |
 | P4 | FIFO occupancy stays within bounds | Unbounded (PDR) |
 | P5 | A faulted context drives none of its pins | Unbounded (PDR) |
 | P6 | An admitted event is strictly ahead of its commit tick and of the FIFO tail | Unbounded (PDR) |
 | P7 | Fixed slot timing: a commit belongs to the context that owns that slot | Unbounded (PDR) |
-| P8 | Commits come only from running contexts; every push meets the per-context assumptions | Unbounded (PDR) for the push conditions, bounded for the rest |
+| P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start, stop or fault edge | Unbounded (PDR), except the last clause: bounded (BMC from reset) |
 | H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction) |
 | C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
 | G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
