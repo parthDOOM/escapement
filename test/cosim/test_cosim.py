@@ -365,6 +365,19 @@ def case_swd():
               and tgt.switches == 1 and tgt.writes == [(0, 0x8, 0xF0)])
         return ([] if ok else [f"swd {[hex(v) for v in h.received[2]]}"]) + board.errors()
     return Board(tgt, host), host, check
+def case_nec_ir():
+    """NEC IR: the transmitter's 38 kHz carrier through a receiver-module model into the
+    receiver program, a frame and a repeat code one slot later, at a 2.5 MHz timebase
+    (nec_ir_cosim.asm; the models' tick is 400 ns)."""
+    from escmodels import NecReceiver, Tsop
+    rx = NecReceiver(0, tick_ns=400.0)
+    host = HostScript([(50, 0, 0x5AA5), (100, 0, 1 << 31)], drain=[0, 1], poll=500)
+
+    def check(board, h):
+        ok = (rx.frames() == [(0xA5, 0x5A), "R"] and h.received[0] == [1, 1]
+              and h.received[1] == [0x5A00A5, 1 << 31])
+        return ([] if ok else [f"nec {rx.events} {h.received}"]) + board.errors()
+    return Board(rx, Tsop(0, 1, tick_ns=400.0), host), host, check
 
 
 def eeprom_tape(image):
@@ -385,6 +398,7 @@ FIRMWARE_CASES = {
     "ps2_device": ("ps2_device.asm", 55000, case_ps2),
     "jtag_idcode": ("jtag_idcode.asm", 9000, case_jtag),
     "swd_idcode": ("swd_idcode.asm", 17000, case_swd),
+    "nec_ir": ("../test/cosim/nec_ir_cosim.asm", 304000, case_nec_ir),
 }
 TAPE_PREP = {"i2c_eeprom": eeprom_tape}
 

@@ -428,3 +428,218 @@ def test_swd_target_model_flags_contention():
     tgt = SwdTarget(4, 5)
     replies, board, m = swd_session(tgt, [(SWD_CONNECT_DPIDR,)], source=src)
     assert any("contention" in e for e in board.errors()), board.errors()
+# --------------------------------------------------------------------------- NEC infrared
+
+
+def nec_image(clk_khz=None):
+    """nec_tx.asm, optionally at another core clock (all its timings derive from it)."""
+    from escasm import assemble
+    if clk_khz is None:
+        return assemble_file(FW / "nec_tx.asm")
+    return assemble(f".equ nec_tx.CLK_KHZ, {clk_khz}\n" + '.include "nec_tx.asm"\n', base_dir=FW)
+
+
+def nec_run(image, words, ticks, board, chunk=10_000, at=None):
+    """Feed host words to context 0 as its RX mailbox has room (or at the ticks in `at`),
+    collect its acks. Observation records are dropped per chunk: a 108 ms slot is
+    2.7 million ticks."""
+    from esciss import Machine
+    m = Machine(image, board=board)
+    queue, acks, pushed = list(words), [], []
+    while m.now < ticks:
+        while queue and len(m.ctx[0].rx) < 2 and (at is None or at[len(pushed)] <= m.now):
+            pushed.append(m.now)
+            m.host_rx_push(0, queue.pop(0))
+            m.run(1, stop_when_idle=False)
+        m.run(chunk, stop_when_idle=False)
+        v = m.host_tx_pop(0)
+        if v is not None:
+            acks.append(v)
+        m.run(1, stop_when_idle=False)
+        m.pins.clear()
+        m.commits.clear()
+        board.history.clear()
+    return m, acks, pushed
+
+
+def test_nec_tx_full_length_frame_and_repeat():
+    """The real timebase (25 MHz): carrier frequency and duty, every burst position to
+    the tick, and a repeat code exactly one 108 ms slot after the frame."""
+    from escmodels import NecReceiver
+    rx = NecReceiver(0, TICK_NS)
+    board = Board(rx)
+    m, acks, _ = nec_run(nec_image(), [0xC35A, 1 << 31], 3_050_000, board, chunk=100_000)
+    assert rx.frames() == [(0x5A, 0xC3), "R"], rx.events
+    assert not board.errors(), board.errors()
+    assert set(rx.carrier_periods) == {658}                    # 37.99 kHz
+    assert abs(25e6 / 658 - 38_000) / 38_000 < 0.001
+    assert {round(d, 4) for d in rx.duties} == {round(219 / 658, 4)}   # 1/3 duty
+    assert rx.pulses == [342] + [22] * 33 + [342, 22]
+    starts = [s for s, _ in rx.marks]
+    assert starts[1] - starts[0] == 337_500                     # 9 ms + 4.5 ms, exact
+    raw = rx.events[0]["raw"]
+    for i in range(32):                                         # 1.125 / 2.25 ms, exact
+        assert starts[i + 2] - starts[i + 1] == (56_250 if raw >> i & 1 else 28_125)
+    assert 0 <= starts[34] - starts[0] - 2_700_000 <= 3          # one 108 ms slot
+    assert starts[35] - starts[34] == 281_250                   # 9 ms + 2.25 ms
+    assert acks == [1, 1]
+    assert not m.ff.valid and m.ctx[0].min_lead >= 9
+
+
+NEC_WORDS = [0x0000, 0xFFFF, 1 << 31, 1 << 31, 0x8001, 1 << 30,
+             0x1234 | (0x5A << 16) | (0xA5 << 24), 0x5AA5]
+NEC_EXPECT = [(0x00, 0x00), (0xFF, 0xFF), "R", "R", (0x01, 0x80), (0x1234, 0x5A), (0xA5, 0x5A)]
+
+
+def test_nec_tx_values_back_to_back():
+    """All-zeros and all-ones address and command, repeat codes, an extended (16-bit
+    address) raw frame, queued back to back: each starts exactly one slot after the
+    previous one. Run at a 2.5 MHz timebase (the model's tick is 400 ns) to keep the
+    seven 108 ms slots fast; the firmware is the same, only its constants differ."""
+    from escert import certify
+    from escmodels import NecReceiver
+    image = nec_image(2500)
+    rx = NecReceiver(0, tick_ns=400.0)
+    board = Board(rx)
+    m, acks, _ = nec_run(image, NEC_WORDS, 6 * 270_000 + 175_000, board)
+    assert rx.frames() == NEC_EXPECT, rx.events
+    assert [e["ext"] for e in rx.events if e["kind"] == "frame"] == [False] * 3 + [True, False]
+    assert not board.errors(), board.errors()
+    leaders = [e["t"] for e in rx.events]
+    assert all(0 <= b - a - 270_000 <= 3 for a, b in zip(leaders, leaders[1:])), leaders
+    assert acks == [1] * 7 and not m.ff.valid
+    c = certify(image)[0]
+    assert c.status == "CHECKED" and m.ctx[0].min_lead >= c.min_lead, str(c)
+
+
+def test_nec_tx_late_host_starts_at_once():
+    """A command that arrives after its slot has passed is sent at once, not aligned to
+    a slot grid; the first one too."""
+    from escmodels import NecReceiver
+    rx = NecReceiver(0, tick_ns=400.0)
+    board = Board(rx)
+    m, acks, pushed = nec_run(nec_image(2500), [0x2010, 0x4030], 900_000, board,
+                              at=[1_000, 600_000])
+    assert rx.frames() == [(0x10, 0x20), (0x30, 0x40)] and not board.errors()
+    assert all(0 < e["t"] - p < 500 for e, p in zip(rx.events, pushed)), (rx.events, pushed)
+
+
+def nec_rx_run(items, ticks, clk_khz=2500, scale=1.0, bias_us=0.0):
+    """nec_rx.asm against a remote-control model driving a TSOP-style (active low) line."""
+    from escasm import assemble
+    from escmodels import NecSource
+    from esciss import Machine
+    tick_ns = 1e6 / clk_khz
+    src = NecSource(1, items, tick_ns=tick_ns, scale=scale, mark_bias_us=bias_us)
+    board = Board(src)
+    image = assemble(f".equ nec_rx.CLK_KHZ, {clk_khz}\n" + '.include "nec_rx.asm"\n', base_dir=FW)
+    m = Machine(image, board=board)
+    got = []
+    while m.now < ticks:
+        m.run(20_000, stop_when_idle=False)
+        v = m.host_tx_pop(1)
+        if v is not None:
+            got.append(v)
+        m.run(1, stop_when_idle=False)
+        m.pins.clear()
+        m.commits.clear()
+        board.history.clear()
+    assert not m.ff.valid and not board.errors()
+    return got
+
+
+def nec_report(addr, cmd, ext=False):
+    return (cmd << 16) | addr | (1 << 24 if ext else 0)
+
+
+def test_nec_rx_full_length():
+    """The receiver at 25 MHz: a frame, then a repeat code one 108 ms slot later."""
+    from escmodels import nec_raw
+    got = nec_rx_run([(1000, nec_raw(0x5A, 0xC3)), (1000 + 2_700_000, None)], 3_050_000,
+                     clk_khz=25000)
+    assert got == [nec_report(0x5A, 0xC3), 1 << 31], [hex(v) for v in got]
+
+
+NEC_RX_ITEMS = [(0x00, 0x00), (0xFF, 0xFF), None, (0x1234, 0x5A), (0xA5, 0x5A)]
+
+
+@pytest.mark.parametrize("scale,bias_us", [(1.0, 0.0), (0.9, 0.0), (1.1, 0.0),
+                                           (1.0, 150.0), (1.0, -150.0)])
+def test_nec_rx_tolerances(scale, bias_us):
+    """All-zeros and all-ones values, a repeat code and an extended address, from a
+    remote whose clock is 10% fast or slow, or through a receiver module that
+    lengthens or shortens every burst by 150 us (2.5 MHz timebase)."""
+    from escmodels import nec_raw
+    slot = 200_000                                       # 80 ms at 2.5 MHz
+    items, want = [], []
+    for i, v in enumerate(NEC_RX_ITEMS):
+        if v is None:
+            items.append((1000 + i * slot, None))
+            want.append(1 << 31)
+        elif v[0] > 0xFF:                                # extended: 16-bit address
+            items.append((1000 + i * slot, v[0] | v[1] << 16 | (~v[1] & 0xFF) << 24))
+            want.append(nec_report(*v, ext=True))
+        else:
+            items.append((1000 + i * slot, nec_raw(*v)))
+            want.append(nec_report(*v))
+    got = nec_rx_run(items, 1000 + len(items) * slot, scale=scale, bias_us=bias_us)
+    assert got == want, [hex(v) for v in got]
+
+
+def test_nec_rx_drops_bad_frames_and_recovers():
+    """A command without its inverse, and a frame 20% too slow (leader 10.8 ms), are
+    dropped; the frames after each are received."""
+    from escasm import assemble
+    from escmodels import NecSource, nec_raw
+    from esciss import Machine
+    bad_inv = nec_raw(0x10, 0x20) ^ (1 << 30)
+    fast = NecSource(1, [(1000, bad_inv), (200_000, nec_raw(0x11, 0x22)),
+                         (650_000, nec_raw(0x33, 0x44))], tick_ns=400.0)
+    slow = NecSource(1, [(400_000, nec_raw(0x55, 0x66))], tick_ns=400.0, scale=1.2)
+    board = Board(fast, slow)
+    image = assemble('.equ nec_rx.CLK_KHZ, 2500\n.include "nec_rx.asm"\n', base_dir=FW)
+    m = Machine(image, board=board)
+    got = []
+    while m.now < 850_000:
+        m.run(20_000, stop_when_idle=False)
+        v = m.host_tx_pop(1)
+        if v is not None:
+            got.append(v)
+        m.run(1, stop_when_idle=False)
+        m.pins.clear()
+        m.commits.clear()
+    assert got == [nec_report(0x11, 0x22), nec_report(0x33, 0x44)], [hex(v) for v in got]
+    assert not m.ff.valid
+
+
+def test_nec_loopback_tx_carrier_through_tsop_into_rx():
+    """Both programs in one image: context 0 sends with the carrier on pin 0, a
+    receiver-module model demodulates it onto pin 1, context 1 decodes it."""
+    from escasm import assemble
+    from escmodels import NecReceiver, Tsop
+    from esciss import Machine
+    image = assemble(".equ nec_tx.CLK_KHZ, 2500\n.equ nec_rx.CLK_KHZ, 2500\n"
+                     '.include "nec_tx.asm"\n.include "nec_rx.asm"\n', base_dir=FW)
+    rx = NecReceiver(0, tick_ns=400.0)
+    board = Board(rx, Tsop(0, 1, tick_ns=400.0))
+    words = [0x0000, 0xFFFF, 1 << 31, 1 << 30, 0x1234 | (0x5A << 16) | (0xA5 << 24), 0x5AA5]
+    m = Machine(image, board=board)
+    queue, got = list(words), []
+    while m.now < 4 * 270_000 + 175_000:
+        while queue and len(m.ctx[0].rx) < 2:
+            m.host_rx_push(0, queue.pop(0))
+            m.run(1, stop_when_idle=False)
+        m.run(10_000, stop_when_idle=False)
+        m.host_tx_pop(0)                                 # TX acks
+        v = m.host_tx_pop(1)                             # decoded by the receiver
+        if v is not None:
+            got.append(v)
+        m.run(1, stop_when_idle=False)
+        m.pins.clear()
+        m.commits.clear()
+        board.history.clear()
+    assert rx.frames() == [(0, 0), (0xFF, 0xFF), "R", (0x1234, 0x5A), (0xA5, 0x5A)]
+    want = [nec_report(0, 0), nec_report(0xFF, 0xFF), 1 << 31,
+            nec_report(0x1234, 0x5A, ext=True), nec_report(0xA5, 0x5A)]
+    assert got == want, [hex(v) for v in got]
+    assert not board.errors() and not m.ff.valid

@@ -69,6 +69,7 @@ SHIPPED = {
     "jtag_idcode.asm": (lambda: Board(JtagTap(4, 5, 6, 7)), [(20, 2, 0), (40, 2, 0)], 9_000, None),
     "can_tx.asm": (lambda: Board(CanBus(0, 1, 100)),
                    [(100, 0, (0x555 << 16) | 8), (150, 0, 0xFFFFFFFF), (200, 0, 0)], 40_000, None),
+    "nec_tx.asm": (lambda: Board(), [(20, 0, 0x5AA5)], 30_000, None),
 }
 
 
