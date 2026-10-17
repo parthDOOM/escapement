@@ -5,7 +5,8 @@ model, then compare every commit record, the pin outputs of every run cycle, and
 full final state through the dbg_sel read map. Any difference fails the test with the
 first diverging record and its disassembly.
 
-Environment: COSIM_SEEDS (default 200), COSIM_SEED0 (default 1), COSIM_MAX_TICKS.
+Environment: COSIM_SEEDS (default 200), COSIM_SEED0 (default 1), COSIM_MAX_TICKS,
+COSIM_FIRMWARE (restrict the bus-model test to the named firmware).
 """
 
 from __future__ import annotations
@@ -375,10 +376,15 @@ TAPE_PREP = {"i2c_eeprom": eeprom_tape}
 @cocotb.test()
 async def test_firmware_with_bus_models(dut):
     """Every protocol program, on both implementations, against the same bus models:
-    the per-tick traces, the decoded bus traffic and the host results must all agree."""
+    the per-tick traces, the decoded bus traffic and the host results must all agree.
+    COSIM_FIRMWARE (comma-separated names) restricts the run, for run_parallel.py."""
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    only = [n for n in os.environ.get("COSIM_FIRMWARE", "").split(",") if n]
+    assert all(n in FIRMWARE_CASES for n in only), f"unknown COSIM_FIRMWARE {only}"
     failures = []
     for name, (fw, ticks, factory) in FIRMWARE_CASES.items():
+        if only and name not in only:
+            continue
         image = assemble_file(REPO / "firmware" / fw)
         if name in TAPE_PREP:
             TAPE_PREP[name](image)

@@ -29,3 +29,4 @@ formal/esc_v11.sby
 # local harden / tools checkout
 harden-*.log
 formal/esc_v11p.sby
+test/cosim/results_*.xml

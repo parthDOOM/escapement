@@ -7,7 +7,9 @@ directed core suite (test/rtl_unit) runs too: KILLED-UNIT means only a directed 
 caught it, which the report keeps visible (the random cosim has a blind spot there).
 SURVIVED means both missed it: either an equivalent mutant (document why) or a hole.
 
-    python3 test/mutation/run_mutants.py [--seeds N] [--only NAME ...]
+    python3 test/mutation/run_mutants.py [--seeds N] [--jobs J] [--only NAME ...]
+
+Mutants are independent, so J of them run at once (default: half the cores).
 
 Run under WSL/Linux with the cosim environment (scripts/setup-wsl.sh) active.
 """
@@ -20,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -77,6 +80,13 @@ MUTANTS = {
 }
 
 
+def sim_env(cwd: Path, workdir: Path, name: str, tag: str, **extra: str) -> dict:
+    """Environment for one simulation: its own results file, no waveform, and PWD set to
+    the test directory (the Makefiles derive paths from it)."""
+    return dict(os.environ, PWD=str(cwd), COCOTB_PLUSARGS="+nodump",
+                COCOTB_RESULTS_FILE=str(workdir / name / f"results_{tag}.xml"), **extra)
+
+
 def run_one(name: str, seeds: int, workdir: Path) -> str:
     fname, old, new, _ = MUTANTS[name]
     src = workdir / name / "src"
@@ -88,8 +98,10 @@ def run_one(name: str, seeds: int, workdir: Path) -> str:
     f.write_text(text.replace(old, new))
     build = workdir / name / "sim_build"
     cmd = ["make", "-s", f"SRC_DIR={src}", f"SIM_BUILD={build}"]
-    env = dict(os.environ, COSIM_SEEDS=str(seeds), COSIM_OUT=str(workdir / name / "failures"))
-    r = subprocess.run(cmd, cwd=REPO / "test" / "cosim", capture_output=True, text=True, env=env)
+    cwd = REPO / "test" / "cosim"
+    env = sim_env(cwd, workdir, name, "cosim", COSIM_SEEDS=str(seeds),
+                  COSIM_OUT=str(workdir / name / "failures"))
+    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env)
     out = r.stdout + r.stderr
     if "Error" in out and "TESTS=" not in out:
         return "COMPILE-ERROR"
@@ -97,7 +109,9 @@ def run_one(name: str, seeds: int, workdir: Path) -> str:
         return "KILLED"
     unit = workdir / name / "unit_build"
     cmd = ["make", "-s", f"SRC_DIR={src}", f"SIM_BUILD={unit}"]
-    r = subprocess.run(cmd, cwd=REPO / "test" / "rtl_unit", capture_output=True, text=True)
+    cwd = REPO / "test" / "rtl_unit"
+    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                       env=sim_env(cwd, workdir, name, "unit"))
     out = r.stdout + r.stderr
     if "Error" in out and "TESTS=" not in out:
         return "COMPILE-ERROR"
@@ -107,13 +121,15 @@ def run_one(name: str, seeds: int, workdir: Path) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seeds", type=int, default=60)
+    ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     ap.add_argument("--only", nargs="*")
     args = ap.parse_args()
     names = args.only or list(MUTANTS)
     killed = 0
-    with tempfile.TemporaryDirectory(prefix="escmut_") as td:
-        for name in names:
-            res = run_one(name, args.seeds, Path(td))
+    jobs = max(1, min(args.jobs, len(names)))
+    with tempfile.TemporaryDirectory(prefix="escmut_") as td, ThreadPoolExecutor(jobs) as pool:
+        results = pool.map(lambda n: run_one(n, args.seeds, Path(td)), names)
+        for name, res in zip(names, results):
             killed += res.startswith("KILLED")
             print(f"{res:13s} {name:24s} {MUTANTS[name][3]}", flush=True)
     print(f"\n{killed}/{len(names)} mutants killed")

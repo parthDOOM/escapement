@@ -50,13 +50,12 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | **P2** | **Never late: no FIFO head is ever past its deadline** | Unbounded, assume-guarantee (below) |
 | P3 | An unowned pin is never driven | Bounded (BMC from reset) |
 | P4 | FIFO occupancy stays within bounds | Unbounded (PDR) |
-| P5 | A faulted context drives none of its pins | Bounded (BMC from reset) |
+| P5 | A faulted context drives none of its pins | Unbounded (PDR) |
 | P6 | An admitted event is strictly ahead of its commit tick and of the FIFO tail | Unbounded (PDR) |
 | P7 | Fixed slot timing: a commit belongs to the context that owns that slot | Unbounded (PDR) |
 | P8 | Commits come only from running contexts; every push meets the per-context assumptions | Unbounded (PDR) for the push conditions, bounded for the rest |
 | H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction) |
-| C1 | Capture never writes outside its region | Bounded (BMC from reset) |
-| C2–C3 | Capture never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
+| C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
 | G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
 
 **Never late, for all time.** P2 is proved compositionally. The per-context proof
@@ -78,9 +77,9 @@ a missing GETI wait, broken tape forwarding, capture rule changes and clock-gate
 errors. Each mutant runs against the co-simulation first; if that misses it, the
 directed unit suite runs too, and the report says which one caught it.
 
-**Result: 20 of 20 mutants killed.** The four clock-gate mutants are caught by the
-directed suite rather than by the random co-simulation, and the report keeps that
-visible.
+**Result: 20 of 20 mutants killed.** Eighteen are caught by the co-simulation. Two
+clock-gate mutants (START not clearing `tmr`, and the RX mailbox not shifting on a pop)
+are caught only by the directed suite, and the report keeps that visible.
 
 ## Timing certificates
 
@@ -171,7 +170,12 @@ the commits, register values and pin changes of the model.
 ## Rerunning
 
 ```sh
-make sw-test cert test cosim host-test unit-test lint   # simulation and certificates
-make formal                                             # proofs (SymbiYosys)
-make mutation                                           # mutation campaign
+make sw-test cert test cosim-parallel host-test unit-test lint   # simulation and certificates
+make formal-quick                                                # bounded core proof, cover, never-late, clock gate
+make formal                                                      # adds the unbounded core proof (hours)
+make mutation JOBS=8                                             # mutation campaign, 8 mutants at a time
 ```
+
+The suites run in parallel where they can: `sw-test` uses every core when pytest-xdist is
+installed, `cosim-parallel` splits the random programs and the firmware runs across
+`JOBS` simulators, and the mutation campaign runs `JOBS` mutants at once.

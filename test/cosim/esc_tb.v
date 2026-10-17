@@ -59,7 +59,9 @@ module esc_tb (
     input  wire [4:0]   dbg_sel,
     output wire [31:0]  dbg_rdata
 );
-  initial begin
+  // +nodump (COCOTB_PLUSARGS) skips the waveform, so parallel runs sharing this
+  // directory do not write the same file (test/cosim/run_parallel.py, mutation runner).
+  initial if (!$test$plusargs("nodump")) begin
     $dumpfile("esc_tb.fst");
     $dumpvars(0, esc_tb);
   end
