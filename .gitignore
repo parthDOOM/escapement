@@ -30,3 +30,6 @@ formal/esc_v11.sby
 harden-*.log
 formal/esc_v11p.sby
 test/cosim/results_*.xml
+# demo-board bundles and model traces (sw/rp2350/make_bundle.py)
+/bundles/
+/traces/

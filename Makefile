@@ -5,7 +5,7 @@ PYTHON ?= python3
 # from data, so it is checked by the replay tests instead of by escert.
 FIRMWARE := $(filter-out firmware/replay.asm,$(wildcard firmware/*.asm))
 
-.PHONY: help env sw-test cert test gl-test cosim cosim-parallel host-test unit-test lint formal formal-quick mutation harden precheck clean
+.PHONY: help env sw-test cert test gl-test cosim cosim-parallel host-test bringup-test unit-test lint formal formal-quick mutation harden precheck clean
 
 help:
 	@echo "sw-test    assembler, ISS, certificate checker and bus-model tests (pytest)"
@@ -15,6 +15,7 @@ help:
 	@echo "cosim      ISS vs RTL lockstep co-simulation (COSIM_SEEDS random programs, default 200)"
 	@echo "cosim-parallel  the same, split over JOBS cores (default 8)"
 	@echo "host-test  host SPI interface tests"
+	@echo "bringup-test  sw/rp2350/bringup.py against the RTL on a simulated demo board (~15 min)"
 	@echo "unit-test  directed core tests"
 	@echo "lint       Verilator lint of the core"
 	@echo "formal     all SymbiYosys proofs, including the unbounded core proof (long)"
@@ -50,6 +51,9 @@ cosim-parallel:
 host-test:
 	cd test/host && $(MAKE) -B
 
+bringup-test:
+	cd test/bringup && $(MAKE) -B
+
 unit-test:
 	cd test/rtl_unit && $(MAKE) -B
 
@@ -75,7 +79,7 @@ precheck:
 	bash scripts/local-precheck.sh $(RUN)
 
 clean:
-	rm -rf test/sim_build test/cosim/sim_build test/host/sim_build test/rtl_unit/sim_build \
+	rm -rf test/sim_build test/cosim/sim_build test/host/sim_build test/rtl_unit/sim_build test/bringup/sim_build \
 	  test/results.xml test/*/results.xml test/cosim/results_*.xml test/cosim/cosim_failures \
 	  formal/esc_core_cover formal/esc_core_bmc formal/esc_core_pdr formal/esc_core_kind \
 	  formal/esc_ctx_kind formal/esc_ctx_pdr formal/esc_ctx_bmc formal/esc_greg_prove formal/esc_greg_cover

@@ -79,5 +79,6 @@ CI wall time.
 ## Host hardware
 
 The reference host is the RP2350 on the Tiny Tapeout demo board, running MicroPython
-(`sw/rp2350/escapement_demo.py`; `make_bundle.py` packs firmware images for it). Any
-microcontroller that can drive SPI mode 0 works.
+(`sw/rp2350/bringup.py` and `escapement_demo.py`; `make_bundle.py` packs firmware images
+and the model's predictions for them; [bring-up](16-BRING-UP.md)). Any microcontroller
+that can drive SPI mode 0 works.

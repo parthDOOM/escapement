@@ -173,7 +173,7 @@ async def test_logic_analyzer_over_spi(dut):
 
 @cocotb.test()
 async def test_slow_bitbang_host_like_the_demo_board(dut):
-    """The RP2350 demo script's bit-bang (sw/rp2350/escapement_demo.py): MOSI, sample MISO
+    """The demo board's bit-bang (sw/rp2350/bringup.py, Link): MOSI, sample MISO
     BEFORE the rising edge, SCK high, SCK low, with microsecond gaps as in MicroPython.
     Sampling after the edge would read the next bit (the chip updates MISO ~3 clocks in)."""
     host_board = Board()

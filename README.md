@@ -86,6 +86,7 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | [Verification](docs/04-VERIFICATION.md) | Methods, results and how to rerun them |
 | [Physical design](docs/03-PHYSICAL-DESIGN.md) | Floorplan, routing, timing and sign-off |
 | [Power](docs/15-POWER.md) | Measurement method and the clock-gating design |
+| [Bring-up](docs/16-BRING-UP.md) | First silicon on the demo board: checklist, staged script and what each failure means |
 | [Design decisions](docs/06-DECISIONS.md) | What was chosen, what was rejected, and why |
 | [Toolchain](docs/05-TOOLCHAIN.md) | Pinned flow and local reproduction |
 | [References](docs/09-REFERENCES.md) | Specifications and sources |
