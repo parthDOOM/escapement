@@ -23,6 +23,7 @@ check yosys     "synthesis, area tracking"
 check iverilog  "cocotb backend"
 check verilator "fast simulation"
 check sby       "formal properties"
+check yosys-abc "RTL to netlist equivalence (make equiv)"
 check nextpnr-ice40 "optional FPGA validation"
 
 echo "Physical flow (pinned in scripts/versions.txt):"

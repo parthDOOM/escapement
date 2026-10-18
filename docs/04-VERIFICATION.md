@@ -13,6 +13,7 @@ can catch a mistake the others miss:
 | Timing certificates | Firmware can never trigger an admission fault, for any input | `sw/escert` |
 | On-chip telemetry and digest | The silicon checks the certificates and the model | [architecture](01-ARCHITECTURE.md) |
 | Gate-level simulation | The hardened netlist behaves like the RTL | `test/` with `GATES=yes` |
+| Equivalence checking | The hardened netlist equals the RTL for every input sequence | `formal/equiv.sh` |
 
 ## Two implementations of one specification
 
@@ -88,6 +89,34 @@ slowest are P3 and a capture-region bound, at about 25 minutes each. The single 
 capture overflow, region full, ring wrap, and a drain and a push with two records
 staged. The clock-gate proof has teeth: a naive `clk & en` gate fails G3 at the first
 step.
+
+## RTL to netlist equivalence
+
+The proofs above are about the RTL; the chip is built from the netlist that synthesis,
+placement and routing produce. `make equiv` proves that the two are the same machine:
+the final netlist of the release (sha256 `1c9004ee…`, in the GDS bundle) is
+sequentially equivalent to the RTL in `src/`, for every input sequence after reset.
+
+Both designs are flattened and placed side by side in a miter that feeds them the same
+pins, the same SRAM read data and the same clock, and compares all 24 chip outputs and
+every SRAM input (address, data, enables, 332 bits in all) on every step. ABC's `dprove`
+searches 19 steps for a difference, then matches the RTL's registers with the netlist's by
+signal correspondence and closes the proof by induction. Nothing is matched by name, so
+the netlist's renamed registers need no mapping, nor do the
+106 registers that reset to one in the RTL and that synthesis builds as reset-to-zero
+flip-flops with inverters. The proof takes about 3.5 minutes.
+
+**The check has teeth.** Two faults injected into the netlist are both found: a NAND
+in the `uio_oe[0]` path turned into a NOR fails at the first compared step, and the MISO
+shift register's bit 6 wired to bit 5's input fails at step 21, about ten clock cycles
+after reset.
+
+**Scope.** The SRAM macros are hard IP and are not compared, only everything around
+them. Cell behaviour comes from the functions in the PDK's liberty file, so this is a
+statement about logic; timing is the signoff's job. The clock is ideal, one edge per
+step, so the clock tree is checked as logic, not as delays. The clock-gate latches have
+no reset and start at zero in both designs. Reset is held for the first steps and free
+afterwards, as is every other input.
 
 ## Mutation testing
 
@@ -204,6 +233,7 @@ make pin-test bringup-test                                       # newer firmwar
 make gl-test gl-pin-test                                         # the same chip-level checks on the gate-level netlist
 make formal-quick                                                # bounded core proof, cover, never-late, clock gate
 make formal JOBS=8                                               # adds the unbounded core proof (~25 min)
+make equiv                                                       # final netlist equals the RTL (~4 min)
 make mutation JOBS=8                                             # mutation campaign, 8 mutants at a time
 ```
 

@@ -69,7 +69,7 @@ flowchart LR
 | Physical | 23,978 cells and two SRAM macros, 55.2% utilisation; LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
 | Power | 2.9 mW sending UART, 2.2 mW stopped (typical corner) |
 | Firmware | 13 programs; all 12 protocol and device programs carry a static timing certificate (CHECKED for all inputs) |
-| Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 20 of 20 RTL mutants killed; gate-level chip tests pass on the final netlist |
+| Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 20 of 20 RTL mutants killed; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 
 Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),
 [power](docs/15-POWER.md), [measurements](asic/reports/area.csv).

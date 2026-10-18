@@ -5,7 +5,7 @@ PYTHON ?= python3
 # from data, so it is checked by the replay tests instead of by escert.
 FIRMWARE := $(filter-out firmware/replay.asm,$(wildcard firmware/*.asm))
 
-.PHONY: help env sw-test cert test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test lint formal formal-quick mutation harden precheck clean
+.PHONY: help env sw-test cert test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test lint formal formal-quick equiv mutation harden precheck clean
 
 help:
 	@echo "sw-test    assembler, ISS, certificate checker and bus-model tests (pytest)"
@@ -22,6 +22,7 @@ help:
 	@echo "lint       Verilator lint of the core"
 	@echo "formal     all SymbiYosys proofs, with the unbounded core proof split over JOBS cores (~25 min)"
 	@echo "formal-quick  bounded core proof, cover, never-late, clock-gate and configuration proofs (minutes)"
+	@echo "equiv      the gate-level netlist is sequentially equivalent to the RTL (yosys, ABC; ~4 min)"
 	@echo "mutation   RTL mutation campaign against the co-simulation (JOBS in parallel)"
 	@echo "harden     local LibreLane harden with the pinned CI toolchain (TAG=name)"
 	@echo "precheck   Tiny Tapeout precheck on a local harden (RUN=runs/name)"
@@ -75,6 +76,9 @@ formal-quick:
 	cd formal && sby -f esc_core.sby bmc && sby -f esc_core.sby cover \
 	  && sby -f esc_ctx.sby kind && sby -f esc_greg.sby && sby -f esc_host.sby
 
+equiv:
+	bash formal/equiv.sh
+
 mutation:
 	$(PYTHON) test/mutation/run_mutants.py --jobs $(JOBS)
 
@@ -91,4 +95,4 @@ clean:
 	  test/results.xml test/results_*.xml test/*/results.xml test/cosim/results_*.xml test/cosim/cosim_failures \
 	  formal/esc_core_cover formal/esc_core_bmc formal/esc_core_pdr formal/esc_core_kind \
 	  formal/esc_ctx_kind formal/esc_ctx_pdr formal/esc_ctx_bmc formal/esc_greg_prove formal/esc_greg_cover
-	rm -rf formal/esc_core_split_* formal/esc_core_split.sby formal/esc_host_prove formal/esc_host_cover
+	rm -rf formal/esc_core_split_* formal/esc_core_split.sby formal/esc_host_prove formal/esc_host_cover formal/equiv_build

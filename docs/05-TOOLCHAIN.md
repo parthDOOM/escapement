@@ -14,7 +14,7 @@ for bit, in CI or locally.
 | PDK | `IHP-GmbH/IHP-Open-PDK` @ `2bbec755` (SG13CMOS5L) |
 | LibreLane | 3.1.0.dev3, container `ghcr.io/librelane/librelane:3.1.0.dev3` (digest in `versions.txt`) |
 | Python | 3.11 |
-| Simulation and formal | OSS CAD Suite release 2026-10-04 (Yosys, Icarus Verilog, Verilator, SymbiYosys); cocotb 2.0.1 |
+| Simulation and formal | OSS CAD Suite release 2026-10-04 (Yosys and ABC, Icarus Verilog, Verilator, SymbiYosys); cocotb 2.0.1 |
 
 The workflows reference the action and the tools by commit SHA, not by branch, so an
 upstream change cannot silently alter a harden.
