@@ -4,6 +4,11 @@ For anyone adding a protocol after fabrication. Every rule here comes from shipp
 firmware in [firmware/](../firmware) and is checked by `python -m escert file.asm`.
 Run escert before trusting any timing; the semantics are in [11-SEMANTICS](11-SEMANTICS.md).
 
+A transmitter that is only timing (framed serial, pulse-width and burst codes) need not
+be written by hand: describe it as a timing table and `python -m escgen` writes and
+certifies the firmware ([protocols as data](18-PROTOCOLS-AS-DATA.md)). The idioms below
+are what it generates, and what receivers and two-way buses still need by hand.
+
 ## The timing model in one paragraph
 
 Each context commits one instruction every 4 ticks (40 ns ticks at 25 MHz). Wait-class
