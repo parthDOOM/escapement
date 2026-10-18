@@ -92,7 +92,7 @@ class TapeHost:
             return []
         base, lim, _, delay = self.stream
         ptr, a, addrs = status & 0xFF, self.rptr, []
-        while a != ptr:
+        while a != ptr and len(addrs) < 256:     # bounded: a broken ptr must not hang
             addrs.append(a)
             a = (a + 1) & 0xFF
             if a == lim:

@@ -222,3 +222,27 @@ def test_orbit_search_matches_the_iss(bundles):
     m.run(e["t0"] + 12345, stop_when_idle=False)
     hit = bringup.find_on_orbit(e["dg0"], e["folds"], m.dg, 20000)
     assert hit is not None and hit == make_bundle.find_on_orbit(e["dg0"], e["folds"], m.dg, 20000)
+
+
+def test_escapement_demo_streams_past_the_tape(tmp_path, monkeypatch, capsys):
+    """v1.3: escapement_demo.stream() on the simulated board. A square wave on uio[1]
+    gives far more records than the 64-word ring; every one arrives, evenly spaced, and
+    the capture file decodes with the PC tools. (The bit-banged link reads about one
+    word per 2,000 ticks here, so the wave toggles every 6,000.)"""
+    import escapement_demo
+    from esctape import decode_records, edges
+    from esctape.export import load_capture
+    fw = ROOT / "firmware" / "logic_analyzer.asm"
+    name, (f, overrides) = next(iter(make_bundle.VARIANTS.items()))
+    (tmp_path / "la.json").write_text(json.dumps(make_bundle.bundle(fw, name, overrides)))
+    chip = SimChip()
+    chip.sources.append(lambda t: (0x02, 0x02 * ((t // 6000) & 1)))
+    board = MockBoard(chip)
+    monkeypatch.setattr(bringup.DemoBoardIO, "open", classmethod(lambda cls: board.io(bringup)))
+    words = escapement_demo.stream(seconds=0.03, path=str(tmp_path / "cap.json"),
+                                   bundle_file=str(tmp_path / "la.json"))
+    out = capsys.readouterr().out
+    assert "OVERFLOW" not in out, out
+    e = edges(decode_records(load_capture(tmp_path / "cap.json")["words"]), 1)[1:]
+    assert len(words) > 100 and len(e) > 100
+    assert all(b[0] - a[0] == 6000 and a[1] != b[1] for a, b in zip(e, e[1:]))

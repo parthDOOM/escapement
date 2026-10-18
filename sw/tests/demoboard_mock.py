@@ -31,10 +31,10 @@ from esciss import Machine
 from esciss.machine import RUNNING
 
 M32 = 0xFFFFFFFF
-C_STATUS, C_WI, C_RI, C_WC, C_WT, C_RT = 0x00, 0x10, 0x11, 0x12, 0x13, 0x14
+C_STATUS, C_WI, C_RI, C_WC, C_WT, C_RT, C_TA = 0x00, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15
 C_START, C_STOP, C_DBG, C_PUSH, C_POP, C_IRQC, C_CLR, C_IGNORE = (
     0x20, 0x21, 0x30, 0x40, 0x41, 0x50, 0x51, 0xFF)
-KNOWN = {C_STATUS, C_WI, C_RI, C_WC, C_DBG, C_PUSH, C_POP, C_IRQC, C_WT, C_RT}
+KNOWN = {C_STATUS, C_WI, C_RI, C_WC, C_DBG, C_PUSH, C_POP, C_IRQC, C_WT, C_RT, C_TA}
 
 
 class RpTime:
@@ -117,6 +117,7 @@ class SimChip:
         self.contention = []
         self.timing_violations = 0
         self.uarts = []
+        self.sources = []                  # external uio signals: f(tick) -> (mask, level)
         self.ui = 0
         self.pwm = 0
         self.t_base = self.cyc_base = self.cyc = 0
@@ -212,7 +213,8 @@ class SimChip:
     def _quiescent(self) -> bool:
         m = self.m
         return (all(x.state != RUNNING and not x.fifo and not x.chk.active for x in m.ctx)
-                and not m.cap.stage and m._ld_dg is None and not self.uarts)
+                and not m.cap.stage and m._ld_dg is None and not self.uarts
+                and not self.sources)
 
     def _core(self, n: int) -> None:
         if not self.running:
@@ -223,7 +225,11 @@ class SimChip:
         self.m.run(n, stop_when_idle=False)
 
     def _board(self, t: int, out: int, oe: int) -> int:
-        lvl, cont = self.pads.level(out, oe, self.uio_out_dead, self.uio_ext_low)
+        ext_low = self.uio_ext_low
+        for src in self.sources:                    # external signals: (mask, level) at t
+            mask, level = src(self.m.now)
+            ext_low |= mask & ~level
+        lvl, cont = self.pads.level(out, oe, self.uio_out_dead, ext_low)
         if cont:
             self.contention.append((t, cont))
         for u in self.uarts:
@@ -257,7 +263,10 @@ class SimChip:
         return a & 0xFF
 
     def mem_read(self, space: int, a: int) -> int:
-        w = self.mem[space][self._phys(space, a)]
+        # v1.3: during a run the tape is the core's (READ_TAPE is served in free cycles;
+        # this model has no port contention, so a fetch is never late)
+        tape_live = space == 1 and self.running
+        w = (self.m.tape if tape_live else self.mem[space])[self._phys(space, a)]
         f = self.mem_faults.get(space, {})
         if "data_stuck" in f:
             b, v = f["data_stuck"]
@@ -415,6 +424,11 @@ class SimChip:
                 self.wcnt += 1
         elif cmd == C_IRQC and idx == 1:
             self.m.host_irq_clear(rx & 0xF)
+        elif cmd == C_TA and idx == 1:              # v1.3 TAPE_ACK
+            self.m.host_tape_ack(rx)
+            if not self.running:                    # released records drained: keep them
+                for a in range(256):
+                    self.mem_write(1, a, self.m.tape[a])
 
     def _start(self) -> None:
         image = cfg_image([self.mem_read(0, a) for a in range(256)],

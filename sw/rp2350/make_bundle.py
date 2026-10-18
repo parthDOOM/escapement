@@ -19,6 +19,9 @@ model predicts the chip will show (`expect`):
   none    neither within the tick budget: only loading, running and the fault state are
           checked.
 
+Variants (VARIANTS) are a firmware assembled with `.equ` overrides under their own
+name; `logic_analyzer_stream` is the streaming capture escapement_demo.stream() runs.
+
 sw/rp2350/bringup.py (stage 5) and escapement_demo.py read these files. With --trace,
 OUT_DIR/<name>.pins.csv lists every change of uio_out/uio_oe in the model run (tick,
 out, oe), to compare with a logic analyser capture of the chip.
@@ -33,7 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from escasm import assemble_file  # noqa: E402
+from escasm import assemble, assemble_file  # noqa: E402
 from escmodels import Board, UartRx  # noqa: E402
 from esciss import Machine  # noqa: E402
 from esciss.machine import DG_POLY, M32, RUNNING, default_board  # noqa: E402
@@ -43,6 +46,10 @@ SKIP = {"replay.asm",       # a template: sw/esctape fills in its pins and trace
 MAX_TICKS = 2_000_000       # model budget per firmware (80 ms of chip time)
 MAX_PERIOD = 8192           # longest repeating pattern searched for, in ticks
 CHUNK = 4096
+# Variants: name -> (firmware, .equ overrides). v1.3: the logic analyser streaming a
+# 64-word ring to the host during the run (escapement_demo.stream).
+VARIANTS = {"logic_analyzer_stream": ("logic_analyzer.asm",
+                                      {"STREAM": 1, "BASE": 0x80, "LIM": 0xC0})}
 # Optional demo-board smoke tests (bringup.py stage 6): firmware -> UART it transmits.
 SMOKE_UART = {"uart_tx.asm": (0, 115200)}
 
@@ -167,11 +174,15 @@ def pin_trace(image, ticks: int) -> list[tuple[int, int, int]]:
     return out
 
 
-def bundle(fw: Path) -> dict:
-    image = assemble_file(fw)
+def bundle(fw: Path, name: str | None = None, overrides: dict | None = None) -> dict:
+    if overrides:
+        src = "".join(f".equ {fw.stem}.{k}, {v}\n" for k, v in overrides.items())
+        image = assemble(src + f'.include "{fw.name}"\n', base_dir=fw.parent, name=fw.name)
+    else:
+        image = assemble_file(fw)
     used = [i for i, w in enumerate(image.words) if w]
     out = {
-        "name": fw.name,
+        "name": name or fw.name,
         "words": image.words[: (max(used) + 1) if used else 0],
         "tape": {str(a): image.tape[a] for a in image.tape_used},
         "cfg": [image.ctx_enable_mask, image.entry_pcs_packed, image.pin_owned_mask,
@@ -182,7 +193,9 @@ def bundle(fw: Path) -> dict:
     if e["kind"] == "halt":                     # read by escapement_demo.py
         out["expect_digest"] = e["digest"]
         out["expect_ticks"] = e["ticks"]
-    if fw.name in SMOKE_UART:
+    if overrides and overrides.get("STREAM"):  # the region escapement_demo.stream reads
+        out["stream"] = {"base": overrides["BASE"], "lim": overrides["LIM"]}
+    if fw.name in SMOKE_UART and not overrides:
         pin, baud = SMOKE_UART[fw.name]
         ticks = e.get("ticks", e.get("t0", 0))
         out["uart"] = {"pin": pin, "baud": baud, "bytes": uart_bytes(image, pin, baud, ticks)}
@@ -197,16 +210,19 @@ def main(argv: list[str]) -> None:
     if not files:
         files = sorted(p for p in (ROOT / "firmware").glob("*.asm") if p.name not in SKIP)
     dst.mkdir(parents=True, exist_ok=True)
-    for fw in files:
-        b = bundle(fw)
-        (dst / (fw.stem + ".json")).write_text(json.dumps(b))
+    jobs = [(fw, fw.stem, None) for fw in files]
+    if not any(a.endswith(".asm") for a in args):          # the default set: variants too
+        jobs += [(ROOT / "firmware" / f, n, o) for n, (f, o) in VARIANTS.items()]
+    for fw, stem, overrides in jobs:
+        b = bundle(fw, stem + ".json" if overrides else None, overrides)
+        (dst / (stem + ".json")).write_text(json.dumps(b))
         e = b["expect"]
         detail = {"halt": lambda: f"digest 0x{e['digest']:08x} at tick {e['ticks']}",
                   "steady": lambda: f"digest 0x{e['dg0']:08x} at tick {e['t0']}, "
                                     f"period {e['period']} ticks, {len(e['folds'])} folds",
                   "none": lambda: f"no prediction within {e['ticks']} ticks"}[e["kind"]]()
-        print(f"{fw.name:24s} {e['kind']:7s} {detail}")
-        if trace:
+        print(f"{b['name']:24s} {e['kind']:7s} {detail}")
+        if trace and not overrides:
             ticks = e.get("ticks", e.get("t0", 0)) + 1000
             rows = "".join(f"{t},{o:#04x},{oe:#04x}\n" for t, o, oe in pin_trace(assemble_file(fw), ticks))
             (dst / (fw.stem + ".pins.csv")).write_text("tick,uio_out,uio_oe\n" + rows)
