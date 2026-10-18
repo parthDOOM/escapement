@@ -214,7 +214,7 @@ class SimChip:
         m = self.m
         return (all(x.state != RUNNING and not x.fifo and not x.chk.active for x in m.ctx)
                 and not m.cap.stage and m._ld_dg is None and not self.uarts
-                and not self.sources)
+                and not self.sources and not (m.cap.en and self.pads.oe))
 
     def _core(self, n: int) -> None:
         if not self.running:

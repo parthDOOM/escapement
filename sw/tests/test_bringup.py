@@ -87,6 +87,25 @@ def test_stage4_programs_are_the_assembled_sources():
                 im.pin_owner_packed, im.pin_od_mask, im.ctx_bank_mask)[:len(cfg)] == cfg
         assert len(cfg) == 5 or cfg[5] == im.ctx_bank_mask
     assert assemble(SQUARE_SRC).symbols.get("HALF", bringup.SQUARE_HALF) == bringup.SQUARE_HALF
+    storm = """.entry 0, s
+s:  MOVI  r2, 0x10
+loop:
+    STT   r1, r2, 0
+    LDT   r3, r2, 1
+    JMP   loop
+"""
+    la = f""".equ logic_analyzer.STREAM, 1
+.equ logic_analyzer.MASK, 0x01
+.equ logic_analyzer.BASE, {bringup.STREAM_BASE}
+.equ logic_analyzer.LIM, {bringup.STREAM_LIM}
+.include "logic_analyzer.asm"
+"""
+    for im, words, cfg in ((assemble(storm), bringup.STORM, bringup.STORM_CFG),
+                           (assemble(la, base_dir=ROOT / "firmware"), bringup.STREAM_LA,
+                            bringup.STREAM_LA_CFG)):
+        assert im.words[:len(words)] == words and not any(im.words[len(words):])
+        assert (im.ctx_enable_mask, im.entry_pcs_packed, im.pin_owned_mask,
+                im.pin_owner_packed, im.pin_od_mask) == cfg
 
 
 def test_mock_logic_is_as_strict_as_microcotb():

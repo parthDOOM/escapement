@@ -71,6 +71,13 @@ BSQUARE = [0x22000040, 0x281F151F, 0x220030D4, 0x281F0A1F, 0x220030D4, 0x281F151
            0x18000002]
 BSQUARE_CFG = (1, 0, 0x1F00, 0, 0, 1)
 GETP_B_CFG = (1, 0, 0, 0, 0, 1)
+# v1.3: context 0 uses the tape port in two of every three commits (STT, LDT, JMP)
+STORM = [0x09800010, 0x35600000, 0x34E00001, 0x18000001]
+STORM_CFG = (1, 0, 0, 0, 0)
+# v1.3: logic_analyzer.asm with STREAM 1, MASK 0x01: uio[0] streamed into tape 0x80-0x87
+STREAM_LA = [0x09008880, 0x0A008401, 0x36000000, 0x02000000]
+STREAM_LA_CFG = (1, 0, 0, 0, 0)
+STREAM_BASE, STREAM_LIM = 0x80, 0x88
 
 
 class Fail(Exception):
@@ -550,8 +557,34 @@ class Bringup:
                 problems.append(msg)
             if problems:
                 raise Fail(" | ".join(problems))
+        self._tape_during_run()
         return ("data lines at 2 addresses, %d patterns x 256 words, in both SRAMs; spaces "
-                "independent" % len(pats))
+                "independent; tape reads during a run while the core uses the port"
+                % len(pats))
+
+    def _tape_during_run(self):
+        """v1.3: READ_TAPE while a program keeps the tape port busy in two of every three
+        of its commits. Every word must be right, and fetched in time (no host error)."""
+        host = self.host
+        pat = [(0x9E3779B9 * (i + 1)) & M32 for i in range(32)]
+        host.write_tape(0x80, pat)
+        self.load(STORM, STORM_CFG)
+        host.start()
+        got = host.read_tape(0x80, 32)
+        st = host.clear_err()                 # the status before the clear
+        host.stop()
+        bad = [i for i in range(32) if got[i] != pat[i]]
+        if bad:
+            a = bad[0]
+            raise Fail("tape read during a run: %d of 32 words wrong, e.g. @0x%02x wrote "
+                       "0x%08x read 0x%08x, while the program used the tape port. The same "
+                       "words read correctly while stopped (above), so suspect the v1.3 "
+                       "port arbitration (tape_busy, host grant, the host's word latch)."
+                       % (len(bad), 0x80 + a, pat[a], got[a]))
+        if st["host_err"]:
+            raise Fail("a tape read during a run was not fetched before it was due (host "
+                       "error), although the program leaves a third of the cycles free: "
+                       "the host's fetch request is not being granted.")
 
     # -- 4
     def stage4(self):
@@ -632,9 +665,50 @@ class Bringup:
                 "drove %s read %s" % (bits(p), bits(g)) for p, g in wrong[:4])
             raise Fail(msg + _input_diagnosis(reads, 8, ""))
         self._bank_b(n)
+        k = self._stream()
         return ("uio[7:0] toggle as driven; chip clock %.4f MHz from a %d-tick period; "
                 "STOP releases pins; all 8 inputs read correctly; bank B: 5 outputs toggle "
-                "and release high, 5 inputs read correctly" % (f / 1e6, 2 * SQUARE_HALF))
+                "and release high, 5 inputs read correctly; streaming capture: %d edges "
+                "through an 8-word ring" % (f / 1e6, 2 * SQUARE_HALF, k))
+
+    def _stream(self, toggles=16):
+        """v1.3 streaming capture: the RP toggles uio[0] while the chip streams the edges
+        into an 8-word ring and the host reads and acknowledges them. Every edge must
+        arrive, in order, with no overflow: more than twice what the ring holds."""
+        io, host = self.io, self.host
+        self.load(STREAM_LA, STREAM_LA_CFG)
+        io.uio_drive(0x01, 0x01)
+        words, rptr, ovf = [], STREAM_BASE, False
+        try:
+            host.start()
+            io.sleep_us(50)
+            for i in range(toggles):
+                io.uio_drive(0x01, i & 1)     # 0, 1, 0, ...: one edge each
+                io.sleep_us(60)
+                w, rptr, st = host.stream_poll(STREAM_BASE, STREAM_LIM, rptr)
+                words += w
+                ovf |= bool((st >> 30) & 1)
+            io.sleep_us(60)
+            host.stop()
+            w, rptr, st = host.stream_poll(STREAM_BASE, STREAM_LIM, rptr)
+            words += w
+            ovf |= bool((st >> 30) & 1)
+        finally:
+            io.uio_drive(0, 0xFF)
+            io.uio_pullups()
+            host.stop()
+        levels = [(x >> 24) & 1 for x in words]
+        ticks = [x & 0xFFFFFF for x in words]
+        want = [1] + [i & 1 for i in range(toggles)]
+        if ovf:
+            raise Fail("streaming capture overflowed (ovf) with only %d edges: the host "
+                       "read and acknowledged after every edge, so the ring should never "
+                       "fill. Check TAPE_ACK (the capture's rptr, READ_DBG sel 20)." % toggles)
+        if levels != want or any(b <= a for a, b in zip(ticks, ticks[1:])):
+            raise Fail("streaming capture: uio[0] levels %s (ticks %s), expected %s: %s"
+                       % ("".join(map(str, levels)), ticks[:6], "".join(map(str, want)),
+                          "records lost" if len(levels) < len(want) else "wrong records"))
+        return toggles
 
     def _bank_b(self, n):
         """Pin bank B: the square wave on uo[7:3], then GETP on ui[7:3]."""

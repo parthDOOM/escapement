@@ -187,6 +187,11 @@ The program store gets each pattern and the tape its inverse, which also shows t
 two address spaces are separate. A failing pattern is read a second time to separate a
 stored fault from an unstable read.
 
+4. **Tape reads during a run (v1.3).** A four-word program (STORM) uses the tape port in
+   two of every three of its commits while the host reads 32 words with READ_TAPE. Every
+   word must be right, and no host error may be set: each word is fetched in a cycle the
+   core leaves free, before it is sent.
+
 | FAIL message | Meaning | Next |
 | --- | --- | --- |
 | data bits ... never read 1 / never read 0 | A data line is stuck | If both memories show the same bits, the fault is in the shared host path, not a macro |
@@ -195,6 +200,8 @@ stored fault from an unstable read.
 | addresses alias across bit groups ... | Two address lines are bridged | Same |
 | some words are not any address's word | Cell faults | Rerun with `quick=False`; note which words; check the supply |
 | two reads of the same contents differ | Unstable reads | Supply voltage, temperature or read timing: rerun after a power cycle and compare chips |
+| tape read during a run: N of 32 words wrong | The words read correctly while stopped, so the fault is in the v1.3 port arbitration | Compare with a READ_TAPE of the same words after STOP; report the chip |
+| a tape read during a run was not fetched before it was due | The host's fetch request is never granted | Same |
 
 Both macros are the IHP 1P 256×32 SRAM. Their behaviour here has only been simulated with
 the vendor's behavioural model.
@@ -217,6 +224,10 @@ assembler), run first on bank A and then on bank B:
   `01010` on `uo[7:3]`, which must read high again after STOP. GETP reads `ui[7:3]` as
   logical pins 0–4 while the RP drives 14 patterns on them; logical pins 5–7 must read 0.
   The host link keeps the pattern on `ui[7:3]` during its own transfers.
+- **Streaming capture (v1.3).** The logic analyser streams uio[0] into an 8-word ring
+  while the RP drives 16 edges on it, reading and acknowledging the records after each
+  edge. All 17 records (the snapshot and 16 edges) must arrive in order, with no
+  overflow: more than twice what the ring holds without the acknowledgements.
 
 | FAIL message | Meaning | Next |
 | --- | --- | --- |
@@ -230,6 +241,8 @@ assembler), run first on bank A and then on bank B:
 | after STOP, bank B outputs ... read 0 | A released bank B output is not high | Scope the pin across the STOP frame |
 | wrong bank B levels ... Input Bi stuck, follows pad Bj | A bank B input path fault, or an input DIP switch is on | Switch the DIP switches off; scope `ui[i+3]` |
 | Logical pins 5..7 read 1 | The context did not switch to bank B | WRITE_CFG byte 10 did not arrive: check that stage 2 reported version 8 |
+| streaming capture overflowed | The ring filled although every record was acknowledged | TAPE_ACK is not reaching the capture unit: READ_DBG sel 20 shows its `rptr` |
+| streaming capture: uio[0] levels ..., records lost | Edges missing | Compare with a stopped capture (logic_analyzer.asm without STREAM) of the same edges |
 
 ### Stage 5: firmware digests
 
