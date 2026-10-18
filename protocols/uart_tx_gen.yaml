@@ -1,0 +1,15 @@
+# UART transmitter, 8N1, one byte per host word. The rate is one expression.
+name: uart_tx_gen
+title: UART transmitter, 8N1, 115200 baud; one byte per host mailbox word
+refs: ["TIA-232-F character format: start bit, 8 data bits LSB first, stop bit"]
+context: 0
+pins:
+  TX: {pin: 0, idle: 1}
+constants:
+  BIT: (CLK_KHZ * 1000 + 57600) // 115200        # 217 ticks at 25 MHz
+symbols:
+  start: [[{TX: 0}, BIT]]
+  bit:   [[{TX: data}, BIT]]
+  stop:  [[{TX: 1}, BIT]]
+frame: [start, {bits: 8, order: lsb, symbol: bit}, stop]
+source: {kind: mailbox}

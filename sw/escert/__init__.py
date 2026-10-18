@@ -22,7 +22,10 @@ POP/PUSH unboundedly; an event with a full FIFO to 0..3 ticks after the head's d
 GETI until its SAMPLEs have retired. Where an entry may or may not have retired, the
 state is split on it. Branches on unknown flags take both directions; loop counters and
 constant registers are tracked exactly, so counted loops are unrolled; uncounted loop
-heads are widened. Admission checks are entailment queries on the zone:
+heads are widened. A register that cannot affect timing or control flow (never a time,
+never compared, never feeding a Z flag that a branch reads, never copied into one that
+does; e.g. a tape address) is held as unknown, so a loop that only advances such a
+register converges like any uncounted loop instead of being unrolled. Admission checks are entailment queries on the zone:
 
     PAST   now - tmr <= -1 (and the lead stays below 2^31)
     ORDER  ftail - tmr <= -1
@@ -262,6 +265,70 @@ def _decode(word: int):
                       for n, (msb, lsb) in opc.fields.items()}
 
 
+_ZW = {"MOVI", "MOVHI", "MOV", "ADD", "SUB", "ADDI", "AND", "OR", "XOR", "SHL", "SHR",
+       "CMP", "CMPI", "TSTI", "STSH", "GETP", "GETX", "GETC", "GETI", "WAITP", "RXREADY",
+       "TXREADY"}                                 # instructions that write Z (as modelled)
+
+
+def _succ(words, pc, name, f, returns):
+    if name == "JMP":
+        return [f["target"]]
+    if name in ("JZ", "JNZ", "JC", "JNC", "DJNZ"):
+        return [f["target"], pc + 1]
+    if name == "CALL":
+        return [f["target"]]
+    if name == "RET":
+        return returns
+    if name == "HALT" or name is None:
+        return []
+    return [pc + 1]
+
+
+def timing_regs(image: Image) -> set:
+    """Registers whose value can affect timing or control flow; escert tracks only these.
+    Sound by construction: forgetting a register's value only loses precision."""
+    words = image.words
+    code = [_decode(w) if w else (None, {}) for w in words]
+    returns = [pc + 1 for pc, (n, _) in enumerate(code) if n == "CALL"]
+    rel = set()
+    for pc, (n, f) in enumerate(code):
+        if n == "RDTIME":
+            rel.add(f["rd"])
+        elif n in ("SETT", "ADDTR"):
+            rel.add(f["rs"])
+        elif n in ("CMP", "CMPI", "TSTI"):
+            rel.add(f["rd"])
+            if n == "CMP":
+                rel.add(f["rs"])
+    # a Z written from rd that some JZ/JNZ can read before Z is written again
+    for pc, (n, f) in enumerate(code):
+        if n not in _ZW or "rd" not in f:
+            continue
+        seen, stack, live = set(), list(_succ(words, pc, n, f, returns)), False
+        while stack and not live:
+            q = stack.pop()
+            if q in seen or not 0 <= q < len(code):
+                continue
+            seen.add(q)
+            qn, qf = code[q]
+            if qn in ("JZ", "JNZ"):
+                live = True
+            elif qn not in _ZW:
+                stack.extend(_succ(words, q, qn, qf, returns))
+        if live:
+            rel.add(f["rd"])
+            if n in ("ADD", "SUB", "MOV"):
+                rel.add(f["rs"])
+    changed = True                                # values copied or added into them
+    while changed:
+        changed = False
+        for n, f in code:
+            if n in ("MOV", "ADD", "SUB") and f["rd"] in rel and f["rs"] not in rel:
+                rel.add(f["rs"])
+                changed = True
+    return rel
+
+
 def _retire_split(s: St) -> list[St]:
     """States at a commit with every queued entry either surely in Q (deadline >= now+1)
     or retired (deadline <= now). Entries are ordered, so the queued ones are a suffix."""
@@ -309,7 +376,9 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     # tmr starts at 0: the first instruction sees lead tmr - now = -(k + 3).
     first = ctx + 3
     z0.d[TMR][NOW], z0.d[NOW][TMR] = -first, first
-    init = St(z0, [("const", 0, 0)] * 4, [], 0, 0, frozenset({0}), False)
+    tracked = timing_regs(image)
+    init = St(z0, [("const", 0, 0) if i in tracked else ("top",) for i in range(4)], [], 0, 0,
+              frozenset({0}), False)
     for i in range(4):
         init.z.free(R[i])
     cert = Cert(ctx, "CHECKED")
@@ -367,8 +436,8 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
         nxt = pc + 1
 
         def setreg(i, v):
-            s.reg[i] = v
-            if v[0] != "time":
+            s.reg[i] = v if i in tracked else ("top",)
+            if s.reg[i][0] != "time":
                 s.z.free(R[i])
 
         def setz_const(v):

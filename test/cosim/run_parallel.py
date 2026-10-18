@@ -23,7 +23,8 @@ HERE = Path(__file__).resolve().parent
 # One job per fixed test: cocotb puts the filter into a shell command unquoted, so a
 # regex alternation ("a|b") would become a pipe. The bus-model test runs one job per
 # firmware (COSIM_FIRMWARE), since it is the longest.
-FIXED = ["test_directed_firmware", "test_v11_directed", "test_v12_bank_b"]
+FIXED = ["test_directed_firmware", "test_v11_directed", "test_v12_bank_b",
+         "test_v13_host_reads_during_runs", "test_v13_streaming_capture"]
 BUS = "test_firmware_with_bus_models"
 RANDOM = "test_random_programs"
 

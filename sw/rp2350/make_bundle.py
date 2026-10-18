@@ -46,10 +46,11 @@ SKIP = {"replay.asm",       # a template: sw/esctape fills in its pins and trace
 MAX_TICKS = 2_000_000       # model budget per firmware (80 ms of chip time)
 MAX_PERIOD = 8192           # longest repeating pattern searched for, in ticks
 CHUNK = 4096
-# Firmware whose state changes too slowly for a periodic prediction: the seven-segment
-# animation waits 160 ms between frames, so a short repeating wait looks steady until the
-# next frame. Bundled with kind "none": loaded, run and checked for faults only.
-NO_PREDICT = {"seven_seg.asm"}
+# Firmware with no periodic prediction. The seven-segment animation waits 160 ms between
+# frames, so a short repeating wait looks steady until the next frame; the tape-driven
+# generated transmitters re-anchor on RDTIME every packet, so the digest never repeats.
+# Bundled with kind "none": loaded, run and checked for faults only.
+NO_PREDICT = {"seven_seg.asm", "ws2812_gen.asm", "dmx512_tx.asm"}
 # Variants: name -> (firmware, .equ overrides). v1.3: the logic analyser streaming a
 # 64-word ring to the host during the run (escapement_demo.stream).
 VARIANTS = {"logic_analyzer_stream": ("logic_analyzer.asm",

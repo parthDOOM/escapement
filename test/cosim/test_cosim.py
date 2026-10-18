@@ -24,7 +24,7 @@ from escasm import AsmError, assemble, assemble_file, disassemble
 from esciss import Machine
 from esciss.machine import no_board_b
 
-from escmodels import (Board, CanBus, HostScript, I2cController, I2cTarget, JtagTap,
+from escmodels import (Board, CanBus, DmxRx, HostScript, I2cController, I2cTarget, JtagTap,
                        OneWireDevice, Ps2Host, SpiTarget, SplitBoard, UartRx, UartTx,
                        Ws2812Decoder, crc8_maxim)
 from progen import gen_program, loopback_board, make_board, make_board_b
@@ -547,6 +547,66 @@ def spi_target_case(mode):
 
 # name -> (firmware, ticks, factory() -> (board, host, check(board, host) -> list[str])
 #          [, board_b] for programs on pin bank B)
+def serial_case(baud, msg):
+    """Generated UART-framed transmitters (escgen): one byte per host word."""
+    def factory():
+        rx = UartRx(0, 25e6 / baud)
+        frame = int(11 * 25e6 / baud)
+        host = HostScript([(100 + frame * i, 0, b) for i, b in enumerate(msg)])
+
+        def check(board, h):
+            return ([] if rx.bytes == list(msg) else [f"bytes {rx.bytes}"]) + board.errors()
+        return Board(rx, host), host, check
+    return factory
+
+
+DMX_SLOTS = [0] + [(7 * i + 1) & 0xFF for i in range(1, 512)]
+WS_COLOURS = [0x00FF00, 0xFF0000, 0x123456]
+
+
+def dmx_tape(image):
+    for w in range(128):
+        image.tape[w] = sum(DMX_SLOTS[4 * w + j] << (8 * j) for j in range(4))
+
+
+def ws_tape(image):
+    image.tape[0] = len(WS_COLOURS)
+    for i, c in enumerate(WS_COLOURS):
+        image.tape[1 + i] = c
+
+
+def case_gen_slow():
+    """dmx512_tx at 5 MHz on bank A pin 0 and the display animation on bank B."""
+    rx = DmxRx(0, clock_hz=5e6)
+    seen = []
+
+    def board_b(t, ob):
+        if not seen or seen[-1][1] != ob:
+            seen.append((t, ob))
+        return 0
+
+    def check(board, h):
+        errs = list(rx.violations)
+        if not rx.packets or rx.packets[0]["slots"] != DMX_SLOTS:
+            errs.append(f"dmx packets {[len(p['slots']) for p in rx.packets]}")
+        obs = [ob for _, ob in seen]          # from reset: released (and the RTL's t=-1)
+        frames = obs[next(i for i, ob in enumerate(obs) if ob not in (0, 0x1F)):]
+        if frames[:5] != [0x04, 0x08, 0x02, 0x01, 0x10]:
+            errs.append(f"display frames {frames[:6]}")
+        return errs + board.errors()
+    return Board(rx), None, check, board_b
+
+
+def case_ws2812_gen():
+    dec = Ws2812Decoder(0, reset_us=280)
+
+    def check(board, h):
+        dec.finish()
+        ok = dec.frames[:1] == [WS_COLOURS]
+        return ([] if ok and not dec.violations else [f"ws2812 {dec.frames} {dec.violations}"])
+    return Board(dec), None, check
+
+
 FIRMWARE_CASES = {
     "uart_rx": ("uart_rx.asm", 13500, case_uart_rx),
     "i2c_ctrl": ("i2c_ctrl.asm", 9000, case_i2c),
@@ -563,8 +623,13 @@ FIRMWARE_CASES = {
     "spi_target": ("spi_target.asm", 11000, spi_target_case(0)),
     "spi_target_mode3": ("spi_target.asm", 11000, spi_target_case(3)),
     "combo_two_banks": ("combo_two_banks.asm", 30000, case_two_banks),
+    # v1.3 protocols as data (escgen) and the demo board display
+    "uart_tx_gen": ("uart_tx_gen.asm", 9000, serial_case(115200, b"Esc")),
+    "midi_tx": ("midi_tx.asm", 30000, serial_case(31250, bytes((0x90, 0x3C, 0x7F)))),
+    "ws2812_gen": ("ws2812_gen.asm", 9000, case_ws2812_gen),   # ends inside the latch
+    "gen_slow": ("../test/cosim/gen_cosim.asm", 130000, case_gen_slow),
 }
-TAPE_PREP = {"i2c_eeprom": eeprom_tape}
+TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 
 

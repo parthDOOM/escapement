@@ -1,0 +1,20 @@
+# WS2812B chain: the LED count in tape word 0, one GRB colour per following word, then
+# the latch; the host changes colours (and the count) with WRITE_TAPE while it runs. The pulse width is the
+# data bit itself (EMITX at T+T0H), as in the hand-written ws2812.asm.
+name: ws2812_gen
+title: WS2812B LED chain; tape word 0 = LED count n, words 1..n = GRB colours; latched, repeated for ever
+refs: ["Worldsemi WS2812B datasheet: T0H 0.4 us, T1H 0.8 us, bit 1.25 us +/- 600 ns, reset low >= 50 us (newer parts 280 us; 300 us here)"]
+context: 3
+pins:
+  D: {pin: 0, idle: 0}
+constants:
+  T0H: CLK_KHZ * 2 // 5000                          # 0.4 us = 10 ticks at 25 MHz
+  T1H: CLK_KHZ * 4 // 5000                          # 0.8 us = 20 ticks
+  TBIT: CLK_KHZ * 31 // 25000                       # 1.24 us = 31 ticks
+  TLATCH: CLK_KHZ * 300 // 1000                     # 300 us low
+symbols:
+  bit:   [[{D: 1}, T0H], [{D: data}, T1H - T0H], [{D: 0}, TBIT - T1H]]
+  latch: [[{D: 0}, TLATCH]]
+frame: [{bits: 24, order: msb, symbol: bit}]
+source: {kind: tape, base: 0, count: tape}
+packet: {after: [latch]}

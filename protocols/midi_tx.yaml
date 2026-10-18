@@ -1,0 +1,15 @@
+# MIDI OUT: UART framing at 31,250 baud. Running status is the sender's choice of bytes.
+name: midi_tx
+title: MIDI OUT, 31.25 kbaud 8N1; one MIDI byte per host mailbox word
+refs: ["MIDI 1.0 Detailed Specification 4.2, Hardware: 31.25 kbaud, 1 start, 8 data, 1 stop bit, LSB first"]
+context: 0
+pins:
+  OUT: {pin: 0, idle: 1}
+constants:
+  BIT: CLK_KHZ * 1000 // 31250                    # 800 ticks at 25 MHz
+symbols:
+  start: [[{OUT: 0}, BIT]]
+  bit:   [[{OUT: data}, BIT]]
+  stop:  [[{OUT: 1}, BIT]]
+frame: [start, {bits: 8, order: lsb, symbol: bit}, stop]
+source: {kind: mailbox}

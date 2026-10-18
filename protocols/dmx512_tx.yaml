@@ -1,0 +1,21 @@
+# DMX512 transmitter: break, mark after break, then the start code and 511 slots from
+# the tape (four slots per word, low byte first), repeated for ever.
+name: dmx512_tx
+title: DMX512 transmitter; start code and 511 slots from tape words 0-127, refreshed continuously
+refs: ["ANSI E1.11-2008 (DMX512-A), Table 6: transmitted break 92 us min, mark after break 12 us min, 250 kbit/s, slots of 1 start, 8 data LSB first, 2 stop bits"]
+context: 0
+pins:
+  TX: {pin: 0, idle: 1}
+constants:
+  BIT: CLK_KHZ // 250                               # 4 us = 100 ticks at 25 MHz
+  BREAK: CLK_KHZ * 100 // 1000                      # 100 us (92 us min)
+  MAB: CLK_KHZ * 12 // 1000                         # 12 us
+symbols:
+  break: [[{TX: 0}, BREAK]]
+  mab:   [[{TX: 1}, MAB]]
+  start: [[{TX: 0}, BIT]]
+  bit:   [[{TX: data}, BIT]]
+  stop:  [[{TX: 1}, 2 * BIT]]
+frame: [start, {bits: 8, order: lsb, symbol: bit}, stop]
+source: {kind: tape, base: 0, count: 128, units_per_word: 4}
+packet: {before: [break, mab]}
