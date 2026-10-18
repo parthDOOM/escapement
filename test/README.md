@@ -2,7 +2,9 @@
 
 All RTL tests use [cocotb](https://docs.cocotb.org/) with Icarus Verilog
 (`pip install -r requirements.txt`). Each directory has its own Makefile; the top-level
-`Makefile` has a target for each.
+`Makefile` has a target for each. Any of them also runs on Verilator 5.036 or later with
+`SIM=verilator` (options in `sim.mk`), several times faster on the long suites; Icarus
+is the default and the reference.
 
 | Directory | Make target | What it checks |
 | --- | --- | --- |

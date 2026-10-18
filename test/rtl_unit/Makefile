@@ -14,6 +14,7 @@ VERILOG_SOURCES += $(PWD)/tb_core.v
 TOPLEVEL = tb_core
 COCOTB_TEST_MODULES = test_core
 
+include $(PWD)/../sim.mk
 include $(shell cocotb-config --makefiles)/Makefile.sim
 
 lint:

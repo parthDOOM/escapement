@@ -17,9 +17,10 @@ help:
 	@echo "cosim-parallel  the same, split over JOBS cores (default 8)"
 	@echo "host-test  host SPI interface tests"
 	@echo "bringup-test  sw/rp2350/bringup.py against the RTL on a simulated demo board (~15 min)"
+	@echo "           (add SIM=verilator to any simulation target to run it on Verilator: 3-7x faster on the long ones)"
 	@echo "unit-test  directed core tests"
 	@echo "lint       Verilator lint of the core"
-	@echo "formal     all SymbiYosys proofs, including the unbounded core proof (long)"
+	@echo "formal     all SymbiYosys proofs, with the unbounded core proof split over JOBS cores (~25 min)"
 	@echo "formal-quick  bounded core proof, cover, never-late and clock-gate proofs (minutes)"
 	@echo "mutation   RTL mutation campaign against the co-simulation (JOBS in parallel)"
 	@echo "harden     local LibreLane harden with the pinned CI toolchain (TAG=name)"
@@ -68,7 +69,7 @@ lint:
 	cd test/rtl_unit && $(MAKE) lint
 
 formal: formal-quick
-	cd formal && sby -f esc_core.sby pdr
+	cd formal && $(PYTHON) split_core.py --jobs $(JOBS)
 
 formal-quick:
 	cd formal && sby -f esc_core.sby bmc && sby -f esc_core.sby cover \
@@ -87,6 +88,7 @@ precheck:
 
 clean:
 	rm -rf test/sim_build test/cosim/sim_build test/host/sim_build test/rtl_unit/sim_build test/bringup/sim_build \
-	  test/results.xml test/*/results.xml test/cosim/results_*.xml test/cosim/cosim_failures \
+	  test/results.xml test/results_*.xml test/*/results.xml test/cosim/results_*.xml test/cosim/cosim_failures \
 	  formal/esc_core_cover formal/esc_core_bmc formal/esc_core_pdr formal/esc_core_kind \
 	  formal/esc_ctx_kind formal/esc_ctx_pdr formal/esc_ctx_bmc formal/esc_greg_prove formal/esc_greg_cover
+	rm -rf formal/esc_core_split_* formal/esc_core_split.sby

@@ -25,6 +25,7 @@ cosim_failures/
 # SymbiYosys work directories and logs
 formal/esc_*/
 formal/*.out
+formal/esc_core_split.sby
 formal/esc_v11.sby
 # local harden / tools checkout
 harden-*.log

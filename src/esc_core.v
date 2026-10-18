@@ -858,7 +858,15 @@ module esc_core (
     end
     // P8 a COMPLETE commit is a RUNNING context's, never on a start/stop/fault edge;
     // HALT completes only on an empty FIFO; faults happen only during a run.
+    // A late FIFO head is a fault too (fault_k includes c_late), so "no fault on a
+    // commit" contains P2. The pdr task proves the rest, faults other than lateness;
+    // esc_ctx.sby assumes no more than that and proves P2, which completes the clause.
+`ifdef ESC_CORE_PDR
+    if (cm_ok) assert (run && cs_state == ST_RUN && !start && !stop
+                       && (fault_k & ~c_late) == 4'd0);
+`else
     if (cm_ok) assert (run && cs_state == ST_RUN && !start && !stop && fault_k == 4'd0);
+`endif
     if (cm_ok && w_halt) assert (cs_cnta == 3'd0 && !w_push);
     if (fault_k != 4'd0) assert (run && !start && !stop);
   end

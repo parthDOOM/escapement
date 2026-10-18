@@ -53,7 +53,7 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | P5 | A faulted context drives none of its pins | Unbounded (PDR) |
 | P6 | An admitted event is strictly ahead of its commit tick and of the FIFO tail | Unbounded (PDR) |
 | P7 | Fixed slot timing: a commit belongs to the context that owns that slot | Unbounded (PDR) |
-| P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start, stop or fault edge | Unbounded (PDR), except the last clause: bounded (BMC from reset) |
+| P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start, stop or fault edge | Unbounded (PDR, with P2 for the lateness part of the last clause, below) |
 | H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction) |
 | C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
 | G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
@@ -63,6 +63,19 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 never has a FIFO head past its deadline; the core proof shows that every push the core
 makes satisfies those assumptions (P6, P8). Together they cover every reachable state,
 including counter wrap.
+
+The split is drawn so that neither side assumes what the other proves. A late FIFO head
+is itself a fault, so "no fault on a commit" contains P2. The core therefore proves that
+no other fault coincides with a commit, the per-context proof assumes only that, and P2
+completes the clause. The exception cannot hide a late head, because lateness depends on
+state alone, never on the inputs of the same cycle. Stated as one clause, P8 had not
+converged after seven hours of PDR; split this way, it proves in under a minute.
+
+**Run time.** `make formal` proves the core in parallel: `formal/split_core.py` makes
+one task per assertion source line (22 groups) from the elaborated design and runs
+`JOBS` of them at once. With 8 jobs every group passes in 25 minutes of wall time; the
+slowest are P3 and a capture-region bound, at about 25 minutes each. The single task
+(`sby -f esc_core.sby pdr`, all assertions together) passes too, in 45 minutes on one core.
 
 **Vacuity guards.** A cover task reaches the precondition of every property, including
 capture overflow, region full, ring wrap, and a drain and a push with two records
@@ -180,16 +193,29 @@ the commits, register values and pin changes of the model.
 
 ```sh
 make sw-test cert test cosim-parallel host-test unit-test lint   # simulation and certificates
-make pin-test bringup-test                                       # newer firmware through the pins; bring-up script (~30 min)
+make pin-test bringup-test                                       # newer firmware through the pins; bring-up script
 make gl-test gl-pin-test                                         # the same chip-level checks on the gate-level netlist
 make formal-quick                                                # bounded core proof, cover, never-late, clock gate
-make formal                                                      # adds the unbounded core proof (hours)
+make formal JOBS=8                                               # adds the unbounded core proof (~25 min)
 make mutation JOBS=8                                             # mutation campaign, 8 mutants at a time
 ```
 
 The suites run in parallel where they can: `sw-test` uses every core when pytest-xdist is
 installed, `cosim-parallel` splits the random programs and the firmware runs across
-`JOBS` simulators, and the mutation campaign runs `JOBS` mutants at once.
+`JOBS` simulators from one build, `formal` proves the core's assertions as parallel
+tasks, and the mutation campaign runs `JOBS` mutants at once.
+
+Every simulation target also runs on Verilator with `SIM=verilator` (5.036 or later).
+Icarus stays the default and the reference; CI uses it. Measured on one machine, both
+simulators passing every suite:
+
+| Suite | Icarus | Verilator |
+| --- | ---: | ---: |
+| `bringup-test` | 985 s | 140 s |
+| `cosim` (one process) | 193 s | 57 s |
+| `cosim-parallel JOBS=8` | 63 s | 30 s |
+| `pin-test` | 149 s | 40 s |
+| `test`, `host-test`, `unit-test` | 3–24 s | 12–19 s (mostly compilation) |
 
 GitHub Actions runs the chip-level tests, `sw-test`, `cert`, `cosim-parallel` and
 `pin-test` on every push, and the harden with the gate-level tests whenever the design

@@ -11,4 +11,5 @@ VERILOG_SOURCES += $(PWD)/tb_host.v
 TOPLEVEL = tb_host
 COCOTB_TEST_MODULES = test_host
 export PYTHONPATH := $(REPO)/sw:$(REPO)/test/common:$(PYTHONPATH)
+include $(PWD)/../sim.mk
 include $(shell cocotb-config --makefiles)/Makefile.sim

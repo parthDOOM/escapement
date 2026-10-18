@@ -90,7 +90,11 @@ module esc_ctx_env (
   wire [31:0] d_now  = d - now;
   wire [31:0] d_tail = d - tail_dl;
   always @(*) begin
-    if (cm_ok) assume (run && st == 2'd1 && !start && !stop && !fault);
+    // No fault on a commit, except lateness itself: the core proves only that much (its
+    // P8 under ESC_CORE_PDR), and `late` is what this file proves never happens. `late`
+    // depends on state alone, never on this cycle's inputs, so the exception cannot
+    // hide a late head.
+    if (cm_ok) assume (run && st == 2'd1 && !start && !stop && (!fault || late));
     if (cm_waitfull) assume (run && st == 2'd1 && !start && !stop);
     if (fault) assume (run && !start && !stop);
     if (cm_ok && w_halt) assume (cnt_after == 3'd0 && !w_push);       // HALT waits (sec. 7.2)

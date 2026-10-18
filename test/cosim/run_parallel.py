@@ -4,8 +4,9 @@
     python3 test/cosim/run_parallel.py [--jobs N] [--seeds S] [--seed0 K]
 
 The random programs are split into N seed ranges and the bus-model test into one run per
-firmware, each simulated in its own build directory; the directed tests run once. The result is the same
-set of comparisons as `make cosim` with COSIM_SEEDS=S, in roughly 1/N of the time.
+firmware; the directed tests run once. The testbench is compiled once (SIM=icarus or
+SIM=verilator) and every job runs from that build. The result is the same set of
+comparisons as `make cosim` with COSIM_SEEDS=S, in roughly 1/N of the time.
 """
 
 from __future__ import annotations
@@ -35,12 +36,30 @@ def firmware_cases() -> list[str]:
     return re.findall(r'^\s+"(\w+)":', block, re.M)
 
 
+SIM = os.environ.get("SIM", "icarus")
+BUILD = f"sim_build/shared_{SIM}"
+# The simulator's build product in BUILD (cocotb's Makefile.<sim> target): compiled
+# once, then every job runs from it. Verilator's C++ build takes longer than most jobs.
+BUILD_TARGET = {"verilator": "Vtop", "icarus": "sim.vvp"}.get(SIM)
+
+
+def build() -> str:
+    """Compile the testbench once; '' on success, else the build log's tail."""
+    if BUILD_TARGET is None:
+        return ""
+    r = subprocess.run(["make", "-s", f"SIM_BUILD={BUILD}", f"{BUILD}/{BUILD_TARGET}"],
+                       cwd=HERE, env=dict(os.environ, PWD=str(HERE)), capture_output=True,
+                       text=True)
+    return "" if r.returncode == 0 else (r.stdout + r.stderr)[-3000:]
+
+
 def run(job: str, test_filter: str, seed0: int, seeds: int,
         firmware: str = "") -> tuple[str, int, int, str]:
     env = dict(os.environ, PWD=str(HERE), COCOTB_TEST_FILTER=test_filter,
                COCOTB_PLUSARGS="+nodump", COSIM_SEED0=str(seed0), COSIM_SEEDS=str(seeds),
                COSIM_FIRMWARE=firmware, COSIM_OUT=str(HERE / "cosim_failures" / job))
-    cmd = ["make", "-s", f"SIM_BUILD=sim_build/{job}", f"COCOTB_RESULTS_FILE=results_{job}.xml"]
+    sim_build = BUILD if BUILD_TARGET else f"sim_build/{job}"
+    cmd = ["make", "-s", f"SIM_BUILD={sim_build}", f"COCOTB_RESULTS_FILE=results_{job}.xml"]
     r = subprocess.run(cmd, cwd=HERE, env=env, capture_output=True, text=True)
     out = r.stdout + r.stderr
     m = re.search(r"TESTS=(\d+) PASS=(\d+) FAIL=(\d+)", out)
@@ -67,6 +86,10 @@ def main() -> int:
             work.append((f"rand{k}", RANDOM, s, count))
             s += count
 
+    err = build()
+    if err:
+        print(f"testbench build failed ({SIM}):\n{err}")
+        return 1
     with ThreadPoolExecutor(max_workers=max(args.jobs, len(FIXED))) as pool:
         results = list(pool.map(lambda w: run(*w), work))
 

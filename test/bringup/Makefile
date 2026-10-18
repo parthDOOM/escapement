@@ -13,4 +13,5 @@ VERILOG_SOURCES += $(PWD)/tb_bringup.v
 TOPLEVEL = tb_bringup
 COCOTB_TEST_MODULES = test_bringup_rtl
 export PYTHONPATH := $(REPO)/sw:$(REPO)/sw/rp2350:$(REPO)/sw/tests:$(PYTHONPATH)
+include $(PWD)/../sim.mk
 include $(shell cocotb-config --makefiles)/Makefile.sim

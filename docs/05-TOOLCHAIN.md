@@ -32,7 +32,7 @@ upstream change cannot silently alter a harden.
 
 | Workflow | Runs |
 | --- | --- |
-| `test.yaml` | The chip-level cocotb tests on the RTL (Icarus Verilog) |
+| `test.yaml` | The chip-level cocotb tests on the RTL; then, in a second job, `sw-test`, `cert`, `cosim-parallel` and `pin-test` (Icarus Verilog) |
 | `gds.yaml` | The Tiny Tapeout harden (LibreLane), then the precheck and the gate-level test on the hardened netlist |
 | `docs.yaml` | The Tiny Tapeout datasheet build from `info.yaml` and `docs/info.md` |
 
