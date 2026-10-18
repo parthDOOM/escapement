@@ -885,3 +885,25 @@ def test_westminster_chimes_the_hour():
         want = half[i - 1] + clk * 150 + (clk * 650 if i % 4 == 0 else 0)
         assert notes[i][0] - notes[i - 1][3] == want, i
     assert m.ctx[0].state == 2 and not m.ff.valid       # HALTED, no fault
+
+
+def test_seven_seg_animation():
+    """The demo board display animation on bank B: f, g, e, d, dp, each lit alone for
+    exactly one frame, repeating, with every other bank B segment dark. At 25 kHz a
+    frame is 4000 ticks."""
+    from escasm import assemble
+    from esciss import Machine
+    src = '.equ seven_seg.CLK_KHZ, 25\n.include "seven_seg.asm"\n'
+    m = Machine(assemble(src, base_dir=FW))
+    m.run(60_000, stop_when_idle=False)
+    changes, prev = [], None
+    for p in m.pins:
+        if p["ob"] != prev:
+            changes.append((p["t"], p["ob"]))
+            prev = p["ob"]
+    assert changes[0] == (0, 0x1F)                     # released: all high until the first frame
+    frames = changes[1:]
+    want = [0x04, 0x08, 0x02, 0x01, 0x10]              # f, g, e, d, dp
+    assert [ob for _, ob in frames] == (want * 3)[:len(frames)] and len(frames) >= 14
+    assert all(b[0] - a[0] == 4000 for a, b in zip(frames, frames[1:]))
+    assert not m.ff.valid

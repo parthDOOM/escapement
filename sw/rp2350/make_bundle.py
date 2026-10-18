@@ -46,6 +46,10 @@ SKIP = {"replay.asm",       # a template: sw/esctape fills in its pins and trace
 MAX_TICKS = 2_000_000       # model budget per firmware (80 ms of chip time)
 MAX_PERIOD = 8192           # longest repeating pattern searched for, in ticks
 CHUNK = 4096
+# Firmware whose state changes too slowly for a periodic prediction: the seven-segment
+# animation waits 160 ms between frames, so a short repeating wait looks steady until the
+# next frame. Bundled with kind "none": loaded, run and checked for faults only.
+NO_PREDICT = {"seven_seg.asm"}
 # Variants: name -> (firmware, .equ overrides). v1.3: the logic analyser streaming a
 # 64-word ring to the host during the run (escapement_demo.stream).
 VARIANTS = {"logic_analyzer_stream": ("logic_analyzer.asm",
@@ -155,6 +159,12 @@ def predict(image) -> dict:
     return dict(kind="none", ticks=m.now, **snapshot(m))
 
 
+def no_prediction(image) -> dict:
+    m = Machine(image)
+    m.run(CHUNK, stop_when_idle=False)
+    return dict(kind="none", ticks=CHUNK, **snapshot(m))
+
+
 def uart_bytes(image, pin: int, baud: int, ticks: int) -> list[int]:
     rx = UartRx(pin, 25e6 / baud)
     m = Machine(image, Board(rx))
@@ -187,7 +197,7 @@ def bundle(fw: Path, name: str | None = None, overrides: dict | None = None) -> 
         "tape": {str(a): image.tape[a] for a in image.tape_used},
         "cfg": [image.ctx_enable_mask, image.entry_pcs_packed, image.pin_owned_mask,
                 image.pin_owner_packed, image.pin_od_mask, image.ctx_bank_mask],
-        "expect": predict(image),
+        "expect": predict(image) if fw.name not in NO_PREDICT else no_prediction(image),
     }
     e = out["expect"]
     if e["kind"] == "halt":                     # read by escapement_demo.py

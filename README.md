@@ -92,6 +92,7 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | [Machine semantics](docs/11-SEMANTICS.md) | The normative, cycle-exact definition of the machine |
 | [Host protocol](docs/12-HOST-PROTOCOL.md) | The SPI command set |
 | [Tape and digest](docs/13-TAPE-AND-DIGEST.md) | Why one timestamped memory, and how the digest works |
+| [Instrument](docs/17-INSTRUMENT.md) | Capture, streaming, PulseView, file export and replay, with their limits |
 | [Firmware guide](docs/14-FIRMWARE-GUIDE.md) | Idioms for writing new protocols |
 | [Verification](docs/04-VERIFICATION.md) | Methods, results and how to rerun them |
 | [Physical design](docs/03-PHYSICAL-DESIGN.md) | Floorplan, routing, timing and sign-off |

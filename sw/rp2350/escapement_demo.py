@@ -82,3 +82,53 @@ def stream(seconds=5, path="capture.json", bundle_file="bundles/logic_analyzer_s
         print("%10d  %s" % ((epoch << 24) | (x & 0xFFFFFF),
                             "".join("#" if (lv >> p) & 1 else "_" for p in range(7, -1, -1))))
     return words
+
+
+def show(bundle_file):
+    """Load a bundle and leave it running (no model check): e.g. the display animation.
+    Stop it with escapement_demo.stop()."""
+    b = bringup.Bringup(bringup.DemoBoardIO.open())
+    print(b.stage0())
+    b.connect()
+    bd = bringup.load_bundle(bundle_file)
+    b.load(list(bd["words"]) + [0] * (256 - len(bd["words"])), bd["cfg"])
+    b.host.start()
+    print("%s running; escapement_demo.stop() stops it" % bd["name"])
+    return b
+
+
+def stop():
+    b = bringup.Bringup(bringup.DemoBoardIO.open())
+    b.connect()
+    b.host.stop()
+
+
+# What the demo board shows on its own, with nothing plugged into the Pmods.
+MENU = (
+    ("UART hello: uio0 sends \"UK!\", the RP's UART checks every byte", "run", "uart_tx.json"),
+    ("Seven-segment animation on bank B (keeps running)", "show", "seven_seg.json"),
+    ("Two pin banks at once: PS/2, JTAG, SPI and UART, checked against the model", "run",
+     "combo_two_banks.json"),
+    ("Every bundle against the model (bring-up stage 5)", "stage5", None),
+    ("Logic analyser: stream uio[7:0] for 5 s into capture.json", "stream", None),
+    ("SUMP bridge: capture from PulseView or sigrok-cli over USB", "sump", None),
+)
+
+
+def menu(choice=None, bundles="bundles"):
+    for i, (label, _, _) in enumerate(MENU):
+        print("%d  %s" % (i + 1, label))
+    if choice is None:
+        choice = int(input("choice: "))
+    label, kind, arg = MENU[choice - 1]
+    print("--", label)
+    if kind == "run":
+        return run(bundles + "/" + arg)
+    if kind == "show":
+        return show(bundles + "/" + arg)
+    if kind == "stage5":
+        return bringup.run(bundles=bundles, stages=[5])
+    if kind == "stream":
+        return stream(bundle_file=bundles + "/logic_analyzer_stream.json")
+    import sump
+    return sump.serve(bundles + "/logic_analyzer_stream.json")

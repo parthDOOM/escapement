@@ -101,8 +101,9 @@ def test_every_bundle_has_a_prediction(bundles):
         b = json.loads(f.read_text())
         kinds[b["name"]] = b["expect"]["kind"]
     assert kinds["uart_tx.asm"] == "halt" and kinds["i2c_ctrl.asm"] == "steady"
-    # A firmware that neither halts nor settles gets only a state check on silicon.
-    assert [n for n, k in kinds.items() if k == "none"] == [], kinds
+    # A firmware that neither halts nor settles gets only a state check on silicon: only
+    # those listed as such (the display animation, whose frames are 160 ms apart).
+    assert sorted(n for n, k in kinds.items() if k == "none") == sorted(make_bundle.NO_PREDICT), kinds
 
 
 def test_correct_chip_passes_every_stage(bundles):
@@ -246,3 +247,25 @@ def test_escapement_demo_streams_past_the_tape(tmp_path, monkeypatch, capsys):
     e = edges(decode_records(load_capture(tmp_path / "cap.json")["words"]), 1)[1:]
     assert len(words) > 100 and len(e) > 100
     assert all(b[0] - a[0] == 6000 and a[1] != b[1] for a, b in zip(e, e[1:]))
+
+
+def test_demo_menu_show_keeps_the_animation_running(tmp_path, monkeypatch):
+    """The menu's display entry loads the animation and leaves it running: bank B
+    (segments d, e, f, g, dp) steps through its frames. Built at CLK_KHZ 25 here, so a
+    frame is 4000 ticks (160 us at 25 MHz) instead of 160 ms."""
+    import escapement_demo
+    fw = ROOT / "firmware" / "seven_seg.asm"
+    (tmp_path / "seven_seg.json").write_text(
+        json.dumps(make_bundle.bundle(fw, "seven_seg.json", {"CLK_KHZ": 25})))
+    chip = SimChip()
+    board = MockBoard(chip)
+    monkeypatch.setattr(bringup.DemoBoardIO, "open", classmethod(lambda cls: board.io(bringup)))
+    b = escapement_demo.menu(2, bundles=str(tmp_path))
+    seen = []
+    for _ in range(40):
+        b.io.sleep_us(40)
+        seen.append((int(chip.uo()) >> 3) & 0x1F)
+    assert {0x04, 0x08, 0x02, 0x01, 0x10} <= set(seen), seen
+    assert (int(chip.uo()) >> 2) & 1                     # segment c: RUN
+    escapement_demo.stop()
+    assert not (int(chip.uo()) >> 2) & 1
