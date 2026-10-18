@@ -1,0 +1,21 @@
+VERSION 5.7 ;
+BUSBITCHARS "[]" ;
+DIVIDERCHAR "/" ;
+MACRO escapement_art
+  CLASS BLOCK ;
+  FOREIGN escapement_art 0 0 ;
+  ORIGIN 0 0 ;
+  SIZE 56.400 BY 72.000 ;
+  SYMMETRY X Y ;
+  OBS
+    LAYER Metal1 ;
+      RECT 0 0 56.400 72.000 ;
+    LAYER Metal2 ;
+      RECT 0 0 56.400 72.000 ;
+    LAYER Metal3 ;
+      RECT 0 0 56.400 72.000 ;
+    LAYER Metal4 ;
+      RECT 0 0 56.400 72.000 ;
+  END
+END escapement_art
+END LIBRARY

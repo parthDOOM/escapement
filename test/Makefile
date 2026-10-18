@@ -16,6 +16,7 @@ PROJECT_SOURCES += $(notdir $(sort $(wildcard $(SRC_DIR)/esc_*.v)))
 MACRO_DIR     = $(PWD)/../macro/RM_IHPSG13_1P_256x32_c2_bm_bist
 MACRO_MODELS  = $(MACRO_DIR)/RM_IHPSG13_1P_core_behavioral_bm_bist.v
 MACRO_MODELS += $(MACRO_DIR)/RM_IHPSG13_1P_256x32_c2_bm_bist.v
+MACRO_MODELS += $(SRC_DIR)/escapement_art.v
 
 ifneq ($(GATES),yes)
 

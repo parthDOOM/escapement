@@ -83,6 +83,9 @@ module tt_um_escapement (
       .wdata(tape_busy ? core_tape_wdata : host_mem_wdata),
       .rdata(tape_rdata));
 
+  // Layout art (macro/escapement_art): no ports, nothing to connect.
+  (* keep *) escapement_art u_art ();
+
   // ------------------------------------------------------------------ core
   /* verilator lint_off PINCONNECTEMPTY */
   esc_core u_core (

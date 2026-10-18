@@ -813,3 +813,75 @@ def test_spi_target_irregular_clock():
                                  t_idle=100)
         assert not board.errors() and not spit_miso_errors(m, ctl), board.errors()
         assert m.tape[0x80:0x88] == list(range(1, 9)) and not m.ff.valid
+
+
+# ---------------------------------------------------------------- Westminster Quarters
+WM_BELLS = {"GS4": 415.30, "FS4": 369.99, "E4": 329.63, "B3": 246.94, "E3": 164.81}
+WM_PERIODS = {"GS4": 208, "FS4": 185, "E4": 165, "B3": 123, "E3": 412}
+WM_TUNE = ("E4 GS4 FS4 B3 | E4 FS4 GS4 E4 | GS4 E4 FS4 B3 | B3 FS4 GS4 E4 | E3").split()
+
+
+def westminster_notes(clk_khz):
+    """Play westminster.asm on the ISS at clk_khz; return its notes as (start tick,
+    periods, half periods, end tick) from the B0 edges, and the machine."""
+    from escasm import assemble
+    from esciss import Machine
+
+    class Quiet(Machine):                     # millions of ticks: keep no traces
+        def _record_commit(self, cm, t):
+            pass
+
+    class Edges(list):
+        def append(self, rec):
+            pass
+
+    edges = []
+
+    def board_b(t, ob):
+        b0 = ob & 1
+        if not edges or edges[-1][1] != b0:
+            edges.append((t, b0))
+        return 0
+
+    m = Quiet(assemble(f".equ westminster.CLK_KHZ, {clk_khz}\n"
+                       '.include "westminster.asm"\n', base_dir=FW), board_b=board_b)
+    m.pins = Edges()
+    m.run(16 * clk_khz * 1000, stop_when_idle=True)
+    falls = [t for t, v in edges if v == 0]
+    rises = [t for t, v in edges if v == 1]
+    notes, cur = [], None
+    gap = 10 * clk_khz * 1000 // 400          # far longer than any half period
+    for f, r in zip(falls, rises[1:]):        # rises[0] is B0 driven high at start
+        if cur is None or f - cur[3] > gap:
+            if cur is not None:
+                notes.append(cur)
+            cur = [f, 0, set(), r]
+        else:
+            cur[2].add(f - cur[3])            # high half period
+        cur[1] += 1
+        cur[2].add(r - f)                     # low half period
+        cur[3] = r
+    notes.append(cur)
+    return notes, m
+
+
+def test_westminster_chimes_the_hour():
+    """The hour chime of Big Ben, at a hundredth of real time (250 kHz): 17 notes in the
+    order of changes 2, 3, 4 and 5 and the hour bell, each at its exact pitch and
+    length, 0.15 s apart, with 0.8 s between changes; then the program halts."""
+    clk = 250
+    notes, m = westminster_notes(clk)
+    tune = [n for n in WM_TUNE if n != "|"]
+    assert len(notes) == len(tune)
+    half = []
+    for (start, periods, halves, end), bell in zip(notes, tune):
+        assert periods == WM_PERIODS[bell]
+        assert len(halves) == 1, (bell, halves)   # a constant half period
+        half.append(halves.pop())
+        f = clk * 1000 / (2 * half[-1])
+        assert abs(f - WM_BELLS[bell]) / WM_BELLS[bell] < 0.002, (bell, f)
+    # silence: the last (high) half period of a note, then GAP, and REST after a change
+    for i in range(1, len(notes)):
+        want = half[i - 1] + clk * 150 + (clk * 650 if i % 4 == 0 else 0)
+        assert notes[i][0] - notes[i - 1][3] == want, i
+    assert m.ctx[0].state == 2 and not m.ff.valid       # HALTED, no fault

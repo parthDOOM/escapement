@@ -171,6 +171,7 @@ replays into the fault, or NOT_PROVEN.
 | `nec_rx` | CHECKED | no events |
 | `swd_idcode` | CHECKED | 3 |
 | `logic_analyzer` | CHECKED | no events |
+| `westminster` | CHECKED | 57 |
 
 Every certificate is CHECKED for all inputs, without assumptions about bus timing:
 re-anchoring the time base after every wait makes the input-dependent I2C paths provable
@@ -211,13 +212,14 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | ARM Serial Wire Debug host: JTAG-to-SWD switch, DPIDR read, DP and AP reads and writes | `swd_idcode` | SW-DP target model from ADIv5.2 (IHI 0031G): WAIT retries, FAULT and ABORT, read parity errors, no-response back-off, turnaround contention |
 | UART and I2C concurrently | `combo_uart_i2c` | Both models at once, on separate contexts |
 | PS/2 and JTAG on bank A, SPI and UART on bank B, concurrently | `combo_two_banks` | All four models at once; the bank B ones see only the split pins |
+| Westminster Quarters, the hour chime of Big Ben, on a buzzer on bank B | `westminster` | Note decoder at a hundredth of real time: all 17 notes in order, each at its pitch (within 0.2%) and length, and every silence to the tick |
 | Logic analyser and replay | `logic_analyzer`, `replay` | Tick-exact replay of a captured UART trace; a too-dense trace is refused |
 
 ## Test suites
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, tape tools, bring-up script | 260 | Pass |
+| Software (`make sw-test`): assembler, simulator, certificates, models, tape tools, bring-up script | 261 | Pass |
 | Chip level on the RTL (`make test`) | 5 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 5 | Pass |
 | Co-simulation (`make cosim`) | 5 | Pass |

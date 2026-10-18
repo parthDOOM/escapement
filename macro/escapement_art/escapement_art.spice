@@ -1,0 +1,3 @@
+* Layout art: no devices, no connections
+.SUBCKT escapement_art
+.ENDS escapement_art

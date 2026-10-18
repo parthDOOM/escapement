@@ -434,8 +434,10 @@ first-fault register.
 | 17 | capture status, as GETC |
 | 18 | capture config: [25] bank, [24] ring, [23:16] mask, [15:8] lim, [7:0] base |
 | 19 | capture `ovf_tick` |
+| 20–27 | 0 |
+| 28–31 | the bells, word 4·(sel − 28) + ctx (§10.2, v1.2) |
 
-`dbg_sel` is 5 bits wide in v1.1 (16–19 ignore `dbg_sel_ctx`; 20–31 read 0).
+`dbg_sel` is 5 bits wide since v1.1 (16–19 ignore `dbg_sel_ctx`; 20–27 read 0; 28–31 use it, §10.2).
 
 ### 10.1 Execution digest (v1.1)
 
@@ -461,6 +463,25 @@ wv_t = XOR of every register value written at E_t: the rd result of a COMPLETE
 
 `dg = 0xFFFFFFFF` at start; it does not change while stopped. A run that never drives
 bank B (`ob` stays 0x1F) produces the same digest as on 1.1.0.
+
+### 10.2 The bells (v1.2)
+
+Sixteen words, read through `dbg_sel` 28–31. Word `w = 4·(dbg_sel − 28) + dbg_sel_ctx` is
+
+```
+bells_w = BELLS[w] XOR H(dg, w)
+H(d, w) = R(R(d XOR k_w, 11, 23), 5, 19),  k_w = 0x9E3779B9 · (w + 1) mod 2^32
+R(x, a, b) = ((x + rotl(x, a)) mod 2^32) XOR rotl(x, b)
+```
+
+where `dg` is the current digest (§10.1) and `rotl` rotates left. `BELLS`, word 0 first:
+
+```
+E7AB8790 6FCEF337 DE209211 F82E5052
+4D830433 0C6634A0 BA1FDFFD 9BCAE6F1
+4CA16010 872B4894 29CE8F5B 6EADB6EB
+CC467E76 209116ED B1599AE2 8F825131
+```
 
 **Core ports** (besides the debug ports; the v1.1 tape port is the last item):
 - Clock and control: `clk`, `rst_n`, `start`, `stop`.

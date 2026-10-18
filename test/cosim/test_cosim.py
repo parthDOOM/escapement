@@ -116,6 +116,12 @@ async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b):
         dut.dbg_sel.value = sel
         await Timer(1, unit="ps")
         final[(0, sel)] = int(dut.dbg_rdata.value)
+    for ctx in range(4):                          # 20-27 read 0; 28-31 the bells (v1.2)
+        for sel in range(20, 32):
+            dut.dbg_sel_ctx.value = ctx
+            dut.dbg_sel.value = sel
+            await Timer(1, unit="ps")
+            final[(ctx, sel)] = int(dut.dbg_rdata.value)
     mem = dut.u_tape.sram.i_SRAM_1P_behavioral_bm_bist.memory
     for a in range(256):
         final[("tape", a)] = int(mem[a].value)
@@ -126,6 +132,7 @@ def iss_final(m: Machine) -> dict:
     f = {(ctx, sel): m.dbg_read(ctx, sel) for ctx in range(4) for sel in range(14)}
     for sel in (14, 15, 16, 17, 18, 19):
         f[(0, sel)] = m.dbg_read(0, sel)
+    f.update({(ctx, sel): m.dbg_read(ctx, sel) for ctx in range(4) for sel in range(20, 32)})
     for a in range(256):
         f[("tape", a)] = m.tape[a]
     return f

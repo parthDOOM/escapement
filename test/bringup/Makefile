@@ -9,6 +9,7 @@ VERILOG_SOURCES += $(SRC_DIR)/project.v $(SRC_DIR)/escapement_host.v $(SRC_DIR)/
 VERILOG_SOURCES += $(sort $(wildcard $(SRC_DIR)/esc_*.v))
 VERILOG_SOURCES += $(MACRO_DIR)/RM_IHPSG13_1P_core_behavioral_bm_bist.v
 VERILOG_SOURCES += $(MACRO_DIR)/RM_IHPSG13_1P_256x32_c2_bm_bist.v
+VERILOG_SOURCES += $(SRC_DIR)/escapement_art.v
 VERILOG_SOURCES += $(PWD)/tb_bringup.v
 TOPLEVEL = tb_bringup
 COCOTB_TEST_MODULES = test_bringup_rtl

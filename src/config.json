@@ -22,9 +22,12 @@
   "CLOCK_PERIOD": 40,
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
-  "//": "v1.2: 0.2 (was 0.1). Detailed routing takes up to 0.17 ns of hold slack after the",
-  "//": "post-CTS repair; at 0.1 the v1.2 layout ended 33 fast-corner paths at -0.036 ns.",
-  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.2,
+  "//": "v1.2: 0.35 (was 0.1). Routing takes hold slack from register-bank-to-gated-FIFO",
+  "//": "paths after the post-CTS repair: 0.17 ns in one layout, 0.31 ns in another, which",
+  "//": "ended 11 fast-corner paths at -0.106 ns with a 0.2 margin (docs/03). The post-GRT",
+  "//": "repair (RUN_POST_GRT_RESIZER_TIMING) is not used: with it, LVS found VPWR shorted to",
+  "//": "VGND although detailed routing reported no violations.",
+  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.35,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
 
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",
@@ -48,6 +51,8 @@
   "//": "keeps the stripe phase (pdn_cfg.tcl); y = core top 706.86 - 118.78 - 0.02.",
   "//": "N/FS/FN/S keep the Metal4 power columns vertical.",
   "//": "lib keys name the PROCESS corner because cmos5l STA corners are nom_typ/nom_fast/nom_slow.",
+  "//": "escapement_art: layout art, isolated Metal2 only (LEF OBS Metal1-4), bottom-right,",
+  "//": "between the Metal4 strap pairs at x 1197.15-1204.87 and 1264.59-1272.31.",
   "MACROS": {
     "RM_IHPSG13_1P_256x32_c2_bm_bist": {
       "instances": {
@@ -69,6 +74,18 @@
       },
       "nl": ["dir::./RM_IHPSG13_1P_256x32_c2_bm_bist.v"],
       "spice": ["dir::../macro/RM_IHPSG13_1P_256x32_c2_bm_bist/RM_IHPSG13_1P_256x32_c2_bm_bist.cdl"]
+    },
+    "escapement_art": {
+      "instances": {
+        "u_art": {
+          "location": [1206.72, 3.78],
+          "orientation": "N"
+        }
+      },
+      "gds": ["dir::../macro/escapement_art/escapement_art.gds"],
+      "lef": ["dir::../macro/escapement_art/escapement_art.lef"],
+      "nl": ["dir::./escapement_art.v"],
+      "spice": ["dir::../macro/escapement_art/escapement_art.spice"]
     }
   },
 
@@ -98,7 +115,7 @@
   "ERROR_ON_ILLEGAL_OVERLAPS": false,
 
   "//": "IHP macros are not LVS-clean internally: abstract them during extraction.",
-  "MAGIC_EXT_ABSTRACT_CELLS": ["RM_IHPSG13_.*"],
+  "MAGIC_EXT_ABSTRACT_CELLS": ["RM_IHPSG13_.*", "escapement_art"],
 
   "//": "======================= end SRAM macro integration =======================",
 

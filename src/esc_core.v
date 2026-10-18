@@ -795,6 +795,36 @@ module esc_core (
   assign dbg_post_c   = c_c[pk_];
   assign dbg_post_pc  = c_pc[8*pk_ +: 8];
 
+  // sel 28-31: the bells (docs/11-SEMANTICS.md 10.2), word w = 4 (sel - 28) + ctx
+  wire [3:0]  bw = {dbg_sel[1:0], dbg_sel_ctx};
+  reg  [31:0] bells, bk;                // word w's ciphertext and key constant
+  // The digest changes on nearly every edge of a run; it reaches the mixer only while
+  // sel 28-31 is selected, so the mixer is still the rest of the time.
+  wire        bsel = (dbg_sel[4:2] == 3'b111);
+  wire [31:0] bx = (dg & {32{bsel}}) ^ bk;
+  wire [31:0] by = (bx + {bx[20:0], bx[31:21]}) ^ {bx[8:0], bx[31:9]};
+  wire [31:0] bh = (by + {by[26:0], by[31:27]}) ^ {by[12:0], by[31:13]};
+  always @* begin
+    case (bw)
+      4'd0:  begin bells = 32'hE7AB8790; bk = 32'h9E3779B9; end
+      4'd1:  begin bells = 32'h6FCEF337; bk = 32'h3C6EF372; end
+      4'd2:  begin bells = 32'hDE209211; bk = 32'hDAA66D2B; end
+      4'd3:  begin bells = 32'hF82E5052; bk = 32'h78DDE6E4; end
+      4'd4:  begin bells = 32'h4D830433; bk = 32'h1715609D; end
+      4'd5:  begin bells = 32'h0C6634A0; bk = 32'hB54CDA56; end
+      4'd6:  begin bells = 32'hBA1FDFFD; bk = 32'h5384540F; end
+      4'd7:  begin bells = 32'h9BCAE6F1; bk = 32'hF1BBCDC8; end
+      4'd8:  begin bells = 32'h4CA16010; bk = 32'h8FF34781; end
+      4'd9:  begin bells = 32'h872B4894; bk = 32'h2E2AC13A; end
+      4'd10: begin bells = 32'h29CE8F5B; bk = 32'hCC623AF3; end
+      4'd11: begin bells = 32'h6EADB6EB; bk = 32'h6A99B4AC; end
+      4'd12: begin bells = 32'hCC467E76; bk = 32'h08D12E65; end
+      4'd13: begin bells = 32'h209116ED; bk = 32'hA708A81E; end
+      4'd14: begin bells = 32'hB1599AE2; bk = 32'h454021D7; end
+      4'd15: begin bells = 32'h8F825131; bk = 32'hE3779B90; end
+    endcase
+  end
+
   wire [1:0] sk = dbg_sel_ctx;
   always @* begin
     case (dbg_sel)
@@ -821,6 +851,7 @@ module esc_core (
       5'd17: dbg_rdata = cap_status;
       5'd18: dbg_rdata = cap_cfg;
       5'd19: dbg_rdata = cap_ovf_tick;
+      5'd28, 5'd29, 5'd30, 5'd31: dbg_rdata = bells ^ bh;
       default: dbg_rdata = 32'd0;
     endcase
   end

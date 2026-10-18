@@ -278,6 +278,23 @@ class _Done(Exception):
 # --------------------------------------------------------------------------- machine
 
 
+# docs/11-SEMANTICS.md 10.2 (v1.2): the bells, read through dbg_sel 28-31
+BELLS = (
+    0xE7AB8790, 0x6FCEF337, 0xDE209211, 0xF82E5052,
+    0x4D830433, 0x0C6634A0, 0xBA1FDFFD, 0x9BCAE6F1,
+    0x4CA16010, 0x872B4894, 0x29CE8F5B, 0x6EADB6EB,
+    0xCC467E76, 0x209116ED, 0xB1599AE2, 0x8F825131,
+)
+
+
+def bells_h(d: int, w: int) -> int:
+    def rotl(x, n):
+        return ((x << n) | (x >> (32 - n))) & M32
+    x = d ^ ((0x9E3779B9 * (w + 1)) & M32)
+    x = ((x + rotl(x, 11)) & M32) ^ rotl(x, 23)
+    return ((x + rotl(x, 5)) & M32) ^ rotl(x, 19)
+
+
 class Machine:
     def __init__(self, image: Image, board: Optional[Board] = None,
                  board_b: Optional[BoardB] = None):
@@ -417,6 +434,9 @@ class Machine:
         x = self.ctx[ctx & 3]
         ch = x.chk
         sel &= 0x1F
+        if sel >= 28:                              # v1.2 the bells (sec. 10.2)
+            w = 4 * (sel - 28) + (ctx & 3)
+            return BELLS[w] ^ bells_h(self.dg, w)
         if sel >= 16:                              # v1.1, ignore ctx
             return {16: self.dg, 17: self.cap.status(), 18: self.cap.config(),
                     19: self.cap.ovf_tick}.get(sel, 0)

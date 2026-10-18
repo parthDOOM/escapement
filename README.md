@@ -75,7 +75,7 @@ flowchart LR
 | Clock | 25 MHz, timing met at all three corners |
 | Physical | 25,601 cells and two SRAM macros, 58.0% utilisation; LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
 | Power | 3.0 mW sending UART, 2.3 mW stopped (typical corner) |
-| Firmware | 18 programs; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
+| Firmware | 19 programs; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
 | Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 28 of 28 RTL mutants killed; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 
 Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),

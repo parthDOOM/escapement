@@ -38,7 +38,8 @@ from escmodels import Board, UartRx  # noqa: E402
 from esciss import Machine  # noqa: E402
 from esciss.machine import DG_POLY, M32, RUNNING, default_board  # noqa: E402
 
-SKIP = {"replay.asm"}       # a template: sw/esctape fills in its pins and trace
+SKIP = {"replay.asm",       # a template: sw/esctape fills in its pins and trace
+        "westminster.asm"}  # a 14 s tune, far beyond the model budget below
 MAX_TICKS = 2_000_000       # model budget per firmware (80 ms of chip time)
 MAX_PERIOD = 8192           # longest repeating pattern searched for, in ticks
 CHUNK = 4096
