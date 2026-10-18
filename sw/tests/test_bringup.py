@@ -42,6 +42,9 @@ start:
     GETP  r0
     JMP   start
 """
+BSQUARE_SRC = ".bank 0\n" + SQUARE_SRC.replace(
+    "".join(f".own {i}, 0\n" for i in range(8)), "".join(f".own {i}, 0\n" for i in range(5))
+).replace("0xFF, 0x55, 0xFF", "0x1F, 0x15, 0x1F").replace("0xFF, 0xAA, 0xFF", "0x1F, 0x0A, 0x1F")
 
 
 @pytest.fixture(scope="module")
@@ -75,11 +78,14 @@ def run_on(chip, bundle_dir, *, stages=None, optional=False, quick=True, keep_go
 
 def test_stage4_programs_are_the_assembled_sources():
     for src, words, cfg in ((SQUARE_SRC, bringup.SQUARE, bringup.SQUARE_CFG),
-                            (GETP_SRC, bringup.GETP, bringup.GETP_CFG)):
+                            (GETP_SRC, bringup.GETP, bringup.GETP_CFG),
+                            (BSQUARE_SRC, bringup.BSQUARE, bringup.BSQUARE_CFG),
+                            (".bank 0\n" + GETP_SRC, bringup.GETP, bringup.GETP_B_CFG)):
         im = assemble(src)
         assert im.words[:len(words)] == words and not any(im.words[len(words):])
         assert (im.ctx_enable_mask, im.entry_pcs_packed, im.pin_owned_mask,
-                im.pin_owner_packed, im.pin_od_mask) == cfg
+                im.pin_owner_packed, im.pin_od_mask, im.ctx_bank_mask)[:len(cfg)] == cfg
+        assert len(cfg) == 5 or cfg[5] == im.ctx_bank_mask
     assert assemble(SQUARE_SRC).symbols.get("HALF", bringup.SQUARE_HALF) == bringup.SQUARE_HALF
 
 
@@ -138,6 +144,10 @@ FAULTS = [
      "Pins 4 never read 0"),
     ("chip clock at half rate", {"clock_scale": 0.5}, {}, 4, "the chip runs at 12.500 MHz"),
     ("uio2 input stuck at 0", {"uio_in_stuck": (2, 0)}, {}, 4, "Input 2 stuck at 0"),
+    ("bank B output 1 stuck low", {"ob_stuck": (1, 0)}, {}, 1, "Bits 4 differ"),
+    ("bank B output 1 stuck high", {"ob_stuck": (1, 1)}, {}, 4,
+     "Outputs B1 (uo[4]) never read 0"),
+    ("bank B input 3 stuck high", {"ib_stuck": (3, 1)}, {}, 4, "Input B3 stuck at 1"),
 ]
 
 

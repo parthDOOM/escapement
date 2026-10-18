@@ -21,8 +21,8 @@ None of them is in the hardware.
    happens exactly at its deadline or is refused at enqueue, never late. A new protocol,
    or a device nobody planned for, is a new program, not a respin.
 2. **Pay only for work.** A register bank that is not written does not see the clock, and
-   a memory that is not read is not selected. Sending UART costs 2.9 mW, and a stopped
-   chip 2.2 mW (typical corner, measured on gate-level workloads; [power](docs/15-POWER.md)).
+   a memory that is not read is not selected. Sending UART costs 3.0 mW, and a stopped
+   chip 2.3 mW (typical corner, measured on gate-level workloads; [power](docs/15-POWER.md)).
    A logic-analyser capture runs with no instruction fetches at all.
 3. **Every claim has a second, mechanical check.** Formal proofs, lockstep co-simulation
    of the RTL against a separate Python model, mutation testing, static timing
@@ -73,10 +73,10 @@ flowchart LR
 | --- | --- |
 | Process | IHP SG13CMOS5L (130 nm), Tiny Tapeout, **6×4 tiles** (1289.28 × 710.64 µm) |
 | Clock | 25 MHz, timing met at all three corners |
-| Physical | 23,978 cells and two SRAM macros, 55.2% utilisation; LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
-| Power | 2.9 mW sending UART, 2.2 mW stopped (typical corner) |
+| Physical | 25,601 cells and two SRAM macros, 58.0% utilisation; LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
+| Power | 3.0 mW sending UART, 2.3 mW stopped (typical corner) |
 | Firmware | 18 programs; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
-| Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 20 of 20 RTL mutants killed; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
+| Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 28 of 28 RTL mutants killed; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 
 Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),
 [power](docs/15-POWER.md), [measurements](asic/reports/area.csv).

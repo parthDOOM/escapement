@@ -97,6 +97,10 @@ split pins, B0–B4, each an output on `uo_out[3+i]` and an input on `ui_in[3+i]
   every existing program has its v1.1 digest (checked for all 16 on both simulators).
   WRITE_CFG gains four optional bytes that a v1.1 chip ignores. The capture unit
   chooses its bank with a CAPT bit that v1.1 ignored.
+- *Cost.* 1,623 cells (6.8%) and 0.06–0.08 mW (3%) per workload. Most of the cells are
+  hold buffers: with the old 0.1 ns hold margin, routing left 33 fast-corner paths at
+  up to −0.036 ns, so the margin is now 0.2 ns ([physical design](03-PHYSICAL-DESIGN.md)).
+  Utilisation rises from 55.2% to 58.0%, still at 6×4.
 
 ## Power and timing margin
 

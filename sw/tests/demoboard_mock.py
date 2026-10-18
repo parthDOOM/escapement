@@ -94,14 +94,22 @@ class FaultyMachine(Machine):
             self.dg ^= 1
 
 
+def _force(v: int, stuck) -> int:
+    if stuck is None:
+        return v
+    b, lvl = stuck
+    return (v & ~(1 << b)) | (lvl << b)
+
+
 class SimChip:
     def __init__(self, *, version=7, clock_scale=1.0, clock_dead=False, miso_stuck=None,
                  mosi_stuck=None, mem_faults=None, uio_out_dead=0, uio_in_stuck=None,
-                 uio_ext_low=0, exec_fault=None, seed=1):
+                 uio_ext_low=0, ob_stuck=None, ib_stuck=None, exec_fault=None, seed=1):
         self.version, self.clock_scale, self.clock_dead = version, clock_scale, clock_dead
         self.miso_stuck, self.mosi_stuck = miso_stuck, mosi_stuck
         self.mem_faults = mem_faults or {}
         self.uio_out_dead, self.uio_in_stuck, self.uio_ext_low = uio_out_dead, uio_in_stuck, uio_ext_low
+        self.ob_stuck, self.ib_stuck = ob_stuck, ib_stuck      # (bank B bit, level)
         self.exec_fault = exec_fault
         rng = random.Random(seed)
         self.mem = [[rng.randrange(1 << 32) for _ in range(256)] for _ in range(2)]  # powers up undefined
@@ -164,7 +172,8 @@ class SimChip:
         miso = (self.tx >> 7) & 1 if self.miso_stuck is None else self.miso_stuck
         irq = int(bool(self.m.irq_pending) or self.m.fault_valid)
         # v1.2: uo[7:3] is pin bank B; released (as in and after reset) it is high
-        return miso | (irq << 1) | (int(self.running) << 2) | (self.m.outputs_b() << 3)
+        ob = _force(self.m.outputs_b(), self.ob_stuck)
+        return miso | (irq << 1) | (int(self.running) << 2) | (ob << 3)
 
     def uio(self) -> int:
         out, oe = self.m.outputs()
@@ -223,6 +232,9 @@ class SimChip:
             b, v = self.uio_in_stuck
             lvl = (lvl & ~(1 << b)) | (v << b)
         return lvl
+
+    def _board_b(self, t: int, ob: int) -> int:
+        return _force((self._ui_eff() >> 3) & 0x1F, self.ib_stuck)    # ui[7:3]
 
     def attach_uart(self, pin: int, baud: int):
         u = UartRx(pin, self.f_chip / baud if self.f_chip else 217)
@@ -408,7 +420,8 @@ class SimChip:
         image = cfg_image([self.mem_read(0, a) for a in range(256)],
                           [self.mem_read(1, a) for a in range(256)], self.cfg)
         FaultyMachine.exec_fault = self.exec_fault
-        self.m = (FaultyMachine if self.exec_fault else Machine)(image, board=self._board)
+        self.m = (FaultyMachine if self.exec_fault else Machine)(image, board=self._board,
+                                                                   board_b=self._board_b)
         self.running = True
 
     def _stop(self) -> None:

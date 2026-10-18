@@ -59,12 +59,18 @@ DATA_LINE_PATTERNS = (0, M32, 0x55555555, 0xAAAAAAAA, 0x33333333, 0xCCCCCCCC, 0x
 #           loop:  ADDT HALF / EMIT 0xFF, 0xAA, 0xFF / ADDT HALF / EMIT 0xFF, 0x55, 0xFF
 #                  JMP loop
 #   GETP:   .entry 0, start / start: GETP r0 / JMP start          (owns no pin)
+#   BSQUARE: SQUARE on pin bank B: .bank 0 / .own 0..4, 0 / EMIT 0x1F, 0x15 (0x0A), 0x1F
+# GETP with context 0 on bank B (GETP_B_CFG) reads {000, ui[7:3]}.
 SQUARE = [0x22000040, 0x28FF55FF, 0x220030D4, 0x28FFAAFF, 0x220030D4, 0x28FF55FF,
           0x18000002]
 SQUARE_CFG = (1, 0, 0xFF, 0, 0)
 SQUARE_HALF = 12500                       # ticks per half period (500 us at 25 MHz)
 GETP = [0x30000000, 0x18000000]
 GETP_CFG = (1, 0, 0, 0, 0)
+BSQUARE = [0x22000040, 0x281F151F, 0x220030D4, 0x281F0A1F, 0x220030D4, 0x281F151F,
+           0x18000002]
+BSQUARE_CFG = (1, 0, 0x1F00, 0, 0, 1)
+GETP_B_CFG = (1, 0, 0, 0, 0, 1)
 
 
 class Fail(Exception):
@@ -77,6 +83,29 @@ def bits(v, n=8):
 
 def pins_of(mask):
     return ",".join(str(i) for i in range(8) if (mask >> i) & 1)
+
+
+def bpins_of(mask):
+    return ",".join("B%d (uo[%d])" % (i, i + 3) for i in range(5) if (mask >> i) & 1)
+
+
+def _input_diagnosis(reads, width, prefix):
+    """Per input bit of (driven, read) pairs: stuck, crossed or inconsistent."""
+    msg = ""
+    for i in range(width):
+        col = [(g >> i) & 1 for p, g in reads]
+        if col == [(p >> i) & 1 for p, g in reads]:
+            continue
+        if all(col):
+            msg += " Input %s%d stuck at 1." % (prefix, i)
+        elif not any(col):
+            msg += " Input %s%d stuck at 0." % (prefix, i)
+        else:
+            src = [j for j in range(width) if col == [(p >> j) & 1 for p, g in reads]]
+            msg += (" Input %s%d follows pad %s%d (crossed or shorted)."
+                    % (prefix, i, prefix, src[0])
+                    if src else " Input %s%d reads inconsistently." % (prefix, i))
+    return msg
 
 
 def fold(d, x):
@@ -211,6 +240,7 @@ class Link:
     def __init__(self, io, fast=True, slow_us=0):
         self.io, self.fast, self.slow_us = io, fast, slow_us
         self.t_begin = self.t_end = self.nbits = 0
+        self.hi = 0                           # held on ui[7:3] (bank B inputs) by every write
         io.write_ui(CS)
 
     def xfer(self, data):
@@ -228,17 +258,18 @@ class Link:
     def _fast(self, data):
         w, r = self.io.platform.write_ui_in_byte, self.io.platform.read_uo_out_byte
         out = bytearray(len(data))
-        w(0)
+        h = self.hi
+        w(h)
         for n in range(len(data)):
             byte, v = data[n], 0
             for i in range(7, -1, -1):
-                m = MOSI if (byte >> i) & 1 else 0
+                m = (MOSI if (byte >> i) & 1 else 0) | h
                 w(m)
                 v = (v << 1) | (r() & 1)
                 w(m | SCK)
                 w(m)
             out[n] = v
-        w(CS)
+        w(CS | h)
         return bytes(out)
 
     def _slow(self, data):
@@ -343,8 +374,8 @@ class Bringup:
                        "must not drive any uio pin after reset (uio_oe = 0). Unplug "
                        "everything from the bidirectional Pmod; if it persists, the pin "
                        "is driven low by the chip or shorted." % pins_of(~uio & 0xFF))
-        return "PWM %d Hz (RP %s Hz), outputs 0 in and after reset, uio released" % (
-            hz, io.rp_clock())
+        return "PWM %d Hz (RP %s Hz), uo = %s in and after reset, uio released" % (
+            hz, io.rp_clock(), bits(UO_RESET))
 
     def _status_diagnosis(self, got):
         g = int.from_bytes(got, "big")
@@ -597,21 +628,66 @@ class Bringup:
         if wrong:
             msg = "the chip read the wrong uio levels (GETP r0): %s." % ", ".join(
                 "drove %s read %s" % (bits(p), bits(g)) for p, g in wrong[:4])
-            for i in range(8):
-                col = [(g >> i) & 1 for p, g in reads]
-                if col == [(p >> i) & 1 for p, g in reads]:
-                    continue
-                if all(col):
-                    msg += " Input %d stuck at 1." % i
-                elif not any(col):
-                    msg += " Input %d stuck at 0." % i
-                else:
-                    src = [j for j in range(8) if col == [(p >> j) & 1 for p, g in reads]]
-                    msg += (" Input %d follows pad %d (crossed or shorted)." % (i, src[0])
-                            if src else " Input %d reads inconsistently." % i)
-            raise Fail(msg)
+            raise Fail(msg + _input_diagnosis(reads, 8, ""))
+        self._bank_b(n)
         return ("uio[7:0] toggle as driven; chip clock %.4f MHz from a %d-tick period; "
-                "STOP releases pins; all 8 inputs read correctly" % (f / 1e6, 2 * SQUARE_HALF))
+                "STOP releases pins; all 8 inputs read correctly; bank B: 5 outputs toggle "
+                "and release high, 5 inputs read correctly" % (f / 1e6, 2 * SQUARE_HALF))
+
+    def _bank_b(self, n):
+        """Pin bank B: the square wave on uo[7:3], then GETP on ui[7:3]."""
+        io, host, link = self.io, self.host, self.link
+        self.load(BSQUARE, BSQUARE_CFG)
+        host.start()
+        seen = {}
+        for _ in range(n):
+            v = io.read_uo() >> 3
+            seen[v] = seen.get(v, 0) + 1
+            io.sleep_us(23)
+        host.stop()
+        io.sleep_us(50)
+        odd = dict((v, c) for v, c in seen.items() if v not in (0x15, 0x0A))
+        if len(seen) - len(odd) < 2 or sum(odd.values()) > 2:
+            hi = lo = 0
+            for v in seen:
+                hi |= v
+                lo |= ~v & 0x1F
+            msg = ("bank B levels (uo[7:3]) seen while the chip drives 10101/01010 "
+                   "alternately: %s." % ", ".join("%s x%d" % (bits(v, 5), c)
+                                                  for v, c in sorted(seen.items())))
+            if ~hi & 0x1F:
+                msg += " Outputs %s never read 1." % bpins_of(~hi & 0x1F)
+            if ~lo & 0x1F:
+                msg += " Outputs %s never read 0 (stuck high)." % bpins_of(~lo & 0x1F)
+            raise Fail(msg)
+        ob = io.read_uo() >> 3
+        if ob != 0x1F:
+            raise Fail("after STOP, bank B outputs %s read 0: a released bank B output must "
+                       "be high." % bpins_of(~ob & 0x1F))
+        self.load(GETP, GETP_B_CFG)
+        host.start()
+        pats = [0x00, 0x1F, 0x15, 0x0A] + [1 << i for i in range(5)] + \
+               [0x1F ^ (1 << i) for i in range(5)]
+        reads = []
+        try:
+            for p in pats:
+                link.hi = p << 3
+                io.write_ui(CS | link.hi)
+                io.sleep_us(30)
+                reads.append((p, host.read_dbg(0, 0) & 0xFF))
+        finally:
+            link.hi = 0
+            io.write_ui(CS)
+            host.stop()
+        wrong = [(p, g) for p, g in reads if p != g]
+        if wrong:
+            msg = ("the chip read the wrong bank B levels (GETP r0 on bank B, ui[7:3]): %s."
+                   % ", ".join("drove %s read %s" % (bits(p, 5), bits(g))
+                               for p, g in wrong[:4]))
+            if any(g >> 5 for p, g in reads):
+                msg += " Logical pins 5..7 read 1: the context is not on bank B."
+            raise Fail(msg + _input_diagnosis(reads, 5, "B") + " ui[7:3] are also the "
+                       "input DIP switches: switch them all off.")
 
     # -- 5
     def stage5(self):

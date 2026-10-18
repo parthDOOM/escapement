@@ -33,12 +33,17 @@ digest, the capture state and all 256 tape words.
 | --- | ---: | ---: | ---: |
 | Random programs, version 1.0 machine | 1,000 | 67,370 | 0 |
 | Random programs with tape traffic, version 1.1 | 300 | 21,055 | 0 |
+| Random programs with pin bank B, version 1.2 | 1,000 | 66,991 | 0 |
 | Firmware programs with their bus models | 15 | — | 0 |
 | Regression run (`make cosim`, 200 random programs plus all firmware) | 4 tests | — | 0 |
 
 Random programs come from a constrained generator (`test/cosim/progen.py`) that mixes
 every instruction class, deliberate faults, host mailbox traffic, and tape loads and
-stores that collide with capture drains.
+stores that collide with capture drains. Since version 1.2 it also puts contexts on pin
+bank B, owns and drives bank B pins, and points the capture unit at either bank, each on
+a random board for both banks: in the version 1.2 campaign, 520 programs configure a
+bank B context and 187 change a bank B output. A program with no bank B context is the
+same program as in version 1.1, so the earlier campaigns still apply.
 
 ## Formal proofs
 
@@ -49,13 +54,13 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | --- | --- | --- |
 | P1 | An open-drain pin never drives high | Unbounded (PDR) |
 | **P2** | **Never late: no FIFO head is ever past its deadline** | Unbounded, assume-guarantee (below) |
-| P3 | An unowned pin is never driven, in either bank (a bank B pin stays at its released level) | Unbounded (PDR) |
+| P3 | An unowned pin is never driven, in either bank (a bank B pin stays at its released level) | Unbounded (PDR), in two parts: a pin away from its released level has its output enable set, and an unowned pin never has one set |
 | P4 | FIFO occupancy stays within bounds | Unbounded (PDR) |
-| P5 | A faulted context drives none of its pins, in either bank | Unbounded (PDR) |
+| P5 | A faulted context drives none of its pins, in either bank | Unbounded (PDR), in two parts: a pin away from its released level has its output enable set, and a faulted context never has one set |
 | P6 | An admitted event is strictly ahead of its commit tick and of the FIFO tail | Unbounded (PDR) |
 | P7 | Fixed slot timing: a commit belongs to the context that owns that slot | Unbounded (PDR) |
 | P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start, stop or fault edge | Unbounded (PDR, with P2 for the lateness part of the last clause, below) |
-| H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction) |
+| H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction); H3 and H4 also by PDR in the core proof, as lemmas for P5 |
 | C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
 | G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
 | S1 | The configuration the core runs with (enabled contexts, entry points, pin ownership, open-drain pins, pin banks) never changes during a run | Unbounded (PDR), on the host interface |
@@ -80,10 +85,14 @@ state alone, never on the inputs of the same cycle. Stated as one clause, P8 had
 converged after seven hours of PDR; split this way, it proves in under a minute.
 
 **Run time.** `make formal` proves the core in parallel: `formal/split_core.py` makes
-one task per assertion source line (22 groups) from the elaborated design and runs
-`JOBS` of them at once. With 8 jobs every group passes in 25 minutes of wall time; the
-slowest are P3 and a capture-region bound, at about 25 minutes each. The single task
-(`sby -f esc_core.sby pdr`, all assertions together) passes too, in 45 minutes on one core.
+one task per assertion source line from the elaborated design and runs `JOBS` of them at
+once. A task proves its assertions without the others as lemmas, so a property that
+needs a lemma can take far longer split than together. Assertions tagged with the same
+`lemma-group` are therefore proved in one task: "a faulted context's output enables stay
+clear" proves in 140 seconds together with H3 and H4, and did not finish in two hours on
+its own. With 6 jobs all 21 tasks pass in 17 minutes of wall time; the slowest is a
+capture-region bound. The single task (`sby -f esc_core.sby pdr`, all assertions
+together) passes too, in 34 minutes on one core.
 
 **Vacuity guards.** A cover task reaches the precondition of every property, including
 capture overflow, region full, ring wrap, and a drain and a push with two records
@@ -94,7 +103,7 @@ step.
 
 The proofs above are about the RTL; the chip is built from the netlist that synthesis,
 placement and routing produce. `make equiv` proves that the two are the same machine:
-the final netlist of the release (sha256 `1c9004ee…`, in the GDS bundle) is
+the final netlist of the version 1.2 harden (sha256 `65db67ec…`) is
 sequentially equivalent to the RTL in `src/`, for every input sequence after reset.
 
 Both designs are flattened and placed side by side in a miter that feeds them the same
@@ -102,9 +111,10 @@ pins, the same SRAM read data and the same clock, and compares all 24 chip outpu
 every SRAM input (address, data, enables, 332 bits in all) on every step. ABC's `dprove`
 searches 19 steps for a difference, then matches the RTL's registers with the netlist's by
 signal correspondence and closes the proof by induction. Nothing is matched by name, so
-the netlist's renamed registers need no mapping, nor do the
-106 registers that reset to one in the RTL and that synthesis builds as reset-to-zero
-flip-flops with inverters. The proof takes about 3.5 minutes.
+the netlist's renamed registers need no mapping, nor do the registers that reset to one
+in the RTL and that synthesis builds as reset-to-zero flip-flops with inverters. The proof
+takes about 3 minutes. The version 1.1 release netlist (sha256 `1c9004ee…`) passes the
+same proof.
 
 **The check has teeth.** Two faults injected into the netlist are both found: a NAND
 in the `uio_oe[0]` path turned into a NOR fails at the first compared step, and the MISO
@@ -126,9 +136,14 @@ a missing GETI wait, broken tape forwarding, capture rule changes and clock-gate
 errors. Each mutant runs against the co-simulation first; if that misses it, the
 directed unit suite runs too, and the report says which one caught it.
 
-**Result: 20 of 20 mutants killed.** Eighteen are caught by the co-simulation. Two
-clock-gate mutants (START not clearing `tmr`, and the RX mailbox not shifting on a pop)
-are caught only by the directed suite, and the report keeps that visible.
+Eight mutants target pin bank B: a DRIVE landing one pin off, a released output going
+low, a context reading the other bank, ownership checked against the wrong bank, a fault
+that keeps its bank B pins, inputs that never reach the synchronisers, a digest blind to
+bank B, and capture ignoring the bank bit.
+
+**Result: 28 of 28 mutants killed.** Twenty-seven are caught by the co-simulation. One
+clock-gate mutant (START not clearing `tmr`) is caught only by the directed suite, and
+the report keeps that visible.
 
 ## Timing certificates
 
@@ -145,6 +160,7 @@ replays into the fault, or NOT_PROVEN.
 | `i2c_ctrl` | CHECKED | 2 |
 | `i2c_eeprom` | CHECKED | 2 |
 | `combo_uart_i2c` (three contexts) | CHECKED | 2 / 301 / 7 |
+| `combo_two_banks` (four contexts, both banks) | CHECKED | 5 / 4 / 7 / 6 |
 | `ws2812` | CHECKED | 5 |
 | `onewire` | CHECKED | 4 |
 | `can_tx` | CHECKED | 3 |
@@ -194,19 +210,20 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | NEC infrared transmitter with 38 kHz carrier (repeat codes, extended address) and receiver | `nec_tx`, `nec_rx` | Receiver model that demodulates the carrier and checks frequency, duty and the Linux decoder's timing windows; remote-control model with ±10% clock error; transmitter → IR receiver module model → receiver loopback |
 | ARM Serial Wire Debug host: JTAG-to-SWD switch, DPIDR read, DP and AP reads and writes | `swd_idcode` | SW-DP target model from ADIv5.2 (IHI 0031G): WAIT retries, FAULT and ABORT, read parity errors, no-response back-off, turnaround contention |
 | UART and I2C concurrently | `combo_uart_i2c` | Both models at once, on separate contexts |
+| PS/2 and JTAG on bank A, SPI and UART on bank B, concurrently | `combo_two_banks` | All four models at once; the bank B ones see only the split pins |
 | Logic analyser and replay | `logic_analyzer`, `replay` | Tick-exact replay of a captured UART trace; a too-dense trace is refused |
 
 ## Test suites
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, tape tools, bring-up script | 243 | Pass |
+| Software (`make sw-test`): assembler, simulator, certificates, models, tape tools, bring-up script | 260 | Pass |
 | Chip level on the RTL (`make test`) | 5 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 5 | Pass |
-| Co-simulation (`make cosim`) | 4 | Pass |
-| Host interface (`make host-test`) | 9 | Pass |
+| Co-simulation (`make cosim`) | 5 | Pass |
+| Host interface (`make host-test`) | 10 | Pass |
 | Core unit tests (`make unit-test`) | 22 | Pass |
-| New firmware (SWD, SPI target, NEC) through the chip pins (`make pin-test`, `make gl-pin-test`) | 4 | Pass on the RTL and on the final netlist |
+| Newer firmware (SWD, SPI target, NEC, both pin banks at once) through the chip pins (`make pin-test`, `make gl-pin-test`) | 5 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 
@@ -232,7 +249,7 @@ make sw-test cert test cosim-parallel host-test unit-test lint   # simulation an
 make pin-test bringup-test                                       # newer firmware through the pins; bring-up script
 make gl-test gl-pin-test                                         # the same chip-level checks on the gate-level netlist
 make formal-quick                                                # bounded core proof, cover, never-late, clock gate
-make formal JOBS=8                                               # adds the unbounded core proof (~25 min)
+make formal JOBS=8                                               # adds the unbounded core proof (~20 min)
 make equiv                                                       # final netlist equals the RTL (~4 min)
 make mutation JOBS=8                                             # mutation campaign, 8 mutants at a time
 ```

@@ -392,22 +392,27 @@ module esc_ctx (
   integer fi;
   reg [1:0]  f_slot, f_next;
   reg [31:0] f_lead, f_step;
-`ifndef ESC_CORE_PDR   // proved in formal/esc_ctx.sby; the core's PDR task skips them
+  // H3 and H4 are proved here and again in the core's PDR task, where they are the
+  // lemmas for "a faulted context's pins stay released" (lemma group `faulted`). H1 and
+  // H2 are proved only in formal/esc_ctx.sby; the core's PDR task skips them.
   always @(*) if (rst_n) begin
-    assert (o_cnt <= 3'd4);
-    if (o_state != ST_RUN) assert (o_cnt == 3'd0);                         // H3
+    if (o_state != ST_RUN) assert (o_cnt == 3'd0);           // H3  lemma-group: faulted
     for (fi = 0; fi < 4; fi = fi + 1) begin
       f_slot = head + fi[1:0];
       f_next = head + fi[1:0] + 2'd1;
       f_lead = f_ent[f_slot][55:24] - now;
       f_step = f_ent[f_next][55:24] - f_ent[f_slot][55:24];
+`ifndef ESC_CORE_PDR
       if (fi < o_cnt) assert (!f_lead[31]);                                 // H1
       if (fi + 1 < o_cnt) assert (f_step != 32'd0 && !f_step[31]);          // H2
+`endif
       // H4 a queued DRIVE only touches pins this context owns (admission OWNER rule)
       if (fi < o_cnt && f_ent[f_slot][57:56] == K_DRIVE)
-        assert ((f_ent[f_slot][23:16] & ~f_owned) == 8'd0);
+        assert ((f_ent[f_slot][23:16] & ~f_owned) == 8'd0);  // H4  lemma-group: faulted
     end
   end
+`ifndef ESC_CORE_PDR
+  always @(*) if (rst_n) assert (o_cnt <= 3'd4);
 `endif
 `endif
 

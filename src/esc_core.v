@@ -858,14 +858,17 @@ module esc_core (
 `ifndef ESC_CORE_PDR
     assert (c_late == 4'd0);
 `endif
-    // P3 an unowned pin is never driven (§6.2 OWNER), in either bank.
-    assert ((f_driven & ~pin_owned) == 13'd0);
-    for (fk = 0; fk < 4; fk = fk + 1) begin
+    for (fk = 0; fk < 4; fk = fk + 1)
       // P4 FIFO occupancy bounded (§6).
       assert (c_cnt[3*fk +: 3] <= 3'd4);
-      // P5 a FAULTED context drives none of its pins (§8 release), in either bank.
-      if (c_state[2*fk +: 2] == 2'd3) assert ((f_driven & pown[13*fk +: 13]) == 13'd0);
-    end
+    // P3 an unowned pin is never driven (§6.2 OWNER), and P5 a FAULTED context drives
+    // none of its pins (§8 release), in either bank. Each is proved in two parts, every
+    // part for all time: a pin away from its released level has its OE register set
+    // (here), and the OE register never covers an unowned pin (P3) or a faulted
+    // context's pin (P5) (the strengthenings below). Split into one task per assertion,
+    // PDR proves no lemmas across tasks; stated directly on f_driven, P3 and P5 must
+    // rediscover the second part, and their run times swung from 6 min to over an hour.
+    assert ((f_driven & ~pin_oe) == 13'd0);
     // P6 admission: an accepted event is strictly ahead of its commit tick and of the
     // FIFO tail, within the half-range horizon (§6.2 steps 4-5).
     // Register-level strengthening (makes P3/P5 inductive): nothing is enabled while
@@ -877,7 +880,7 @@ module esc_core (
       if (!run) assert (c_state[2*fk +: 2] != ST_RUN);
     assert ((pin_oe & ~pin_owned) == 13'd0);
     for (fk = 0; fk < 4; fk = fk + 1)
-      if (c_state[2*fk +: 2] == 2'd3) assert ((pin_oe & pown[13*fk +: 13]) == 13'd0);
+      if (c_state[2*fk +: 2] == 2'd3) assert ((pin_oe & pown[13*fk +: 13]) == 13'd0);  // lemma-group: faulted
     if (cm_ok && w_push) begin
       assert (ahd_now);
       if (cs_cnta != 3'd0) assert (ahd_tail);

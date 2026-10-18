@@ -96,13 +96,13 @@ compare.
 [0] board and project ...
 [0] PASS  RP2350, SDK 3.1.1, shuttle ...
 [1] clock and reset ...
-[1] PASS  PWM 25000000 Hz (RP 100000000 Hz), outputs 0 in and after reset, uio released
+[1] PASS  PWM 25000000 Hz (RP 100000000 Hz), uo = 11111000 in and after reset, uio released
 [2] host link ...
 [2] PASS  STATUS 07 00 0f 00 x 201; one pin write ... ns; SCK half period about ... ns (fast) and ... ns (slow)
 [3] memories ...
 [3] PASS  data lines at 2 addresses, 4 patterns x 256 words, in both SRAMs; spaces independent
 [4] pins and clock rate ...
-[4] PASS  uio[7:0] toggle as driven; chip clock 25.0000 MHz from a 25000-tick period; STOP releases pins; all 8 inputs read correctly
+[4] PASS  uio[7:0] toggle as driven; chip clock 25.0000 MHz from a 25000-tick period; STOP releases pins; all 8 inputs read correctly; bank B: 5 outputs toggle and release high, 5 inputs read correctly
 [5] firmware digests ...
     can_tx.asm             steady ok    digest 0xffaf382b = model at tick 160444
     ...
@@ -202,7 +202,7 @@ the vendor's behavioural model.
 ### Stage 4: pins and clock rate
 
 Two small programs, hand-assembled in the script (the tests check them against the
-assembler):
+assembler), run first on bank A and then on bank B:
 
 - **SQUARE** owns all eight uio pins and drives `0x55` and `0xAA` alternately, 12,500
   ticks each (500 µs at 25 MHz), with DRIVE events at exact ticks. The RP reads the uio
@@ -213,6 +213,10 @@ assembler):
   drives 20 patterns on uio[7:0] and reads r0 back with `READ_DBG`. The chip cannot
   drive a pin it does not own (formal property P3, proved unbounded), and the script
   checks that every pin reads 1 before the RP drives anything.
+- **Bank B.** The same two programs with context 0 on bank B. SQUARE drives `10101` and
+  `01010` on `uo[7:3]`, which must read high again after STOP. GETP reads `ui[7:3]` as
+  logical pins 0–4 while the RP drives 14 patterns on them; logical pins 5–7 must read 0.
+  The host link keeps the pattern on `ui[7:3]` during its own transfers.
 
 | FAIL message | Meaning | Next |
 | --- | --- | --- |
@@ -222,6 +226,10 @@ assembler):
 | uio[0] did not toggle | No output at all | Check the program loaded (stage 3) and RUN (`uo[2]`) is high |
 | after STOP, uio pins ... still read 0 | STOP did not release the pins | Scope the pin across the STOP frame |
 | Input i stuck at 0/1, follows pad j | Input path fault | Scope the pad while the RP drives it |
+| bank B levels ... Outputs Bi (uo[n]) never read 1 / 0 | A bank B output is dead or held | Scope `uo[n]`. Stuck low is already caught by stage 1 |
+| after STOP, bank B outputs ... read 0 | A released bank B output is not high | Scope the pin across the STOP frame |
+| wrong bank B levels ... Input Bi stuck, follows pad Bj | A bank B input path fault, or an input DIP switch is on | Switch the DIP switches off; scope `ui[i+3]` |
+| Logical pins 5..7 read 1 | The context did not switch to bank B | WRITE_CFG byte 10 did not arrive: check that stage 2 reported version 7 |
 
 ### Stage 5: firmware digests
 
@@ -281,7 +289,7 @@ The same script runs under CPython against two simulated chips:
 
 | Command | Chip | What it shows |
 | --- | --- | --- |
-| `make sw-test` (`sw/tests/test_bringup.py`) | `sw/tests/demoboard_mock.py`: the host interface modelled cycle by cycle after `escapement_host.v`, the ISS as the core, both SRAMs, and faults | A correct chip passes stages 0–6 with every firmware, without the RP and the chip ever driving the same pin and with every SCK phase at least 4 clocks. 19 injected board and chip faults (selection, DIP switch, clock, reset state, MISO/MOSI stuck, a v1.0 or v1.1 chip, a too-fast host, SRAM address and data lines stuck or shorted, a dead output, a stuck input, a half-rate clock) each fail the stage meant to catch them with the expected diagnosis; so do a stuck register bit, a fault in the digest path only, and stale bundles (stage 5) |
+| `make sw-test` (`sw/tests/test_bringup.py`) | `sw/tests/demoboard_mock.py`: the host interface modelled cycle by cycle after `escapement_host.v`, the ISS as the core, both SRAMs, and faults | A correct chip passes stages 0–6 with every firmware, without the RP and the chip ever driving the same pin and with every SCK phase at least 4 clocks. 22 injected board and chip faults (selection, DIP switch, clock, reset state, MISO/MOSI stuck, a v1.0 or v1.1 chip, a too-fast host, SRAM address and data lines stuck or shorted, a dead output, a stuck input, a half-rate clock, a bank B output stuck low or high, a bank B input stuck) each fail the stage meant to catch them with the expected diagnosis; so do a stuck register bit, a fault in the digest path only, and stale bundles (stage 5) |
 | `make bringup-test` (`test/bringup/`, about 15 minutes) | The RTL of the whole chip under cocotb, with the board's uio wiring in `tb_bringup.v` | Stages 0–6 pass on the RTL with four firmware (`BRINGUP_FIRMWARE=all` for every one); a stale bundle fails stage 5 |
 
 The simulated board imitates the parts of tt-micropython-firmware the script uses,

@@ -22,7 +22,9 @@
   "CLOCK_PERIOD": 40,
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
-  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
+  "//": "v1.2: 0.2 (was 0.1). Detailed routing takes up to 0.17 ns of hold slack after the",
+  "//": "post-CTS repair; at 0.1 the v1.2 layout ended 33 fast-corner paths at -0.036 ns.",
+  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.2,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
 
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",

@@ -8,30 +8,35 @@ with the reasoning for each setting in its comments and in
 
 ## Sign-off results
 
+Version 1.2 (pin bank B), local harden `v12b`:
+
 | | |
 | --- | --- |
 | Die | 1289.28 × 710.64 µm (916,214 µm²) |
-| Standard cells | 23,978 (398,876 µm²), of which 3,867 sequential |
+| Standard cells | 25,601 (424,370 µm²), of which 3,912 sequential |
 | Macros | 2 × `RM_IHPSG13_1P_256x32_c2_bm_bist` (98,977 µm²) |
-| Utilisation | 55.2% |
+| Utilisation | 58.0% |
 | Clock | 25 MHz (40 ns) |
-| Setup | No violations at any corner. Worst slack: typical +2.21 ns, fast +8.36 ns; at the slow corner the worst path ends on a clock-gate latch and uses time borrowing (see below) |
-| Hold | No violations. Worst slack: fast +0.025 ns, typical +0.082 ns, slow +0.160 ns |
-| Hold buffers | 395 |
-| Routing | 2.06 m of wire, 218,521 vias; detailed-route DRC 0 |
+| Setup | No violations at any corner. Worst slack: typical +2.45 ns, fast +8.64 ns; at the slow corner the worst path ends on a clock-gate latch and uses time borrowing (see below) |
+| Hold | No violations. Worst slack: fast +0.097 ns, typical +0.220 ns, slow +0.449 ns |
+| Hold buffers | 1,528 (resizer hold margin 0.2 ns; see below) |
+| Routing | 2.13 m of wire, 229,833 vias; detailed-route DRC 0 |
 | LVS | Clean (0 errors, 0 net or device differences) |
 | DRC | Clean (KLayout SG13CMOS5L deck in the Tiny Tapeout precheck) |
-| Antenna | 0 violations (75 diodes) |
+| Antenna | 0 violations (57 diodes) |
 | IR drop | 0.12 mV worst |
-| Power (static estimate) | 2.60 mW; workload measurements in [power](15-POWER.md) |
+| Power (static estimate) | 2.63 mW; workload measurements in [power](15-POWER.md) |
 | Precheck | Tiny Tapeout precheck (tt-support-tools `d66cf17`) passes: all nine checks, including KLayout SG13CMOS5L DRC |
-| Gate level | The chip-level test suite passes on the final netlist, including the execution digest against the ISS |
+| Gate level | The chip-level and pin test suites pass on the final netlist, including the execution digest against the ISS and both pin banks at once; the netlist is proved equivalent to the RTL |
 
-The GitHub Actions harden reproduces these results exactly, metric for metric, from a
-clean checkout with the pinned toolchain (258 minutes on a standard public runner).
+Version 1.1 (`rc14`: 23,978 cells, 55.2%, fast-corner hold +0.025 ns, 395 hold buffers) was
+reproduced exactly, metric for metric, by the GitHub Actions harden from a clean checkout
+with the pinned toolchain (258 minutes on a standard public runner). Version 1.2 has
+1,623 more cells (6.8%): 1,133 are hold buffers from the larger hold margin, and 490 are
+the pin bank B logic and its repair buffers.
 
 Corners: `nom_slow_1p08V_125C`, `nom_typ_1p20V_25C`, `nom_fast_1p32V_m40C`. The
-remaining design-rule warnings are 124 max-slew and 34 max-capacitance nets at the slow
+remaining design-rule warnings are 157 max-slew and 39 max-capacitance nets at the slow
 corner. They cause no timing violations. The worst are nets that the detailed router
 detours around the congested horizontal layer: one 375 µm connection is routed as 1.8 mm.
 
@@ -93,6 +98,13 @@ the clock uncertainty is 0.25 ns for setup and **0.05 ns for hold**. A hold chec
 launches and captures on the same clock edge, so jitter cancels; skew is propagated with
 CRPR, and on-chip variation stays covered by the 5% timing derate. Applying the full
 setup margin to hold had put about 4,000 unnecessary delay cells on register self-loops.
+
+**Hold margin after routing.** Hold is repaired once, after clock-tree synthesis
+(`PL_RESIZER_HOLD_SLACK_MARGIN`), and detailed routing then takes up to 0.17 ns of hold
+slack. With a 0.1 ns margin the version 1.2 layout ended with 33 fast-corner paths at up
+to −0.036 ns, all from a context's register bank into its clock-gated event FIFO, where
+the capture clock passes the gate and a deeper tree. The margin is 0.2 ns, which leaves
++0.097 ns after routing.
 
 **Reading the setup report with clock gates.** The worst setup path at the slow corner
 ends at a clock-gate latch, and OpenSTA reports slack to the latch's opening edge
