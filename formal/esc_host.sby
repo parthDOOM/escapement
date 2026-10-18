@@ -1,0 +1,26 @@
+# S1: the core's configuration is stable during a run, proved on the host interface
+# (formal/esc_host_env.v). This is the one environment assumption of esc_core.sby besides
+# reset. Run: sby -f esc_host.sby prove | cover
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+cover: mode cover
+cover: depth 400
+
+[engines]
+prove: abc pdr
+cover: smtbmc yices
+
+[script]
+read -formal -DFORMAL escapement_host.v esc_host_env.v
+prep -top esc_host_env
+prove: async2sync
+prove: setundef -undriven -anyseq
+prove: setundef -init -zero
+
+[files]
+../src/escapement_host.v
+esc_host_env.v
