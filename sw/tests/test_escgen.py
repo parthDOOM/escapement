@@ -83,3 +83,28 @@ def test_ws2812_frames():
     m.run(40_000, stop_when_idle=False)
     assert dec.frames[:2] == [colours, colours] and not dec.violations, dec.violations
     assert not m.ff.valid
+
+
+def test_nec_frames_from_a_table():
+    """Carrier bursts and pulse-distance bits from a table, at a 2.5 MHz timebase (the
+    receiver model's tick is 400 ns): two frames decoded, 342 + 33 x 22 carrier pulses
+    each, every burst at its nominal distance, 1/3 duty, one acknowledgement each."""
+    from escmodels import NecReceiver
+    _, image = escgen.build(table("nec_tx_gen"), CLK_KHZ=2500)
+    frames = [(0x5A, 0xC3), (0x00, 0xFF)]
+    raw = [a | ((a ^ 0xFF) << 8) | (c << 16) | ((c ^ 0xFF) << 24) for a, c in frames]
+    host = HostScript([(100, 0, raw[0]), (200, 0, raw[1])], drain=[0], poll=1000)
+    rx = NecReceiver(0, tick_ns=400.0)
+    board = Board(rx, host)
+    m = Machine(image, board=board)
+    host.machine = m
+    m.run(2 * (33_750 + 32 * 5_625 + 1_500 + 100_000) + 10_000, stop_when_idle=False)  # + 40 ms gaps
+    assert rx.frames() == frames, rx.events
+    assert not board.errors(), board.errors()
+    assert rx.pulses == ([342] + [22] * 33) * 2
+    starts = [s for s, _ in rx.marks]
+    assert starts[1] - starts[0] == 2500 * 27 // 2              # leader to first bit, exact
+    for i in range(32):
+        bit = raw[0] >> i & 1
+        assert starts[i + 2] - starts[i + 1] == (2500 * 9 // 4 if bit else 2500 * 9 // 8)
+    assert host.received[0] == [1, 1] and not m.ff.valid

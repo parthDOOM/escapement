@@ -213,7 +213,12 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | UART and I2C concurrently | `combo_uart_i2c` | Both models at once, on separate contexts |
 | PS/2 and JTAG on bank A, SPI and UART on bank B, concurrently | `combo_two_banks` | All four models at once; the bank B ones see only the split pins |
 | Westminster Quarters, the hour chime of Big Ben, on a buzzer on bank B | `westminster` | Note decoder at a hundredth of real time: all 17 notes in order, each at its pitch (within 0.2%) and length, and every silence to the tick |
-| Logic analyser and replay | `logic_analyzer`, `replay` | Tick-exact replay of a captured UART trace; a too-dense trace is refused |
+| Logic analyser and replay | `logic_analyzer`, `replay` | Tick-exact replay of a captured UART trace; a too-dense trace is refused; streaming capture past the tape's size (v1.3) on the simulator, the RTL (with a host reading during the run) and through the chip's pins |
+| UART and MIDI OUT from timing tables | `uart_tx_gen`, `midi_tx` | UART receiver model at 115,200 and 31,250 baud |
+| DMX512 from a timing table | `dmx512_tx` | DMX receiver model with the ANSI E1.11 receiver limits: start code and 511 slots, break and mark-after-break times |
+| WS2812 from a timing table, colours in the tape | `ws2812_gen` | LED chain model with datasheet timing windows |
+| NEC infrared from a timing table | `nec_tx_gen` | NEC receiver model: carrier, pulse counts, every burst position |
+| Seven-segment animation on the demo board's display | `seven_seg` | Every frame on bank B, in order, to the tick |
 
 ## Test suites
 

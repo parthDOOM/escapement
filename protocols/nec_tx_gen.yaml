@@ -1,0 +1,27 @@
+# NEC infrared frame from a timing table: a carrier, pulse-distance bits and the same
+# figures as the hand-written nec_tx.asm (which adds repeat codes and the 108 ms slot).
+name: nec_tx_gen
+title: NEC infrared frame with a 38 kHz carrier; one raw 32-bit frame per host word, acknowledged
+refs: ["Vishay, Data Formats for IR Remote Control, doc. 80071 rev. 2.3: 38 kHz carrier, 9 ms leader burst, 4.5 ms space, 562.5 us bursts, 1.125 / 2.25 ms bit periods, 32 bits LSB first",
+       "SB-Projects, NEC Protocol, www.sbprojects.net/knowledge/ir/nec.php"]
+context: 0
+pins:
+  IR: {pin: 0, idle: 0}
+constants:
+  PERIOD: (CLK_KHZ * 10 + 190) // 380      # 658 ticks at 25 MHz: 37.99 kHz
+  NBIT: 22                                 # carrier pulses in a bit or stop burst
+  NLEAD: 342                               # carrier pulses in the 9 ms leader
+  HDR: CLK_KHZ * 27 // 2                   # 13.5 ms, leader start to the first bit
+  BIT0: CLK_KHZ * 9 // 8                   # 1.125 ms, burst to burst: 0
+  BIT1: CLK_KHZ * 9 // 4                   # 2.25 ms, burst to burst: 1
+  GAP: CLK_KHZ * 40                        # 40 ms of quiet after a frame
+carrier: {period: PERIOD, high: (PERIOD + 1) // 3}    # 1/3 duty
+symbols:
+  leader: [[{IR: carrier}, NLEAD * PERIOD], [{IR: 0}, HDR - NLEAD * PERIOD]]
+  zero:   [[{IR: carrier}, NBIT * PERIOD], [{IR: 0}, BIT0 - NBIT * PERIOD]]
+  one:    [[{IR: carrier}, NBIT * PERIOD], [{IR: 0}, BIT1 - NBIT * PERIOD]]
+  stop:   [[{IR: carrier}, NBIT * PERIOD]]
+  gap:    [[{IR: 0}, GAP]]
+frame: [leader, {bits: 32, order: lsb, choose: [zero, one]}, stop]
+source: {kind: mailbox}
+packet: {after: [gap], ack: true}

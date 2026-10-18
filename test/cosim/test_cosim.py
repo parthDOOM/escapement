@@ -607,6 +607,19 @@ def case_ws2812_gen():
     return Board(dec), None, check
 
 
+def case_nec_gen():
+    """One generated NEC frame at 2.5 MHz into the receiver model, acknowledged."""
+    from escmodels import NecReceiver
+    rx = NecReceiver(0, tick_ns=400.0)
+    raw = 0x5A | (0xA5 << 8) | (0xC3 << 16) | (0x3C << 24)
+    host = HostScript([(100, 0, raw)], drain=[0], poll=997)
+
+    def check(board, h):
+        ok = rx.frames() == [(0x5A, 0xC3)] and h.received[0] == [1]
+        return ([] if ok else [f"nec {rx.events} acks {h.received}"]) + board.errors()
+    return Board(rx, host), host, check
+
+
 FIRMWARE_CASES = {
     "uart_rx": ("uart_rx.asm", 13500, case_uart_rx),
     "i2c_ctrl": ("i2c_ctrl.asm", 9000, case_i2c),
@@ -628,6 +641,7 @@ FIRMWARE_CASES = {
     "midi_tx": ("midi_tx.asm", 30000, serial_case(31250, bytes((0x90, 0x3C, 0x7F)))),
     "ws2812_gen": ("ws2812_gen.asm", 9000, case_ws2812_gen),   # ends inside the latch
     "gen_slow": ("../test/cosim/gen_cosim.asm", 130000, case_gen_slow),
+    "nec_tx_gen": ("../test/cosim/nec_gen_cosim.asm", 300000, case_nec_gen),
 }
 TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape

@@ -14,13 +14,20 @@ Table keys:
     pins        NAME: {pin: n, idle: 0|1, od: true}   (od: bank A only)
     constants   NAME: expression in assembler syntax; CLK_KHZ (default 25000) is defined,
                 so timings can be written in clock-independent form
+    carrier     {period: expr, high: expr}: the carrier for `carrier` phases, a pulse of
+                `high` ticks every `period` (one carrier per table)
     symbols     NAME: [[levels, duration], ...], a list of phases. `levels` maps pin
-                names to 0, 1 or `data`; a phase sets its pins at the current deadline
-                and lasts `duration` ticks (an expression). A phase with `data` drives
-                those pins from the next bit of the unit (EMITX) and may set no other pin.
-    frame       the items of one data unit, in order: a symbol name, or
-                {bits: n, order: lsb|msb, symbol: NAME} for n data bits, each sent as
-                the symbol (which must have exactly one data phase)
+                names to 0, 1, `data` or `carrier`; a phase sets its pins at the current
+                deadline and lasts `duration` ticks (an expression).
+                  data     the pins take the next bit of the unit (EMITX); the phase may
+                           set no other pin
+                  carrier  one pin sends carrier pulses for the whole phase,
+                           which must be a whole number of periods, and is low after it
+    frame       the items of one data unit, in order: a symbol name, or a field:
+                  {bits: n, order: lsb|msb, symbol: NAME}   each bit sent as the symbol,
+                           which has exactly one data phase
+                  {bits: n, order: lsb, choose: [S0, S1]}   each bit sends S0 or S1
+                           (pulse-distance and pulse-width codes; may contain bursts)
     source      where units come from:
                   {kind: mailbox}                      POP one word per packet
                   {kind: tape, base: a, count: n}      words a .. a+n-1 make one packet
@@ -32,15 +39,18 @@ Table keys:
                 around each packet (a mailbox word, a pass over the tape); ack PUSHes 1
                 after each packet
 
-Registers: r1 holds the source word (r0 directly when a word is one field), r0 the
-unit being shifted, r2 the tape address, r3 the re-anchoring arithmetic. The shift register sh and the loop counter lc carry
-a unit's bits. Every edge is a DRIVE event at an absolute deadline (`tmr`), so the
-timing of the output does not depend on instruction timing; escert proves the program
-always schedules ahead of the deadlines.
+Registers: r1 holds the source word (r0 directly when a word is one plain field), r0 the
+unit being shifted (or the constant 1), r2 the tape address, r3 the re-anchoring
+arithmetic and the bit count of a `choose` field. The shift register sh and the loop
+counter lc carry a plain field's bits; lc also counts a burst's carrier pulses. Every
+edge is a DRIVE event at an absolute deadline (`tmr`), so the timing of the output does
+not depend on instruction timing; escert proves the program always schedules ahead of
+the deadlines.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -51,6 +61,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TABLES = ROOT / "protocols"
 LEAD = 16                          # first deadline after the first commit, ticks
 ANCHOR = 64                        # a re-anchored schedule starts this far ahead, ticks
+LONG = 16384                       # a wait longer than this drains the queue first
 
 
 class TableError(ValueError):
@@ -61,6 +72,26 @@ def load(path) -> dict:
     t = yaml.safe_load(Path(path).read_text())
     t.setdefault("source_file", Path(path).name)
     return t
+
+
+def _value(t, expr, clk_khz=25000):
+    """An expression's value at the default clock (for checks, not for the program)."""
+    names = {"CLK_KHZ": clk_khz}
+    consts = dict(t.get("constants") or {})
+    for _ in range(len(consts) + 1):
+        for n, e in consts.items():
+            if n not in names:
+                try:
+                    names[n] = _eval(str(e), names)
+                except NameError:
+                    pass
+    return _eval(str(expr), names)
+
+
+def _eval(expr, names):
+    if not re.fullmatch(r"[\w\s+\-*/()<>|&~]*", expr):
+        raise TableError(f"expression {expr!r}")
+    return int(eval(expr, {"__builtins__": {}}, names))          # noqa: S307
 
 
 def _phases(t, name):
@@ -75,12 +106,21 @@ def _phases(t, name):
         for p, v in levels.items():
             if p not in t["pins"]:
                 raise TableError(f"symbol {name}: unknown pin {p!r}")
-            if v not in (0, 1, "data"):
-                raise TableError(f"symbol {name}: pin {p} level must be 0, 1 or data")
-        data = [p for p, v in levels.items() if v == "data"]
-        if data and len(data) != len(levels):
-            raise TableError(f"symbol {name}: a data phase may set only its data pins")
-        out.append((levels, str(dur), bool(data)))
+            if v not in (0, 1, "data", "carrier"):
+                raise TableError(f"symbol {name}: pin {p} level must be 0, 1, data or carrier")
+        kinds = {("data" if v == "data" else "carrier" if v == "carrier" else "const")
+                 for v in levels.values()}
+        if len(kinds) > 1:
+            raise TableError(f"symbol {name}: a data or carrier phase may set only its pins")
+        kind = kinds.pop() if kinds else "const"
+        if kind == "carrier":
+            if len(levels) != 1 or "carrier" not in t:
+                raise TableError(f"symbol {name}: a carrier phase drives one pin, and the "
+                                 "table needs `carrier: {period, high}`")
+            per = _value(t, t["carrier"]["period"])
+            if _value(t, dur) % per:
+                raise TableError(f"symbol {name}: a burst must be whole carrier periods")
+        out.append((levels, str(dur), kind))
     return out
 
 
@@ -90,12 +130,14 @@ def _mask(t, names):
 
 def _apply(known, phases):
     """Pin levels known after `phases`, from `known` (a data phase makes its pins
-    unknown)."""
+    unknown; a burst ends low)."""
     k = dict(known)
-    for levels, _, data in phases:
+    for levels, _, kind in phases:
         for p, v in levels.items():
-            if data:
+            if kind == "data":
                 k.pop(p, None)
+            elif kind == "carrier":
+                k[p] = 0
             else:
                 k[p] = v
     return k
@@ -110,9 +152,11 @@ class _Gen:
         self.t, self.lines, self.n = t, [], 0
         self.pins = list(t["pins"])
         self.known = {}                # pin levels known at this point of the program
+        self.burst_pin = None
 
     def emit(self, s="", note=""):
-        self.lines.append(f"    {s:<34s}; {note}" if note else (f"    {s}" if s else ""))
+        code = s.ljust(34) if len(s) < 34 else s + " "
+        self.lines.append(f"    {code}; {note}" if note else (f"    {s}" if s else ""))
 
     def label(self, s, known=None):
         """A label; `known` is what holds on every path into it (default: nothing)."""
@@ -123,34 +167,52 @@ class _Gen:
         self.n += 1
         return f"{base}{self.n}"
 
-    def phase(self, levels, dur, data, order=None, note=""):
-        m = _mask(self.t, levels)
-        if data:
-            self.emit(f"EMITX {m}, {order.upper()}, {m}", note or "data bit")
-        elif all(self.known.get(p) == v for p, v in levels.items()):
-            note = (note + ": " if note else "") + "no change, no event"
+    def wait(self, dur, note=""):
+        """ADDT dur; a long wait lets the queue drain first, which moves no edge."""
+        if _value(self.t, dur) > LONG:
+            self.emit(f"ADDT  {dur} - {ANCHOR}", (note + "; " if note else "") +
+                      "a long wait: let the queue drain")
+            self.emit("WAITT")
+            self.emit(f"ADDT  {ANCHOR}")
+        else:
             self.emit(f"ADDT  {dur}", note)
-            self.known = _apply(self.known, [(levels, dur, data)])
-            return
+
+    def phase(self, levels, dur, kind, order=None, note=""):
+        m = _mask(self.t, levels)
+        if kind == "data":
+            self.emit(f"EMITX {m}, {order.upper()}, {m}", note or "data bit")
+            self.emit(f"ADDT  {dur}")
+        elif kind == "carrier":
+            pin = next(iter(levels))
+            if self.burst_pin not in (None, pin):
+                raise TableError("one carrier pin per table")
+            self.burst_pin = pin
+            self.emit(f"LDLC  ({dur}) // C_PERIOD", (note + ": " if note else "") + "carrier pulses")
+            self.emit("CALL  burst")
+        elif all(self.known.get(p) == v for p, v in levels.items()):
+            self.wait(dur, (note + ": " if note else "") + "no change, no event")
         else:
             v = _mask(self.t, [p for p, lv in levels.items() if lv == 1])
             self.emit(f"EMIT  {m}, {v}, {m}", note)
-        self.emit(f"ADDT  {dur}")
-        self.known = _apply(self.known, [(levels, dur, data)])
+            self.emit(f"ADDT  {dur}")
+        self.known = _apply(self.known, [(levels, dur, kind)])
 
     def symbol(self, name, note=None):
-        for i, (levels, dur, data) in enumerate(_phases(self.t, name)):
-            if data:
+        for i, (levels, dur, kind) in enumerate(_phases(self.t, name)):
+            if kind == "data":
                 raise TableError(f"symbol {name} has a data phase; use it in a field")
-            self.phase(levels, dur, data, note=(note or name) if i == 0 else "")
+            self.phase(levels, dur, kind, note=(note or name) if i == 0 else "")
 
     def field(self, f, last):
-        bits, order, name = int(f["bits"]), f.get("order", "lsb"), f["symbol"]
+        bits, order = int(f["bits"]), f.get("order", "lsb")
         if not 1 <= bits <= 32 or order not in ("lsb", "msb"):
             raise TableError(f"field {f}: bits 1..32, order lsb or msb")
+        if "choose" in f:
+            return self.choose(f, bits, order)
+        name = f["symbol"]
         ph = _phases(self.t, name)
-        if sum(d for _, _, d in ph) != 1:
-            raise TableError(f"field symbol {name} needs exactly one data phase")
+        if sum(k == "data" for _, _, k in ph) != 1 or any(k == "carrier" for _, _, k in ph):
+            raise TableError(f"field symbol {name} needs exactly one data phase and no burst")
         note = f"{bits} bits, {order.upper()} first"
         if not self.direct:
             self.emit("MOV   r0, r1", note)
@@ -164,11 +226,37 @@ class _Gen:
         head = _meet(head, _apply(head, ph))
         lbl = self.fresh("bit")
         self.label(lbl, head)
-        for levels, dur, data in ph:
-            self.phase(levels, dur, data, order)
+        for levels, dur, kind in ph:
+            self.phase(levels, dur, kind, order)
         self.emit(f"DJNZ  {lbl}")
         if not last and bits < 32:
             self.emit(f"SHR   r1, {bits}", "next field")
+
+    def choose(self, f, bits, order):
+        s0, s1 = f["choose"]
+        p0, p1 = _phases(self.t, s0), _phases(self.t, s1)
+        if order != "lsb":
+            raise TableError("a choose field is sent LSB first")
+        if any(k == "data" for _, _, k in p0 + p1):
+            raise TableError("choose symbols have no data phase: the bit picks the symbol")
+        self.emit(f"MOVI  r3, {bits}", f"{bits} bits, LSB first, each {s0} or {s1}")
+        entry = self.known
+        body = _meet(_apply(entry, p0), _apply(entry, p1))
+        head = _meet(entry, body)
+        head = _meet(head, _meet(_apply(head, p0), _apply(head, p1)))
+        lbl, one, nxt = self.fresh("bit"), self.fresh("one"), self.fresh("next")
+        self.label(lbl, head)
+        self.emit("SHR   r1, 1", "C = the next bit")
+        self.emit(f"JC    {one}")
+        self.symbol(s0)
+        after0 = self.known
+        self.emit(f"JMP   {nxt}")
+        self.label(one, head)
+        self.symbol(s1)
+        self.label(nxt, _meet(after0, self.known))
+        self.emit("MOVI  r0, 1")
+        self.emit("SUB   r3, r0", "Z after the last bit")
+        self.emit(f"JNZ   {lbl}")
 
     def word(self):
         k = int(self.t["source"].get("units_per_word", 1))
@@ -203,8 +291,11 @@ def generate(t: dict) -> str:
     kind = src.get("kind")
     pk = t.get("packet", {}) or {}
     fields = [it for it in t["frame"] if isinstance(it, dict)]
-    # one field per word: the word goes straight into r0, the field's shift source
-    g.direct = int(src.get("units_per_word", 1)) == 1 and len(fields) == 1
+    # one plain field per word: the word goes straight into r0, the field's shift source
+    g.direct = (int(src.get("units_per_word", 1)) == 1 and len(fields) == 1
+                and "choose" not in fields[0])
+    if any("choose" in f for f in fields) and kind == "tape":
+        raise TableError("choose fields need the mailbox or constant source (r3 counts bits)")
     wreg = "r0" if g.direct else "r1"
     head = [f"; {t.get('title', t['name'])}",
             f"; Generated by escgen from protocols/{t['source_file']}: edit the table and",
@@ -216,6 +307,9 @@ def generate(t: dict) -> str:
                 ".default CLK_KHZ, 25000                ; core clock in kHz"]
     for n, c in (t.get("constants") or {}).items():
         L.append(f".equ {n}, {c}")
+    if "carrier" in t:
+        L.append(f".equ C_PERIOD, {t['carrier']['period']}")
+        L.append(f".equ C_HIGH, {t['carrier']['high']}")
     for n, p in t["pins"].items():
         L.append(f".default PIN_{n}, {int(p['pin'])}")
         L.append(f".equ P_{n}, 1 << PIN_{n}")
@@ -298,6 +392,17 @@ def generate(t: dict) -> str:
         g.emit("HALT", "completes once the last edge has gone out")
     else:
         raise TableError("source kind: mailbox, tape or constant")
+    if g.burst_pin:
+        p = f"P_{g.burst_pin}"
+        g.lines.append("")
+        g.lines.append("; ---- burst: lc carrier pulses from tmr; returns with tmr = start + lc * C_PERIOD")
+        g.label("burst")
+        g.emit(f"EMIT  {p}, {p}, {p}")
+        g.emit("ADDT  C_HIGH")
+        g.emit(f"EMIT  {p}, 0, {p}")
+        g.emit("ADDT  C_PERIOD - C_HIGH")
+        g.emit("DJNZ  burst")
+        g.emit("RET")
     return "\n".join(g.lines) + "\n"
 
 
