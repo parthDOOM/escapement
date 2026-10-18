@@ -18,7 +18,7 @@ def run(bundle_file):
     st = b.host.status()
     print("status", st)
     if st["version"] != bringup.VERSION:
-        raise RuntimeError("not an Escapement v1.1 chip (protocol version %d)" % st["version"])
+        raise RuntimeError("not an Escapement v1.2 chip (protocol version %d)" % st["version"])
     ok, line, diag = b.run_bundle(bringup.load_bundle(bundle_file))
     print(line)
     for k in range(4):

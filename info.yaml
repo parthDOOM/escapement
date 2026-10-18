@@ -29,27 +29,28 @@ project:
 
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 # This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).
-# Host SPI per docs/12-HOST-PROTOCOL.md; protocol pins per docs/11-SEMANTICS.md.
+# Host SPI per docs/12-HOST-PROTOCOL.md; protocol pins per docs/11-SEMANTICS.md: bank A is
+# uio[7:0] (P0..P7), bank B the five split pins B0..B4 (out on uo[7:3], in on ui[7:3]).
 pinout:
   # Inputs
   ui[0]: "HOST_CS_N"
   ui[1]: "HOST_SCK"
   ui[2]: "HOST_MOSI"
-  ui[3]: ""
-  ui[4]: ""
-  ui[5]: ""
-  ui[6]: ""
-  ui[7]: ""
+  ui[3]: "B0_IN"
+  ui[4]: "B1_IN"
+  ui[5]: "B2_IN"
+  ui[6]: "B3_IN"
+  ui[7]: "B4_IN"
 
   # Outputs
   uo[0]: "HOST_MISO"
   uo[1]: "IRQ"
   uo[2]: "RUN"
-  uo[3]: ""
-  uo[4]: ""
-  uo[5]: ""
-  uo[6]: ""
-  uo[7]: ""
+  uo[3]: "B0_OUT"
+  uo[4]: "B1_OUT"
+  uo[5]: "B2_OUT"
+  uo[6]: "B3_OUT"
+  uo[7]: "B4_OUT"
 
   # Bidirectional pins
   uio[0]: "P0"

@@ -6,10 +6,15 @@ directory; start with ../README.md.
 ## How it works
 
 Escapement is a programmable protocol engine. Four hardware contexts run firmware from a
-256 × 32 program SRAM and schedule changes on the eight `uio` pins at absolute clock
-ticks. Every scheduled event is checked when it is queued: if its deadline can still be
-met it happens on that exact tick, and if not, the context stops with a visible fault
-instead of producing a late edge.
+256 × 32 program SRAM and schedule changes on its protocol pins at absolute clock ticks.
+Every scheduled event is checked when it is queued: if its deadline can still be met it
+happens on that exact tick, and if not, the context stops with a visible fault instead
+of producing a late edge.
+
+There are two pin banks. Bank A is the eight bidirectional `uio` pins, push-pull or
+open-drain. Bank B is five split pins, each an output on `uo[7:3]` and an input on
+`ui[7:3]`. Each context works on one bank, so for example I2C and PS/2 can run on bank A
+while SPI and UART run on bank B, at the same time.
 
 The same event queues can check inputs (EXPECT: a level must hold, or arrive, within a
 window) and sample them at exact ticks (SAMPLE). A second 256 × 32 SRAM, the tape, holds
@@ -33,7 +38,8 @@ model predicts exactly.
    `docs/12-HOST-PROTOCOL.md`; `sw/rp2350/escapement_demo.py` does this from
    MicroPython, and `sw/rp2350/bringup.py` runs the staged first-silicon checklist in
    `docs/16-BRING-UP.md`.
-4. Observe the protocol on `uio[7:0]`. `uo[2]` is high while running and `uo[1]` signals
+4. Observe the protocol on `uio[7:0]` (bank A) and `uo[7:3]` / `ui[7:3]` (bank B, for
+   contexts configured to use it). `uo[2]` is high while running and `uo[1]` signals
    an interrupt or a fault. After the run, READ_DBG returns telemetry, fault records and
    the execution digest; READ_TAPE returns captured edges.
 
@@ -47,3 +53,5 @@ every reselect.
   (with pull-up resistors, since I2C pins are open-drain), WS2812 LEDs, a 1-Wire
   sensor, an SPI controller, an ARM SWD target, or an IR LED driver and IR receiver
   module.
+- More push-pull peers on bank B, through the output and input Pmods: each line is an
+  output (`uo[3+i]`) or an input (`ui[3+i]`). A released bank B output is high.

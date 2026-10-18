@@ -59,7 +59,7 @@ async def test_status_and_identity(dut):
     dut.mbx_rx_full.value = 0b0011
     dut.mbx_tx_empty.value = 0b1010
     s = await host.status()
-    assert s["version"] == 6 and not s["host_err"] and not s["running"]
+    assert s["version"] == 7 and not s["host_err"] and not s["running"]
     assert s["irq"] and s["ctx_state"] == 0b10011100
     assert s["rx_full"] == 0b0011 and s["tx_empty"] == 0b1010 and s["irq_pending"] == 0b0101
     dut.running.value = 1
@@ -99,7 +99,7 @@ async def test_cfg_start_stop(dut):
     await host.write_cfg(0b1011, 0x44332211, 0xF0, 0xBEEF, 0x81)
     assert int(dut.ctx_enable.value) == 0b1011 and int(dut.entry_pcs.value) == 0x44332211
     assert int(dut.pin_owned.value) == 0xF0 and int(dut.pin_owner.value) == 0xBEEF
-    assert int(dut.pin_od.value) == 0x81
+    assert int(dut.pin_od.value) == 0x81 and int(dut.ctx_bank.value) == 0
     await host.start()
     await host.stop()
     assert (pulses.start, pulses.stop) == (1, 1)
@@ -111,6 +111,19 @@ async def test_cfg_start_stop(dut):
     assert int(dut.ctx_enable.value) == 0b1011
     await host.clear_err()
     assert not (await host.status())["host_err"]
+
+
+@cocotb.test()
+async def test_cfg_bank_b(dut):
+    """v1.2: WRITE_CFG bytes 10-13 set pin bank B; a 9-byte (v1.1) frame leaves them."""
+    host, spi, _ = await setup(dut)
+    await host.write_cfg(0b0001, 0x00000000, 0x15F0, 0x2A5BEEF, 0x81, 0b0110)
+    assert int(dut.pin_owned.value) == 0x15F0 and int(dut.pin_owner.value) == 0x2A5BEEF
+    assert int(dut.ctx_bank.value) == 0b0110 and int(dut.pin_od.value) == 0x81
+    await spi.xfer(bytes((0x12, 0b0011, 1, 2, 3, 4, 0x0F, 0x12, 0x34, 0x00)))
+    assert int(dut.ctx_enable.value) == 0b0011 and int(dut.entry_pcs.value) == 0x04030201
+    assert int(dut.pin_owned.value) == 0x150F and int(dut.pin_owner.value) == 0x2A51234
+    assert int(dut.ctx_bank.value) == 0b0110 and int(dut.pin_od.value) == 0
 
 
 @cocotb.test()
@@ -165,7 +178,7 @@ async def test_unknown_command_and_aborted_frame(dut):
     await spi.xfer(bytes((0x10, 9, 0xDE, 0xAD, 0xBE, 0xEF)), abort_after_bits=8 * 4 + 3)
     assert await host.read_imem(9, 1) == [0x0BADF00D]
     s = await host.status()
-    assert s["version"] == 6 and not s["host_err"] and pulses.start == 0
+    assert s["version"] == 7 and not s["host_err"] and pulses.start == 0
 
 
 @cocotb.test()

@@ -1,10 +1,12 @@
-# Host protocol v1.1 (normative)
+# Host protocol v1.2 (normative)
 
-The SPI command set between a host and Escapement. Protocol version 6. Implemented by
+The SPI command set between a host and Escapement. Protocol version 7. Implemented by
 `src/escapement_host.v`, and driven by `sw/eschost` (PC and cocotb) and the RP2350
 MicroPython host on the Tiny Tapeout demo board (`sw/rp2350`). Version 1.1 adds
 WRITE_TAPE and READ_TAPE (0x13, 0x14) for the tape ([11-SEMANTICS](11-SEMANTICS.md) §7.6)
 and a 5-bit READ_DBG select that reaches the digest and capture registers (sel 16–19).
+Version 1.2 adds four optional WRITE_CFG bytes for pin bank B
+([11-SEMANTICS](11-SEMANTICS.md) §5).
 
 ## Physical layer
 
@@ -16,6 +18,9 @@ and a 5-bit READ_DBG select that reaches the digest and capture registers (sel 1
 | `uo_out[0]` | MISO |
 | `uo_out[1]` | IRQ: any context IRQ pending, or a fault recorded |
 | `uo_out[2]` | RUN: the core is running |
+
+`ui_in[7:3]` and `uo_out[7:3]` are not part of the host interface: they are protocol pin
+bank B.
 
 SPI **mode 0** (CPOL 0, CPHA 0): MSB first; the host samples MISO and the chip samples
 MOSI on SCK rising edges. The chip oversamples CS_n, SCK and MOSI through 2-flop
@@ -58,7 +63,7 @@ the chip prepares data; its response is 0x00.
 | 0x00 | STATUS | 3 × dummy | ctx_state, {rx_full[3:0], tx_empty[3:0]}, irq_pending[3:0] | |
 | 0x10 | WRITE_IMEM | addr, then words (4 bytes each) | zeros | Writes addr, addr+1, …; only while stopped, else host error and no write |
 | 0x11 | READ_IMEM | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … | Readback verification of a loaded image |
-| 0x12 | WRITE_CFG | ctx_enable, entry0, entry1, entry2, entry3, pin_owned, pin_owner[15:8], pin_owner[7:0], pin_od | zeros | 9 bytes; only while stopped. Takes effect at the next START |
+| 0x12 | WRITE_CFG | ctx_enable, entry0, entry1, entry2, entry3, pin_owned[7:0], pin_owner[15:8], pin_owner[7:0], pin_od, then optionally ctx_bank, pin_owned[12:8], pin_owner[25:24], pin_owner[23:16] | zeros | 9 or 13 bytes; only while stopped. Takes effect at the next START. Bytes 10–13 (v1.2) configure bank B; a 9-byte frame leaves them unchanged (0 after reset), and a v1.1 chip ignores them |
 | 0x13 | WRITE_TAPE | addr, then words (4 bytes each) | zeros | As WRITE_IMEM, into the tape; only while stopped, else host error and no write |
 | 0x14 | READ_TAPE | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … | As READ_IMEM, from the tape (e.g. capture records after STOP). Valid only while stopped and after capture has drained: during a run the core owns the tape port and the data returned is undefined |
 | 0x20 | START | — | — | One-cycle core `start` pulse at the end of the command byte; ignored (host error) while running |
@@ -71,7 +76,7 @@ the chip prepares data; its response is 0x00.
 
 ## Typical session
 
-1. STATUS, and check version 0x6.
+1. STATUS, and check version 0x7.
 2. STOP.
 3. WRITE_IMEM with the image, then READ_IMEM to compare (verification is in host software).
    WRITE_TAPE / READ_TAPE likewise for any initial tape contents (the SRAM powers up

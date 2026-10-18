@@ -6,11 +6,14 @@
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
  *
- * Normative semantics: docs/11-SEMANTICS.md v1.1.0 (section numbers below refer
+ * Normative semantics: docs/11-SEMANTICS.md v1.2.0 (section numbers below refer
  * to it). Encodings: isa/isa.yaml (decoder constants hand-copied).
  *
  * v1.1: the tape port (LDT/STT in the commit cycle; the capture unit esc_cap drains
  * into free cycles), the execution digest (sec. 10.1) and the wait-class GETI.
+ * v1.2: pin bank B (sec. 5). Every context works in 8 logical pins; the mapping onto the
+ * 13 physical pins happens only at the input view, the ownership masks, DRIVE and fault
+ * updates of the pin registers, and the outputs.
  *
  * Pipeline (each stage holds a different context, so no same-context hazards):
  *   F  cycle t   : imem_addr = PC[now mod 4] (combinational); slot valid if the
@@ -36,9 +39,10 @@ module esc_core (
     // configuration (static during a run)
     input  wire [3:0]   ctx_enable,
     input  wire [31:0]  entry_pcs,
-    input  wire [7:0]   pin_owned,
-    input  wire [15:0]  pin_owner,
-    input  wire [7:0]   pin_od,
+    input  wire [12:0]  pin_owned,     // physical pins: 0..7 bank A, 8..12 bank B
+    input  wire [25:0]  pin_owner,
+    input  wire [7:0]   pin_od,        // bank A only
+    input  wire [3:0]   ctx_bank,      // v1.2: context k's logical pins are bank B
     // instruction memory
     output wire [7:0]   imem_addr,
     output wire         imem_re,       // D-29: this slot's fetch will be used (else no read)
@@ -47,6 +51,8 @@ module esc_core (
     input  wire [7:0]   uio_in,
     output wire [7:0]   uio_out,
     output wire [7:0]   uio_oe,
+    input  wire [4:0]   ib_in,         // v1.2 bank B inputs (ui_in[7:3])
+    output wire [4:0]   ob_out,        // v1.2 bank B outputs (uo_out[7:3])
     // status
     output wire         running,
     output wire [7:0]   ctx_state,
@@ -131,8 +137,8 @@ module esc_core (
 `else
   wire [31:0] START_NOW = 32'd0;
 `endif
-  reg [7:0]  pin_val, pin_oe;
-  reg [7:0]  s1, s2;
+  reg [12:0] pin_val, pin_oe;          // physical pins (sec. 5)
+  reg [12:0] s1, s2;
   reg        p1v, p2v, p3v;
   reg [31:0] p2_insn, p3_insn;
   reg        ff_valid;
@@ -141,7 +147,6 @@ module esc_core (
   reg [7:0]  ff_pc;
   reg [31:0] ff_tick;
 
-  wire [7:0] sync   = s2;
   wire       stop_q = stop & ~start;     // start wins over a simultaneous stop
 
   // ------------------------------------------------------------------ context state buses
@@ -200,17 +205,23 @@ module esc_core (
   wire        cs_txf   = c_txf[cctx];
   wire        cs_hsmp  = c_hsmp[cctx];
 
-  // pins owned by each context (configuration): owned_by[8k+i] = pin i owned by ctx k
-  wire [31:0] owned_by;
+  // Pin views (sec. 5). pown[13k+p]: physical pin p owned by ctx k. Context k's logical
+  // pin j is physical pin j (bank A) or 8+j for j < 5 (bank B; logical 5..7 do not
+  // exist there). owned_by[8k+j] and vsync[8k+j] are context k's logical views.
+  wire [51:0] pown;
+  wire [31:0] owned_by, vsync;
   genvar go, gp;
   generate
     for (go = 0; go < 4; go = go + 1) begin : g_own
-      for (gp = 0; gp < 8; gp = gp + 1) begin : g_pin
-        assign owned_by[8*go + gp] = pin_owned[gp] & (pin_owner[2*gp +: 2] == go[1:0]);
+      for (gp = 0; gp < 13; gp = gp + 1) begin : g_pin
+        assign pown[13*go + gp] = pin_owned[gp] & (pin_owner[2*gp +: 2] == go[1:0]);
       end
+      assign owned_by[8*go +: 8] = ctx_bank[go] ? {3'd0, pown[13*go + 8 +: 5]} : pown[13*go +: 8];
+      assign vsync[8*go +: 8]    = ctx_bank[go] ? {3'd0, s2[12:8]} : s2[7:0];
     end
   endgenerate
   wire [7:0] owned_c = owned_by[8*cctx +: 8];
+  wire [7:0] sync    = vsync[8*cctx +: 8];      // the committing context's input view
 
   // ------------------------------------------------------------------ fields
   wire [1:0]  f_rd    = insn[23:22];
@@ -503,7 +514,7 @@ module esc_core (
 
   esc_cap u_cap (
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop_q), .run(run), .now(now),
-      .sync(sync), .busy(tp_busy), .capt_we(cm_ok & (op == OP_CAPT)), .capt_v(opb),
+      .psync(s2), .busy(tp_busy), .capt_we(cm_ok & (op == OP_CAPT)), .capt_v(opb),
       .drain(cap_drain), .ptr_o(cap_ptr), .head_o(cap_head), .active(cap_active),
       .status(cap_status), .cfg(cap_cfg), .ovf_tick(cap_ovf_tick));
 
@@ -534,7 +545,7 @@ module esc_core (
           .stop_i      (stop_q),
           .run         (run),
           .now         (now),
-          .sync        (sync),
+          .sync        (vsync[8*gk +: 8]),
           .cfg_enable  (ctx_enable[gk]),
           .cfg_entry_pc(entry_pcs[8*gk +: 8]),
           .cm_ok       (cm_ok & cm_sel[gk]),
@@ -650,43 +661,56 @@ module esc_core (
     else                late_ctx = 2'd3;
   end
 
-  // pin register next state (sec. 5, 6.3, 8, 9)
-  reg [7:0] val_n, oe_n;
+  // pin register next state (sec. 5, 6.3, 8, 9). A retiring DRIVE's logical mask, value
+  // and enable land on its context's bank; a fault releases the physical pins it owns.
+  function [12:0] to_phys;
+    input       bank;
+    input [7:0] v;
+    to_phys = bank ? {v[4:0], 8'd0} : {5'd0, v};
+  endfunction
+  reg [12:0] val_n, oe_n, dm, dv, de;
   integer pk, pi;
   always @* begin
     val_n = pin_val;
     oe_n  = pin_oe;
-    for (pk = 0; pk < 4; pk = pk + 1)
-      for (pi = 0; pi < 8; pi = pi + 1)
-        if (c_drv[pk] && c_dmask[8*pk + pi]) begin
-          val_n[pi] = c_dval[8*pk + pi];
-          oe_n[pi]  = c_doe[8*pk + pi];
+    for (pk = 0; pk < 4; pk = pk + 1) begin
+      dm = to_phys(ctx_bank[pk], c_dmask[8*pk +: 8]);
+      dv = to_phys(ctx_bank[pk], c_dval[8*pk +: 8]);
+      de = to_phys(ctx_bank[pk], c_doe[8*pk +: 8]);
+      for (pi = 0; pi < 13; pi = pi + 1)
+        if (c_drv[pk] && dm[pi]) begin
+          val_n[pi] = dv[pi];
+          oe_n[pi]  = de[pi];
         end
+    end
     for (pk = 0; pk < 4; pk = pk + 1)
-      if (fault_k[pk]) oe_n = oe_n & ~owned_by[8*pk +: 8];
+      if (fault_k[pk]) oe_n = oe_n & ~pown[13*pk +: 13];
   end
 
   // ------------------------------------------------------------------ digest (sec. 10.1)
+  // Bank B outputs fold in at bits 12:8 as ~ob (0 when released), so a run that never
+  // drives bank B keeps its v1.1 digest.
   reg  [31:0] dg;
-  reg  [15:0] dg_prev;                 // outputs during the previous cycle
-  wire        dg_act = commit_valid | ld_v | ({uio_oe, uio_out} != dg_prev);
+  reg  [20:0] dg_prev;                 // outputs during the previous cycle (bank B as ~ob)
+  wire [4:0]  ob_low = ~ob_out;
+  wire        dg_act = commit_valid | ld_v | ({ob_low, uio_oe, uio_out} != dg_prev);
   wire [31:0] dg_cw = commit_valid ? {16'd0, outcome, cctx, 4'd0, cs_pc} : 32'd0;
   wire [31:0] dg_wv = ((cm_ok & w_rd_we) ? w_rd_data : 32'd0) ^ (ld_v ? tape_rdata : 32'd0);
-  wire [31:0] dg_x  = {uio_oe, uio_out, 16'd0} ^ dg_cw ^ dg_wv;
+  wire [31:0] dg_x  = {uio_oe, uio_out, 3'd0, ob_low, 8'd0} ^ dg_cw ^ dg_wv;
   wire [31:0] dg_n  = {dg[30:0], 1'b0} ^ (dg[31] ? DG_POLY : 32'd0) ^ dg_x;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      dg <= 32'hFFFF_FFFF; dg_prev <= 16'd0;
+      dg <= 32'hFFFF_FFFF; dg_prev <= 21'd0;
       ld_v <= 1'b0; ld_ctx <= 2'd0; ld_rd <= 2'd0;
     end else begin
       ld_v   <= ~start & cm_ok & (op == OP_LDT);
       ld_ctx <= cctx;
       ld_rd  <= f_rd;
       if (start) begin
-        dg <= 32'hFFFF_FFFF; dg_prev <= 16'd0;
+        dg <= 32'hFFFF_FFFF; dg_prev <= 21'd0;
       end else if (run && !stop) begin
-        dg_prev <= {uio_oe, uio_out};
+        dg_prev <= {ob_low, uio_oe, uio_out};
         if (dg_act) dg <= dg_n;       // only active edges fold (sec. 10.1)
       end
     end
@@ -696,8 +720,8 @@ module esc_core (
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       run <= 1'b0; now <= 32'd0;
-      pin_val <= 8'd0; pin_oe <= 8'd0;
-      s1 <= 8'd0; s2 <= 8'd0;
+      pin_val <= 13'd0; pin_oe <= 13'd0;
+      s1 <= 13'd0; s2 <= 13'd0;
       p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
       p2_insn <= 32'd0; p3_insn <= 32'd0;
       ff_valid <= 1'b0; ff_cause <= 3'd0; ff_sub <= 3'd0; ff_ctx <= 2'd0;
@@ -706,7 +730,7 @@ module esc_core (
       dbg_commit_insn <= 32'd0; dbg_commit_outcome <= 2'd0;
     end else begin
       // synchronisers run continuously (not cleared by start)
-      s1 <= uio_in;
+      s1 <= {ib_in, uio_in};
       s2 <= s1;
 
       // instruction pipeline
@@ -727,12 +751,12 @@ module esc_core (
 
       if (start) begin
         run <= 1'b1; now <= START_NOW;
-        pin_val <= 8'd0; pin_oe <= 8'd0;
+        pin_val <= 13'd0; pin_oe <= 13'd0;
         ff_valid <= 1'b0; ff_cause <= 3'd0; ff_sub <= 3'd0; ff_ctx <= 2'd0;
         ff_pc <= 8'd0; ff_tick <= 32'd0;
       end else if (stop) begin
         run    <= 1'b0;          // now holds
-        pin_oe <= 8'd0;
+        pin_oe <= 13'd0;
       end else begin
         if (run) now <= now + 32'd1;
         pin_val <= val_n;
@@ -751,8 +775,10 @@ module esc_core (
   end
 
   // ------------------------------------------------------------------ pins
-  assign uio_out = pin_val & ~pin_od;
-  assign uio_oe  = (pin_oe & ~pin_od) | (pin_oe & ~pin_val & pin_od);
+  assign uio_out = pin_val[7:0] & ~pin_od;
+  assign uio_oe  = (pin_oe[7:0] & ~pin_od) | (pin_oe[7:0] & ~pin_val[7:0] & pin_od);
+  // split pins: released means high, the level bank A floats to on its pull-up
+  assign ob_out  = pin_val[12:8] | ~pin_oe[12:8];
 
   // ------------------------------------------------------------------ observation muxes
   // An LDT's register is written one edge after its commit: the observation record
@@ -815,8 +841,12 @@ module esc_core (
       assume ($stable(pin_owned));
       assume ($stable(pin_owner));
       assume ($stable(pin_od));
+      assume ($stable(ctx_bank));
     end
 
+  // driven(p): physical pin p is away from its released level (bank A: output enabled;
+  // bank B: low, since a released split pin is high)
+  wire [12:0] f_driven = {~ob_out, uio_oe};
   integer fk;
   always @(*) if (rst_n) begin
     // P1 electrical: an open-drain pin never drives high (§5).
@@ -828,13 +858,13 @@ module esc_core (
 `ifndef ESC_CORE_PDR
     assert (c_late == 4'd0);
 `endif
-    // P3 an unowned pin is never driven (§6.2 OWNER).
-    assert ((uio_oe & ~pin_owned) == 8'd0);
+    // P3 an unowned pin is never driven (§6.2 OWNER), in either bank.
+    assert ((f_driven & ~pin_owned) == 13'd0);
     for (fk = 0; fk < 4; fk = fk + 1) begin
       // P4 FIFO occupancy bounded (§6).
       assert (c_cnt[3*fk +: 3] <= 3'd4);
-      // P5 a FAULTED context drives none of its pins (§8 release).
-      if (c_state[2*fk +: 2] == 2'd3) assert ((uio_oe & owned_by[8*fk +: 8]) == 8'd0);
+      // P5 a FAULTED context drives none of its pins (§8 release), in either bank.
+      if (c_state[2*fk +: 2] == 2'd3) assert ((f_driven & pown[13*fk +: 13]) == 13'd0);
     end
     // P6 admission: an accepted event is strictly ahead of its commit tick and of the
     // FIFO tail, within the half-range horizon (§6.2 steps 4-5).
@@ -842,12 +872,12 @@ module esc_core (
     // stopped; the OE register never covers an unowned pin; a faulted context's pins
     // stay released (its FIFO is empty, H3, and other contexts drive only their own
     // pins, H4 in esc_ctx).
-    if (!run) assert (pin_oe == 8'd0);
+    if (!run) assert (pin_oe == 13'd0);
     for (fk = 0; fk < 4; fk = fk + 1)                 // stop turns RUNNING into HALTED
       if (!run) assert (c_state[2*fk +: 2] != ST_RUN);
-    assert ((pin_oe & ~pin_owned) == 8'd0);
+    assert ((pin_oe & ~pin_owned) == 13'd0);
     for (fk = 0; fk < 4; fk = fk + 1)
-      if (c_state[2*fk +: 2] == 2'd3) assert ((pin_oe & owned_by[8*fk +: 8]) == 8'd0);
+      if (c_state[2*fk +: 2] == 2'd3) assert ((pin_oe & pown[13*fk +: 13]) == 13'd0);
     if (cm_ok && w_push) begin
       assert (ahd_now);
       if (cs_cnta != 3'd0) assert (ahd_tail);
@@ -881,7 +911,8 @@ module esc_core (
 
   // Reachability (vacuity guards): each property must be exercised, not hold vacuously.
   always @(*) if (rst_n && run) begin
-    cover (pin_oe != 8'd0);                       // a DRIVE retired onto a pin
+    cover (pin_oe[7:0] != 8'd0);                  // a DRIVE retired onto a bank A pin
+    cover (ob_out != 5'h1F);                      // ... and a bank B pin driven low
     cover (cm_wf);                                // EMIT waited on a full FIFO
     cover (cm_fault && f_cause == FC_ADMIT);      // an event was rejected
     cover (c_cnt[2:0] == 3'd4);                   // a FIFO is full

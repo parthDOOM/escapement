@@ -60,3 +60,33 @@ class Board:
 
     def level(self, pin: int) -> list[int]:
         return [(v >> pin) & 1 for v in self.history]
+
+
+class SplitBoard(Board):
+    """The world around pin bank B (v1.2): the `board_b(t, ob) -> ib` callable.
+
+    A bank B pin is split, an output on uo_out and an input on ui_in, so each logical pin
+    is wired in one direction. Pins in `outputs` carry the chip's uo_out level to the
+    devices; the others carry the devices' level (or the pull-up) to ui_in. The devices
+    are the same models as on bank A and see one level per pin, as on a shared wire.
+    """
+
+    def __init__(self, *devices: Device, outputs: int, pullups: int = 0x1F):
+        super().__init__(*devices, pullups=pullups & 0x1F)
+        self.outputs = outputs & 0x1F
+
+    def __call__(self, t: int, ob: int) -> int:
+        if t < 0:
+            return 0
+        low = high = 0
+        for d in self.devices:
+            dl, dh = d.step(t, self.bus)
+            low |= dl
+            high |= dh
+        if (ob & self.outputs) & low:
+            self.contention.append((t, ob & self.outputs & low))
+        ext = (self.pullups | high) & ~low & 0x1F
+        level = ((ob & self.outputs) | (ext & ~self.outputs)) & 0x1F
+        self.bus = level
+        self.history.append(level)
+        return level

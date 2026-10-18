@@ -5,7 +5,8 @@
  * Escapement: programmable protocol engine with reject-not-late timed I/O.
  *   ui_in[0] CS_n, ui_in[1] SCK, ui_in[2] MOSI   host SPI (docs/12-HOST-PROTOCOL.md)
  *   uo_out[0] MISO, uo_out[1] IRQ, uo_out[2] RUN
- *   uio[7:0] protocol pins, owned per context (docs/11-SEMANTICS.md)
+ *   uio[7:0] protocol pins, bank A, owned per context (docs/11-SEMANTICS.md)
+ *   uo_out[7:3] / ui_in[7:3] protocol pins, bank B: five split pins (v1.2)
  * v1.1: a second 256x32 SRAM, the tape (firmware LDT/STT, capture, host while stopped).
  */
 
@@ -26,8 +27,11 @@ module tt_um_escapement (
   wire         start, stop, running, fault_valid, miso;
   wire [3:0]   ctx_enable, irq_clear, irq_pending;
   wire [31:0]  entry_pcs;
-  wire [7:0]   pin_owned, pin_od, ctx_state;
-  wire [15:0]  pin_owner;
+  wire [12:0]  pin_owned;
+  wire [7:0]   pin_od, ctx_state;
+  wire [3:0]   ctx_bank;
+  wire [4:0]   ob_out;
+  wire [25:0]  pin_owner;
   wire         host_mem_we, host_mem_space, host_mem_re;
   wire [7:0]   host_mem_addr;
   wire [31:0]  host_mem_wdata, imem_rdata, tape_rdata;
@@ -41,7 +45,8 @@ module tt_um_escapement (
       .clk(clk), .rst_n(rst_n),
       .cs_n_pin(ui_in[0]), .sck_pin(ui_in[1]), .mosi_pin(ui_in[2]), .miso(miso),
       .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
-      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .irq_clear(irq_clear),
+      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
+      .irq_clear(irq_clear),
       .running(running), .ctx_state(ctx_state), .irq_pending(irq_pending),
       .fault_valid(fault_valid),
       .mem_we(host_mem_we), .mem_addr(host_mem_addr), .mem_wdata(host_mem_wdata),
@@ -83,9 +88,9 @@ module tt_um_escapement (
   esc_core u_core (
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
-      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od),
+      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
       .imem_addr(core_imem_addr), .imem_re(core_imem_re), .imem_rdata(imem_rdata),
-      .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe),
+      .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ui_in[7:3]), .ob_out(ob_out),
       .running(running), .ctx_state(ctx_state),
       .irq_pending(irq_pending), .fault_valid(fault_valid), .irq_clear(irq_clear),
       .mbx_rx_push(mbx_rx_push), .mbx_rx_data(mbx_rx_data), .mbx_rx_full(mbx_rx_full),
@@ -99,8 +104,8 @@ module tt_um_escapement (
       .tape_rdata(tape_rdata), .tape_busy(tape_busy));
   /* verilator lint_on PINCONNECTEMPTY */
 
-  assign uo_out = {5'b0, running, |irq_pending | fault_valid, miso};
+  assign uo_out = {ob_out, running, |irq_pending | fault_valid, miso};
 
-  wire _unused = &{ena, ui_in[7:3], 1'b0};
+  wire _unused = &{ena, 1'b0};
 
 endmodule

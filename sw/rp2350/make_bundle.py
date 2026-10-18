@@ -54,15 +54,15 @@ def fold(d: int, x: int) -> int:
 class Recorder(Machine):
     """The ISS, recording the value x folded at every active digest edge."""
 
-    def __init__(self, image, board=None):
+    def __init__(self, image, board=None, board_b=None):
         self.xs: list[tuple[int, int]] = []        # (tick, x)
-        super().__init__(image, board)
+        super().__init__(image, board, board_b)
 
-    def _digest_edge(self, out, oe, commit):
+    def _digest_edge(self, out, oe, ob, commit):
         active = (commit is not None or self._ld_dg is not None
-                  or (out, oe) != self._dg_prev)
+                  or (out, oe, (ob ^ 0x1F) & 0x1F) != self._dg_prev)
         d0 = self.dg
-        super()._digest_edge(out, oe, commit)
+        super()._digest_edge(out, oe, ob, commit)
         if active:
             self.xs.append((self.now, self.dg ^ fold(d0, 0)))
 
@@ -174,7 +174,7 @@ def bundle(fw: Path) -> dict:
         "words": image.words[: (max(used) + 1) if used else 0],
         "tape": {str(a): image.tape[a] for a in image.tape_used},
         "cfg": [image.ctx_enable_mask, image.entry_pcs_packed, image.pin_owned_mask,
-                image.pin_owner_packed, image.pin_od_mask],
+                image.pin_owner_packed, image.pin_od_mask, image.ctx_bank_mask],
         "expect": predict(image),
     }
     e = out["expect"]

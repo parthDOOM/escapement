@@ -65,7 +65,20 @@ async def run_board(dut, board):
         t += 1
 
 
-async def bring_up(dut, board):
+async def run_board_b(dut, board_b):
+    """Drive ui_in[7:3], the pin bank B inputs (v1.2), from a bank B model once per cycle,
+    through the same shadow as the SPI host's bits."""
+    t = 0
+    while True:
+        await FallingEdge(dut.clk)
+        ib = board_b(t, (int(dut.uo_out.value) >> 3) & 0x1F) & 0x1F
+        cur = (UiBit.shadow[id(dut)] & 0x07) | (ib << 3)
+        UiBit.shadow[id(dut)] = cur
+        dut.ui_in.value = cur
+        t += 1
+
+
+async def bring_up(dut, board, board_b=None):
     cocotb.start_soon(Clock(dut.clk, CLK_NS, unit="ns").start())
     dut.ena.value = 1
     dut.ui_in.value = 0b001          # CS_n high
@@ -77,6 +90,8 @@ async def bring_up(dut, board):
     cocotb.start_soon(run_board(dut, board))
     spi = SpiMaster(dut, dut.clk, UiBit(dut, 0), UiBit(dut, 1), UiBit(dut, 2), UoBit(dut, 0),
                     half=6)
+    if board_b is not None:
+        cocotb.start_soon(run_board_b(dut, board_b))
     return AsyncHost(spi.xfer)
 
 
@@ -84,7 +99,7 @@ async def bring_up(dut, board):
 async def test_identity_over_spi(dut):
     host = await bring_up(dut, Board())
     s = await host.status()
-    assert s["version"] == 6 and not s["running"] and not s["host_err"], s
+    assert s["version"] == 7 and not s["running"] and not s["host_err"], s
 
 
 @cocotb.test()
@@ -206,6 +221,6 @@ async def test_slow_bitbang_host_like_the_demo_board(dut):
 
     good = await xfer([0x00, 0, 0, 0])
     st = good[0]
-    assert st & 0x0F == 6 and not st & 0x80, hex(st)
+    assert st & 0x0F == 7 and not st & 0x80, hex(st)
     bad = await xfer([0x00, 0, 0, 0], sample_before=False)
     assert bad != good                          # the wrong discipline really is wrong

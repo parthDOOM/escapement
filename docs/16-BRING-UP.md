@@ -98,7 +98,7 @@ compare.
 [1] clock and reset ...
 [1] PASS  PWM 25000000 Hz (RP 100000000 Hz), outputs 0 in and after reset, uio released
 [2] host link ...
-[2] PASS  STATUS 06 00 0f 00 x 201; one pin write ... ns; SCK half period about ... ns (fast) and ... ns (slow)
+[2] PASS  STATUS 07 00 0f 00 x 201; one pin write ... ns; SCK half period about ... ns (fast) and ... ns (slow)
 [3] memories ...
 [3] PASS  data lines at 2 addresses, 4 patterns x 256 words, in both SRAMs; spaces independent
 [4] pins and clock rate ...
@@ -107,7 +107,7 @@ compare.
     can_tx.asm             steady ok    digest 0xffaf382b = model at tick 160444
     ...
     uart_tx.asm            halt   ok    digest 0x63114ed9 model 0x63114ed9
-[5] PASS  16 of 16 firmware match the model
+[5] PASS  17 of 17 firmware match the model
 bring-up PASSED
 ```
 
@@ -128,7 +128,8 @@ back.
 ### Stage 1: clock and reset
 
 Starts the project clock with `tt.clock_project_PWM(25000000)` and checks the frequency
-the SDK reports. Holds `rst_n` low and checks that `uo_out` is all zero, releases it and
+the SDK reports. Holds `rst_n` low and checks that `uo_out` reads `0xF8`: MISO, IRQ and
+RUN low, and pin bank B (`uo[7:3]`) released, which is high. Then it releases reset and
 checks again (status bit 7, "running", drives MISO while CS_n is high and is 0 after
 reset). Then turns on the RP pull-ups on uio[7:0] and checks that every pin reads 1: after
 reset the chip drives no uio pin.
@@ -136,7 +137,7 @@ reset the chip drives no uio pin.
 | FAIL message | Meaning | Next |
 | --- | --- | --- |
 | clock_project_PWM(25000000) reports ... Hz | The SDK set a different clock | Look for a `[tt_um_escapement]` section in `config.ini` that sets `clock_frequency` or `rp_clock_frequency` |
-| uo_out = ... while rst_n is low | An output is high in reset | Scope the named `uo` pins: stuck high or shorted to the supply, or another design is selected |
+| uo_out = ... while rst_n is low | An output differs from `0xF8` in reset | Scope the named `uo` pins: stuck or shorted, or another design is selected |
 | uo_out = ... after reset | Same, out of reset | As above; MISO (`uo[0]`) high here means status bit 7 is set |
 | uio pins ... read 0 with only the RP pull-ups | Something pulls the pin low | Unplug the uio Pmod; measure the pin. If it is still low, the chip drives it or it is shorted |
 
@@ -151,7 +152,7 @@ tt-micropython-firmware's byte functions and samples MISO just before each SCK r
 
 1. Times 500 raw pin writes. The SCK high phase is one pin write and must be at least 4
    core clocks (160 ns); the script requires 320 ns.
-2. Reads STATUS right after reset. The answer is known exactly: `06 00 0f 00` (version 6,
+2. Reads STATUS right after reset. The answer is known exactly: `07 00 0f 00` (version 7,
    all contexts IDLE, all TX mailboxes empty, no IRQ).
 3. Sends an unknown command (0x99), which must set host error, then CLEAR_ERR, which must
    clear it. This proves MOSI reaches the chip.
@@ -166,7 +167,7 @@ tt-micropython-firmware's byte functions and samples MISO just before each SCK r
 | MISO is always 0 | No answer at all | Scope the clk pin (25 MHz square wave); check `rst_n` is high; check CS_n and SCK toggle at the chip; check `uo[0]` |
 | MISO is always 1 | `uo[0]` stuck high or undriven | Scope `uo[0]`; compare with stage 1 |
 | one bit late / one bit early | Sampling phase | Logic analyser on all four lines: MISO must change within 4 clocks after an SCK rise, and the RP must sample before the next rise |
-| protocol version 5 / a different design | Wrong design answering | Check stage 0's selection |
+| protocol version 5 or 6 / a different design | An older Escapement (v1.0 or v1.1) or another design is answering | Check stage 0's selection |
 | did not decode STATUS / unknown command did not set host error | MOSI stuck high / low | Scope `ui[2]` at the chip |
 | N of M frames wrong | Intermittent | Errors only at the fast rate: SCK phase or MISO slew is marginal; at both rates: noise, ground or a loose connection |
 
@@ -247,7 +248,7 @@ Each firmware prints one line; the stage fails if any firmware differs.
 
 Runs `uart_tx` and receives its bytes with the RP's hardware UART on uio[0] at
 115,200 baud. MicroPython always assigns a TX pin to a UART, so the script uses `ui[7]`,
-which the design ignores. The RP's UART must accept the pins: by the GPIO maps in the
+bank B's B4 input, which `uart_tx` (a bank A program) never reads. The RP's UART must accept the pins: by the GPIO maps in the
 SDK and MicroPython's rule for the RP2 UART pins, uio[0] and ui[7] are UART1 RX and TX
 on the ttDBv3 board (GPIO 25 and 24) and on the RP2040 boards of SDK v2.0.4 (GPIO 21 and
 20). A board where MicroPython refuses the pins reports "could not open an RP UART".
@@ -280,7 +281,7 @@ The same script runs under CPython against two simulated chips:
 
 | Command | Chip | What it shows |
 | --- | --- | --- |
-| `make sw-test` (`sw/tests/test_bringup.py`) | `sw/tests/demoboard_mock.py`: the host interface modelled cycle by cycle after `escapement_host.v`, the ISS as the core, both SRAMs, and faults | A correct chip passes stages 0–6 with every firmware, without the RP and the chip ever driving the same pin and with every SCK phase at least 4 clocks. 18 injected board and chip faults (selection, DIP switch, clock, reset state, MISO/MOSI stuck, wrong version, a too-fast host, SRAM address and data lines stuck or shorted, a dead output, a stuck input, a half-rate clock) each fail the stage meant to catch them with the expected diagnosis; so do a stuck register bit, a fault in the digest path only, and stale bundles (stage 5) |
+| `make sw-test` (`sw/tests/test_bringup.py`) | `sw/tests/demoboard_mock.py`: the host interface modelled cycle by cycle after `escapement_host.v`, the ISS as the core, both SRAMs, and faults | A correct chip passes stages 0–6 with every firmware, without the RP and the chip ever driving the same pin and with every SCK phase at least 4 clocks. 19 injected board and chip faults (selection, DIP switch, clock, reset state, MISO/MOSI stuck, a v1.0 or v1.1 chip, a too-fast host, SRAM address and data lines stuck or shorted, a dead output, a stuck input, a half-rate clock) each fail the stage meant to catch them with the expected diagnosis; so do a stuck register bit, a fault in the digest path only, and stale bundles (stage 5) |
 | `make bringup-test` (`test/bringup/`, about 15 minutes) | The RTL of the whole chip under cocotb, with the board's uio wiring in `tb_bringup.v` | Stages 0–6 pass on the RTL with four firmware (`BRINGUP_FIRMWARE=all` for every one); a stale bundle fails stage 5 |
 
 The simulated board imitates the parts of tt-micropython-firmware the script uses,

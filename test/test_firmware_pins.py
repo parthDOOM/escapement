@@ -1,15 +1,16 @@
 # SPDX-FileCopyrightText: © 2026 Escapement contributors
 # SPDX-License-Identifier: Apache-2.0
-"""SWD, SPI target and NEC infrared through the chip's real pins, on RTL and on the
-gate-level netlist (make pin-test / make gl-pin-test): each program is loaded over SPI
-and run against the bus models of sw/escmodels; the protocol outcome and the host
-replies must be right, with no fault and no contention."""
+"""SWD, SPI target, NEC infrared and the two-bank image through the chip's real pins, on
+RTL and on the gate-level netlist (make pin-test / make gl-pin-test): each program is
+loaded over SPI and run against the bus models of sw/escmodels; the protocol outcome and
+the host replies must be right, with no fault and no contention."""
 
 from cocotb.triggers import ClockCycles
 
 import test as chip                    # test/test.py: bring_up, FW
 from escasm import assemble, assemble_file
-from escmodels import Board, NecReceiver, SwdTarget, Tsop
+from escmodels import (Board, JtagTap, NecReceiver, Ps2Host, SpiTarget, SplitBoard, SwdTarget,
+                       Tsop, UartRx)
 from escmodels.spi import SpiController
 
 FW = chip.FW
@@ -112,3 +113,32 @@ async def test_spi_target_mode3_on_chip(dut):
               ([0x02, 0x20, 0x99], None),
               ([0x03, 0x20, 0], [None, None, 0x99])]
     await spi_target_run(dut, 3, frames, mem)
+
+
+@chip.cocotb.test()
+async def test_two_banks_on_chip(dut):
+    """v1.2: PS/2 and JTAG on uio[7:0] while an SPI controller and a UART transmitter run
+    on bank B (uo_out[7:3] / ui_in[7:3]), eleven protocol signals at once."""
+    ps2 = Ps2Host(0, 1)
+    tap = JtagTap(4, 5, 6, 7, idcode=0x4BA00477)
+    spi = SpiTarget(sck=0, mosi=1, miso=2, cs=3, mode=3, reply=bytes((0x3C, 0xC3)))
+    uart = UartRx(4, 25e6 / 115200)
+    board, board_b = Board(ps2, tap), SplitBoard(spi, uart, outputs=0b11011)
+    host = await chip.bring_up(dut, board, board_b)
+    await host.load(assemble_file(FW / "combo_two_banks.asm"))
+    await host.start()
+    await host.mbx_push(2, 3)            # SPI mode 3
+    await host.mbx_push(0, 0x1C)         # PS/2 scancode
+    await host.mbx_push(1, 0)            # JTAG IDCODE request
+    await host.mbx_push(2, 0x1A5)        # SPI: 0xA5, CS held
+    await host.mbx_push(2, 0x05A)        # SPI: 0x5A, CS released
+    spi_rx = await pop_n(dut, host, 2, 2, 20_000)
+    idcode = await pop_n(dut, host, 1, 1, 20_000)
+    ack = await pop_n(dut, host, 0, 1, 40_000, step=2_000)
+    dut._log.info(f"two banks: spi {spi_rx} {spi.frames} jtag {idcode} ps2 {ps2.bytes} "
+                  f"ack {ack} uart {uart.bytes}")
+    assert spi.frames == [[0xA5, 0x5A]] and spi_rx == [0x3C, 0xC3]
+    assert idcode == [0x4BA00477] and ps2.bytes == [0x1C] and ack == [1]
+    assert uart.bytes == [0x55, 0x4B, 0x21, 0x0A], uart.bytes
+    assert not board.errors() and not board_b.errors(), board.errors() + board_b.errors()
+    await no_fault(host)

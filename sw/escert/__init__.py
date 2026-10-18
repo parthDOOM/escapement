@@ -318,7 +318,10 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     keys_at: dict = {}
     work = [(image.entry_pcs[ctx], init)]
     visited_events: set = set()
-    owned = sum(1 << i for i in range(8) if image.pin_owned[i] and image.pin_owner[i] == ctx)
+    # the context's owned logical pins (v1.2: bank B contexts see B0..B4 as pins 0..4)
+    phys = [8 + j for j in range(5)] if image.ctx_bank[ctx] else list(range(8))
+    owned = sum(1 << j for j, p in enumerate(phys)
+                if image.pin_owned[p] and image.pin_owner[p] == ctx)
 
     def flag(pc, kind, note=""):
         if not any(f.pc == pc and f.kind == kind for f in cert.findings):
@@ -663,7 +666,11 @@ def witness(image: Image, ctx: int, trials: int = 50, ticks: int = 20_000) -> Op
             for i in range(8):
                 ext |= (((t + phase[i]) // period[i]) & 1) << i
             return ((oe & out) | (~oe & ext)) & 0xFF
-        m = Machine(image, board=board)
+        def board_b(t, ob, period=period, phase=phase, idle_high=idle_high):
+            if idle_high:
+                return 0x1F
+            return sum((((t + phase[i]) // period[i]) & 1) << i for i in range(5))
+        m = Machine(image, board=board, board_b=board_b)
         horizon = ticks * (8 if burst else 1)
         step = 23 if burst else 97
         for _ in range(0, horizon, step):

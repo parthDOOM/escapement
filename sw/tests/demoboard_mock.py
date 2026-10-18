@@ -65,12 +65,13 @@ def blank_image() -> Image:
 
 
 def cfg_image(imem, tape, cfg) -> Image:
-    en, entry, owned, owner, od = cfg
+    en, entry, owned, owner, od, bank = cfg
     return Image(words=list(imem), entry_pcs=[(entry >> (8 * k)) & 0xFF for k in range(4)],
                  ctx_enable=[bool((en >> k) & 1) for k in range(4)],
-                 pin_owned=[bool((owned >> i) & 1) for i in range(8)],
-                 pin_owner=[(owner >> (2 * i)) & 3 for i in range(8)],
-                 pin_od=[bool((od >> i) & 1) for i in range(8)], tape=list(tape))
+                 pin_owned=[bool((owned >> i) & 1) for i in range(13)],
+                 pin_owner=[(owner >> (2 * i)) & 3 for i in range(13)],
+                 pin_od=[bool((od >> i) & 1) for i in range(8)], tape=list(tape),
+                 ctx_bank=[bool((bank >> k) & 1) for k in range(4)])
 
 
 class FaultyMachine(Machine):
@@ -86,15 +87,15 @@ class FaultyMachine(Machine):
         if self.exec_fault == "r0bit31" and cm.k == 0 and x.r[0] != before:
             x.r[0] |= 1 << 31
 
-    def _digest_edge(self, out, oe, commit):
-        super()._digest_edge(out, oe, commit)
+    def _digest_edge(self, out, oe, ob, commit):
+        super()._digest_edge(out, oe, ob, commit)
         if self.exec_fault == "digest" and commit is not None and commit.k == 0 \
                 and commit.pc == 3:
             self.dg ^= 1
 
 
 class SimChip:
-    def __init__(self, *, version=6, clock_scale=1.0, clock_dead=False, miso_stuck=None,
+    def __init__(self, *, version=7, clock_scale=1.0, clock_dead=False, miso_stuck=None,
                  mosi_stuck=None, mem_faults=None, uio_out_dead=0, uio_in_stuck=None,
                  uio_ext_low=0, exec_fault=None, seed=1):
         self.version, self.clock_scale, self.clock_dead = version, clock_scale, clock_dead
@@ -142,7 +143,7 @@ class SimChip:
         self.bitcnt = self.rx_shift = self.tx = 0
         self.cmd, self.idx, self.wcnt, self.word = C_IGNORE, 0, 0, 0
         self.host_err = 0
-        self.cfg = [0, 0, 0, 0, 0]
+        self.cfg = [0, 0, 0, 0, 0, 0]
         self.mem_addr = self.mem_space = 0
         self.dbg_ctx = self.dbg_sel = 0
         self.running = False
@@ -162,7 +163,8 @@ class SimChip:
     def uo(self) -> int:
         miso = (self.tx >> 7) & 1 if self.miso_stuck is None else self.miso_stuck
         irq = int(bool(self.m.irq_pending) or self.m.fault_valid)
-        return miso | (irq << 1) | (int(self.running) << 2)
+        # v1.2: uo[7:3] is pin bank B; released (as in and after reset) it is high
+        return miso | (irq << 1) | (int(self.running) << 2) | (self.m.outputs_b() << 3)
 
     def uio(self) -> int:
         out, oe = self.m.outputs()
@@ -369,20 +371,28 @@ class SimChip:
                     self.word = self.mem_read(self.mem_space, self.mem_addr)
                     self.mem_addr = (self.mem_addr + 1) & 0xFF
         elif cmd == C_WC:
-            if not self.running and 1 <= idx <= 9:
+            if not self.running and 1 <= idx <= 13:
                 c = self.cfg
                 if idx == 1:
                     c[0] = rx & 0xF
                 elif idx <= 5:
                     c[1] = (c[1] & ~(0xFF << (8 * (idx - 2)))) | (rx << (8 * (idx - 2)))
                 elif idx == 6:
-                    c[2] = rx
+                    c[2] = (c[2] & ~0xFF) | rx
                 elif idx == 7:
-                    c[3] = (c[3] & 0xFF) | (rx << 8)
+                    c[3] = (c[3] & ~0xFF00) | (rx << 8)
                 elif idx == 8:
-                    c[3] = (c[3] & 0xFF00) | rx
-                else:
+                    c[3] = (c[3] & ~0xFF) | rx
+                elif idx == 9:
                     c[4] = rx
+                elif idx == 10:                     # v1.2 bank B
+                    c[5] = rx & 0xF
+                elif idx == 11:
+                    c[2] = (c[2] & 0xFF) | ((rx & 0x1F) << 8)
+                elif idx == 12:
+                    c[3] = (c[3] & ~(0x3 << 24)) | ((rx & 0x3) << 24)
+                else:
+                    c[3] = (c[3] & ~(0xFF << 16)) | (rx << 16)
         elif cmd == C_DBG:
             if idx == 1:
                 self.dbg_ctx = (rx >> 4) & 3

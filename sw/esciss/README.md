@@ -1,6 +1,6 @@
 # esciss: Escapement instruction-set simulator
 
-This is a cycle-by-cycle Python model of `docs/11-SEMANTICS.md` (v1.0.1). It is
+This is a cycle-by-cycle Python model of `docs/11-SEMANTICS.md` (v1.2.0). It is
 written independently of the RTL for N-version comparison. Only the encoding tables are
 shared, via `escasm.load_isa()` reading `isa/isa.yaml`. All behaviour is hand-written
 from the semantics document.
@@ -10,9 +10,10 @@ from escasm import assemble_file
 from esciss import Machine
 
 m = Machine(assemble_file("firmware/uart_tx.asm"))   # board=None -> pull-up loopback
+                                                     # board_b=None -> bank B inputs low
 m.run(20000)                                         # stops when idle by default
 m.commits    # [{"t","ctx","pc","insn","outcome","post":{r0..r3,sh,lc,tmr,z,c,pc}}]
-m.pins       # [{"t","uio_out","uio_oe"}] per run cycle
+m.pins       # [{"t","uio_out","uio_oe","ob"}] per run cycle (ob = uo_out[7:3])
 m.dbg_read(0, 9)                                     # §10 dbg_sel map
 m.write_trace("out.jsonl")                           # commits, pins, {"final": {...}}
 ```
@@ -24,9 +25,13 @@ accepted.
 
 Each loop iteration is one run cycle t, ending with edge E_t (`Machine._cycle`):
 
-1. Outputs during t come from the pin registers (§5, `_pin_outputs`). They are recorded,
-   and then `uio_in(t) = board(t, uio_out, uio_oe)`.
-2. `sync` during t is the s2 register (§5).
+1. Outputs during t come from the pin registers (§5, `_pin_outputs`, `_ob`). They are
+   recorded, and then `uio_in(t) = board(t, uio_out, uio_oe)` and, for bank B,
+   `ui_in[7:3](t) = board_b(t, ob)`. Bus models keep the 8-bit `board` interface;
+   `escmodels.SplitBoard` puts the same models on bank B.
+2. The 13 synchronised physical inputs during t are the s2 register (§5). Each context
+   sees its bank of them as its 8 logical pins (`view`), and the capture unit the bank
+   its CAPT named.
 3. Fetch (§3, `_fetch`): context `t mod 4` latches `(PC, IMEM[PC])` for commit at t+3.
 4. Edge E_t (`_edge`) runs in two phases, so every decision uses state during t.
    - The **plan** phase evaluates the event engine for each context (§6.3 retirement,

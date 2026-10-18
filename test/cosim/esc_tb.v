@@ -1,6 +1,7 @@
 /*
  * Co-simulation top: esc_core + the real program-store and tape wrappers (SRAM
  * macro models). v1.1: load_space selects the tape (1) or the program (0).
+ * v1.2: bank B pins ib_in / ob_out and the ctx_bank configuration.
  * Written from the port list in docs/11-SEMANTICS.md §10 only.
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,9 +15,10 @@ module esc_tb (
     input  wire         stop,
     input  wire [3:0]   ctx_enable,
     input  wire [31:0]  entry_pcs,
-    input  wire [7:0]   pin_owned,
-    input  wire [15:0]  pin_owner,
+    input  wire [12:0]  pin_owned,
+    input  wire [25:0]  pin_owner,
     input  wire [7:0]   pin_od,
+    input  wire [3:0]   ctx_bank,
     // program load (only while not running)
     input  wire         load_we,
     input  wire         load_space,
@@ -26,6 +28,8 @@ module esc_tb (
     input  wire [7:0]   uio_in,
     output wire [7:0]   uio_out,
     output wire [7:0]   uio_oe,
+    input  wire [4:0]   ib_in,
+    output wire [4:0]   ob_out,
     // status
     output wire         running,
     output wire [7:0]   ctx_state,
@@ -97,9 +101,9 @@ module esc_tb (
   esc_core u_core (
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
-      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od),
+      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
       .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
-      .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe),
+      .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ib_in), .ob_out(ob_out),
       .running(running), .ctx_state(ctx_state),
       .irq_pending(irq_pending), .fault_valid(fault_valid), .irq_clear(irq_clear),
       .mbx_rx_push(mbx_rx_push), .mbx_rx_data(mbx_rx_data), .mbx_rx_full(mbx_rx_full),

@@ -20,11 +20,12 @@ from cocotb.triggers import FallingEdge, RisingEdge, Timer
 
 from escasm import AsmError, assemble, assemble_file, disassemble
 from esciss import Machine
+from esciss.machine import no_board_b
 
 from escmodels import (Board, CanBus, HostScript, I2cController, I2cTarget, JtagTap,
-                       OneWireDevice, Ps2Host, SpiTarget, UartRx, UartTx, Ws2812Decoder,
-                       crc8_maxim)
-from progen import gen_program, loopback_board, make_board
+                       OneWireDevice, Ps2Host, SpiTarget, SplitBoard, UartRx, UartTx,
+                       Ws2812Decoder, crc8_maxim)
+from progen import gen_program, loopback_board, make_board, make_board_b
 
 REPO = Path(__file__).resolve().parents[2]
 MAX_TICKS = int(os.environ.get("COSIM_MAX_TICKS", "4000"))
@@ -35,7 +36,8 @@ async def reset_and_load(dut, image):
     dut.rst_n.value = 0
     for sig in ("start", "stop", "load_we", "load_space", "load_addr", "load_data", "uio_in",
                 "mbx_rx_push", "mbx_rx_data", "mbx_tx_pop", "dbg_sel_ctx", "dbg_sel", "irq_clear",
-                "ctx_enable", "entry_pcs", "pin_owned", "pin_owner", "pin_od"):
+                "ctx_enable", "entry_pcs", "pin_owned", "pin_owner", "pin_od", "ctx_bank",
+                "ib_in"):
         getattr(dut, sig).value = 0
     for _ in range(4):
         await FallingEdge(dut.clk)
@@ -55,11 +57,12 @@ async def reset_and_load(dut, image):
     dut.pin_owned.value = image.pin_owned_mask
     dut.pin_owner.value = image.pin_owner_packed
     dut.pin_od.value = image.pin_od_mask
+    dut.ctx_bank.value = image.ctx_bank_mask
     for _ in range(4):  # uio_in = 0 so both synchroniser stages are 0 at start
         await FallingEdge(dut.clk)
 
 
-async def run_rtl(dut, image, board, n_cycles, host=None):
+async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b):
     """Returns (commits, commits<n, pins, final) using the RTL. Cycle numbering per §2.
     `host` (an escmodels.HostScript, never attached to a machine) gives the mailbox
     schedule; pops are recorded into host.received like the ISS run does."""
@@ -68,6 +71,7 @@ async def run_rtl(dut, image, board, n_cycles, host=None):
     # Falling edge of cycle -1: assert start, sampled at E_-1.
     dut.start.value = 1
     dut.uio_in.value = board(-1, 0, 0)
+    dut.ib_in.value = board_b(-1, 0) & 0x1F
     commits, pins = [], []
     for t in range(n_cycles + 1):
         await FallingEdge(dut.clk)  # mid-cycle t: registered outputs are stable
@@ -88,9 +92,9 @@ async def run_rtl(dut, image, board, n_cycles, host=None):
         dut.mbx_rx_push.value = push_mask
         dut.mbx_rx_data.value = push_data
         dut.mbx_tx_pop.value = pop_mask
-        out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+        out, oe, ob = int(dut.uio_out.value), int(dut.uio_oe.value), int(dut.ob_out.value)
         if t < n_cycles:
-            pins.append({"t": t, "uio_out": out, "uio_oe": oe})
+            pins.append({"t": t, "uio_out": out, "uio_oe": oe, "ob": ob})
         if int(dut.dbg_commit_valid.value):
             post = {k: int(getattr(dut, f"dbg_post_{k}").value) for k in POST_KEYS}
             commits.append({
@@ -99,6 +103,7 @@ async def run_rtl(dut, image, board, n_cycles, host=None):
                 "outcome": "CWF?"[int(dut.dbg_commit_outcome.value)], "post": post,
             })
         dut.uio_in.value = board(t, out, oe)
+        dut.ib_in.value = board_b(t, ob) & 0x1F
     # Now in cycle n_cycles: state after E_(n_cycles-1).
     final = {}
     for ctx in range(4):
@@ -154,15 +159,16 @@ def compare(name, image, m: Machine, rtl_commits, rtl_pins, rtl_final, log):
 
 
 async def cosim_one(dut, name, image, board, max_ticks=MAX_TICKS, rtl_board=None,
-                    iss_host=None, rtl_host=None, stop_when_idle=True):
+                    iss_host=None, rtl_host=None, stop_when_idle=True, board_b=no_board_b,
+                    rtl_board_b=None):
     """Stateless boards may be shared; stateful ones need `rtl_board` (a fresh twin)."""
-    m = Machine(image, board=board)
+    m = Machine(image, board=board, board_b=board_b)
     if iss_host is not None:
         iss_host.machine = m
     m.run(max_ticks, stop_when_idle=stop_when_idle)
     n_cycles = len(m.pins)
     all_commits, rtl_commits, rtl_pins, rtl_final = await run_rtl(
-        dut, image, rtl_board or board, n_cycles, rtl_host)
+        dut, image, rtl_board or board, n_cycles, rtl_host, rtl_board_b or board_b)
     errs = compare(name, image, m, rtl_commits, rtl_pins, rtl_final, dut._log)
     if iss_host is not None and iss_host.received != rtl_host.received:
         errs.append(f"host mailbox results differ: ISS {iss_host.received} RTL {rtl_host.received}")
@@ -203,7 +209,8 @@ async def test_random_programs(dut):
         except AsmError:
             skipped += 1  # e.g. generated program exceeded 256 words
             continue
-        errs, m = await cosim_one(dut, f"seed{seed}", image, make_board(seed))
+        errs, m = await cosim_one(dut, f"seed{seed}", image, make_board(seed),
+                                  board_b=make_board_b(seed))
         commits += len(m.commits)
         cycles += len(m.pins)
         if errs:
@@ -352,6 +359,25 @@ def case_jtag():
     return Board(tap, host), host, check
 
 
+def case_two_banks():
+    """v1.2: PS/2 and JTAG on bank A while SPI and UART run on bank B, at once."""
+    ps2 = Ps2Host(0, 1)
+    tap = JtagTap(4, 5, 6, 7, idcode=0x4BA00477)
+    spi = SpiTarget(sck=0, mosi=1, miso=2, cs=3, mode=3, reply=bytes((0x3C, 0xC3)))
+    uart = UartRx(4, UART_TPB)
+    host = HostScript([(20, 2, 3), (100, 2, 0x1A5), (110, 2, 0x05A), (30, 0, 0x1C), (40, 1, 0)],
+                      drain=[0, 1, 2], poll=300)
+    board_b = SplitBoard(spi, uart, outputs=0b11011)
+
+    def check(board, h):
+        ok = (ps2.bytes == [0x1C] and h.received[0] == [1] and h.received[1] == [0x4BA00477]
+              and spi.frames == [[0xA5, 0x5A]] and h.received[2] == [0x3C, 0xC3]
+              and uart.bytes == [0x55, 0x4B, 0x21, 0x0A])
+        return (([] if ok else [f"two banks {ps2.bytes} {h.received} {spi.frames} {uart.bytes}"])
+                + board.errors() + board_b.errors())
+    return Board(ps2, tap, host), host, check, board_b
+
+
 def case_swd():
     """SWD host: connect (JTAG-to-SWD) and DPIDR read, a SELECT write that is WAITed
     twice, a posted AP read and RDBUFF (the AP's IDR)."""
@@ -407,7 +433,8 @@ def spi_target_case(mode):
     return factory
 
 
-# name -> (firmware, ticks, factory() -> (board, host, check(board, host) -> list[str]))
+# name -> (firmware, ticks, factory() -> (board, host, check(board, host) -> list[str])
+#          [, board_b] for programs on pin bank B)
 FIRMWARE_CASES = {
     "uart_rx": ("uart_rx.asm", 13500, case_uart_rx),
     "i2c_ctrl": ("i2c_ctrl.asm", 9000, case_i2c),
@@ -423,6 +450,7 @@ FIRMWARE_CASES = {
     "nec_ir": ("../test/cosim/nec_ir_cosim.asm", 304000, case_nec_ir),
     "spi_target": ("spi_target.asm", 11000, spi_target_case(0)),
     "spi_target_mode3": ("spi_target.asm", 11000, spi_target_case(3)),
+    "combo_two_banks": ("combo_two_banks.asm", 30000, case_two_banks),
 }
 TAPE_PREP = {"i2c_eeprom": eeprom_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
@@ -443,10 +471,14 @@ async def test_firmware_with_bus_models(dut):
         image = assemble_file(REPO / "firmware" / fw)
         if name in TAPE_PREP:
             TAPE_PREP[name](image)
-        board_i, host_i, check_i = factory()
-        board_r, host_r, check_r = factory()
+        board_i, host_i, check_i, *bb_i = factory()
+        board_r, host_r, check_r, *bb_r = factory()
+        if bb_i:                       # bank B: the RTL gets its own stateful twin
+            bb_i, bb_r = bb_i[0], bb_r[0]
         errs, m = await cosim_one(dut, name, image, board_i, max_ticks=ticks, rtl_board=board_r,
-                                  iss_host=host_i, rtl_host=host_r, stop_when_idle=False)
+                                  iss_host=host_i, rtl_host=host_r, stop_when_idle=False,
+                                  board_b=bb_i or no_board_b,
+                                  rtl_board_b=bb_r or None)
         errs += [f"ISS: {e}" for e in check_i(board_i, host_i)]
         errs += [f"RTL: {e}" for e in check_r(board_r, host_r)]
         dut._log.info(f"[{name}] {len(m.commits)} commits, {len(m.pins)} cycles: "
@@ -511,6 +543,89 @@ async def test_v11_directed(dut):
     for name, (src, board, ticks) in V11_DIRECTED.items():
         errs, m = await cosim_one(dut, name, assemble(src), board, max_ticks=ticks,
                                   stop_when_idle=False)
+        dut._log.info(f"[{name}] {len(m.commits)} commits: {'MATCH' if not errs else 'MISMATCH'}")
+        if errs:
+            failures.append(name)
+    assert not failures, f"mismatching: {failures}"
+
+
+# --------------------------------------------------------------------------- v1.2 bank B
+# Each rule of docs/11-SEMANTICS.md §5 for bank B, ISS against RTL.
+
+def _ib_rise(bit, at):
+    return lambda t, ob: (1 << bit) if t >= at else 0
+
+
+V12_DIRECTED = {
+    "drive_and_release": (""".bank 0
+.own 0, 0
+.own 3, 0
+.entry 0, s
+s: ADDT 10
+   EMIT 0x09, 0x08, 0x09
+   ADDT 10
+   EMIT 0x09, 0x01, 0x09
+   ADDT 10
+   EMIT 0x01, 0x00, 0x00
+   HALT
+""", lambda t, ob: ob, 60),
+    "views_per_context": (""".bank 0
+.entry 0, a
+.entry 1, b
+a: GETP r0
+   WAITP 0x04, 0x04
+   GETP r1
+   HALT
+b: GETP r0
+   HALT
+""", lambda t, ob: 0b10101 if t >= 9 else 0b10001, 60),
+    "fault_releases": (""".bank 0
+.own 1, 0
+.entry 0, s
+s: ADDT 10
+   EMIT 0x02, 0x00, 0x02
+   ADDT 10
+   WAITT
+   EMIT 0x20, 0x20, 0x20
+""", lambda t, ob: ob, 60),
+    "expect_sample_capture": (""".bank 1
+.entry 0, c
+.entry 1, s
+c: MOVI r1, 0x1000
+   MOVHI r1, 0x821F
+   CAPT r1
+   HALT
+s: ADDT 25
+   EXPECT 0x04, 0x04, ARRIVE, 20
+   ADDT 15
+   SAMPLE 2, LSB
+   GETI r1
+   GETX r2
+   HALT
+""", _ib_rise(2, 30), 120),
+    "two_banks_one_logical_pin": (""".bank 1
+.own 0, 0
+.own 0, 1
+.entry 0, a
+.entry 1, b
+a: ADDT 20
+   EMIT 0x01, 0x01, 0x01
+   HALT
+b: ADDT 20
+   EMIT 0x01, 0x00, 0x01
+   HALT
+""", lambda t, ob: ob, 60),
+}
+
+
+@cocotb.test()
+async def test_v12_bank_b(dut):
+    """v1.2 pin bank B corner cases, ISS against RTL (pins, capture and digest included)."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    failures = []
+    for name, (src, board_b, ticks) in V12_DIRECTED.items():
+        errs, m = await cosim_one(dut, name, assemble(src), loopback_board, max_ticks=ticks,
+                                  stop_when_idle=False, board_b=board_b)
         dut._log.info(f"[{name}] {len(m.commits)} commits: {'MATCH' if not errs else 'MISMATCH'}")
         if errs:
             failures.append(name)

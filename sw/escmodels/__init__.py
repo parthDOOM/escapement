@@ -1,6 +1,6 @@
 """Bus models for the Escapement board: the same objects drive the ISS and RTL runs."""
 
-from .board import Board, Device  # noqa: F401
+from .board import Board, Device, SplitBoard  # noqa: F401
 from .uart import UartRx, UartTx  # noqa: F401
 from .i2c import I2cTarget  # noqa: F401
 from .i2c_ctrl import I2cController  # noqa: F401

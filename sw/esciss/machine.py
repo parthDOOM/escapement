@@ -1,7 +1,9 @@
-"""Escapement instruction-set simulator: a cycle-by-cycle model of docs/11-SEMANTICS.md v1.1.0.
+"""Escapement instruction-set simulator: a cycle-by-cycle model of docs/11-SEMANTICS.md v1.2.0.
 
 v1.1 adds the tape and capture unit (§6.5, §7.6), the execution digest (§10.1) and the
-wait-class GETI (§7.3).
+wait-class GETI (§7.3). v1.2 adds pin bank B (§5): five split pins seen by a context as
+its logical pins 0..4. Bus models keep the 8-bit `board(t, uio_out, uio_oe) -> uio_in`
+interface for bank A; bank B has its own `board_b(t, ob) -> ib` (5 bits, default 0).
 
 One loop iteration = one run cycle t, ending with edge E_t. State held in the Python
 objects is always "state during cycle self.now" (i.e. the register values after the
@@ -39,7 +41,9 @@ HOLD, ARRIVE = 0, 1
 FIFO_DEPTH = 4          # §1
 MBX_DEPTH = 2           # §1
 N_CTX = 4               # §1
-N_PINS = 8              # §1
+N_PINS = 8              # §1 logical pins per context, and bank A
+N_PHYS = 13             # §5 physical pins: 0..7 bank A, 8..12 bank B (v1.2)
+BANK_B = 8              # first bank B physical pin
 TAPE_WORDS = 256        # §1 (v1.1)
 CAP_STAGE = 2           # §1 (v1.1) capture staging records
 OP_LDT, OP_STT = ISA.by_name["LDT"].op, ISA.by_name["STT"].op
@@ -47,6 +51,7 @@ DG_POLY = 0x04C11DB7    # §10.1
 OUTCOME_CODE = {"C": 0, "W": 1, "F": 2}
 
 Board = Callable[[int, int, int], int]
+BoardB = Callable[[int, int], int]
 
 
 # --------------------------------------------------------------------------- notation
@@ -72,6 +77,26 @@ def shift_in(x: int, b: int, direction: int) -> int:
 def default_board(t: int, uio_out: int, uio_oe: int) -> int:
     """Pull-up loopback: for each bit, uio_in = uio_oe ? uio_out : 1."""
     return ((uio_out & uio_oe) | (~uio_oe & 0xFF)) & 0xFF
+
+
+def no_board_b(t: int, ob: int) -> int:
+    """Bank B inputs (ui_in[7:3]) held low."""
+    return 0
+
+
+def loopback_b(t: int, ob: int) -> int:
+    """Bank B wired back: ui_in[3+i] = uo_out[3+i]."""
+    return ob & 0x1F
+
+
+def to_phys(bank: int, v: int) -> int:
+    """§5: a context's 8-bit logical vector as a 13-bit physical one."""
+    return ((v & 0x1F) << BANK_B) if bank else (v & 0xFF)
+
+
+def view(bank: int, psync: int) -> int:
+    """§5: a context's logical view of the 13 synchronised physical inputs."""
+    return ((psync >> BANK_B) & 0x1F) if bank else (psync & 0xFF)
 
 
 # --------------------------------------------------------------------------- state (§4)
@@ -158,6 +183,7 @@ class Capture:
     base: int = 0
     lim: int = 0
     ring: bool = False
+    bank: int = 0           # v1.2: the watched pin bank
     ptr: int = 0
     prev: int = 0
     ovf: bool = False
@@ -173,7 +199,8 @@ class Capture:
 
     def config(self) -> int:
         """§10 sel 18."""
-        return (int(self.ring) << 24) | (self.mask << 16) | (self.lim << 8) | self.base
+        return ((self.bank << 25) | (int(self.ring) << 24) | (self.mask << 16)
+                | (self.lim << 8) | self.base)
 
 
 @dataclass
@@ -252,11 +279,13 @@ class _Done(Exception):
 
 
 class Machine:
-    def __init__(self, image: Image, board: Optional[Board] = None):
+    def __init__(self, image: Image, board: Optional[Board] = None,
+                 board_b: Optional[BoardB] = None):
         if len(image.words) != 256:
             raise ValueError("image must have 256 words")
         self.image = image
         self.board: Board = board or default_board
+        self.board_b: BoardB = board_b or no_board_b
         self.imem = [w & M32 for w in image.words]
         # §4 v1.1: the tape is not reset and not cleared by start; it starts with the
         # image's host-loaded contents (WRITE_TAPE before START).
@@ -264,9 +293,11 @@ class Machine:
         # static configuration (§4)
         self.ctx_enable = [bool(e) for e in image.ctx_enable]
         self.entry_pc = [pc & 0xFF for pc in image.entry_pcs]
-        self.pin_owned = [bool(o) for o in image.pin_owned]
-        self.pin_owner = [o & 3 for o in image.pin_owner]
+        self.pin_owned = [bool(o) for o in image.pin_owned] + [False] * N_PHYS
+        self.pin_owner = [o & 3 for o in image.pin_owner] + [0] * N_PHYS
+        del self.pin_owned[N_PHYS:], self.pin_owner[N_PHYS:]
         self.pin_od = [bool(o) for o in image.pin_od]
+        self.ctx_bank = [int(bool(b)) for b in getattr(image, "ctx_bank", [0] * N_CTX)]
         # observation records (§10)
         self.commits: list[dict] = []
         self.pins: list[dict] = []
@@ -292,7 +323,7 @@ class Machine:
         self.cap = Capture()
         self.dg = 0xFFFFFFFF
         self._ld_dg: Optional[int] = None
-        self._dg_prev = (0, 0)
+        self._dg_prev = (0, 0, 0)
 
     def _start_cycle(self) -> None:
         """The start cycle s = -1 (§2) and the start edge E_s (§9 Start).
@@ -303,8 +334,7 @@ class Machine:
         Hence sync during cycle 0 = 0 and sync during cycle 1 = uio_in during cycle -1.
         """
         out, oe = self._pin_outputs()
-        uio_in = self.board(-1, out, oe) & 0xFF
-        self._sync_shift(uio_in)
+        self._sync_shift(self._inputs(-1, out, oe, self._ob()))
         self._apply_start()
 
     def _apply_start(self) -> None:
@@ -325,7 +355,7 @@ class Machine:
         self.cap = Capture()                       # §6.5 start
         self.dg = 0xFFFFFFFF                       # §10.1
         self._ld_dg = None                         # no pending LDT write
-        self._dg_prev = (0, 0)                     # outputs during the previous cycle
+        self._dg_prev = (0, 0, 0)                  # outputs during the previous cycle
 
     # ------------------------------------------------------------------ public API
 
@@ -363,6 +393,10 @@ class Machine:
     def outputs(self) -> tuple[int, int]:
         """(uio_out, uio_oe) during the current cycle (§5)."""
         return self._pin_outputs()
+
+    def outputs_b(self) -> int:
+        """Bank B outputs uo_out[7:3] during the current cycle (§5, v1.2)."""
+        return self._ob()
 
     def host_irq_clear(self, mask: int) -> None:
         """§10 (v1.0.1) irq_clear[3:0], asserted for the next edge."""
@@ -430,13 +464,29 @@ class Machine:
                 oe |= e << i
         return out, oe
 
-    def _sync_shift(self, uio_in: int) -> None:
+    def _ob(self) -> int:
+        """§5 bank B outputs: uo_out[3+i] = oe ? val : 1 for physical pin 8+i (released
+        split pins are high)."""
+        return ((self.val >> BANK_B) | ~(self.oe >> BANK_B)) & 0x1F
+
+    def _inputs(self, t: int, out: int, oe: int, ob: int) -> int:
+        """The 13 physical inputs during cycle t: {ui_in[7:3], uio_in}."""
+        return ((self.board(t, out, oe) & 0xFF)
+                | ((self.board_b(t, ob) & 0x1F) << BANK_B))
+
+    def _sync_shift(self, pins_in: int) -> None:
         """§5 two flip-flop synchroniser, at every edge."""
         self.s2 = self.s1
-        self.s1 = uio_in
+        self.s1 = pins_in
+
+    def _phys_owned(self, k: int, p: int) -> bool:
+        return self.pin_owned[p] and self.pin_owner[p] == k
 
     def _owns(self, k: int, pin: int) -> bool:
-        return self.pin_owned[pin] and self.pin_owner[pin] == k
+        """§5: context k owns logical pin `pin`."""
+        if self.ctx_bank[k]:
+            return pin < 5 and self._phys_owned(k, BANK_B + pin)
+        return self._phys_owned(k, pin)
 
     # ------------------------------------------------------------------ one run cycle
 
@@ -450,9 +500,10 @@ class Machine:
         t = self.now
         tm = t & M32
         out, oe = self._pin_outputs()                          # §5 outputs during t
-        self.pins.append({"t": t, "uio_out": out, "uio_oe": oe})
-        uio_in = self.board(t, out, oe) & 0xFF                 # uio_in during t
-        sync = self.s2                                         # §5 sync during t
+        ob = self._ob()
+        self.pins.append({"t": t, "uio_out": out, "uio_oe": oe, "ob": ob})
+        pins_in = self._inputs(t, out, oe, ob)                 # inputs during t
+        psync = self.s2                                        # §5 psync during t
         idle = self._is_idle()
 
         commit = None
@@ -460,12 +511,12 @@ class Machine:
             self._edge_stop()
         else:
             self._fetch(t)                                     # §3
-            commit = self._edge(t, tm, sync)
-            self._capture_edge(tm, sync, commit)               # §6.5 (v1.1)
-            self._digest_edge(out, oe, commit)                 # §10.1 (v1.1)
+            commit = self._edge(t, tm, psync)
+            self._capture_edge(tm, psync, commit)              # §6.5 (v1.1)
+            self._digest_edge(out, oe, ob, commit)             # §10.1 (v1.1)
         self._apply_mailboxes(commit)                          # §7.5, §10 host ports
         self._apply_irq_clear(commit)                          # §10 irq_clear (v1.0.1)
-        self._sync_shift(uio_in)                               # §5
+        self._sync_shift(pins_in)                              # §5
         self.now = t + 1                                       # §2
         return idle
 
@@ -480,9 +531,11 @@ class Machine:
 
     # ------------------------------------------------------------------ edge E_t
 
-    def _edge(self, t: int, tm: int, sync: int) -> Optional[Commit]:
+    def _edge(self, t: int, tm: int, psync: int) -> Optional[Commit]:
+        # Each context sees its own bank's inputs as its logical pins (§5, v1.2).
+        views = [view(self.ctx_bank[k], psync) for k in range(N_CTX)]
         # ---- plan: event engine for every context (§6.3, §6.4), state during cycle t
-        plans = [self._event_plan(x, tm, sync) for x in self.ctx]
+        plans = [self._event_plan(x, tm, views[k]) for k, x in enumerate(self.ctx)]
 
         # ---- plan: the commit at E_t, context j = (t - 3) mod 4 (§3)
         commit: Optional[Commit] = None
@@ -494,12 +547,13 @@ class Machine:
             # SPEC-Q 1: an instruction whose context is no longer RUNNING during its
             # commit cycle (only possible after LATE_HEAD) is discarded, like §9 Stop.
             if xj.state == RUNNING:
-                commit = self._commit(j, fl, tm, sync, plans[j])
+                commit = self._commit(j, fl, tm, views[j], plans[j])
 
         # ---- apply
         new_val, new_oe = self.val, self.oe
         for k, x in enumerate(self.ctx):
             p = plans[k]
+            sync, bank = views[k], self.ctx_bank[k]
             my_commit = commit if (commit is not None and commit.k == k) else None
             commit_fault = my_commit is not None and my_commit.outcome == "F"
             pc_during_t = x.pc
@@ -518,9 +572,10 @@ class Machine:
             if p.retire is not None:
                 e = x.fifo.pop(0)
                 assert e is p.retire
-                if e.kind == DRIVE:
-                    new_val = (new_val & ~e.mask) | (e.value & e.mask)
-                    new_oe = (new_oe & ~e.mask) | (e.oe & e.mask)
+                if e.kind == DRIVE:                # §6.3 onto the context's bank
+                    pm = to_phys(bank, e.mask)
+                    new_val = (new_val & ~pm) | (to_phys(bank, e.value) & pm)
+                    new_oe = (new_oe & ~pm) | (to_phys(bank, e.oe) & pm)
                 elif e.kind == SAMPLE:
                     x.ish = shift_in(x.ish, (sync >> e.pin) & 1, e.dir)
                 # EXPECT: the checker start is part of p.chk
@@ -534,7 +589,7 @@ class Machine:
                 # evaluation above still counts (SPEC-Q 4). PC recorded = PC during t.
                 new_oe = self._fault(k, FAULT_CAUSE["LATE_HEAD"], 0, pc_during_t, tm, new_oe)
 
-        self.val, self.oe = new_val & 0xFF, new_oe & 0xFF
+        self.val, self.oe = new_val & 0x1FFF, new_oe & 0x1FFF
 
         if commit is not None:
             self._record_commit(commit, t)
@@ -576,9 +631,10 @@ class Machine:
         cp.ptr = nptr
         return set_full
 
-    def _capture_edge(self, tm: int, sync: int, commit: Optional[Commit]) -> None:
+    def _capture_edge(self, tm: int, psync: int, commit: Optional[Commit]) -> None:
         """§6.5 at E_t (not start/stop): drain, generate, then CAPT."""
         cp = self.cap
+        sync = view(cp.bank, psync)                                     # csync (v1.2)
         en_t, snap_t, prev_t, mask_t = cp.en, cp.snap, cp.prev, cp.mask
         busy = commit is not None and ((commit.insn >> 24) & 0xFF) in (OP_LDT, OP_STT)
         capt = commit.capt if (commit is not None and commit.outcome == "C") else None
@@ -596,20 +652,22 @@ class Machine:
             if capt >> 31:
                 self.cap = Capture(en=True, snap=True, mask=(capt >> 16) & 0xFF,
                                    base=capt & 0xFF, lim=(capt >> 8) & 0xFF,
-                                   ring=bool((capt >> 24) & 1), ptr=capt & 0xFF, prev=cp.prev)
+                                   ring=bool((capt >> 24) & 1), bank=(capt >> 25) & 1,
+                                   ptr=capt & 0xFF, prev=cp.prev)
             else:
                 cp.en = cp.snap = False
 
     # ------------------------------------------------------------------ §10.1 digest (v1.1)
 
-    def _digest_edge(self, out: int, oe: int, commit: Optional[Commit]) -> None:
+    def _digest_edge(self, out: int, oe: int, ob: int, commit: Optional[Commit]) -> None:
         # §10.1: only active edges fold (commit observed, LDT write, or outputs changed)
+        ob_low = (ob ^ 0x1F) & 0x1F                # bank B folds as ~ob: released is 0
         active = (commit is not None or self._ld_dg is not None
-                  or (out, oe) != self._dg_prev)
-        self._dg_prev = (out, oe)
+                  or (out, oe, ob_low) != self._dg_prev)
+        self._dg_prev = (out, oe, ob_low)
         if not active:
             return
-        x = ((oe & 0xFF) << 24) | ((out & 0xFF) << 16)
+        x = ((oe & 0xFF) << 24) | ((out & 0xFF) << 16) | (ob_low << 8)
         if commit is not None:
             x ^= (OUTCOME_CODE[commit.outcome] << 14) | (commit.k << 12) | commit.pc
             if commit.outcome == "C" and commit.rd_val is not None:
@@ -685,9 +743,9 @@ class Machine:
         x.state = FAULTED
         x.fifo.clear()                            # flushed, nothing retires at this edge
         x.chk.active = False                      # checker deactivated
-        for i in range(N_PINS):                   # release owned pins (oe only)
-            if self._owns(k, i):
-                new_oe &= ~(1 << i)
+        for p in range(N_PHYS):                   # release owned physical pins (oe only)
+            if self._phys_owned(k, p):
+                new_oe &= ~(1 << p)
         if not self.ff.valid:
             self.ff = FirstFault(True, cause, subcode if cause == FAULT_CAUSE["ADMIT"] else 0,
                                  k, pc, tm)

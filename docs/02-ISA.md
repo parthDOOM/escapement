@@ -1,6 +1,7 @@
 # ISA reference
 
-The programmer's view of the Escapement instruction set, version 1.1. Encodings come
+The programmer's view of the Escapement instruction set, version 1.2 (the instructions
+are those of 1.1; 1.2 adds pin bank B and the CAPT bank bit). Encodings come
 from [`isa/isa.yaml`](../isa/isa.yaml), the single source for the assembler, the
 simulator and the RTL decoder. The exact, cycle-level semantics are in
 [11-SEMANTICS](11-SEMANTICS.md) §7; where this page is shorter, that page is the
@@ -14,6 +15,11 @@ definition.
 - A context commits one instruction every **4 ticks** (one tick is one clock cycle,
   40 ns at 25 MHz). An instruction fetched in cycle t commits at tick t + 3.
 - Pins change only through **events** queued with an absolute deadline from `tmr`.
+- Every instruction names **eight logical pins**. A context in bank A (the default)
+  sees `uio[7:0]`; a context in bank B sees the five split pins B0–B4 (outputs
+  `uo_out[7:3]`, inputs `ui_in[7:3]`) as its pins 0–4. The bank is configuration, set
+  by `.bank` in the program and sent with WRITE_CFG, so one module runs on either bank
+  unchanged.
 - Program store and tape: 256 words of 32 bits each.
 
 ## Encoding
@@ -114,7 +120,7 @@ All event instructions wait while the context's FIFO is full. The deadline is `t
 | --- | --- | --- | --- |
 | 34 | `LDT ra, rb, imm8` | TM | ra = tape[rb[7:0] + imm] |
 | 35 | `STT ra, rb, imm8` | TM | tape[rb[7:0] + imm] = ra |
-| 36 | `CAPT rs` | RS | configure capture from rs: [31] enable, [24] ring, [23:16] watched pins, [15:8] limit, [7:0] base |
+| 36 | `CAPT rs` | RS | configure capture from rs: [31] enable, [25] watch bank B, [24] ring, [23:16] watched pins, [15:8] limit, [7:0] base |
 | 37 | `GETC rd` | RD | rd = capture status: [31] enabled, [30] overflow, [29] full, [28] wrapped, [9:8] staged, [7:0] pointer (Z) |
 
 ### Host mailboxes
@@ -157,7 +163,12 @@ a run is recorded with cause, subcode, context, PC and tick. Other contexts cont
 The assembler (`sw/escasm`) supports labels, expressions, `.equ`, and module directives:
 `.entry ctx, label` sets a context's entry point, `.own pin, ctx` assigns a pin, `.od pin`
 makes it open-drain, and `.include` with `.default` parameters links protocol modules
-into one image with a separate namespace each.
+into one image with a separate namespace each. `.bank ctx` puts a context on bank B;
+after it, that context's `.own j, ctx` names its pin j, which is B*j* (`.own B2, ctx` is
+the same). A bank B pin is push-pull and one-directional: drive it (an output on
+`uo_out`), or leave it unowned and read it (an input on `ui_in`). Released, it is high.
+[`firmware/combo_two_banks.asm`](../firmware/combo_two_banks.asm) runs four unchanged
+modules on both banks at once.
 
 UART transmit at 115,200 baud (217 ticks per bit at 25 MHz), from
 [`firmware/uart_tx.asm`](../firmware/uart_tx.asm):

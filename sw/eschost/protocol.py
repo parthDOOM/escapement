@@ -1,4 +1,4 @@
-# Escapement host protocol v1.1 (docs/12-HOST-PROTOCOL.md) - frame builders/parsers.
+# Escapement host protocol v1.2 (docs/12-HOST-PROTOCOL.md) - frame builders/parsers.
 # Plain Python, MicroPython-compatible (no typing/dataclasses), so the same code drives
 # cocotb tests on a PC and the RP2350 loader on the Tiny Tapeout demo board.
 #
@@ -6,7 +6,7 @@
 # frame and returns the MISO bytes. Host (sync) and AsyncHost (async transports, e.g.
 # cocotb) both execute the same plans, so there is one encoding of the protocol.
 
-VERSION = 0x6
+VERSION = 0x7
 STATUS, WRITE_IMEM, READ_IMEM, WRITE_CFG = 0x00, 0x10, 0x11, 0x12
 WRITE_TAPE, READ_TAPE = 0x13, 0x14
 START, STOP, READ_DBG, MBX_PUSH, MBX_POP = 0x20, 0x21, 0x30, 0x40, 0x41
@@ -66,11 +66,15 @@ def plan_read_tape(addr, count):
             lambda r: [_r32(r, 3 + 4 * i) for i in range(count)])
 
 
-def plan_write_cfg(ctx_enable, entry_pcs, pin_owned, pin_owner, pin_od):
+def plan_write_cfg(ctx_enable, entry_pcs, pin_owned, pin_owner, pin_od, ctx_bank=0):
+    # Always the 13-byte v1.2 frame: a v1.1 chip ignores bytes after the ninth, and a
+    # v1.2 chip never keeps a previous program's bank B settings.
     e = entry_pcs
     return bytes((WRITE_CFG, ctx_enable & 0xF, e & 0xFF, (e >> 8) & 0xFF, (e >> 16) & 0xFF,
                   (e >> 24) & 0xFF, pin_owned & 0xFF, (pin_owner >> 8) & 0xFF,
-                  pin_owner & 0xFF, pin_od & 0xFF)), _st
+                  pin_owner & 0xFF, pin_od & 0xFF,
+                  ctx_bank & 0xF, (pin_owned >> 8) & 0x1F, (pin_owner >> 24) & 0x3,
+                  (pin_owner >> 16) & 0xFF)), _st
 
 
 def plan_start():
@@ -161,7 +165,8 @@ class Host:
             if verify and self.read_tape(t0, tn) != image.tape[t0:t0 + tn]:
                 raise IOError("tape verify failed")
         self.write_cfg(image.ctx_enable_mask, image.entry_pcs_packed, image.pin_owned_mask,
-                       image.pin_owner_packed, image.pin_od_mask)
+                       image.pin_owner_packed, image.pin_od_mask,
+                       getattr(image, "ctx_bank_mask", 0))
         return n
 
 
@@ -196,5 +201,6 @@ class AsyncHost:
             if verify and await self.read_tape(t0, tn) != image.tape[t0:t0 + tn]:
                 raise IOError("tape verify failed")
         await self.write_cfg(image.ctx_enable_mask, image.entry_pcs_packed,
-                             image.pin_owned_mask, image.pin_owner_packed, image.pin_od_mask)
+                             image.pin_owned_mask, image.pin_owner_packed, image.pin_od_mask,
+                             getattr(image, "ctx_bank_mask", 0))
         return n

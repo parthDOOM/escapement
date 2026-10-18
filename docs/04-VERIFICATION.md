@@ -49,16 +49,16 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | --- | --- | --- |
 | P1 | An open-drain pin never drives high | Unbounded (PDR) |
 | **P2** | **Never late: no FIFO head is ever past its deadline** | Unbounded, assume-guarantee (below) |
-| P3 | An unowned pin is never driven | Unbounded (PDR) |
+| P3 | An unowned pin is never driven, in either bank (a bank B pin stays at its released level) | Unbounded (PDR) |
 | P4 | FIFO occupancy stays within bounds | Unbounded (PDR) |
-| P5 | A faulted context drives none of its pins | Unbounded (PDR) |
+| P5 | A faulted context drives none of its pins, in either bank | Unbounded (PDR) |
 | P6 | An admitted event is strictly ahead of its commit tick and of the FIFO tail | Unbounded (PDR) |
 | P7 | Fixed slot timing: a commit belongs to the context that owns that slot | Unbounded (PDR) |
 | P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start, stop or fault edge | Unbounded (PDR, with P2 for the lateness part of the last clause, below) |
 | H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction) |
 | C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
 | G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
-| S1 | The configuration the core runs with (enabled contexts, entry points, pin ownership, open-drain pins) never changes during a run | Unbounded (PDR), on the host interface |
+| S1 | The configuration the core runs with (enabled contexts, entry points, pin ownership, open-drain pins, pin banks) never changes during a run | Unbounded (PDR), on the host interface |
 
 **Assumptions.** The core proofs assume two things about their environment: reset at
 the first step, and S1. S1 is proved on the host interface (`formal/esc_host.sby`),

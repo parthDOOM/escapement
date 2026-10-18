@@ -2,9 +2,9 @@
  * esc_host_env.v - S1: the configuration the core runs with never changes during a run
  * (formal only).
  *
- * The core proofs (esc_core.sby) assume that ctx_enable, entry_pcs, pin_owned, pin_owner
- * and pin_od hold still while the core runs. They come from the host interface, so this
- * harness proves it there: the host's SPI pins and every core-side input are free, and
+ * The core proofs (esc_core.sby) assume that ctx_enable, entry_pcs, pin_owned, pin_owner,
+ * pin_od and ctx_bank hold still while the core runs. They come from the host interface,
+ * so this harness proves it there: the host's SPI pins and every core-side input are free, and
  * the core's run flag is modelled exactly as esc_core drives it (set the cycle after
  * `start`, cleared after `stop`, start winning). A PASS discharges the core proofs'
  * only environment assumption besides reset.
@@ -29,8 +29,10 @@ module esc_host_env (
   wire        start, stop;
   wire [3:0]  ctx_enable;
   wire [31:0] entry_pcs;
-  wire [7:0]  pin_owned, pin_od;
-  wire [15:0] pin_owner;
+  wire [12:0] pin_owned;
+  wire [7:0]  pin_od;
+  wire [3:0]  ctx_bank;
+  wire [25:0] pin_owner;
 
   // the core's run flag (esc_core.v: `if (start) run <= 1; else if (stop) run <= 0;`)
   reg run;
@@ -42,7 +44,8 @@ module esc_host_env (
   escapement_host u (
       .clk(clk), .rst_n(rst_n), .cs_n_pin(cs_n_pin), .sck_pin(sck_pin), .mosi_pin(mosi_pin),
       .miso(), .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
-      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .irq_clear(),
+      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
+      .irq_clear(),
       .running(run), .ctx_state(ctx_state), .irq_pending(irq_pending),
       .fault_valid(fault_valid), .mem_we(), .mem_addr(), .mem_wdata(), .mem_space(),
       .mem_re(), .mem_rdata(mem_rdata), .dbg_ctx(), .dbg_sel(), .dbg_rdata(dbg_rdata),
@@ -61,12 +64,14 @@ module esc_host_env (
       assert ($stable(pin_owned));
       assert ($stable(pin_owner));
       assert ($stable(pin_od));
+      assert ($stable(ctx_bank));
     end
 
   // reachability: a configuration is written, and a run starts afterwards
   always @(posedge clk) if (f_past && rst_n) begin
     cover ($changed(pin_owned) && !run);
-    cover ($rose(run) && pin_owned != 8'd0);
+    cover ($rose(run) && pin_owned != 13'd0);
+    cover ($rose(run) && ctx_bank != 4'd0 && pin_owned[12:8] != 5'd0);   // bank B configured
   end
 endmodule
 `default_nettype wire

@@ -67,6 +67,22 @@ bit. `can_tx` computes CRC-15 and stuffing this way and still runs at 250 kbit/s
 **8. Stretch, then think (clocked targets).** As an I2C target, hold SCL low as soon as
 the 8th falling edge is seen (≤ 28 ticks), then do the slow work while the bus waits.
 
+**9. Put each protocol on the bank that suits it.** Bank A pins are bidirectional and
+can be open-drain: I2C, PS/2, 1-Wire, SWD's SWDIO, anything that turns a line around.
+Bank B pins are push-pull and one-directional: clocks, chip selects, data out, data in.
+SPI controller, UART, JTAG, WS2812 and NEC fit bank B. A module needs no change to
+move: put `.bank CTX` before its `.include`, and its `.own PIN, CTX` names the bank B
+pin. A released bank B output is high, so drive active-high lines to their idle level
+first.
+
+```text
+.bank 2
+.equ spi_ctrl.CTX, 2
+.equ spi_ctrl.SCK_PIN, 0         ; B0 = uo_out[3]
+.equ spi_ctrl.MISO_PIN, 2        ; B2 = ui_in[5], an input: not owned
+.include "spi_ctrl.asm"
+```
+
 ## Budgeting a protocol
 
 - One instruction takes 4 ticks: a 3-instruction bit loop (`EMITX`, `ADDT`, `DJNZ`)

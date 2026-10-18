@@ -11,6 +11,7 @@
  * Byte n of the MISO stream answers byte n-1 of the MOSI stream; byte 0 is status.
  * v1.1 (protocol version 6): WRITE_TAPE/READ_TAPE reuse the IMEM word engine with
  * mem_space = 1, and READ_DBG takes a 5-bit select ({1'b0, sel[4], ctx, sel[3:0]}).
+ * v1.2 (protocol version 7): WRITE_CFG takes four more optional bytes for pin bank B.
  */
 `default_nettype none
 module escapement_host (
@@ -26,9 +27,10 @@ module escapement_host (
     output reg          stop,
     output reg  [3:0]   ctx_enable,
     output reg  [31:0]  entry_pcs,
-    output reg  [7:0]   pin_owned,
-    output reg  [15:0]  pin_owner,
+    output reg  [12:0]  pin_owned,
+    output reg  [25:0]  pin_owner,
     output reg  [7:0]   pin_od,
+    output reg  [3:0]   ctx_bank,
     output reg  [3:0]   irq_clear,
     input  wire         running,
     input  wire [7:0]   ctx_state,
@@ -58,7 +60,7 @@ module escapement_host (
                    C_START = 8'h20, C_STOP = 8'h21,
                    C_READ_DBG = 8'h30, C_MBX_PUSH = 8'h40, C_MBX_POP = 8'h41,
                    C_IRQ_CLEAR = 8'h50, C_CLEAR_ERR = 8'h51, C_IGNORE = 8'hFF;
-  localparam [3:0] VERSION = 4'h6;
+  localparam [3:0] VERSION = 4'h7;
 
   // ---------------------------------------------------------------- synchronisers
   reg [1:0] cs_s, sck_s, mosi_s;
@@ -144,8 +146,8 @@ module escapement_host (
       cmd <= C_IGNORE; idx <= 4'd0; wcnt <= 2'd0; word <= 32'd0; mctx <= 2'd0;
       host_err <= 1'b0;
       start <= 1'b0; stop <= 1'b0; irq_clear <= 4'd0;
-      ctx_enable <= 4'd0; entry_pcs <= 32'd0; pin_owned <= 8'd0; pin_owner <= 16'd0;
-      pin_od <= 8'd0;
+      ctx_enable <= 4'd0; entry_pcs <= 32'd0; pin_owned <= 13'd0; pin_owner <= 26'd0;
+      pin_od <= 8'd0; ctx_bank <= 4'd0;
       mem_we <= 1'b0; mem_addr <= 8'd0; mem_wdata <= 32'd0; mem_space <= 1'b0;
       dbg_ctx <= 2'd0; dbg_sel <= 5'd0;
       mbx_rx_push <= 4'd0; mbx_tx_pop <= 4'd0;
@@ -222,10 +224,15 @@ module escapement_host (
                   4'd3: entry_pcs[15:8]  <= rx_byte;
                   4'd4: entry_pcs[23:16] <= rx_byte;
                   4'd5: entry_pcs[31:24] <= rx_byte;
-                  4'd6: pin_owned        <= rx_byte;
+                  4'd6: pin_owned[7:0]   <= rx_byte;
                   4'd7: pin_owner[15:8]  <= rx_byte;
                   4'd8: pin_owner[7:0]   <= rx_byte;
                   4'd9: pin_od           <= rx_byte;
+                  // v1.2 bank B; a 9-byte WRITE_CFG leaves these unchanged
+                  4'd10: ctx_bank          <= rx_byte[3:0];
+                  4'd11: pin_owned[12:8]   <= rx_byte[4:0];
+                  4'd12: pin_owner[25:24]  <= rx_byte[1:0];
+                  4'd13: pin_owner[23:16]  <= rx_byte;
                   default: ;
                 endcase
               end

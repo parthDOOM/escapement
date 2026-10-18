@@ -155,6 +155,49 @@ def test_concurrent_uart_tx_rx_and_i2c():
     assert m.dbg_read(0, 14) >> 31 == 0
 
 
+TWO_BANKS_IDCODE = 0x4BA00477
+
+
+def two_banks_world(mode=3):
+    """combo_two_banks.asm's surroundings: PS/2 host and JTAG TAP on bank A, SPI target
+    and UART receiver on bank B, and one host script for all four mailboxes."""
+    from escmodels import JtagTap, Ps2Host, SplitBoard
+    ps2 = Ps2Host(0, 1)
+    tap = JtagTap(4, 5, 6, 7, idcode=TWO_BANKS_IDCODE)
+    script = HostScript([(20, 2, mode), (100, 2, 0x1A5), (110, 2, 0x05A), (30, 0, 0x1C),
+                         (40, 1, 0), (2000, 2, 0x0F0), (9000, 0, 0x5A), (9100, 1, 0)],
+                        drain=[0, 1, 2], poll=300)
+    spi = SpiTarget(sck=0, mosi=1, miso=2, cs=3, mode=mode, reply=b"\x3C\xC3\x81")
+    uart = UartRx(4, 25e6 / 115200)
+    board_a = Board(ps2, tap, script)
+    board_b = SplitBoard(spi, uart, outputs=0b11011)          # MISO (B2) is the input
+    return board_a, board_b, script, ps2, spi, uart
+
+
+@pytest.mark.parametrize("mode", [0, 3])
+def test_two_banks_four_protocols_at_once(mode):
+    """v1.2: PS/2 and JTAG on bank A while SPI and UART run on bank B, eleven signals,
+    each checked by its own independent model; nobody's timing moves (fixed slots)."""
+    from esciss import Machine
+    board_a, board_b, script, ps2, spi, uart = two_banks_world(mode)
+    m = Machine(assemble_file(FW / "combo_two_banks.asm"), board=board_a, board_b=board_b)
+    script.machine = m
+    m.run(60_000, stop_when_idle=False)
+    assert ps2.bytes == [0x1C, 0x5A], ps2.bytes
+    assert script.received[0] == [1, 1]
+    assert script.received[1] == [TWO_BANKS_IDCODE] * 2
+    assert spi.frames == [[0xA5, 0x5A], [0xF0]], spi.frames
+    assert script.received[2] == [0x3C, 0xC3, 0x81]
+    assert uart.bytes == [0x55, 0x4B, 0x21, 0x0A]
+    assert not board_a.errors() and not board_b.errors(), board_a.errors() + board_b.errors()
+    assert not m.ff.valid
+    # bank B carried SPI and UART while bank A carried PS/2 and JTAG, in the same run
+    assert any(p["ob"] != 0x1F for p in m.pins[:2000])
+    assert any(p["uio_oe"] & 0x03 for p in m.pins[:5000])
+    # MISO (B2) is an input: its output side stays released (high) throughout
+    assert all(p["ob"] & 0b00100 for p in m.pins)
+
+
 # --------------------------------------------------------------------------- v1.1 tape
 
 

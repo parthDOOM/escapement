@@ -1,4 +1,4 @@
-# Escapement machine semantics v1.1.0 (normative)
+# Escapement machine semantics v1.2.0 (normative)
 
 This document is the single normative definition of the machine. The Python
 instruction-set simulator (`sw/esciss`) and the RTL (`src/`) are separate
@@ -10,7 +10,10 @@ Version history: 1.0 is the base machine. 1.0.1 adds the IRQ status and clear an
 §8). 1.1.0 adds the tape, a second 256 × 32 memory shared by firmware loads and stores
 and a timestamped capture unit (§6.5, §7.6), the execution digest (§10.1), and makes
 GETI wait for in-flight SAMPLEs (§7.3). Rationale:
-[13-TAPE-AND-DIGEST](13-TAPE-AND-DIGEST.md).
+[13-TAPE-AND-DIGEST](13-TAPE-AND-DIGEST.md). 1.2.0 adds pin bank B, five split pins on
+the chip's otherwise unused dedicated inputs and outputs, chosen per context (§5); the
+instruction set is unchanged, and a program that does not use bank B behaves exactly as
+on 1.1.0, digest included.
 
 Notation: all arithmetic on 32-bit values is modulo 2^32 unless stated. `zext` is
 zero extension. `ahead(a, b)` means `1 <= (a - b) mod 2^32 < 2^31` ("a is strictly
@@ -26,7 +29,8 @@ after b within the half-range horizon"). `reached(t, d)` means `(t - d) mod 2^32
 | Contexts | 4 (k = 0..3) |
 | Instruction memory | 256 words × 32 bits, single port, shared |
 | Event FIFO depth | 4 entries per context |
-| Protocol pins | 8 (`uio[7:0]`) |
+| Protocol pins | 13: bank A, 8 bidirectional (`uio[7:0]`); bank B (v1.2), 5 split pins (out `uo_out[7:3]`, in `ui_in[7:3]`) |
+| Pins per context | 8 logical pins, mapped onto the context's bank (§5) |
 | Host mailboxes | 2 entries × 32 bits per context per direction |
 | Tape (v1.1) | 256 words × 32 bits, single port, shared by all contexts and the capture unit |
 | Capture staging (v1.1) | 2 records |
@@ -76,26 +80,55 @@ Per context k: `r0..r3` (32 b), `sh` (32 b), `lc` (16 b), `tmr` (32 b), `PC` (8 
 `lr` (8 b), flags `Z`, `C`, state, `ish` (32 b), event FIFO (4 entries), expectation
 checker, telemetry, IRQ pending + code, mailboxes.
 
-Global: `now`, pin registers `val[7:0]` and `oe[7:0]`, input synchronisers, the
+Global: `now`, pin registers `val[12:0]` and `oe[12:0]`, input synchronisers, the
 first-fault register, run flag, the tape `T[0..255]` (not reset, not cleared by start;
 written only by STT, the capture unit and the host while stopped), the capture unit
 (§6.5), the execution digest `dg` (§10.1), and configuration (static during a run):
-`ctx_enable[3:0]`, `entry_pc[k]`, `pin_owned[7:0]`, `pin_owner[i]` (2 b each),
-`pin_od[7:0]`.
+`ctx_enable[3:0]`, `entry_pc[k]`, `pin_owned[12:0]`, `pin_owner[p]` (2 b each),
+`pin_od[7:0]`, `ctx_bank[3:0]` (v1.2).
 
 ## 5. Pins
 
+**Physical pins** p = 0..12:
+
+| p | Bank | Output | Input |
+| --- | --- | --- | --- |
+| 0..7 | A | `uio_out[p]`, `uio_oe[p]` | `uio_in[p]` |
+| 8..12 (v1.2) | B | `uo_out[p − 5]` | `ui_in[p − 5]` |
+
+A bank B pin is split: its output and its input are different package pins, so it has
+no output enable at the package and cannot be open-drain.
+
 **Outputs during cycle t** come from the pin registers during cycle t:
 
-- push-pull pin i (`pin_od[i]=0`): `uio_out[i] = val[i]`, `uio_oe[i] = oe[i]`
-- open-drain pin i (`pin_od[i]=1`): `uio_out[i] = 0`, `uio_oe[i] = oe[i] & ~val[i]`
+- push-pull pin p < 8 (`pin_od[p]=0`): `uio_out[p] = val[p]`, `uio_oe[p] = oe[p]`
+- open-drain pin p < 8 (`pin_od[p]=1`): `uio_out[p] = 0`, `uio_oe[p] = oe[p] & ~val[p]`
+- bank B pin p: `uo_out[p − 5] = oe[p] ? val[p] : 1`; written `ob[i]` for p = 8 + i
 
 So on an open-drain pin, `val=1` (or `oe=0`) releases the line and `val=0, oe=1` drives
-low. No register state can drive an open-drain pin high.
+low. No register state can drive an open-drain pin high. A released bank B output
+(`oe=0`) is high, the level a bank A pin floats to on its pull-up, so active-low selects
+and idle-high lines (SPI CS, UART TX) are idle from reset and after a fault or stop.
 
-**Inputs.** Two flip-flop synchroniser: at every edge `s1 <= uio_in`, `s2 <= s1`.
-`sync` during cycle t is `s2`, which equals `uio_in` during cycle t-2. The
-synchronisers run continuously (they are not cleared by `start`) and reset to 0.
+**Inputs.** Two flip-flop synchroniser: at every edge `s1 <= {ui_in[7:3], uio_in}`,
+`s2 <= s1`. `psync` during cycle t is `s2` (13 bits), which equals the inputs during
+cycle t-2. The synchronisers run continuously (they are not cleared by `start`) and
+reset to 0.
+
+**Logical pins (v1.2).** Every instruction names pins by an 8-bit logical vector: masks,
+values and output enables of DRIVE, EXPECT and WAITP, the SAMPLE pin index and GETP.
+Context k's logical pin j is physical pin `phys(k, j)`:
+
+- `ctx_bank[k] = 0`: `phys(k, j) = j`.
+- `ctx_bank[k] = 1`: `phys(k, j) = 8 + j` for j < 5; logical pins 5..7 have no
+  physical pin.
+
+Context k's view of the inputs, `sync` in the rest of this document when context k
+evaluates it, is `sync[j] = psync[phys(k, j)]`, and 0 for a logical pin with no physical
+pin. Context k **owns** logical pin j if `phys(k, j)` exists, `pin_owned[phys(k, j)]` and
+`pin_owner[phys(k, j)] == k`. A DRIVE of context k changes, for each masked logical pin
+j, the registers of physical pin `phys(k, j)`. A context sees only its own bank; contexts
+in either bank may run at the same time.
 
 Pin registers change only through DRIVE retirement (§6.3), fault release (§8), `stop`
 and reset (§9).
@@ -119,7 +152,7 @@ d the new entry's deadline. Check in this order:
 
 1. If |Q| == 4, the outcome is **WAIT** (§7.4 counts it).
 2. DRIVE or EXPECT with `mask == 0` → FAULT ADMIT/MASK.
-3. DRIVE whose mask selects any pin i without `pin_owned[i] && pin_owner[i] == k` →
+3. DRIVE whose mask selects any logical pin j that context k does not own (§5) →
    FAULT ADMIT/OWNER.
 4. Not `ahead(d, c)` → FAULT ADMIT/PAST. (Deadline must be ≥ c+1 and < c + 2^31.)
 5. Q nonempty and not `ahead(d, tail(Q).deadline)` → FAULT ADMIT/ORDER.
@@ -133,9 +166,9 @@ Otherwise the entry is appended at E_c, and the outcome is COMPLETE.
 
 If the FIFO head h during cycle t has `h.deadline == t`, it retires at E_t:
 
-- **DRIVE**: for every pin i with `mask[i]=1`: `val[i] <= value[i]`, `oe[i] <= oe[i]`
-  (from the entry). Pins change in the cycle after the deadline: outputs show the new
-  value **during cycle d+1**.
+- **DRIVE**: for every logical pin j with `mask[j]=1`, with p = `phys(k, j)`:
+  `val[p] <= value[j]`, `oe[p] <= oe[j]` (from the entry). Pins change in the cycle
+  after the deadline: outputs show the new value **during cycle d+1**.
 - **SAMPLE**: `ish <= shift_in(ish', sync_t[pin], dir)`, where `ish'` is `ish` after any
   GETI clear at the same edge (§7.3), `sync_t` is `sync` during cycle t, and
   `shift_in(x, b, 0) = (x >> 1) | (b << 31)` (LSB-first), `shift_in(x, b, 1) = (x << 1) | b`
@@ -164,10 +197,13 @@ one context never overlap.
 
 ### 6.5 Capture unit (v1.1, one, global)
 
-State: `en` (generating), `snap`, `mask[7:0]`, `base[7:0]`, `lim[7:0]`, `ring`, `ptr[7:0]`,
-`prev[7:0]`, flags `ovf`, `full`, `wrapped`, `ovf_tick[31:0]`, and a staging FIFO of at
-most 2 records. A **record** is the word `{levels[7:0], tick[23:0]}`: bits 31:24 are
-`sync` during the record's tick, bits 23:0 are that tick mod 2^24.
+State: `en` (generating), `snap`, `bank` (v1.2), `mask[7:0]`, `base[7:0]`, `lim[7:0]`,
+`ring`, `ptr[7:0]`, `prev[7:0]`, flags `ovf`, `full`, `wrapped`, `ovf_tick[31:0]`, and a
+staging FIFO of at most 2 records. The capture unit watches one bank: `csync` is
+`psync[7:0]` when `bank = 0` and `{3'b0, psync[12:8]}` when `bank = 1`, and `sync_t` in
+this section means `csync` during cycle t. A **record** is the word
+`{levels[7:0], tick[23:0]}`: bits 31:24 are `csync` during the record's tick, bits 23:0
+are that tick mod 2^24.
 
 The **tape port is busy in cycle t** if a commit observed at E_t (`commit_valid`, §10)
 has opcode LDT or STT, whatever its outcome. Otherwise it is free.
@@ -193,7 +229,8 @@ At every edge E_t of a run, unless start or stop is at E_t, in this order:
 After stop, records still staged are drained in the following cycles (the port is free
 while stopped). Host tape access within 4 cycles of a stop is not defined; the host
 protocol cannot issue one. Start and reset: `en = snap = ovf = full = wrapped = 0`,
-`ptr = 0`, `mask = base = lim = prev = 0`, `ring = 0`, `ovf_tick = 0`, staging empty.
+`ptr = 0`, `mask = base = lim = prev = 0`, `ring = bank = 0`, `ovf_tick = 0`, staging
+empty.
 
 A decoder recovers absolute ticks from bits 23:0 alone: a record whose tick field is 0
 marks the start of a new 2^24-tick epoch, and one is generated at every epoch boundary
@@ -296,7 +333,7 @@ Same-edge host access never changes what the commit at that edge observed.
 | --- | --- | --- |
 | LDT ra, rb, imm8 | R[ra] = T[a] | — |
 | STT ra, rb, imm8 | T[a] <= R[ra] at E_c | — |
-| CAPT rs | configure the capture unit from `v = R[rs]` (below) | — |
+| CAPT rs | configure the capture unit from `v = R[rs]` (below): [31] enable, [25] bank (v1.2), [24] ring, [23:16] watched pins, [15:8] limit, [7:0] base | — |
 | GETC rd | R[rd] = capture status during cycle c: [31] en, [30] ovf, [29] full, [28] wrapped, [9:8] staged count, [7:0] ptr; other bits 0 | Z |
 
 LDT and STT never WAIT. **Implementation note (LDT):** the memory is read at E_c and
@@ -305,7 +342,9 @@ context's next commit is at c+4 or later); a host debug read during cycle c+1 ma
 old value. The observation record of the LDT commit shows the loaded value.
 
 **CAPT** at E_c with `v = R[rs]`: if `v[31]` (enable): `en = 1`, `snap = 1`,
-`mask = v[23:16]`, `lim = v[15:8]`, `base = v[7:0]`, `ring = v[24]`, `ptr = base`,
+`mask = v[23:16]`, `lim = v[15:8]`, `base = v[7:0]`, `ring = v[24]`, `bank = v[25]`
+(v1.2; the capture unit watches a bank directly, whatever bank the configuring context
+uses, and needs no pin ownership), `ptr = base`,
 `ovf = full = wrapped = 0`, `ovf_tick = 0`, staging emptied (so the first record,
 generated at E_(c+1), is a snapshot). If `v[31] = 0`: `en = 0` and `snap = 0` (no record
 is generated at E_c); the other capture registers keep their values after §6.5 step 1,
@@ -320,7 +359,8 @@ context `FAULTED` at that edge, with these effects:
   one due then.
 - Its checker is deactivated without evaluating tick t at that edge (no
   pass/fail count or first_fail update; v1.0.2).
-- For each pin i owned by the context: `oe[i] <= 0` (released). `val` is unchanged.
+- For each physical pin p owned by the context (`pin_owned[p] && pin_owner[p] == k`):
+  `oe[p] <= 0` (released). `val` is unchanged.
 - If the first-fault register is empty, it records {cause, subcode (ADMIT only, else
   0), ctx, PC of the faulting instruction (for LATE_HEAD: PC during cycle t), tick}.
 
@@ -360,7 +400,8 @@ Both models produce the same records. A commit at tick c produces:
  post: {r0, r1, r2, r3, sh, lc, tmr, z, c, pc}}   # state of ctx after E_c
 ```
 
-Every run cycle t produces `{t, uio_out, uio_oe}`. The end of a run produces final
+Every run cycle t produces `{t, uio_out, uio_oe, ob}` (`ob` = `uo_out[7:3]`, v1.2). The
+end of a run produces final
 per-context state (state, registers, ish, telemetry, checker status, IRQ) and the
 first-fault register.
 
@@ -391,7 +432,7 @@ first-fault register.
 | 15 | first-fault tick |
 | 16 | execution digest `dg` (v1.1) |
 | 17 | capture status, as GETC |
-| 18 | capture config: [24] ring, [23:16] mask, [15:8] lim, [7:0] base |
+| 18 | capture config: [25] bank, [24] ring, [23:16] mask, [15:8] lim, [7:0] base |
 | 19 | capture `ovf_tick` |
 
 `dbg_sel` is 5 bits wide in v1.1 (16–19 ignore `dbg_sel_ctx`; 20–31 read 0).
@@ -401,14 +442,15 @@ first-fault register.
 A 32-bit signature of the run, so a host can check silicon, gates, RTL and ISS against
 each other with one read. At an edge E_t of a run (not a start or stop edge) the digest
 is updated **if the edge is active**: a commit is observed at E_t, an LDT completed at
-E_(t-1), or the outputs during t differ from the outputs during t−1 (outputs during
-cycle 0 are compared with 0). Otherwise `dg` is unchanged. So once every context has
-stopped (HALT/FAULT) with its FIFO empty, `dg` is final: it does not depend on when the
-host's STOP arrives.
+E_(t-1), or the outputs (`uio_out`, `uio_oe`, `ob`) during t differ from the outputs
+during t−1 (outputs during cycle 0 are compared with 0). Otherwise `dg` is unchanged. So
+once every context has stopped (HALT/FAULT) with its FIFO empty, `dg` is final: it does
+not depend on when the host's STOP arrives.
 
 ```
 dg  <= ((dg << 1) mod 2^32) XOR (dg[31] ? 0x04C11DB7 : 0) XOR x_t
-x_t  = ((uio_oe_t << 24) | (uio_out_t << 16)) XOR cw_t XOR wv_t   (outputs during t, §5)
+x_t  = ((uio_oe_t << 24) | (uio_out_t << 16) | ((ob_t XOR 0x1F) << 8)) XOR cw_t XOR wv_t
+       (outputs during t, §5; a released bank B folds as 0)
 cw_t = a commit observed at E_t ? (outcome << 14) | (ctx << 12) | pc : 0
        (outcome 0 COMPLETE, 1 WAIT, 2 FAULT, as dbg_commit_*)
 wv_t = XOR of every register value written at E_t: the rd result of a COMPLETE
@@ -417,14 +459,17 @@ wv_t = XOR of every register value written at E_t: the rd result of a COMPLETE
        loaded value of an LDT that completed at E_(t-1)
 ```
 
-`dg = 0xFFFFFFFF` at start; it does not change while stopped.
+`dg = 0xFFFFFFFF` at start; it does not change while stopped. A run that never drives
+bank B (`ob` stays 0x1F) produces the same digest as on 1.1.0.
 
 **Core ports** (besides the debug ports; the v1.1 tape port is the last item):
 - Clock and control: `clk`, `rst_n`, `start`, `stop`.
 - Configuration: `ctx_enable[3:0]`, `entry_pcs[31:0]` (ctx k at [8k+7:8k]),
-  `pin_owned[7:0]`, `pin_owner[15:0]` (pin i at [2i+1:2i]), `pin_od[7:0]`.
+  `pin_owned[12:0]`, `pin_owner[25:0]` (pin p at [2p+1:2p]), `pin_od[7:0]`,
+  `ctx_bank[3:0]` (v1.2).
 - Instruction memory: `imem_addr[7:0]` out, `imem_rdata[31:0]` in.
-- Pins: `uio_in[7:0]`, `uio_out[7:0]`, `uio_oe[7:0]`.
+- Pins: `uio_in[7:0]`, `uio_out[7:0]`, `uio_oe[7:0]`; bank B (v1.2) `ib_in[4:0]`
+  (`ui_in[7:3]`) and `ob_out[4:0]` (`uo_out[7:3]`).
 - Status: `running`, `ctx_state[7:0]` (2 bits per context, encoded as in sel 7),
   `irq_pending[3:0]` (per-context IRQ pending), `fault_valid` (first-fault register
   valid).

@@ -15,9 +15,11 @@ flowchart LR
     IMEM --> Core[Barrel core<br/>4 fixed slots]
     Core --> Q[Event FIFOs<br/>4 per context]
     Time[Tick counter<br/>32 bit] --> Q
-    Q --> Own[Pin ownership<br/>push-pull / open-drain]
-    Own --> Pins[uio 7:0]
+    Q --> Own[Pin banks + ownership<br/>per-context view]
+    Own --> Pins[Bank A: uio 7:0<br/>push-pull / open-drain]
+    Own --> PinsB[Bank B: uo 7:3 out<br/>ui 7:3 in]
     Pins --> Sync[2-flop synchronisers]
+    PinsB --> Sync
     Sync --> Core
     Sync --> Chk[Expectation checkers]
     Sync --> Cap[Capture unit]
@@ -84,8 +86,24 @@ PC and tick of the first context fault. Firmware raises host interrupts with
 
 ## Pins
 
-Each `uio` pin has one owner context or none, and is push-pull or open-drain; both are
-configured while stopped. All contexts can observe every input.
+There are 13 physical protocol pins in two banks:
+
+| Bank | Pins | Kind |
+| --- | --- | --- |
+| A | `uio[7:0]` | Bidirectional, push-pull or open-drain |
+| B (v1.2) | B0–B4: output `uo_out[3+i]`, input `ui_in[3+i]` | Split: push-pull, one direction per pin; released means high |
+
+Every instruction names eight **logical** pins, and each context is configured to one
+bank: its pins 0–7 are `uio[7:0]`, or its pins 0–4 are B0–B4. The mapping sits at the
+edge of the core (the input view, the ownership masks, DRIVE retirement, fault release),
+so decode, admission and the event queues are the same for both banks, and a firmware
+module written for one bank runs on the other unchanged. Each physical pin has one owner
+context or none; ownership, open-drain and banks are configured while stopped.
+
+Bank B uses the chip's dedicated inputs and outputs, which a host interface on three pins
+leaves free, so protocol signals go from 8 to 18. The banks run at the same time: in
+[`combo_two_banks.asm`](../firmware/combo_two_banks.asm), PS/2 and JTAG run on bank A
+while SPI and UART run on bank B, 11 signals at once.
 
 On an **open-drain** pin the event's value is the requested bus level: value 0 with
 output enable drives low, and value 1 releases. No register state can drive an
@@ -93,7 +111,8 @@ open-drain pin high, so data-dependent SDA needs no inversion code and the "neve
 high" property holds by construction.
 
 Inputs pass through a two-flop synchroniser. Every input-side feature (WAITP, GETP,
-EXPECT, SAMPLE, capture) sees the synchronised vector, which lags the pad by two ticks.
+EXPECT, SAMPLE, capture) sees the synchronised vector of its bank, which lags the pad by
+two ticks. The capture unit watches the bank its CAPT operand names.
 
 ## The tape and the capture unit
 

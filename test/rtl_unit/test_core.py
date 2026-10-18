@@ -56,7 +56,7 @@ class Env:
             getattr(d, name).value = 0
         for name in ("ext", "mbx_rx_push", "mbx_tx_pop", "irq_clear", "mbx_rx_data",
                      "dbg_sel", "dbg_sel_ctx", "ctx_enable", "entry_pcs", "pin_owned",
-                     "pin_owner", "pin_od", "ld_addr", "ld_data"):
+                     "pin_owner", "pin_od", "ctx_bank", "ib_in", "ld_addr", "ld_data"):
             getattr(d, name).value = 0
         for _ in range(3):
             await FallingEdge(d.clk)
@@ -85,6 +85,7 @@ class Env:
         d.pin_owned.value = img.pin_owned_mask
         d.pin_owner.value = img.pin_owner_packed
         d.pin_od.value = img.pin_od_mask
+        d.ctx_bank.value = img.ctx_bank_mask
         d.ext.value = ext
         d.lb.value = lb
         await FallingEdge(d.clk)

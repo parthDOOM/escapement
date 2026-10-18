@@ -31,7 +31,8 @@ corner (1.08 V, 125 °C), not the typical one.
 deadlines, strict ordering within half the counter range, and visible rejection. An
 event is never applied late.
 
-**D-10 Host link.** Eight `uio` pins for protocols; the host uses SPI mode 0,
+**D-10 Host link.** Eight `uio` pins for protocols (five more from v1.2, D-31); the host
+uses SPI mode 0,
 oversampled in the core clock domain (SCK ≤ f_clk / 8), so the design has one clock
 domain. Two-entry mailboxes per context and direction. Memories are written only while
 the core is stopped.
@@ -72,6 +73,30 @@ stops. One read checks silicon against the simulator. Cost: 48 flops.
 **D-20 / D-26 GETI waits for in-flight SAMPLEs.** Previously, a `GETI` committing on the
 edge where the last `SAMPLE` retired returned the word without that bit. GETI is now
 wait-class while any SAMPLE is queued: a silent failure became impossible for one OR gate.
+
+## Version 1.2: pin bank B
+
+**D-31 The idle pins become a second pin bank.** The host link needs three dedicated
+inputs and three outputs, so `ui_in[7:3]` and `uo_out[7:3]` did nothing: 10 of the
+chip's 24 pins. In a design judged on flexibility, pins are the scarcest resource; with
+eight, SPI plus UART plus I2C already filled the chip. Version 1.2 turns them into five
+split pins, B0–B4, each an output on `uo_out[3+i]` and an input on `ui_in[3+i]`.
+
+- *Per-context banks, not wider masks.* Every pin-carrying instruction format uses
+  8-bit masks, so 13-bit masks would mean new encodings. Instead each context is
+  configured to one bank and sees it as its eight logical pins. The mapping sits at the
+  core's edge (input view, ownership masks, DRIVE and fault updates, outputs), so
+  decode, admission and the event queues are unchanged, and a firmware module runs on
+  either bank without edits: `combo_two_banks.asm` links four existing modules.
+- *Released means high.* A split pin has no output enable at the package. Making a
+  released output high, the level bank A floats to on its pull-up, keeps active-low
+  selects and idle-high lines (SPI CS, UART TX) idle from reset and after a fault. The
+  first version released low, and the two-bank test caught an SPI target selected at
+  power-up.
+- *Nothing old changes.* The digest folds bank B as `~ob`, which is 0 when released, so
+  every existing program has its v1.1 digest (checked for all 16 on both simulators).
+  WRITE_CFG gains four optional bytes that a v1.1 chip ignores. The capture unit
+  chooses its bank with a CAPT bit that v1.1 ignored.
 
 ## Power and timing margin
 
@@ -128,6 +153,11 @@ is real. Long wires are buffered at 500 µm, which cut slow-corner slew warnings
 
 ## Measured and rejected
 
+- **Latch-based register banks.** A latch is 29.0 µm² in this library against 49.0 µm²
+  for the flip-flop it would replace, so converting the ~2,600 gated-bank flip-flops
+  saves at most about 52,000 µm², 6% of the die: not a tile at 6×4. The banks are
+  already clock-gated, so the power gain is small, and latches move read-during-write
+  timing by half a cycle in every bank.
 - **Metal1 routing with the default fill.** Detailed routing was clean, but LVS merged
   about 4,000 nets: decap cells inserted after routing put Metal1 power plates under
   16,701 signal-wire crossings. Detailed-route DRC could not see it; only LVS did.

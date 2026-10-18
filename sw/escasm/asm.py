@@ -8,8 +8,11 @@ Syntax (one statement per line; `;` or `#` starts a comment):
     .org expr                   set the current word address
     .word expr                  emit a raw 32-bit word
     .entry ctx, label           context `ctx` starts at `label` and is enabled
-    .own pin, ctx               pin `pin` (0..7) is owned by context `ctx`
-    .od pin                     pin `pin` is open-drain
+    .own pin, ctx               context `ctx` owns its pin `pin`: 0..7 in bank A; in bank B
+                                0..4, which are B0..B4 (also written B0..B4)
+    .od pin                     bank A pin `pin` is open-drain
+    .bank ctx                   context `ctx` uses bank B (v1.2); put it before that
+                                context's .own lines
 
 Operands: registers r0..r3; integers (123, 0x7B, 0b1111011); labels and .equ names;
 `LSB`/`MSB` for dir; `HOLD`/`ARRIVE` for mode; `+ - * << >> | & ~ ( )` expressions.
@@ -62,15 +65,22 @@ class Image:
     words: list[int]
     entry_pcs: list[int]
     ctx_enable: list[bool]
-    pin_owned: list[bool]
+    pin_owned: list[bool]       # physical pins 0..12 (8..12: bank B, v1.2)
     pin_owner: list[int]
-    pin_od: list[bool]
+    pin_od: list[bool]          # bank A only
     symbols: dict[str, int] = field(default_factory=dict)
     listing: list[str] = field(default_factory=list)
     used_words: int = 0
     # v1.1 tape initial contents (host-loaded with WRITE_TAPE; the SRAM powers up undefined)
     tape: list[int] = field(default_factory=lambda: [0] * 256)
     tape_used: list[int] = field(default_factory=list)   # addresses set by .tape
+    # v1.2: contexts whose logical pins are bank B
+    ctx_bank: list[bool] = field(default_factory=lambda: [False] * 4)
+
+    def __post_init__(self) -> None:
+        # images from v1.1 tools describe 8 pins; bank B pins are then unowned
+        self.pin_owned = list(self.pin_owned) + [False] * (13 - len(self.pin_owned))
+        self.pin_owner = list(self.pin_owner) + [0] * (13 - len(self.pin_owner))
 
     # Packed forms matching the esc_core configuration ports (docs/11-SEMANTICS.md §10).
     @property
@@ -93,12 +103,20 @@ class Image:
     def pin_od_mask(self) -> int:
         return sum(1 << i for i, o in enumerate(self.pin_od) if o)
 
+    @property
+    def ctx_bank_mask(self) -> int:
+        return sum(1 << k for k, b in enumerate(self.ctx_bank) if b)
+
+    @property
+    def uses_bank_b(self) -> bool:
+        return any(self.ctx_bank) or any(self.pin_owned[8:])
+
     def to_json(self) -> str:
         return json.dumps({
             "words": [f"{w:08x}" for w in self.words],
             "entry_pcs": self.entry_pcs, "ctx_enable": self.ctx_enable,
             "pin_owned": self.pin_owned, "pin_owner": self.pin_owner, "pin_od": self.pin_od,
-            "symbols": self.symbols, "used_words": self.used_words,
+            "ctx_bank": self.ctx_bank, "symbols": self.symbols, "used_words": self.used_words,
             "tape": {f"{a}": f"{self.tape[a]:08x}" for a in self.tape_used},
         }, indent=1)
 
@@ -110,7 +128,8 @@ class Image:
             tape[int(a)] = int(w, 16)
         return cls([int(w, 16) for w in d["words"]], d["entry_pcs"], d["ctx_enable"],
                    d["pin_owned"], d["pin_owner"], d["pin_od"], d.get("symbols", {}),
-                   [], d.get("used_words", 0), tape, sorted(int(a) for a in d.get("tape", {})))
+                   [], d.get("used_words", 0), tape, sorted(int(a) for a in d.get("tape", {})),
+                   d.get("ctx_bank", [False] * 4))
 
 
 _ALLOWED_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant, ast.Name,
@@ -234,9 +253,11 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
         words: dict[int, int] = {}
         entry = [0] * isa.contexts
         enable = [False] * isa.contexts
-        owned = [False] * 8
-        owner = [0] * 8
+        owned = [False] * 13
+        owner = [0] * 13
         od = [False] * 8
+        bank = [False] * isa.contexts
+        owns_seen: set[int] = set()
         tape: dict[int, int] = {}
         listing: list[str] = []
         labels_seen: set[str] = set()
@@ -286,17 +307,33 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
                     raise AsmError(f"{where}: context {ctx} already has an entry point")
                 entry[ctx], enable[ctx] = target, True
             elif directive == ".own":
-                pin, ctx = ev(ops[0]), ev(ops[1])
-                if not (0 <= pin < 8 and 0 <= ctx < isa.contexts):
-                    raise AsmError(f"{where}: .own pin 0..7, ctx 0..3")
+                if len(ops) != 2:
+                    raise AsmError(f"{where}: .own pin, ctx")
+                mb = re.fullmatch(r"[Bb]([0-4])", ops[0].strip())
+                pin = 8 + int(mb.group(1)) if mb else ev(ops[0])
+                ctx = ev(ops[1])
+                if not (0 <= pin < 8 or mb) or not 0 <= ctx < isa.contexts:
+                    raise AsmError(f"{where}: .own pin 0..7 or B0..B4, ctx 0..3")
+                if bank[ctx] and not mb:          # a bank B context names its logical pin
+                    if pin >= 5:
+                        raise AsmError(f"{where}: context {ctx} uses bank B: pins 0..4")
+                    pin += 8
+                owns_seen.add(ctx)
                 if final and owned[pin] and owner[pin] != ctx:
                     raise AsmError(f"{where}: pin {pin} already owned by context {owner[pin]}")
                 owned[pin], owner[pin] = True, ctx
             elif directive == ".od":
                 pin = ev(ops[0])
                 if not 0 <= pin < 8:
-                    raise AsmError(f"{where}: .od pin 0..7")
+                    raise AsmError(f"{where}: .od pin 0..7 (bank B pins cannot be open-drain)")
                 od[pin] = True
+            elif directive == ".bank":
+                ctx = ev(ops[0])
+                if len(ops) != 1 or not 0 <= ctx < isa.contexts:
+                    raise AsmError(f"{where}: .bank ctx (0..3)")
+                if ctx in owns_seen and not bank[ctx]:
+                    raise AsmError(f"{where}: .bank {ctx} after a .own for context {ctx}")
+                bank[ctx] = True
             elif directive.startswith("."):
                 raise AsmError(f"{where}: unknown directive '{head}'")
             else:
@@ -312,10 +349,15 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
                 pc += 1
             if pc > isa.imem_words:
                 raise AsmError(f"{where}: program exceeds {isa.imem_words} words")
+    for p in range(13):                 # a context only ever uses pins of its own bank
+        if owned[p] and bank[owner[p]] != (p >= 8):
+            name = f"B{p - 8}" if p >= 8 else str(p)
+            raise AsmError(f"pin {name} is owned by context {owner[p]}, which uses bank "
+                           f"{'B' if bank[owner[p]] else 'A'}")
     image_words = [words.get(a, 0) for a in range(isa.imem_words)]
     return Image(image_words, entry, enable, owned, owner, od,
                  {k: v for k, v in symbols.items()}, listing, len(words),
-                 [tape.get(a, 0) for a in range(256)], sorted(tape))
+                 [tape.get(a, 0) for a in range(256)], sorted(tape), bank)
 
 
 def assemble_file(path: str | Path, isa: ISA | None = None) -> Image:

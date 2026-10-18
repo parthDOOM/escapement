@@ -38,8 +38,10 @@ flowchart LR
     IMEM --> Core[4-context barrel core]
     Core --> Q[Per-context event FIFOs<br/>DRIVE / EXPECT / SAMPLE]
     Time[32-bit tick counter] --> Q
-    Q --> Pins[8 protocol pins<br/>push-pull or open-drain]
+    Q --> Pins[Bank A: 8 pins<br/>push-pull or open-drain]
+    Q --> PinsB[Bank B: 5 split pins<br/>out uo 7:3, in ui 7:3]
     Pins --> Sync[Input synchronisers]
+    PinsB --> Sync
     Sync --> Core
     Sync --> Cap[Capture unit]
     Core <--> Tape[Tape SRAM 256x32]
@@ -49,6 +51,11 @@ flowchart LR
 
 - **Four hardware contexts** in a fixed barrel: each runs its own program with its own
   pins, so a slow protocol in one context never changes another context's timing.
+- **Two pin banks, 18 protocol signals.** Bank A is the eight bidirectional pins; bank B
+  turns the five dedicated inputs and outputs the host link leaves free into split
+  pins. Each context sees one bank as its eight logical pins, so a module runs on
+  either bank unchanged, and the banks run at the same time: PS/2 and JTAG on bank A
+  with SPI and UART on bank B is 11 signals at once.
 - **Deadline-checked events.** DRIVE sets pins, EXPECT checks that an input holds or
   arrives within a window, and SAMPLE captures an input bit, all at exact ticks.
 - **The tape**, a second SRAM shared by firmware loads and stores, a timestamped capture
@@ -68,7 +75,7 @@ flowchart LR
 | Clock | 25 MHz, timing met at all three corners |
 | Physical | 23,978 cells and two SRAM macros, 55.2% utilisation; LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
 | Power | 2.9 mW sending UART, 2.2 mW stopped (typical corner) |
-| Firmware | 17 programs; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
+| Firmware | 18 programs; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
 | Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 20 of 20 RTL mutants killed; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 
 Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),
