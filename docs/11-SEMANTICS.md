@@ -1,4 +1,4 @@
-# Escapement machine semantics v1.2.0 (normative)
+# Escapement machine semantics v1.3.0 (normative)
 
 This document is the single normative definition of the machine. The Python
 instruction-set simulator (`sw/esciss`) and the RTL (`src/`) are separate
@@ -13,7 +13,11 @@ GETI wait for in-flight SAMPLEs (§7.3). Rationale:
 [13-TAPE-AND-DIGEST](13-TAPE-AND-DIGEST.md). 1.2.0 adds pin bank B, five split pins on
 the chip's otherwise unused dedicated inputs and outputs, chosen per context (§5); the
 instruction set is unchanged, and a program that does not use bank B behaves exactly as
-on 1.1.0, digest included.
+on 1.1.0, digest included. 1.3.0 adds streaming capture: a capture mode in which the
+host reads records while the run goes on and acknowledges them, and the capture unit
+never writes over a record the host has not acknowledged (§6.5). The tape port gains a
+host side during a run (§10). A program that does not set the new CAPT bit behaves
+exactly as on 1.2.0, digest included.
 
 Notation: all arithmetic on 32-bit values is modulo 2^32 unless stated. `zext` is
 zero extension. `ahead(a, b)` means `1 <= (a - b) mod 2^32 < 2^31` ("a is strictly
@@ -198,24 +202,39 @@ one context never overlap.
 ### 6.5 Capture unit (v1.1, one, global)
 
 State: `en` (generating), `snap`, `bank` (v1.2), `mask[7:0]`, `base[7:0]`, `lim[7:0]`,
-`ring`, `ptr[7:0]`, `prev[7:0]`, flags `ovf`, `full`, `wrapped`, `ovf_tick[31:0]`, and a
-staging FIFO of at most 2 records. The capture unit watches one bank: `csync` is
+`ring`, `stream` (v1.3), `ptr[7:0]`, `rptr[7:0]` (v1.3), `prev[7:0]`, flags `ovf`,
+`full`, `wrapped`, `ovf_tick[31:0]`, and a staging FIFO of at most 2 records. The capture unit watches one bank: `csync` is
 `psync[7:0]` when `bank = 0` and `{3'b0, psync[12:8]}` when `bank = 1`, and `sync_t` in
 this section means `csync` during cycle t. A **record** is the word
 `{levels[7:0], tick[23:0]}`: bits 31:24 are `csync` during the record's tick, bits 23:0
 are that tick mod 2^24.
 
 The **tape port is busy in cycle t** if a commit observed at E_t (`commit_valid`, §10)
-has opcode LDT or STT, whatever its outcome. Otherwise it is free.
+has opcode LDT or STT, whatever its outcome, or (v1.3) the host writes the tape in
+cycle t (`tape_host_we`, §10; the host writes only while stopped). Otherwise it is free.
+
+The **successor** of `ptr` is `base` if `ptr + 1 == lim` (8-bit compare) and `ring` or
+`stream` is set, and `ptr + 1` otherwise. **Stream mode** (v1.3): with `stream`, the
+region is a ring shared with the host. `rptr` is the first word the host has not
+acknowledged, and the words from `rptr` up to but not including `ptr`, around the
+region, are records the host has not yet read. The drain is **held** in cycle t if
+`stream` and the successor of `ptr` equals `rptr`: a held record stays staged, so a
+record is never written over an unread one, and the region holds at most size − 1
+unread records. If the host falls behind, the staging FIFO fills and the next record
+sets `ovf` in step 2, so a loss is never silent and `ovf_tick` says when it began.
+The host acknowledges records with `tape_ack` (§10): at every edge E_t with `tape_ack`
+during cycle t, except a start edge, `rptr <= tape_ack_v`, while stopped too; a CAPT that
+enables at E_t overrides it (step 3). The drain in cycle t uses `rptr` during cycle t. A
+`rptr` outside the region never holds the drain.
 
 At every edge E_t of a run, unless start or stop is at E_t, in this order:
 
-1. **Drain.** If the staging FIFO during cycle t is nonempty and the port is free in
-   cycle t, its head is written, `T[ptr] <= head`, and removed. Then `ptr <= ptr + 1`;
-   if the new value equals `lim` (8-bit compare): with `ring`, `ptr <= base` and
-   `wrapped <= 1`; without, `full <= 1`, `en <= 0`, and the rest of the staging FIFO
-   is discarded. (So the region is `[base, lim)` modulo 256, and `base == lim` means
-   all 256 words.)
+1. **Drain.** If the staging FIFO during cycle t is nonempty, the port is free in
+   cycle t and the drain is not held, its head is written, `T[ptr] <= head`, and
+   removed. Then `ptr <= ptr + 1`; if the new value equals `lim` (8-bit compare): with
+   `ring` or `stream`, `ptr <= base` and `wrapped <= 1`; with neither, `full <= 1`,
+   `en <= 0`, and the rest of the staging FIFO is discarded. (So the region is
+   `[base, lim)` modulo 256, and `base == lim` means all 256 words.)
 2. **Generate.** If `en` during cycle t and step 1 did not set `full`, a record
    `{sync_t, t mod 2^24}` is generated when any of these holds: `snap`;
    `((sync_t ^ prev) & mask) != 0`; `t mod 2^24 == 0` (epoch marker). Then
@@ -226,11 +245,10 @@ At every edge E_t of a run, unless start or stop is at E_t, in this order:
    capture register as in §7.6, overriding step 1's `ptr`/flag updates (step 1's tape
    write still happens). With `v[31] = 0` it sets `en = snap = 0` after step 1.
 
-After stop, records still staged are drained in the following cycles (the port is free
-while stopped). Host tape access within 4 cycles of a stop is not defined; the host
-protocol cannot issue one. Start and reset: `en = snap = ovf = full = wrapped = 0`,
-`ptr = 0`, `mask = base = lim = prev = 0`, `ring = bank = 0`, `ovf_tick = 0`, staging
-empty.
+After stop, records still staged are drained (step 1) at the following edges at which
+the port is free and the drain is not held. Start and reset:
+`en = snap = ovf = full = wrapped = 0`, `ptr = rptr = 0`, `mask = base = lim = prev = 0`,
+`ring = stream = bank = 0`, `ovf_tick = 0`, staging empty.
 
 A decoder recovers absolute ticks from bits 23:0 alone: a record whose tick field is 0
 marks the start of a new 2^24-tick epoch, and one is generated at every epoch boundary
@@ -333,7 +351,7 @@ Same-edge host access never changes what the commit at that edge observed.
 | --- | --- | --- |
 | LDT ra, rb, imm8 | R[ra] = T[a] | — |
 | STT ra, rb, imm8 | T[a] <= R[ra] at E_c | — |
-| CAPT rs | configure the capture unit from `v = R[rs]` (below): [31] enable, [25] bank (v1.2), [24] ring, [23:16] watched pins, [15:8] limit, [7:0] base | — |
+| CAPT rs | configure the capture unit from `v = R[rs]` (below): [31] enable, [26] stream (v1.3), [25] bank (v1.2), [24] ring, [23:16] watched pins, [15:8] limit, [7:0] base | — |
 | GETC rd | R[rd] = capture status during cycle c: [31] en, [30] ovf, [29] full, [28] wrapped, [9:8] staged count, [7:0] ptr; other bits 0 | Z |
 
 LDT and STT never WAIT. **Implementation note (LDT):** the memory is read at E_c and
@@ -344,8 +362,8 @@ old value. The observation record of the LDT commit shows the loaded value.
 **CAPT** at E_c with `v = R[rs]`: if `v[31]` (enable): `en = 1`, `snap = 1`,
 `mask = v[23:16]`, `lim = v[15:8]`, `base = v[7:0]`, `ring = v[24]`, `bank = v[25]`
 (v1.2; the capture unit watches a bank directly, whatever bank the configuring context
-uses, and needs no pin ownership), `ptr = base`,
-`ovf = full = wrapped = 0`, `ovf_tick = 0`, staging emptied (so the first record,
+uses, and needs no pin ownership), `stream = v[26]` and `rptr = base` (v1.3),
+`ptr = base`, `ovf = full = wrapped = 0`, `ovf_tick = 0`, staging emptied (so the first record,
 generated at E_(c+1), is a snapshot). If `v[31] = 0`: `en = 0` and `snap = 0` (no record
 is generated at E_c); the other capture registers keep their values after §6.5 step 1,
 and staged records still drain.
@@ -432,11 +450,12 @@ first-fault register.
 | 15 | first-fault tick |
 | 16 | execution digest `dg` (v1.1) |
 | 17 | capture status, as GETC |
-| 18 | capture config: [25] bank, [24] ring, [23:16] mask, [15:8] lim, [7:0] base |
+| 18 | capture config: [26] stream (v1.3), [25] bank, [24] ring, [23:16] mask, [15:8] lim, [7:0] base |
 | 19 | capture `ovf_tick` |
-| 20–31 | 0 |
+| 20 | capture `rptr` in [7:0] (v1.3) |
+| 21–31 | 0 |
 
-`dbg_sel` is 5 bits wide since v1.1 (16–19 ignore `dbg_sel_ctx`; 20–31 read 0).
+`dbg_sel` is 5 bits wide since v1.1 (16–20 ignore `dbg_sel_ctx`; 21–31 read 0).
 
 ### 10.1 Execution digest (v1.1)
 
@@ -483,10 +502,17 @@ bank B (`ob` stays 0x1F) produces the same digest as on 1.1.0.
   takes effect at the edge where it is asserted, is ignored when full or empty, and is
   never visible to a commit at that same edge.
 
-- Tape (v1.1): `tape_addr[7:0]`, `tape_we`, `tape_wdata[31:0]` out, `tape_rdata[31:0]`
-  in (same timing contract as `imem_rdata`), `tape_busy` out (high in every cycle the
-  core may use the port: during a run and while staged records drain). The top gives
-  the host the port only when `tape_busy` is low. `dbg_sel` is 5 bits.
+- Tape (v1.1): `tape_addr[7:0]`, `tape_we`, `tape_re`, `tape_wdata[31:0]` out,
+  `tape_rdata[31:0]` in (same timing contract as `imem_rdata`), `tape_busy` out. v1.3:
+  `tape_busy` is high exactly in the cycles in which the core uses the port, that is,
+  a commit observed at that cycle's edge is an LDT or STT, or the capture unit drains
+  (§6.5). The top gives the host the port in every other cycle, during a run too. A
+  host access in cycle t changes `tape_rdata` only from cycle t+1 on, and the core
+  reads `tape_rdata` only in the cycle right after its own LDT, so a host access never
+  changes a value the core sees. `tape_host_we` in: the host
+  writes the tape in this cycle (only while stopped); a drain waits for it.
+  `tape_ack`, `tape_ack_v[7:0]` in (v1.3): the host acknowledges capture records up to
+  `tape_ack_v` (§6.5 step 1). `dbg_sel` is 5 bits.
 
 All configuration inputs must be stable from the `start` edge until the run ends.
 

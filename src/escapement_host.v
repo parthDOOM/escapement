@@ -12,6 +12,10 @@
  * v1.1 (protocol version 6): WRITE_TAPE/READ_TAPE reuse the IMEM word engine with
  * mem_space = 1, and READ_DBG takes a 5-bit select ({1'b0, sel[4], ctx, sel[3:0]}).
  * v1.2 (protocol version 7): WRITE_CFG takes four more optional bytes for pin bank B.
+ * v1.3 (protocol version 8): READ_TAPE works during a run. Each word is fetched in a
+ * cycle the core leaves the tape port free (tape_req until tape_gnt) and latched here;
+ * a word not fetched by the time it is sent sets host error. TAPE_ACK sets the capture
+ * unit's rptr (streaming capture).
  */
 `default_nettype none
 module escapement_host (
@@ -41,8 +45,13 @@ module escapement_host (
     output reg  [7:0]   mem_addr,
     output reg  [31:0]  mem_wdata,
     output reg          mem_space,   // v1.1: 0 program store, 1 tape
-    output wire         mem_re,      // D-29: a READ_IMEM/READ_TAPE is in progress
+    output wire         mem_re,      // D-29: a READ_IMEM is in progress
     input  wire [31:0]  mem_rdata,
+    // tape host side (v1.3): a fetch at mem_addr is wanted until the top grants a cycle
+    output reg          tape_req,
+    input  wire         tape_gnt,
+    output reg          tape_ack,    // TAPE_ACK strobe and the new rptr
+    output reg  [7:0]   tape_ack_v,
     // debug read port of the core
     output reg  [1:0]   dbg_ctx,
     output reg  [4:0]   dbg_sel,
@@ -57,10 +66,11 @@ module escapement_host (
 );
   localparam [7:0] C_STATUS = 8'h00, C_WRITE_IMEM = 8'h10, C_READ_IMEM = 8'h11,
                    C_WRITE_CFG = 8'h12, C_WRITE_TAPE = 8'h13, C_READ_TAPE = 8'h14,
+                   C_TAPE_ACK = 8'h15,
                    C_START = 8'h20, C_STOP = 8'h21,
                    C_READ_DBG = 8'h30, C_MBX_PUSH = 8'h40, C_MBX_POP = 8'h41,
                    C_IRQ_CLEAR = 8'h50, C_CLEAR_ERR = 8'h51, C_IGNORE = 8'hFF;
-  localparam [3:0] VERSION = 4'h7;
+  localparam [3:0] VERSION = 4'h8;
 
   // ---------------------------------------------------------------- synchronisers
   reg [1:0] cs_s, sck_s, mosi_s;
@@ -94,10 +104,16 @@ module escapement_host (
 
   // ---------------------------------------------------------------- frame state
   reg [7:0]  cmd;
-  // The SRAMs need to read for the host only while a read command runs; the first word is
+  // The program store reads for the host only while READ_IMEM runs; the first word is
   // sampled a whole SPI byte (>= 64 clocks) after its address is set, every later one 4
-  // bytes after the prefetch address. Outside a read the stopped chip's macros idle.
-  assign mem_re = (cmd == C_READ_IMEM) | (cmd == C_READ_TAPE);
+  // bytes after the prefetch address. Outside a read the stopped chip's macro idles.
+  // The tape reads once per word instead, in the cycle tape_gnt grants (v1.3), and the
+  // word is held in tdata until it is sent.
+  assign mem_re = (cmd == C_READ_IMEM);
+  reg        gnt_d;      // the granted fetch's data is on mem_rdata this cycle
+  reg [31:0] tdata;
+  wire [31:0] rdat = (cmd == C_READ_TAPE) ? tdata : mem_rdata;
+  wire       stale = (cmd == C_READ_TAPE) & (tape_req | gnt_d);   // not fetched yet
   reg [3:0]  idx;        // byte index within the frame, saturating at 15
   reg [1:0]  wcnt;       // byte position within a 32-bit word
   reg [31:0] word;       // assembled MOSI word, or MISO word being sent
@@ -118,13 +134,13 @@ module escapement_host (
           else if (idx == 4'd2) next_tx = {4'b0, irq_pending};
         end
         C_READ_IMEM, C_READ_TAPE, C_READ_DBG: begin
-          if (idx == 4'd2) next_tx = (cmd != C_READ_DBG) ? mem_rdata[31:24] : dbg_rdata[31:24];
+          if (idx == 4'd2) next_tx = (cmd != C_READ_DBG) ? rdat[31:24] : dbg_rdata[31:24];
           else if (idx > 4'd2) begin
             case (wcnt)
               2'd0: next_tx = word[23:16];
               2'd1: next_tx = word[15:8];
               2'd2: next_tx = word[7:0];
-              default: next_tx = (cmd != C_READ_DBG) ? mem_rdata[31:24] : 8'h00;
+              default: next_tx = (cmd != C_READ_DBG) ? rdat[31:24] : 8'h00;
             endcase
           end
         end
@@ -151,10 +167,15 @@ module escapement_host (
       mem_we <= 1'b0; mem_addr <= 8'd0; mem_wdata <= 32'd0; mem_space <= 1'b0;
       dbg_ctx <= 2'd0; dbg_sel <= 5'd0;
       mbx_rx_push <= 4'd0; mbx_tx_pop <= 4'd0;
+      tape_req <= 1'b0; tape_ack <= 1'b0; tape_ack_v <= 8'd0; gnt_d <= 1'b0; tdata <= 32'd0;
     end else begin
       // single-cycle strobes
       start <= 1'b0; stop <= 1'b0; irq_clear <= 4'd0; mem_we <= 1'b0;
-      mbx_rx_push <= 4'd0; mbx_tx_pop <= 4'd0;
+      mbx_rx_push <= 4'd0; mbx_tx_pop <= 4'd0; tape_ack <= 1'b0;
+      // tape fetch: granted this cycle, its data arrives in the next (D-29 timing)
+      gnt_d <= tape_gnt;
+      if (gnt_d) tdata <= mem_rdata;
+      if (tape_gnt) tape_req <= 1'b0;
       // a word was written at this edge: advance for the next one
       if (mem_we) mem_addr <= mem_addr + 8'd1;
 
@@ -163,6 +184,7 @@ module escapement_host (
         idx      <= 4'd0;
         wcnt     <= 2'd0;
         cmd      <= C_IGNORE;
+        tape_req <= 1'b0;
         tx_shift <= status;          // first MISO byte of the next frame
       end else if (sck_rise) begin
         bitcnt   <= bitcnt + 3'd1;
@@ -177,7 +199,7 @@ module escapement_host (
             mem_space <= (rx_byte == C_WRITE_TAPE) || (rx_byte == C_READ_TAPE);
             case (rx_byte)
               C_STATUS, C_WRITE_IMEM, C_READ_IMEM, C_WRITE_CFG, C_READ_DBG,
-              C_MBX_PUSH, C_MBX_POP, C_IRQ_CLEAR, C_WRITE_TAPE, C_READ_TAPE: ;
+              C_MBX_PUSH, C_MBX_POP, C_IRQ_CLEAR, C_WRITE_TAPE, C_READ_TAPE, C_TAPE_ACK: ;
               C_START: if (running) host_err <= 1'b1; else start <= 1'b1;
               C_STOP: stop <= 1'b1;
               C_CLEAR_ERR: host_err <= 1'b0;
@@ -204,18 +226,28 @@ module escapement_host (
                 end
               end
               C_READ_IMEM, C_READ_TAPE: begin
-                if (idx == 4'd1) mem_addr <= rx_byte;          // read starts now
-                else if (idx == 4'd2) begin
-                  word     <= mem_rdata;                        // first word
+                if (idx == 4'd1) begin
+                  mem_addr <= rx_byte;                          // read starts now
+                  if (cmd == C_READ_TAPE) tape_req <= 1'b1;
+                end else if (idx == 4'd2) begin
+                  word     <= rdat;                             // first word
                   mem_addr <= mem_addr + 8'd1;                  // prefetch next
                   wcnt     <= 2'd0;
+                  if (stale) host_err <= 1'b1;
+                  if (cmd == C_READ_TAPE) tape_req <= 1'b1;
                 end else begin
                   wcnt <= wcnt + 2'd1;
                   if (wcnt == 2'd3) begin
-                    word     <= mem_rdata;
+                    word     <= rdat;
                     mem_addr <= mem_addr + 8'd1;
+                    if (stale) host_err <= 1'b1;
+                    if (cmd == C_READ_TAPE) tape_req <= 1'b1;
                   end
                 end
+              end
+              C_TAPE_ACK: if (idx == 4'd1) begin
+                tape_ack   <= 1'b1;
+                tape_ack_v <= rx_byte;
               end
               C_WRITE_CFG: if (!running) begin
                 case (idx)

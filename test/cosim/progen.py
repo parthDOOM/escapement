@@ -33,7 +33,8 @@ def _mask(rng: random.Random, pins: list[int], nasty: bool = True) -> int:
 
 def _tape_op(rng: random.Random, nasty: bool, capt_bank: float = 0.0) -> list[str]:
     """v1.1 tape/capture traffic: loads/stores (bursts contend with capture drains),
-    CAPT with sensible or garbage configurations, GETC, SAMPLE -> GETI (GETI waits)."""
+    CAPT with sensible or garbage configurations (a quarter of the sensible ones in
+    stream mode, v1.3), GETC, SAMPLE -> GETI (GETI waits)."""
     r = rng.random()
     if r < 0.40:
         n = rng.choice([1, 1, 2, 3, 6]) if nasty else rng.choice([1, 2, 4, 8])
@@ -50,6 +51,8 @@ def _tape_op(rng: random.Random, nasty: bool, capt_bank: float = 0.0) -> list[st
                  | (((base + size) & 0xFF) << 8) | base)
             if capt_bank and rng.random() < capt_bank:
                 v |= 1 << 25                       # watch bank B (v1.2)
+            if (base * 7 + size) % 4 == 0:
+                v |= 1 << 26                       # stream (v1.3); no host acks: holds
             if rng.random() < 0.15:
                 v &= 0x7FFFFFFF                    # disable
         return [f"    MOVI {reg}, {v & 0xFFFF}", f"    MOVHI {reg}, {v >> 16}", f"    CAPT {reg}"]

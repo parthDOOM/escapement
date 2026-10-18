@@ -27,6 +27,8 @@ module tb_core ();
   reg         tl_we = 1'b0;          // v1.1 tape load (only while the core is stopped)
   reg  [7:0]  tl_addr = 8'd0;
   reg  [31:0] tl_data = 32'd0;
+  reg         t_ack = 1'b0;          // v1.3 TAPE_ACK into the capture unit
+  reg  [7:0]  t_ack_v = 8'd0;
   wire [7:0]  tape_addr;
   wire        tape_re, tape_we, tape_busy;
   wire [31:0] tape_wdata, tape_rdata;
@@ -73,10 +75,11 @@ module tb_core ();
       .dbg_post_pc(dbg_post_pc),
       .dbg_sel_ctx(dbg_sel_ctx), .dbg_sel(dbg_sel), .dbg_rdata(dbg_rdata),
       .tape_addr(tape_addr), .tape_re(tape_re), .tape_we(tape_we), .tape_wdata(tape_wdata),
-      .tape_rdata(tape_rdata), .tape_busy(tape_busy));
+      .tape_rdata(tape_rdata), .tape_busy(tape_busy), .tape_host_we(tl_we),
+      .tape_ack(t_ack), .tape_ack_v(t_ack_v));
   escapement_sram u_tape (
       .clk(clk), .rst_n(rst_n),
-      .addr(tl_we ? tl_addr : tape_addr), .re(tape_busy ? tape_re : 1'b1),
+      .addr(tl_we ? tl_addr : tape_addr), .re(tape_busy ? tape_re : 1'b0),
       .we(tl_we | (tape_we & tape_busy)),
       .wdata(tl_we ? tl_data : tape_wdata), .rdata(tape_rdata));
 endmodule

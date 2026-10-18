@@ -103,6 +103,36 @@ split pins, B0–B4, each an output on `uo_out[3+i]` and an input on `ui_in[3+i]
   synthesis and again after global routing ([physical design](03-PHYSICAL-DESIGN.md)).
   Utilisation rises from 55.2% to 58.9%, still at 6×4.
 
+## Version 1.3: streaming capture
+
+**D-32 The host reads the tape during a run.** The capture unit was a snapshot logic
+analyser: arm, run, STOP, read, at most 256 records, because the core owned the tape
+port for the whole run. Yet the port is busy only in cycles with an LDT or STT commit or
+a capture drain, and the host engine has at least 64 core cycles between SPI bytes. So
+the change is arbitration, not a new memory.
+
+- *Core first, by construction.* `tape_busy` now marks only the cycles the core uses
+  the port; the host gets every other cycle. A host fetch is requested when a READ_TAPE
+  address is set and must happen before the word is sent, one SPI byte later. No
+  instruction's timing moves, and the core reads `tape_rdata` only in the cycle after
+  its own LDT, which no host access can change. Co-simulation runs random programs
+  while a host reads every few cycles and checks every word read against the
+  simulator's tape at the cycle it was fetched.
+- *A failed fetch is visible, not silent.* If four contexts keep the port busy for a
+  whole SPI byte, the word is not fetched in time; host error is set and the host reads
+  again. The alternative, reserving cycles for the host, would change core timing.
+- *Stream mode never overwrites.* A new CAPT bit makes the region a ring shared with the
+  host, which acknowledges what it has read with TAPE_ACK (the read pointer `rptr`). A
+  drain that would write over an unacknowledged record is held instead. A host that
+  falls behind therefore ends in the existing overflow flag, with `ovf_tick` saying
+  when, never in quietly lost data: the rule the rest of the chip already follows.
+- *Nothing old changes.* A program that does not set the stream bit behaves exactly as
+  on v1.2, digest included. READ_TAPE while stopped returns the same words, now with
+  one SRAM access per word instead of one per cycle (D-29). Protocol version 8.
+- *What it gives.* A capture is limited by the host's link, not by the tape: the chip
+  test streams a UART message through an 8-word ring while another context hammers the
+  port with LDT/STT.
+
 ## Power and timing margin
 
 **D-29 Measure power, then cut what dominates.** On the first v1.1 netlist, with

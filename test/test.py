@@ -11,12 +11,13 @@ from pathlib import Path
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, FallingEdge
+from cocotb.utils import get_sim_time
 
 from escasm import assemble, assemble_file
 from eschost import AsyncHost
 from escmodels import Board, UartRx, UartTx
 from esciss import Machine
-from esctape import decode_capture, edges
+from esctape import decode_capture, decode_records, edges
 from spi_master import SpiMaster
 
 FW = Path(__file__).resolve().parents[1] / "firmware"
@@ -99,7 +100,7 @@ async def bring_up(dut, board, board_b=None):
 async def test_identity_over_spi(dut):
     host = await bring_up(dut, Board())
     s = await host.status()
-    assert s["version"] == 7 and not s["running"] and not s["host_err"], s
+    assert s["version"] == 8 and not s["running"] and not s["host_err"], s
 
 
 @cocotb.test()
@@ -187,6 +188,53 @@ async def test_logic_analyzer_over_spi(dut):
 
 
 @cocotb.test()
+async def test_streaming_capture_over_spi(dut):
+    """v1.3 streaming capture through the real tape port arbiter (project.v): the logic
+    analyser streams a UART peer into an 8-word ring while context 1 hammers the tape
+    with LDT/STT. The host reads and acknowledges records during the run; a message far
+    longer than the ring arrives complete, with no overflow and no failed fetch."""
+    tpb = 25e6 / 38400
+    msg = b"Hi!"
+    board = Board(UartTx(1, tpb, msg, start=30000, gap_bits=1.0))   # after the load
+    host = await bring_up(dut, board)
+    t0 = get_sim_time(unit="ns")                                    # board tick 0
+    src = """
+.equ logic_analyzer.STREAM, 1
+.equ logic_analyzer.MASK, 0x02
+.equ logic_analyzer.BASE, 0x80
+.equ logic_analyzer.LIM, 0x88
+.include "logic_analyzer.asm"
+.entry 1, storm
+storm:
+    MOVI  r2, 0x10
+    LDLC  4000
+spin:
+    STT   r1, r2, 0
+    LDT   r3, r2, 1
+    DJNZ  spin
+    HALT
+"""
+    image = assemble(src, base_dir=FW)
+    await host.load(image)
+    await host.start()
+    end = t0 + CLK_NS * (30000 + int(len(msg) * 11 * tpb) + 3000)
+    words, rptr, polls = [], 0x80, 0
+    while get_sim_time(unit="ns") < end:
+        w, rptr, st = await host.stream_poll(0x80, 0x88, rptr)
+        words += w
+        polls += 1
+        assert not (st >> 30) & 1, f"overflow: status 0x{st:08x}"
+    await host.stop()
+    w, rptr, st = await host.stream_poll(0x80, 0x88, rptr)    # records staged at STOP
+    words += w
+    got = _uart_bytes(edges(decode_records(words), 1), tpb)
+    dut._log.info(f"streamed {len(words)} records through an 8-word ring in {polls} polls: "
+                  f"{bytes(got)!r}")
+    assert len(words) > 16 and bytes(got) == msg
+    assert not (await host.status())["host_err"]
+
+
+@cocotb.test()
 async def test_slow_bitbang_host_like_the_demo_board(dut):
     """The demo board's bit-bang (sw/rp2350/bringup.py, Link): MOSI, sample MISO
     BEFORE the rising edge, SCK high, SCK low, with microsecond gaps as in MicroPython.
@@ -221,6 +269,6 @@ async def test_slow_bitbang_host_like_the_demo_board(dut):
 
     good = await xfer([0x00, 0, 0, 0])
     st = good[0]
-    assert st & 0x0F == 7 and not st & 0x80, hex(st)
+    assert st & 0x0F == 8 and not st & 0x80, hex(st)
     bad = await xfer([0x00, 0, 0, 0], sample_before=False)
     assert bad != good                          # the wrong discipline really is wrong

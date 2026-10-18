@@ -6,12 +6,14 @@ full final state through the dbg_sel read map. Any difference fails the test wit
 first diverging record and its disassembly.
 
 Environment: COSIM_SEEDS (default 200), COSIM_SEED0 (default 1), COSIM_MAX_TICKS,
-COSIM_FIRMWARE (restrict the bus-model test to the named firmware).
+COSIM_FIRMWARE (restrict the bus-model test to the named firmware), COSIM_HOST_SEEDS
+(default 60: random programs with host tape reads and acknowledgements during the run).
 """
 
 from __future__ import annotations
 
 import os
+import random
 from pathlib import Path
 
 import cocotb
@@ -37,7 +39,7 @@ async def reset_and_load(dut, image):
     for sig in ("start", "stop", "load_we", "load_space", "load_addr", "load_data", "uio_in",
                 "mbx_rx_push", "mbx_rx_data", "mbx_tx_pop", "dbg_sel_ctx", "dbg_sel", "irq_clear",
                 "ctx_enable", "entry_pcs", "pin_owned", "pin_owner", "pin_od", "ctx_bank",
-                "ib_in"):
+                "ib_in", "hrd_req", "hrd_addr", "tape_ack", "tape_ack_v"):
         getattr(dut, sig).value = 0
     for _ in range(4):
         await FallingEdge(dut.clk)
@@ -62,10 +64,92 @@ async def reset_and_load(dut, image):
         await FallingEdge(dut.clk)
 
 
-async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b):
+class TapeHost:
+    """v1.3 host side of the tape during a run (docs/12-HOST-PROTOCOL.md). Makes the same
+    decisions on the ISS and on the RTL (one instance each):
+
+    - `reads` (t, addr): RTL-only reads, each fetched in the first free cycle at or after
+      t; every word is checked against the ISS's tape at the grant cycle (tape_at).
+    - `acks` (t, rptr): TAPE_ACK during cycle t, i.e. at edge E_t, on both models.
+    - `stream` (base, lim, poll, delay): a streaming host. Every `poll` cycles it reads
+      the capture status (sel 17), reads the words from its rptr up to ptr and
+      acknowledges them `delay` cycles later. `received` collects the words in order.
+    """
+
+    def __init__(self, reads=(), acks=(), stream=None):
+        self.queue = [(t, a, False) for t, a in sorted(reads)]
+        self.acks = dict(acks)
+        self.stream = stream
+        self.rptr = stream[0] if stream else 0
+        self.received: list[int] = []
+        self.reads: list[tuple[int, int, int]] = []      # RTL: (grant cycle, addr, word)
+        self.late: list[int] = []                        # RTL: acks sent before reads done
+        self._cur = None
+        self._due = None
+
+    def _poll(self, t, status):
+        if not self.stream or t <= 0 or t % self.stream[2]:
+            return []
+        base, lim, _, delay = self.stream
+        ptr, a, addrs = status & 0xFF, self.rptr, []
+        while a != ptr:
+            addrs.append(a)
+            a = (a + 1) & 0xFF
+            if a == lim:
+                a = base
+        if addrs:
+            self.acks[t + delay] = ptr
+            self.rptr = ptr
+        return addrs
+
+    def iss_cycle(self, m: Machine, t: int) -> None:
+        for a in self._poll(t, m.dbg_read(0, 17)):
+            self.received.append(m.tape[a])          # unread words cannot change
+        if t in self.acks:
+            m.host_tape_ack(self.acks.pop(t))
+
+    async def rtl_cycle(self, dut, t: int) -> None:
+        if self._due is not None:                    # granted last cycle: data now
+            tg, a, mine = self._due
+            w = int(dut.tape_rdata.value)
+            self.reads.append((tg, a, w))
+            if mine:
+                self.received.append(w)
+            self._due = None
+        if self.stream:
+            dut.dbg_sel_ctx.value = 0
+            dut.dbg_sel.value = 17
+            await Timer(1, unit="ps")
+            self.queue += [(t, a, True) for a in self._poll(t, int(dut.dbg_rdata.value))]
+        ack = self.acks.pop(t, None)
+        if ack is not None and (any(q[2] for q in self.queue) or
+                                (self._cur and self._cur[1]) or (self._due and self._due[2])):
+            self.late.append(t)
+        dut.tape_ack.value = int(ack is not None)
+        dut.tape_ack_v.value = ack or 0
+        if self._cur is None and self.queue and self.queue[0][0] <= t:
+            _, a, mine = self.queue.pop(0)
+            self._cur = (a, mine)
+        dut.hrd_req.value = int(self._cur is not None)
+        dut.hrd_addr.value = self._cur[0] if self._cur else 0
+        await Timer(1, unit="ps")
+        if self._cur is not None and int(dut.hrd_gnt.value):
+            self._due = (t, *self._cur)
+            self._cur = None
+
+    def check_reads(self, m: Machine) -> list[str]:
+        bad = [(tg, a, w, m.tape_at(tg, a)) for tg, a, w in self.reads if w != m.tape_at(tg, a)]
+        errs = [f"host read at t={tg} addr {a}: RTL 0x{w:08x} ISS 0x{x:08x}" for tg, a, w, x in bad]
+        if self.late:
+            errs.append(f"TAPE_ACK before its reads finished at {self.late[:5]}")
+        return errs
+
+
+async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b, tape_host=None):
     """Returns (commits, commits<n, pins, final) using the RTL. Cycle numbering per §2.
     `host` (an escmodels.HostScript, never attached to a machine) gives the mailbox
-    schedule; pops are recorded into host.received like the ISS run does."""
+    schedule; pops are recorded into host.received like the ISS run does. `tape_host`
+    (a TapeHost) reads the tape and acknowledges records during the run (v1.3)."""
     await reset_and_load(dut, image)
     pushes = sorted(host.pushes) if host else []
     # Falling edge of cycle -1: assert start, sampled at E_-1.
@@ -92,6 +176,12 @@ async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b):
         dut.mbx_rx_push.value = push_mask
         dut.mbx_rx_data.value = push_data
         dut.mbx_tx_pop.value = pop_mask
+        if tape_host is not None:
+            if t < n_cycles:
+                await tape_host.rtl_cycle(dut, t)
+            else:
+                dut.hrd_req.value = 0
+                dut.tape_ack.value = 0
         out, oe, ob = int(dut.uio_out.value), int(dut.uio_oe.value), int(dut.ob_out.value)
         if t < n_cycles:
             pins.append({"t": t, "uio_out": out, "uio_oe": oe, "ob": ob})
@@ -112,11 +202,12 @@ async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b):
             dut.dbg_sel.value = sel
             await Timer(1, unit="ps")
             final[(ctx, sel)] = int(dut.dbg_rdata.value)
+    dut.dbg_sel_ctx.value = 0
     for sel in (14, 15, 16, 17, 18, 19):          # 16-19: digest + capture (v1.1)
         dut.dbg_sel.value = sel
         await Timer(1, unit="ps")
         final[(0, sel)] = int(dut.dbg_rdata.value)
-    for ctx in range(4):                          # 20-31 read 0
+    for ctx in range(4):                          # 20 rptr (v1.3); 21-31 read 0
         for sel in range(20, 32):
             dut.dbg_sel_ctx.value = ctx
             dut.dbg_sel.value = sel
@@ -167,16 +258,30 @@ def compare(name, image, m: Machine, rtl_commits, rtl_pins, rtl_final, log):
 
 async def cosim_one(dut, name, image, board, max_ticks=MAX_TICKS, rtl_board=None,
                     iss_host=None, rtl_host=None, stop_when_idle=True, board_b=no_board_b,
-                    rtl_board_b=None):
-    """Stateless boards may be shared; stateful ones need `rtl_board` (a fresh twin)."""
-    m = Machine(image, board=board, board_b=board_b)
+                    rtl_board_b=None, iss_tape=None, rtl_tape=None):
+    """Stateless boards may be shared; stateful ones need `rtl_board` (a fresh twin).
+    `iss_tape` / `rtl_tape`: twin TapeHost instances (v1.3)."""
+    def iss_board(t, o, oe):
+        if t >= 0:
+            iss_tape.iss_cycle(m, t)
+        return board(t, o, oe)
+
+    m = Machine(image, board=iss_board if iss_tape else board, board_b=board_b)
     if iss_host is not None:
         iss_host.machine = m
     m.run(max_ticks, stop_when_idle=stop_when_idle)
     n_cycles = len(m.pins)
     all_commits, rtl_commits, rtl_pins, rtl_final = await run_rtl(
-        dut, image, rtl_board or board, n_cycles, rtl_host, rtl_board_b or board_b)
+        dut, image, rtl_board or board, n_cycles, rtl_host, rtl_board_b or board_b, rtl_tape)
     errs = compare(name, image, m, rtl_commits, rtl_pins, rtl_final, dut._log)
+    if rtl_tape is not None:
+        terrs = rtl_tape.check_reads(m)
+        if iss_tape.received != rtl_tape.received:
+            terrs.append(f"streamed words differ: ISS {len(iss_tape.received)} "
+                         f"RTL {len(rtl_tape.received)} words")
+        for e in terrs[:6]:
+            dut._log.error(f"[{name}] {e}")
+        errs += terrs
     if iss_host is not None and iss_host.received != rtl_host.received:
         errs.append(f"host mailbox results differ: ISS {iss_host.received} RTL {rtl_host.received}")
         dut._log.error(f"[{name}] {errs[-1]}")
@@ -637,3 +742,109 @@ async def test_v12_bank_b(dut):
         if errs:
             failures.append(name)
     assert not failures, f"mismatching: {failures}"
+
+
+# --------------------------------------------------------------------------- v1.3
+
+
+def host_schedule(seed: int, n: int = MAX_TICKS):
+    """Random host tape reads (every 1-12 cycles) and acknowledgements with random rptr."""
+    rng = random.Random(seed * 31337 + 13)
+    reads, acks, t = [], [], 0
+    while t < n:
+        t += rng.randrange(1, 13)
+        reads.append((t, rng.randrange(256)))
+    for _ in range(rng.randrange(0, 12)):
+        acks.append((rng.randrange(n), rng.randrange(256)))
+    return reads, acks
+
+
+@cocotb.test()
+async def test_v13_host_reads_during_runs(dut):
+    """Random programs, including LDT/STT storms, stream-mode captures and garbage CAPT
+    configurations, while a host reads the tape every few cycles and acknowledges at
+    random. Every commit, pin and final state must match the ISS, which knows nothing of
+    the reads (a host read never disturbs the core), and every word read must be the
+    ISS's tape at the cycle it was fetched."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    seeds = int(os.environ.get("COSIM_HOST_SEEDS", "60"))
+    seed0 = int(os.environ.get("COSIM_SEED0", "1"))
+    failures, reads, waited = [], 0, 0
+    for seed in range(seed0, seed0 + seeds):
+        try:
+            image = assemble(gen_program(seed))
+        except AsmError:
+            continue
+        r, a = host_schedule(seed)
+        iss_tape, rtl_tape = TapeHost(acks=a), TapeHost(reads=r, acks=a)
+        errs, m = await cosim_one(dut, f"host{seed}", image, make_board(seed),
+                                  board_b=make_board_b(seed), iss_tape=iss_tape,
+                                  rtl_tape=rtl_tape)
+        reads += len(rtl_tape.reads)
+        req = dict(r)
+        waited += sum(1 for tg, addr, _ in rtl_tape.reads if tg not in req)
+        if errs:
+            failures.append(seed)
+            if len(failures) >= 5:
+                break
+    dut._log.info(f"host reads: {seeds} programs, {reads} words read during runs, "
+                  f"{waited} granted after their request cycle, {len(failures)} mismatching {failures}")
+    assert not failures, f"mismatching seeds: {failures}"
+
+
+def streaming_case(poll: int, toggle: int = 37):
+    """logic_analyzer in stream mode over a 16-word region while two contexts hammer the
+    tape port with LDT/STT outside it; pin 0 toggles every `toggle` cycles."""
+    src = f"""
+.equ logic_analyzer.STREAM, 1
+.equ logic_analyzer.MASK, 0x01
+.equ logic_analyzer.BASE, 0x80
+.equ logic_analyzer.LIM, 0x90
+.include "logic_analyzer.asm"
+.entry 1, storm
+.entry 2, storm
+storm:
+    MOVI  r2, 0x10
+    LDLC  250
+spin:
+    STT   r1, r2, 0
+    LDT   r3, r2, 1
+    STT   r3, r2, 2
+    DJNZ  spin
+    HALT
+"""
+    image = assemble(src, base_dir=REPO / "firmware")
+    board = lambda t, o, oe: ((t // toggle) & 1) if t >= 0 else 0
+    return image, board, (0x80, 0x90, poll, 64)
+
+
+@cocotb.test()
+async def test_v13_streaming_capture(dut):
+    """A streaming host keeps up (poll 200 cycles): every record arrives, in order, with no
+    overflow, far beyond the 16-word region. A slow host (poll 1500) ends in ovf at the
+    same tick on both models, with the records before it intact."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    failures = []
+    for poll in (200, 1500):
+        image, board, stream = streaming_case(poll)
+        iss_tape, rtl_tape = TapeHost(stream=stream), TapeHost(stream=stream)
+        errs, m = await cosim_one(dut, f"stream{poll}", image, board, max_ticks=6000,
+                                  stop_when_idle=False, iss_tape=iss_tape, rtl_tape=rtl_tape)
+        got = iss_tape.received
+        ticks = [w & 0xFFFFFF for w in got]
+        levels = [w >> 24 for w in got]
+        dut._log.info(f"[stream{poll}] {len(got)} records streamed, ovf {int(m.cap.ovf)} "
+                      f"at {m.cap.ovf_tick}: {'MATCH' if not errs else 'MISMATCH'}")
+        if poll == 200:
+            # snapshot, then one record per toggle (sync lags uio_in by 2 cycles)
+            if m.cap.ovf or len(got) < 6000 // 37 - 10:
+                errs.append(f"fast host lost records: {len(got)}, ovf {m.cap.ovf}")
+            if any(b - a != 37 for a, b in zip(ticks[1:], ticks[2:])):
+                errs.append("fast host: a record is missing between two toggles")
+            if any(x == y for x, y in zip(levels[1:], levels[2:])):
+                errs.append("fast host: levels do not alternate")
+        elif not m.cap.ovf:
+            errs.append("slow host: expected an overflow")
+        if errs:
+            failures.append(poll)
+    assert not failures, f"streaming cases failing: {failures}"

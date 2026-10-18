@@ -40,7 +40,7 @@ class Pulses:
 async def setup(dut, half=8, jitter=0, seed=1):
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
     for s in ("running", "ctx_state", "irq_pending", "fault_valid", "mbx_rx_full",
-              "mbx_tx_data", "mbx_tx_empty"):
+              "mbx_tx_data", "mbx_tx_empty", "core_busy"):
         getattr(dut, s).value = 0
     dut.mbx_tx_empty.value = 0xF
     dut.rst_n.value = 0
@@ -59,7 +59,7 @@ async def test_status_and_identity(dut):
     dut.mbx_rx_full.value = 0b0011
     dut.mbx_tx_empty.value = 0b1010
     s = await host.status()
-    assert s["version"] == 7 and not s["host_err"] and not s["running"]
+    assert s["version"] == 8 and not s["host_err"] and not s["running"]
     assert s["irq"] and s["ctx_state"] == 0b10011100
     assert s["rx_full"] == 0b0011 and s["tx_empty"] == 0b1010 and s["irq_pending"] == 0b0101
     dut.running.value = 1
@@ -178,7 +178,7 @@ async def test_unknown_command_and_aborted_frame(dut):
     await spi.xfer(bytes((0x10, 9, 0xDE, 0xAD, 0xBE, 0xEF)), abort_after_bits=8 * 4 + 3)
     assert await host.read_imem(9, 1) == [0x0BADF00D]
     s = await host.status()
-    assert s["version"] == 7 and not s["host_err"] and pulses.start == 0
+    assert s["version"] == 8 and not s["host_err"] and pulses.start == 0
 
 
 @cocotb.test()
@@ -197,3 +197,86 @@ async def test_tape_space(dut):
     assert (await host.status())["host_err"]
     await host.clear_err()
     assert await host.read_tape(0x20, 1) == [0xA5A5A5A5]
+
+
+# --------------------------------------------------------------------------- v1.3
+
+
+async def busy_pattern(dut, density, seed):
+    """Drive core_busy: high in a random `density` share of cycles."""
+    rng = random.Random(seed)
+    while True:
+        await RisingEdge(dut.clk)
+        dut.core_busy.value = int(rng.random() < density)
+
+
+@cocotb.test()
+async def test_tape_read_while_running(dut):
+    """v1.3: READ_TAPE during a run returns the right words even when the core holds the
+    port in 90% of cycles: each word waits for a free cycle, and host error stays clear."""
+    host, _, _ = await setup(dut, half=4)
+    words = [(0x9E3779B9 * (i + 1)) & 0xFFFFFFFF for i in range(24)]
+    await host.write_tape(0x30, words)
+    dut.running.value = 1
+    busy = cocotb.start_soon(busy_pattern(dut, 0.9, 7))
+    assert await host.read_tape(0x30, 24) == words
+    assert await host.read_tape(0x3C, 1) == [words[12]]
+    busy.cancel()
+    dut.core_busy.value = 0
+    s = await host.status()
+    assert s["running"] and not s["host_err"], s
+
+
+@cocotb.test()
+async def test_tape_read_stale_sets_host_error(dut):
+    """If the port is never free before a word is sent, host error is set (the word is
+    undefined); the host clears it and reads again."""
+    host, _, _ = await setup(dut, half=4)
+    await host.write_tape(0x10, [0x12345678, 0x9ABCDEF0])
+    dut.running.value = 1
+    dut.core_busy.value = 1
+    await host.read_tape(0x10, 2)
+    s = await host.clear_err()                   # status byte before the clear
+    assert s["host_err"], s
+    dut.core_busy.value = 0
+    assert await host.read_tape(0x10, 2) == [0x12345678, 0x9ABCDEF0]
+    assert not (await host.clear_err())["host_err"]
+
+
+@cocotb.test()
+async def test_tape_ack(dut):
+    """TAPE_ACK gives one tape_ack strobe with the byte, while running or stopped."""
+    host, _, _ = await setup(dut)
+    seen = []
+
+    async def watch():
+        while True:
+            await RisingEdge(dut.clk)
+            if int(dut.tape_ack.value):
+                seen.append(int(dut.tape_ack_v.value))
+    w = cocotb.start_soon(watch())
+    await host.tape_ack(0x5A)
+    dut.running.value = 1
+    await host.tape_ack(0xC3)
+    await ClockCycles(dut.clk, 4)
+    w.cancel()
+    assert seen == [0x5A, 0xC3]
+    assert not (await host.status())["host_err"]
+
+
+@cocotb.test()
+async def test_tape_reads_use_one_cycle_per_word(dut):
+    """D-29: a READ_TAPE word costs one SRAM access (a granted cycle), not one per cycle."""
+    host, _, _ = await setup(dut)
+    await host.write_tape(0, list(range(8)))
+    grants = []
+
+    async def watch():
+        while True:
+            await RisingEdge(dut.clk)
+            if int(dut.tape_gnt.value):
+                grants.append(1)
+    w = cocotb.start_soon(watch())
+    assert await host.read_tape(0, 8) == list(range(8))
+    w.cancel()
+    assert len(grants) == 10                    # addresses 0-9: one word held, one fetched ahead

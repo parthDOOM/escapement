@@ -152,7 +152,7 @@ tt-micropython-firmware's byte functions and samples MISO just before each SCK r
 
 1. Times 500 raw pin writes. The SCK high phase is one pin write and must be at least 4
    core clocks (160 ns); the script requires 320 ns.
-2. Reads STATUS right after reset. The answer is known exactly: `07 00 0f 00` (version 7,
+2. Reads STATUS right after reset. The answer is known exactly: `08 00 0f 00` (version 8,
    all contexts IDLE, all TX mailboxes empty, no IRQ).
 3. Sends an unknown command (0x99), which must set host error, then CLEAR_ERR, which must
    clear it. This proves MOSI reaches the chip.
@@ -167,7 +167,7 @@ tt-micropython-firmware's byte functions and samples MISO just before each SCK r
 | MISO is always 0 | No answer at all | Scope the clk pin (25 MHz square wave); check `rst_n` is high; check CS_n and SCK toggle at the chip; check `uo[0]` |
 | MISO is always 1 | `uo[0]` stuck high or undriven | Scope `uo[0]`; compare with stage 1 |
 | one bit late / one bit early | Sampling phase | Logic analyser on all four lines: MISO must change within 4 clocks after an SCK rise, and the RP must sample before the next rise |
-| protocol version 5 or 6 / a different design | An older Escapement (v1.0 or v1.1) or another design is answering | Check stage 0's selection |
+| protocol version 5, 6 or 7 / a different design | An older Escapement (v1.0, v1.1 or v1.2) or another design is answering | Check stage 0's selection |
 | did not decode STATUS / unknown command did not set host error | MOSI stuck high / low | Scope `ui[2]` at the chip |
 | N of M frames wrong | Intermittent | Errors only at the fast rate: SCK phase or MISO slew is marginal; at both rates: noise, ground or a loose connection |
 
@@ -229,7 +229,7 @@ assembler), run first on bank A and then on bank B:
 | bank B levels ... Outputs Bi (uo[n]) never read 1 / 0 | A bank B output is dead or held | Scope `uo[n]`. Stuck low is already caught by stage 1 |
 | after STOP, bank B outputs ... read 0 | A released bank B output is not high | Scope the pin across the STOP frame |
 | wrong bank B levels ... Input Bi stuck, follows pad Bj | A bank B input path fault, or an input DIP switch is on | Switch the DIP switches off; scope `ui[i+3]` |
-| Logical pins 5..7 read 1 | The context did not switch to bank B | WRITE_CFG byte 10 did not arrive: check that stage 2 reported version 7 |
+| Logical pins 5..7 read 1 | The context did not switch to bank B | WRITE_CFG byte 10 did not arrive: check that stage 2 reported version 8 |
 
 ### Stage 5: firmware digests
 

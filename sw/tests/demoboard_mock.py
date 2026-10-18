@@ -102,7 +102,7 @@ def _force(v: int, stuck) -> int:
 
 
 class SimChip:
-    def __init__(self, *, version=7, clock_scale=1.0, clock_dead=False, miso_stuck=None,
+    def __init__(self, *, version=8, clock_scale=1.0, clock_dead=False, miso_stuck=None,
                  mosi_stuck=None, mem_faults=None, uio_out_dead=0, uio_in_stuck=None,
                  uio_ext_low=0, ob_stuck=None, ib_stuck=None, exec_fault=None, seed=1):
         self.version, self.clock_scale, self.clock_dead = version, clock_scale, clock_dead

@@ -7,7 +7,7 @@
  * so this harness proves it there: the host's SPI pins and every core-side input are free, and
  * the core's run flag is modelled exactly as esc_core drives it (set the cycle after
  * `start`, cleared after `stop`, start winning). A PASS discharges the core proofs'
- * only environment assumption besides reset.
+ * only environment assumption besides reset. v1.3 adds T1/T2 on the tape port.
  * SPDX-License-Identifier: Apache-2.0
  */
 `default_nettype none
@@ -24,7 +24,8 @@ module esc_host_env (
     input wire [31:0]  dbg_rdata,
     input wire [3:0]   mbx_rx_full,
     input wire [127:0] mbx_tx_data,
-    input wire [3:0]   mbx_tx_empty
+    input wire [3:0]   mbx_tx_empty,
+    input wire         tape_gnt
 );
   wire        start, stop;
   wire [3:0]  ctx_enable;
@@ -33,6 +34,7 @@ module esc_host_env (
   wire [7:0]  pin_od;
   wire [3:0]  ctx_bank;
   wire [25:0] pin_owner;
+  wire        mem_we, mem_space, tape_req;
 
   // the core's run flag (esc_core.v: `if (start) run <= 1; else if (stop) run <= 0;`)
   reg run;
@@ -47,8 +49,9 @@ module esc_host_env (
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
       .irq_clear(),
       .running(run), .ctx_state(ctx_state), .irq_pending(irq_pending),
-      .fault_valid(fault_valid), .mem_we(), .mem_addr(), .mem_wdata(), .mem_space(),
-      .mem_re(), .mem_rdata(mem_rdata), .dbg_ctx(), .dbg_sel(), .dbg_rdata(dbg_rdata),
+      .fault_valid(fault_valid), .mem_we(mem_we), .mem_addr(), .mem_wdata(), .mem_space(mem_space),
+      .mem_re(), .mem_rdata(mem_rdata), .tape_req(tape_req), .tape_gnt(tape_gnt),
+      .tape_ack(), .tape_ack_v(), .dbg_ctx(), .dbg_sel(), .dbg_rdata(dbg_rdata),
       .mbx_rx_push(), .mbx_rx_data(), .mbx_rx_full(mbx_rx_full), .mbx_tx_pop(),
       .mbx_tx_data(mbx_tx_data), .mbx_tx_empty(mbx_tx_empty));
 
@@ -67,11 +70,20 @@ module esc_host_env (
       assert ($stable(ctx_bank));
     end
 
+  // T1 (v1.3) the host never writes the tape (or the program store) during a run: the
+  // core's port then needs no write arbitration, and a capture drain only ever waits
+  // for a host write while stopped. T2 a tape fetch is only requested by a tape command.
+  always @(*) if (f_past && rst_n) begin
+    if (run) assert (!mem_we);
+    if (tape_req) assert (mem_space && !mem_we);
+  end
+
   // reachability: a configuration is written, and a run starts afterwards
   always @(posedge clk) if (f_past && rst_n) begin
     cover ($changed(pin_owned) && !run);
     cover ($rose(run) && pin_owned != 13'd0);
     cover ($rose(run) && ctx_bank != 4'd0 && pin_owned[12:8] != 5'd0);   // bank B configured
+    cover (run && tape_req && tape_gnt);                                  // a read in a run
   end
 endmodule
 `default_nettype wire

@@ -60,7 +60,9 @@ flowchart LR
   arrives within a window, and SAMPLE captures an input bit, all at exact ticks.
 - **The tape**, a second SRAM shared by firmware loads and stores, a timestamped capture
   unit and the host. One memory serves as device storage, logic-analyser buffer and
-  replay source.
+  replay source. The host reads it during a run in cycles the core leaves free, so a
+  capture streams out for as long as the host keeps up, and a record is never
+  overwritten before the host has read it.
 - **Self-measurement.** Per context, the chip records its minimum scheduling lead and
   maximum queue occupancy, so a static timing certificate can be checked against the
   hardware.

@@ -21,7 +21,7 @@ A second `RM_IHPSG13_1P_256x32` macro (49,488 µm², 5.4% of the 6×4 die) becom
 | --- | --- | --- |
 | Firmware | `LDT ra, rb, imm8` / `STT ra, rb, imm8` (address `R[rb] + imm8`) | In its commit cycle |
 | Capture unit | One record `{levels[7:0], tick[23:0]}` per watched-pin change | Any cycle the port is free |
-| Host | `WRITE_TAPE` / `READ_TAPE` (host protocol v1.1) | Only while stopped |
+| Host | `WRITE_TAPE` / `READ_TAPE` (host protocol v1.1), `TAPE_ACK` (v1.3) | Writes while stopped; reads in any cycle the core leaves free (v1.3) |
 
 One memory then covers four jobs:
 
@@ -31,7 +31,9 @@ One memory then covers four jobs:
   serves the same kind of memory as a 25xx-style SPI part.
 - **Logic analyser.** [`logic_analyzer.asm`](../firmware/logic_analyzer.asm) is four
   instructions. Capture keeps running after every context halts, until the region
-  fills (or forever in ring mode, which keeps pre-trigger history).
+  fills (or forever in ring mode, which keeps pre-trigger history). In stream mode
+  (v1.3, D-32) the host reads and acknowledges records during the run, so a capture is
+  no longer capped at 256 records but at the host link's rate.
 - **Record and replay.** A capture record has the same shape as a DRIVE event (a tick
   and levels), so `sw/esctape.build_replay()` turns a capture straight into
   [`replay.asm`](../firmware/replay.asm) plus tape contents. The replay is tick-exact

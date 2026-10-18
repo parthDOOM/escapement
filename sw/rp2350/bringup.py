@@ -38,7 +38,7 @@ except ImportError:                       # on a PC (tests): sw/eschost
 
 PROJECT = "tt_um_escapement"
 F_CLK = 25000000
-VERSION = 7
+VERSION = 8
 M32 = 0xFFFFFFFF
 DG_POLY = 0x04C11DB7
 CS, SCK, MOSI = 1, 2, 4                   # ui_in bits (docs/12-HOST-PROTOCOL.md)
@@ -46,7 +46,7 @@ MISO, IRQ, RUN = 1, 2, 4                  # uo_out bits
 UO_RESET = 0xF8                           # in and after reset: bank B (uo[7:3]) released high
 STATE = ("IDLE", "RUNNING", "HALTED", "FAULTED")
 CAUSE = {1: "ILLEGAL", 2: "PC_RANGE", 3: "ADMIT", 4: "LATE_HEAD"}
-RESET_STATUS = b"\x07\x00\x0f\x00"        # version 7, all IDLE, TX mailboxes empty
+RESET_STATUS = b"\x08\x00\x0f\x00"        # version 8, all IDLE, TX mailboxes empty
 MIN_HALF_NS = 8 * 1000000000 // F_CLK     # bit-bang margin: 2x the 4-clock SCK minimum
 # Every data bit at 0 and 1, and every pair of bits different in at least one word.
 DATA_LINE_PATTERNS = (0, M32, 0x55555555, 0xAAAAAAAA, 0x33333333, 0xCCCCCCCC, 0x0F0F0F0F,
@@ -393,9 +393,11 @@ class Bringup:
             return "the answer is one bit early (MISO sampled before the chip drove it)."
         v = got[0] & 0x0F
         if v == 5:
-            return "protocol version 5: an Escapement v1.0 design answers, not v1.2."
+            return "protocol version 5: an Escapement v1.0 design answers, not v1.3."
         if v == 6:
-            return "protocol version 6: an Escapement v1.1 design answers, not v1.2."
+            return "protocol version 6: an Escapement v1.1 design answers, not v1.3."
+        if v == 7:
+            return "protocol version 7: an Escapement v1.2 design answers, not v1.3."
         if v != VERSION:
             return ("protocol version %d: a different design is answering; check the "
                     "project selection (stage 0)." % v)

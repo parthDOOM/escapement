@@ -1,4 +1,4 @@
-# Escapement host protocol v1.2 (docs/12-HOST-PROTOCOL.md) - frame builders/parsers.
+# Escapement host protocol v1.3 (docs/12-HOST-PROTOCOL.md) - frame builders/parsers.
 # Plain Python, MicroPython-compatible (no typing/dataclasses), so the same code drives
 # cocotb tests on a PC and the RP2350 loader on the Tiny Tapeout demo board.
 #
@@ -6,9 +6,9 @@
 # frame and returns the MISO bytes. Host (sync) and AsyncHost (async transports, e.g.
 # cocotb) both execute the same plans, so there is one encoding of the protocol.
 
-VERSION = 0x7
+VERSION = 0x8
 STATUS, WRITE_IMEM, READ_IMEM, WRITE_CFG = 0x00, 0x10, 0x11, 0x12
-WRITE_TAPE, READ_TAPE = 0x13, 0x14
+WRITE_TAPE, READ_TAPE, TAPE_ACK = 0x13, 0x14, 0x15
 START, STOP, READ_DBG, MBX_PUSH, MBX_POP = 0x20, 0x21, 0x30, 0x40, 0x41
 IRQ_CLEAR, CLEAR_ERR = 0x50, 0x51
 
@@ -64,6 +64,29 @@ def plan_write_tape(addr, words):
 def plan_read_tape(addr, count):
     return (bytes((READ_TAPE, addr & 0xFF, 0)) + bytes(4 * count),
             lambda r: [_r32(r, 3 + 4 * i) for i in range(count)])
+
+
+def plan_tape_ack(rptr):
+    # v1.3: the capture records before rptr have been read (streaming capture)
+    return bytes((TAPE_ACK, rptr & 0xFF)), _st
+
+
+def stream_chunks(base, lim, rptr, ptr):
+    """The unread words of a stream-mode region [base, lim) from rptr up to ptr, as
+    (addr, count) runs split where the region wraps (READ_TAPE reads consecutive
+    addresses). At most 256 words, so a ptr outside the region cannot loop forever."""
+    runs, a, start, n = [], rptr & 0xFF, rptr & 0xFF, 0
+    for _ in range(256):
+        if a == ptr:
+            break
+        n += 1
+        a = (a + 1) & 0xFF
+        if a == lim:
+            a = base
+        if a == base or a == ptr:
+            runs.append((start, n))
+            start, n = a, 0
+    return runs
 
 
 def plan_write_cfg(ctx_enable, entry_pcs, pin_owned, pin_owner, pin_od, ctx_bank=0):
@@ -123,6 +146,7 @@ PLANS = {
     "read_dbg": plan_read_dbg, "mbx_push": plan_mbx_push, "mbx_pop": plan_mbx_pop,
     "irq_clear": plan_irq_clear, "clear_err": plan_clear_err,
     "write_tape": plan_write_tape, "read_tape": plan_read_tape,
+    "tape_ack": plan_tape_ack,
 }
 
 
@@ -132,6 +156,14 @@ def tape_extent(image):
     if not used:
         return 0, 0
     return min(used), max(used) - min(used) + 1
+
+
+def _poll_plan(base, lim, rptr, status_word):
+    # A ptr outside the region means the capture is not armed in it (yet): nothing new.
+    ptr = status_word & 0xFF
+    if ((ptr - base) & 0xFF) >= (((lim - base) & 0xFF) or 256):
+        return rptr, []
+    return ptr, stream_chunks(base, lim, rptr, ptr)
 
 
 class Host:
@@ -169,6 +201,25 @@ class Host:
                        getattr(image, "ctx_bank_mask", 0))
         return n
 
+    def stream_poll(self, base, lim, rptr, retries=3):
+        """One round of streaming capture (v1.3): read the capture status, every record
+        from rptr up to ptr, then acknowledge them. Returns (words, new rptr, status).
+        A word the chip could not fetch in time sets host error; the round then re-reads
+        (CLEAR_ERR returns the status byte before clearing it)."""
+        st = self.read_dbg(0, 17)
+        ptr, runs = _poll_plan(base, lim, rptr, st)
+        for _ in range(retries + 1):
+            words = []
+            for a, n in runs:
+                words += self.read_tape(a, n)
+            if not self.clear_err()["host_err"]:
+                break
+        else:
+            raise IOError("tape reads kept failing: the tape port is never free")
+        if runs:
+            self.tape_ack(ptr)
+        return words, ptr, st
+
 
 class AsyncHost:
     """Asynchronous host: `await xfer(bytes)` -> bytes (cocotb drivers)."""
@@ -204,3 +255,19 @@ class AsyncHost:
                              image.pin_owned_mask, image.pin_owner_packed, image.pin_od_mask,
                              getattr(image, "ctx_bank_mask", 0))
         return n
+
+    async def stream_poll(self, base, lim, rptr, retries=3):
+        """As Host.stream_poll."""
+        st = await self.read_dbg(0, 17)
+        ptr, runs = _poll_plan(base, lim, rptr, st)
+        for _ in range(retries + 1):
+            words = []
+            for a, n in runs:
+                words += await self.read_tape(a, n)
+            if not (await self.clear_err())["host_err"]:
+                break
+        else:
+            raise IOError("tape reads kept failing: the tape port is never free")
+        if runs:
+            await self.tape_ack(ptr)
+        return words, ptr, st

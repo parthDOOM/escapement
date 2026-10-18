@@ -2,6 +2,8 @@
  * Co-simulation top: esc_core + the real program-store and tape wrappers (SRAM
  * macro models). v1.1: load_space selects the tape (1) or the program (0).
  * v1.2: bank B pins ib_in / ob_out and the ctx_bank configuration.
+ * v1.3: a host tape reader (hrd_*) that gets the port in every cycle the core leaves
+ * free, as in project.v, and TAPE_ACK.
  * Written from the port list in docs/11-SEMANTICS.md §10 only.
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -24,6 +26,15 @@ module esc_tb (
     input  wire         load_space,
     input  wire [7:0]   load_addr,
     input  wire [31:0]  load_data,
+    // host tape reads during a run (v1.3): the word at hrd_addr is fetched in the
+    // first cycle hrd_req is high and the core does not use the port (hrd_gnt); it is
+    // on tape_rdata in the next cycle
+    input  wire         hrd_req,
+    input  wire [7:0]   hrd_addr,
+    output wire         hrd_gnt,
+    output wire [31:0]  tape_rdata,
+    input  wire         tape_ack,
+    input  wire [7:0]   tape_ack_v,
     // pins
     input  wire [7:0]   uio_in,
     output wire [7:0]   uio_out,
@@ -86,13 +97,14 @@ module esc_tb (
 
   wire [7:0]  tape_addr;
   wire        tape_re, tape_we, tape_busy;
-  wire [31:0] tape_wdata, tape_rdata;
-  wire        tload = load_we & load_space & ~tape_busy;
+  wire [31:0] tape_wdata;
+  wire        tload = load_we & load_space;      // only while stopped; a drain waits
+  assign      hrd_gnt = hrd_req & ~tape_busy & ~tload;
   escapement_sram u_tape (
       .clk  (clk),
       .rst_n(rst_n),
-      .addr (tload ? load_addr : tape_addr),
-      .re   (tape_busy ? tape_re : 1'b1),          // as project.v while running (D-29)
+      .addr (tload ? load_addr : tape_busy ? tape_addr : hrd_addr),
+      .re   (tape_busy ? tape_re : hrd_gnt),       // as project.v (D-29)
       .we   (tload | (tape_we & tape_busy)),
       .wdata(tload ? load_data : tape_wdata),
       .rdata(tape_rdata)
@@ -117,7 +129,8 @@ module esc_tb (
       .dbg_post_z(dbg_post_z), .dbg_post_c(dbg_post_c), .dbg_post_pc(dbg_post_pc),
       .dbg_sel_ctx(dbg_sel_ctx), .dbg_sel(dbg_sel), .dbg_rdata(dbg_rdata),
       .tape_addr(tape_addr), .tape_re(tape_re), .tape_we(tape_we), .tape_wdata(tape_wdata),
-      .tape_rdata(tape_rdata), .tape_busy(tape_busy)
+      .tape_rdata(tape_rdata), .tape_busy(tape_busy), .tape_host_we(tload),
+      .tape_ack(tape_ack), .tape_ack_v(tape_ack_v)
   );
 endmodule
 `default_nettype wire

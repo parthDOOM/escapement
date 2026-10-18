@@ -8,6 +8,7 @@
  *   uio[7:0] protocol pins, bank A, owned per context (docs/11-SEMANTICS.md)
  *   uo_out[7:3] / ui_in[7:3] protocol pins, bank B: five split pins (v1.2)
  * v1.1: a second 256x32 SRAM, the tape (firmware LDT/STT, capture, host while stopped).
+ * v1.3: the host reads the tape during a run too, in cycles the core leaves free.
  */
 
 `default_nettype none
@@ -33,6 +34,8 @@ module tt_um_escapement (
   wire [4:0]   ob_out;
   wire [25:0]  pin_owner;
   wire         host_mem_we, host_mem_space, host_mem_re;
+  wire         host_tape_req, host_tape_gnt, host_tape_ack;
+  wire [7:0]   host_tape_ack_v;
   wire [7:0]   host_mem_addr;
   wire [31:0]  host_mem_wdata, imem_rdata, tape_rdata;
   wire [1:0]   dbg_ctx;
@@ -51,6 +54,8 @@ module tt_um_escapement (
       .fault_valid(fault_valid),
       .mem_we(host_mem_we), .mem_addr(host_mem_addr), .mem_wdata(host_mem_wdata),
       .mem_space(host_mem_space), .mem_re(host_mem_re), .mem_rdata(host_mem_space ? tape_rdata : imem_rdata),
+      .tape_req(host_tape_req), .tape_gnt(host_tape_gnt),
+      .tape_ack(host_tape_ack), .tape_ack_v(host_tape_ack_v),
       .dbg_ctx(dbg_ctx), .dbg_sel(dbg_sel), .dbg_rdata(dbg_rdata),
       .mbx_rx_push(mbx_rx_push), .mbx_rx_data(mbx_rx_data), .mbx_rx_full(mbx_rx_full),
       .mbx_tx_pop(mbx_tx_pop), .mbx_tx_data(mbx_tx_data), .mbx_tx_empty(mbx_tx_empty));
@@ -69,17 +74,20 @@ module tt_um_escapement (
       .rdata(imem_rdata));
 
   // ------------------------------------------------------------------ tape (v1.1)
-  // The core owns the port during a run and while capture records drain after a stop
-  // (tape_busy); the host only otherwise.
+  // The core has the port in the cycles it uses it (tape_busy: an LDT/STT commit or a
+  // capture drain); the host has it in every other cycle, during a run too (v1.3). A
+  // host write happens only while stopped, and a drain waits for it (tape_host_we).
   wire [7:0]  core_tape_addr;
   wire        core_tape_we, core_tape_re, tape_busy;
   wire [31:0] core_tape_wdata;
+  wire        host_tape_we = host_mem_we & host_mem_space;
+  assign      host_tape_gnt = host_tape_req & ~tape_busy;
   escapement_sram u_tape (
       .clk  (clk),
       .rst_n(rst_n),
       .addr (tape_busy ? core_tape_addr : host_mem_addr),
-      .re   (tape_busy ? core_tape_re : (host_mem_re & host_mem_space)),  // D-29
-      .we   (tape_busy ? core_tape_we : (host_mem_we & host_mem_space)),
+      .re   (tape_busy ? core_tape_re : host_tape_gnt),  // D-29: one read per host word
+      .we   (tape_busy ? core_tape_we : host_tape_we),
       .wdata(tape_busy ? core_tape_wdata : host_mem_wdata),
       .rdata(tape_rdata));
 
@@ -104,7 +112,8 @@ module tt_um_escapement (
       .dbg_post_lc(), .dbg_post_tmr(), .dbg_post_z(), .dbg_post_c(), .dbg_post_pc(),
       .dbg_sel_ctx(dbg_ctx), .dbg_sel(dbg_sel), .dbg_rdata(dbg_rdata),
       .tape_addr(core_tape_addr), .tape_re(core_tape_re), .tape_we(core_tape_we), .tape_wdata(core_tape_wdata),
-      .tape_rdata(tape_rdata), .tape_busy(tape_busy));
+      .tape_rdata(tape_rdata), .tape_busy(tape_busy), .tape_host_we(host_tape_we),
+      .tape_ack(host_tape_ack), .tape_ack_v(host_tape_ack_v));
   /* verilator lint_on PINCONNECTEMPTY */
 
   assign uo_out = {ob_out, running, |irq_pending | fault_valid, miso};

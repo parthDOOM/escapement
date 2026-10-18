@@ -1,12 +1,13 @@
-# Host protocol v1.2 (normative)
+# Host protocol v1.3 (normative)
 
-The SPI command set between a host and Escapement. Protocol version 7. Implemented by
+The SPI command set between a host and Escapement. Protocol version 8. Implemented by
 `src/escapement_host.v`, and driven by `sw/eschost` (PC and cocotb) and the RP2350
 MicroPython host on the Tiny Tapeout demo board (`sw/rp2350`). Version 1.1 adds
 WRITE_TAPE and READ_TAPE (0x13, 0x14) for the tape ([11-SEMANTICS](11-SEMANTICS.md) §7.6)
 and a 5-bit READ_DBG select that reaches the digest and capture registers (sel 16–19).
 Version 1.2 adds four optional WRITE_CFG bytes for pin bank B
-([11-SEMANTICS](11-SEMANTICS.md) §5).
+([11-SEMANTICS](11-SEMANTICS.md) §5). Version 1.3 lets READ_TAPE run during a run and
+adds TAPE_ACK (0x15), for streaming capture ([11-SEMANTICS](11-SEMANTICS.md) §6.5).
 
 ## Physical layer
 
@@ -47,7 +48,7 @@ is the status byte**:
 | 6 | IRQ pending on any context |
 | 5 | first-fault register valid |
 | 4 | host error (sticky; see CLEAR_ERR) |
-| 3:0 | protocol version, `0x6` (v1.0 chips report `0x5`) |
+| 3:0 | protocol version: `0x8` (v1.3; v1.2 chips report `0x7`, v1.1 `0x6`, v1.0 `0x5`) |
 
 Raising CS_n ends the frame at any point; a partial word is discarded. Bytes after the
 end of a command's payload are ignored (response 0x00). An unknown command sets host
@@ -65,18 +66,45 @@ the chip prepares data; its response is 0x00.
 | 0x11 | READ_IMEM | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … | Readback verification of a loaded image |
 | 0x12 | WRITE_CFG | ctx_enable, entry0, entry1, entry2, entry3, pin_owned[7:0], pin_owner[15:8], pin_owner[7:0], pin_od, then optionally ctx_bank, pin_owned[12:8], pin_owner[25:24], pin_owner[23:16] | zeros | 9 or 13 bytes; only while stopped. Takes effect at the next START. Bytes 10–13 (v1.2) configure bank B; a 9-byte frame leaves them unchanged (0 after reset), and a v1.1 chip ignores them |
 | 0x13 | WRITE_TAPE | addr, then words (4 bytes each) | zeros | As WRITE_IMEM, into the tape; only while stopped, else host error and no write |
-| 0x14 | READ_TAPE | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … | As READ_IMEM, from the tape (e.g. capture records after STOP). Valid only while stopped and after capture has drained: during a run the core owns the tape port and the data returned is undefined |
+| 0x14 | READ_TAPE | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … | As READ_IMEM, from the tape, at any time (v1.3; below) |
+| 0x15 | TAPE_ACK | rptr | zeros | v1.3: the host has read the capture records before `rptr`; sets the capture unit's `rptr` at the end of the byte ([11-SEMANTICS](11-SEMANTICS.md) §6.5). Allowed while running or stopped |
 | 0x20 | START | — | — | One-cycle core `start` pulse at the end of the command byte; ignored (host error) while running |
 | 0x21 | STOP | — | — | One-cycle core `stop` pulse |
-| 0x30 | READ_DBG | {1'b0, sel[4], ctx[1:0], sel[3:0]}, dummy, 4 dummy | dbg_rdata (4 bytes) | Captured at the end of the select byte; the map is in 11-SEMANTICS §10 (sel 16 digest, 17 capture status, 18 capture config, 19 overflow tick) |
+| 0x30 | READ_DBG | {1'b0, sel[4], ctx[1:0], sel[3:0]}, dummy, 4 dummy | dbg_rdata (4 bytes) | Captured at the end of the select byte; the map is in 11-SEMANTICS §10 (sel 16 digest, 17 capture status, 18 capture config, 19 overflow tick, 20 capture `rptr`) |
 | 0x40 | MBX_PUSH | ctx, 4-byte word | zeros | Push to that context's RX mailbox; host error if full (word dropped) |
 | 0x41 | MBX_POP | ctx, dummy, 4 dummy | valid (0x01 or 0x00), word (4 bytes) | Pops the TX mailbox head if nonempty |
 | 0x50 | IRQ_CLEAR | ctx mask (bits 3:0) | zeros | Clears irq_pending for the masked contexts |
 | 0x51 | CLEAR_ERR | — | — | Clears host error |
 
+## Tape reads during a run (v1.3)
+
+READ_TAPE fetches each word in a cycle in which neither the core nor the capture unit
+uses the tape port ([11-SEMANTICS](11-SEMANTICS.md) §10, `tape_busy`), so a host read
+never delays an instruction or a capture record. A word's fetch is requested when its
+address is set (the address byte, then each prefetch) and must happen before the word is
+sent, at least one SPI byte later (64 core cycles at the fastest SCK). The port is free
+in almost every cycle; only firmware that does nothing but LDT and STT in all four
+contexts for that whole time could keep it busy. If a word was not fetched in time,
+**host error** is set and the word sent is undefined: the host clears the error and
+reads again. Reads while stopped behave as in v1.2.
+
+**Streaming capture.** The firmware arms the capture unit with CAPT bit 26 (stream) over
+a region `[base, lim)`. The host then repeats, during the run:
+
+1. READ_DBG sel 17 (capture status) for `ptr`, and the flags `ovf`, `full`, `wrapped`.
+2. READ_TAPE of the words from its own `rptr` up to `ptr`, around the region.
+3. TAPE_ACK with the new `rptr` (the old `rptr` plus the number of words read, around
+   the region).
+
+The capture unit never writes over a word between `rptr` and `ptr`. If the host falls
+behind for long enough that the region and the staging FIFO fill, generation stops with
+`ovf` set and `ovf_tick` the tick of the first lost record ([11-SEMANTICS](11-SEMANTICS.md)
+§6.5). The rate a host can sustain is set by its SPI link: each record costs 4 bytes of
+READ_TAPE plus a share of the status read and TAPE_ACK.
+
 ## Typical session
 
-1. STATUS, and check version 0x7.
+1. STATUS, and check version 0x8.
 2. STOP.
 3. WRITE_IMEM with the image, then READ_IMEM to compare (verification is in host software).
    WRITE_TAPE / READ_TAPE likewise for any initial tape contents (the SRAM powers up
@@ -85,7 +113,8 @@ the chip prepares data; its response is 0x00.
 5. START.
 6. During the run: MBX_PUSH/POP, READ_DBG for telemetry and checker status, and
    IRQ_CLEAR when IRQ asserts.
-7. STOP. Then READ_TAPE for capture records, and READ_DBG sel 16 for the execution
+7. STOP. Then READ_TAPE for capture records (or stream them during step 6; above), and
+   READ_DBG sel 16 for the execution
    digest: once every context has stopped, it is final and can be compared with the
    ISS's prediction for the same image (11-SEMANTICS §10.1).
 

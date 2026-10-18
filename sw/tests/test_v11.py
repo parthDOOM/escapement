@@ -90,7 +90,8 @@ def test_capture_snapshot_and_changes():
     assert m.cap.status() == 0x80000013            # en, ptr 0x13, nothing staged
     assert m.dbg_read(0, 17) == m.cap.status()
     assert m.dbg_read(3, 18) == cfg(0x10, 0x20) & 0x01FFFFFF
-    assert m.dbg_read(0, 20) == 0
+    assert m.dbg_read(0, 20) == 0x10               # v1.3: rptr, set to base by CAPT
+    assert m.dbg_read(0, 21) == 0
 
 
 def test_capture_mask_ignores_unwatched_pins():

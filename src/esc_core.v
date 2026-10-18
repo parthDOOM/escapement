@@ -6,7 +6,7 @@
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
  *
- * Normative semantics: docs/11-SEMANTICS.md v1.2.0 (section numbers below refer
+ * Normative semantics: docs/11-SEMANTICS.md v1.3.0 (section numbers below refer
  * to it). Encodings: isa/isa.yaml (decoder constants hand-copied).
  *
  * v1.1: the tape port (LDT/STT in the commit cycle; the capture unit esc_cap drains
@@ -14,6 +14,8 @@
  * v1.2: pin bank B (sec. 5). Every context works in 8 logical pins; the mapping onto the
  * 13 physical pins happens only at the input view, the ownership masks, DRIVE and fault
  * updates of the pin registers, and the outputs.
+ * v1.3: streaming capture. tape_busy marks only the cycles the core uses the tape port,
+ * so the host can read during a run; TAPE_ACK sets the capture unit's rptr (sec. 6.5).
  *
  * Pipeline (each stage holds a different context, so no same-context hazards):
  *   F  cycle t   : imem_addr = PC[now mod 4] (combinational); slot valid if the
@@ -91,7 +93,10 @@ module esc_core (
     output wire         tape_we,
     output wire [31:0]  tape_wdata,
     input  wire [31:0]  tape_rdata,
-    output wire         tape_busy
+    output wire         tape_busy,     // v1.3: the core uses the port this cycle; else the host may
+    input  wire         tape_host_we,  // v1.3: the host writes the tape this cycle (stopped only)
+    input  wire         tape_ack,      // v1.3: TAPE_ACK, the host's new capture rptr
+    input  wire [7:0]   tape_ack_v
 );
 
   // ------------------------------------------------------------------ constants
@@ -159,8 +164,8 @@ module esc_core (
   wire [3:0]   c_z, c_c, c_late, c_act, c_acta, c_failed, c_eseen, c_irqp;
   wire [3:0]   c_rxe, c_rxf, c_txe, c_txf, c_drv, c_hsmp;
   // capture unit (v1.1)
-  wire        cap_drain, cap_active;
-  wire [7:0]  cap_ptr;
+  wire        cap_drain;
+  wire [7:0]  cap_ptr, cap_rptr;
   wire [31:0] cap_head, cap_status, cap_cfg, cap_ovf_tick;
 
   // commit-stage write port (broadcast)
@@ -503,20 +508,22 @@ module esc_core (
 
   // ------------------------------------------------------------------ tape port (v1.1)
   // Busy in a cycle whose observed commit has opcode LDT/STT, whatever its outcome
-  // (sec. 6.5); otherwise the capture unit may drain into it.
+  // (sec. 6.5); otherwise the capture unit may drain into it. v1.3: the host has the
+  // port in every cycle the core does not use (tape_busy low), during a run too.
   wire        is_tm    = (op == OP_LDT) | (op == OP_STT);
   wire        tp_busy  = commit_valid & is_tm;
   assign tape_addr  = tp_busy ? (opb[7:0] + f_imm16[7:0]) : cap_ptr;
   assign tape_we    = tp_busy ? (cm_ok & (op == OP_STT)) : cap_drain;
   assign tape_re    = tp_busy & (op == OP_LDT);
   assign tape_wdata = tp_busy ? opa : cap_head;
-  assign tape_busy  = run | cap_active;
+  assign tape_busy  = tp_busy | cap_drain;
 
   esc_cap u_cap (
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop_q), .run(run), .now(now),
-      .psync(s2), .busy(tp_busy), .capt_we(cm_ok & (op == OP_CAPT)), .capt_v(opb),
-      .drain(cap_drain), .ptr_o(cap_ptr), .head_o(cap_head), .active(cap_active),
-      .status(cap_status), .cfg(cap_cfg), .ovf_tick(cap_ovf_tick));
+      .psync(s2), .busy(tp_busy | tape_host_we), .ack(tape_ack), .ack_v(tape_ack_v),
+      .capt_we(cm_ok & (op == OP_CAPT)), .capt_v(opb),
+      .drain(cap_drain), .ptr_o(cap_ptr), .head_o(cap_head),
+      .status(cap_status), .cfg(cap_cfg), .rptr(cap_rptr), .ovf_tick(cap_ovf_tick));
 
   // deferred LDT register write: committed at E_c, written at E_(c+1) (sec. 7.6)
   reg       ld_v;
@@ -821,6 +828,7 @@ module esc_core (
       5'd17: dbg_rdata = cap_status;
       5'd18: dbg_rdata = cap_cfg;
       5'd19: dbg_rdata = cap_ovf_tick;
+      5'd20: dbg_rdata = {24'd0, cap_rptr};
       default: dbg_rdata = 32'd0;
     endcase
   end

@@ -1,5 +1,5 @@
 /*
- * esc_cap.v - Escapement capture unit (docs/11-SEMANTICS.md v1.2.0 §6.5, §7.6).
+ * esc_cap.v - Escapement capture unit (docs/11-SEMANTICS.md v1.3.0 §6.5, §7.6).
  *
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
@@ -13,8 +13,12 @@
  * Per edge, in order (unless start or stop is at the edge): 1 drain the staged head
  * to T[ptr] when the port is free; 2 generate a record (snapshot, watched change, or
  * the epoch marker at tick mod 2^24 == 0); 3 a completing CAPT overrides. After stop,
- * staged records still drain (`active` keeps the port).
+ * staged records still drain.
  * v1.2: the unit watches one pin bank, chosen by CAPT operand bit 25.
+ * v1.3: stream mode (CAPT bit 26) shares the ring with the host, which reads records
+ * during the run and acknowledges them by setting `rptr` (TAPE_ACK). The drain is held
+ * rather than write over an unacknowledged record, so a slow host ends in `ovf`, never
+ * in silently lost data.
  */
 `default_nettype none
 module esc_cap (
@@ -25,28 +29,33 @@ module esc_cap (
     input  wire        run,         // run flag during this cycle
     input  wire [31:0] now,
     input  wire [12:0] psync,       // synchronised physical pins during this cycle
-    input  wire        busy,        // an LDT/STT commit owns the tape port this cycle
+    input  wire        busy,        // an LDT/STT commit or a host write owns the port
+    input  wire        ack,         // v1.3: TAPE_ACK this cycle
+    input  wire [7:0]  ack_v,       //       its new rptr
     input  wire        capt_we,     // a CAPT completes at this edge
     input  wire [31:0] capt_v,      // its operand
     output wire        drain,       // write the staged head this cycle
     output wire [7:0]  ptr_o,
     output wire [31:0] head_o,
-    output wire        active,      // records staged
     output wire [31:0] status,      // GETC / dbg sel 17
     output wire [31:0] cfg,         // dbg sel 18
+    output reg  [7:0]  rptr,        // dbg sel 20 (v1.3)
     output reg  [31:0] ovf_tick     // dbg sel 19
 );
-  reg       en, snap, ring, bank, ovf, full, wrapped;
+  reg       en, snap, ring, stream, bank, ovf, full, wrapped;
   reg [7:0] mask, base, lim, ptr, prev;
   reg [31:0] st0, st1;
   reg [1:0] n;
   wire [7:0] sync = bank ? {3'd0, psync[12:8]} : psync[7:0];   // the watched bank
 
-  // step 1: drain
-  wire       drain_c  = (n != 2'd0) & ~busy & ~start & ~stop;
+  // step 1: drain, unless stream mode would write over the record at rptr
   wire [7:0] ptr_inc  = ptr + 8'd1;
   wire       hit_lim  = (ptr_inc == lim);
-  wire       set_full = drain_c & hit_lim & ~ring;
+  wire       wrap     = ring | stream;
+  wire [7:0] ptr_nxt  = (hit_lim & wrap) ? base : ptr_inc;
+  wire       held     = stream & (ptr_nxt == rptr);
+  wire       drain_c  = (n != 2'd0) & ~busy & ~start & ~stop & ~held;
+  wire       set_full = drain_c & hit_lim & ~wrap;
   wire [1:0] n_after  = n - {1'b0, drain_c};
 
   // step 2: generate
@@ -61,33 +70,32 @@ module esc_cap (
   assign drain  = drain_c;
   assign ptr_o  = ptr;
   assign head_o = st0;
-  assign active = (n != 2'd0);
   assign status = {en, ovf, full, wrapped, 18'd0, n, ptr};
-  assign cfg    = {6'd0, bank, ring, mask, lim, base};
-  wire   _unused = &{1'b0, capt_v[30:26]};   // CAPT operand bits 30:26 are ignored (sec. 7.6)
+  assign cfg    = {5'd0, stream, bank, ring, mask, lim, base};
+  wire   _unused = &{1'b0, capt_v[30:27]};   // CAPT operand bits 30:27 are ignored (sec. 7.6)
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      en <= 1'b0; snap <= 1'b0; ring <= 1'b0; bank <= 1'b0; ovf <= 1'b0; full <= 1'b0; wrapped <= 1'b0;
-      mask <= 8'd0; base <= 8'd0; lim <= 8'd0; ptr <= 8'd0; prev <= 8'd0;
+      en <= 1'b0; snap <= 1'b0; ring <= 1'b0; stream <= 1'b0; bank <= 1'b0;
+      ovf <= 1'b0; full <= 1'b0; wrapped <= 1'b0;
+      mask <= 8'd0; base <= 8'd0; lim <= 8'd0; ptr <= 8'd0; rptr <= 8'd0; prev <= 8'd0;
       st0 <= 32'd0; st1 <= 32'd0; n <= 2'd0; ovf_tick <= 32'd0;
     end else if (start) begin
-      en <= 1'b0; snap <= 1'b0; ring <= 1'b0; bank <= 1'b0; ovf <= 1'b0; full <= 1'b0; wrapped <= 1'b0;
-      mask <= 8'd0; base <= 8'd0; lim <= 8'd0; ptr <= 8'd0; prev <= 8'd0;
+      en <= 1'b0; snap <= 1'b0; ring <= 1'b0; stream <= 1'b0; bank <= 1'b0;
+      ovf <= 1'b0; full <= 1'b0; wrapped <= 1'b0;
+      mask <= 8'd0; base <= 8'd0; lim <= 8'd0; ptr <= 8'd0; rptr <= 8'd0; prev <= 8'd0;
       n <= 2'd0; ovf_tick <= 32'd0;
     end else begin
       // ---- 1 drain
       if (drain_c) begin
         st0 <= st1;
-        if (hit_lim && ring) begin
-          ptr <= base; wrapped <= 1'b1;
-        end else begin
-          ptr <= ptr_inc;
-        end
+        ptr <= ptr_nxt;
+        if (hit_lim && wrap) wrapped <= 1'b1;
         if (set_full) begin
           full <= 1'b1; en <= 1'b0;
         end
       end
+      if (ack) rptr <= ack_v;            // the host's acknowledgement (a CAPT overrides)
       // ---- 2 generate
       if (push) begin
         if (n_after == 2'd0) st0 <= rec;
@@ -109,7 +117,8 @@ module esc_cap (
         if (capt_v[31]) begin
           en <= 1'b1; snap <= 1'b1;
           mask <= capt_v[23:16]; lim <= capt_v[15:8]; base <= capt_v[7:0];
-          ring <= capt_v[24]; bank <= capt_v[25]; ptr <= capt_v[7:0];
+          ring <= capt_v[24]; bank <= capt_v[25]; stream <= capt_v[26];
+          ptr <= capt_v[7:0]; rptr <= capt_v[7:0];
           ovf <= 1'b0; full <= 1'b0; wrapped <= 1'b0; ovf_tick <= 32'd0;
           n <= 2'd0;
         end else begin
@@ -131,12 +140,17 @@ module esc_cap (
     if (en || n != 2'd0) assert (f_size == 8'd0 || f_off < f_size);
     assert (n <= 2'd2);
     if (gen) assert (run);
+    // C4 (v1.3) in stream mode a drain never makes ptr reach rptr, so it never writes
+    // over a record the host has not acknowledged
+    if (drain_c && stream) assert (ptr_nxt != rptr);
   end
   always @(*) if (rst_n && run) begin
     cover (ovf);
     cover (full);
     cover (wrapped);
     cover (drain_c && n == 2'd2 && push);
+    cover (stream && held && n == 2'd2);          // the host fell behind; staging full
+    cover (stream && ovf);
   end
 `endif
 

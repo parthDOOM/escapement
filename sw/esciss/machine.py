@@ -1,9 +1,13 @@
-"""Escapement instruction-set simulator: a cycle-by-cycle model of docs/11-SEMANTICS.md v1.2.0.
+"""Escapement instruction-set simulator: a cycle-by-cycle model of docs/11-SEMANTICS.md v1.3.0.
 
 v1.1 adds the tape and capture unit (§6.5, §7.6), the execution digest (§10.1) and the
 wait-class GETI (§7.3). v1.2 adds pin bank B (§5): five split pins seen by a context as
 its logical pins 0..4. Bus models keep the 8-bit `board(t, uio_out, uio_oe) -> uio_in`
 interface for bank A; bank B has its own `board_b(t, ob) -> ib` (5 bits, default 0).
+v1.3 adds streaming capture (§6.5): CAPT bit 26, the host's read pointer `rptr` set by
+TAPE_ACK (`host_tape_ack`), and a drain that is held rather than overwrite an
+unacknowledged record. Host tape reads never affect the machine; `tape_log` records
+every tape write so a host read at any cycle can be checked.
 
 One loop iteration = one run cycle t, ending with edge E_t. State held in the Python
 objects is always "state during cycle self.now" (i.e. the register values after the
@@ -183,8 +187,10 @@ class Capture:
     base: int = 0
     lim: int = 0
     ring: bool = False
+    stream: bool = False    # v1.3: ring shared with the host
     bank: int = 0           # v1.2: the watched pin bank
     ptr: int = 0
+    rptr: int = 0           # v1.3: first record the host has not acknowledged
     prev: int = 0
     ovf: bool = False
     full: bool = False
@@ -199,8 +205,17 @@ class Capture:
 
     def config(self) -> int:
         """§10 sel 18."""
-        return ((self.bank << 25) | (int(self.ring) << 24) | (self.mask << 16)
-                | (self.lim << 8) | self.base)
+        return ((int(self.stream) << 26) | (self.bank << 25) | (int(self.ring) << 24)
+                | (self.mask << 16) | (self.lim << 8) | self.base)
+
+    def succ(self) -> int:
+        """The successor of ptr (§6.5)."""
+        n = (self.ptr + 1) & 0xFF
+        return self.base if (n == self.lim and (self.ring or self.stream)) else n
+
+    def held(self) -> bool:
+        """§6.5 v1.3: the drain would make ptr reach rptr."""
+        return self.stream and self.succ() == self.rptr
 
 
 @dataclass
@@ -290,6 +305,8 @@ class Machine:
         # §4 v1.1: the tape is not reset and not cleared by start; it starts with the
         # image's host-loaded contents (WRITE_TAPE before START).
         self.tape = [w & M32 for w in getattr(image, "tape", [0] * TAPE_WORDS)]
+        self.image_tape = list(self.tape)
+        self.tape_log: list[tuple[int, int, int]] = []   # (edge t, address, word)
         # static configuration (§4)
         self.ctx_enable = [bool(e) for e in image.ctx_enable]
         self.entry_pc = [pc & 0xFF for pc in image.entry_pcs]
@@ -305,6 +322,7 @@ class Machine:
         self._host_rx_push: list[Optional[int]] = [None] * N_CTX
         self._host_tx_pop: list[bool] = [False] * N_CTX
         self._host_irq_clear = 0
+        self._host_tape_ack: Optional[int] = None
         self._reset()
         self._start_cycle()
 
@@ -390,6 +408,26 @@ class Machine:
         self._host_tx_pop[ctx] = True
         return tx[0]
 
+    def host_tape_ack(self, rptr: int) -> None:
+        """§6.5 v1.3 TAPE_ACK: rptr <= rptr at the next edge. While stopped the edges are
+        not simulated one by one, so it applies at once and the records it releases
+        drain at once (the host cannot observe the few cycles this takes)."""
+        if self.run_flag:
+            self._host_tape_ack = rptr & 0xFF
+        else:
+            self.cap.rptr = rptr & 0xFF
+            self._drain_stopped()
+
+    def tape_at(self, t: int, addr: int) -> int:
+        """The tape word at addr during cycle t of this run (for host reads)."""
+        v = self.image_tape[addr]
+        for te, a, w in self.tape_log:
+            if te >= t:
+                break
+            if a == addr:
+                v = w
+        return v
+
     def outputs(self) -> tuple[int, int]:
         """(uio_out, uio_oe) during the current cycle (§5)."""
         return self._pin_outputs()
@@ -419,7 +457,7 @@ class Machine:
         sel &= 0x1F
         if sel >= 16:                              # v1.1, ignore ctx
             return {16: self.dg, 17: self.cap.status(), 18: self.cap.config(),
-                    19: self.cap.ovf_tick}.get(sel, 0)
+                    19: self.cap.ovf_tick, 20: self.cap.rptr}.get(sel, 0)
         if sel <= 3:
             return x.r[sel]
         if sel == 4:
@@ -610,20 +648,32 @@ class Machine:
         # §6.5/§9 v1.1: generation stops; staged records drain in the following cycles
         # (the port is free while stopped), so their effect is applied here.
         self.cap.en = self.cap.snap = False
-        while self.cap.stage:
-            self._capture_drain()
+        self._take_ack()
+        self._drain_stopped()
         self._ld_dg = None                         # dg does not change while stopped
 
     # ------------------------------------------------------------------ §6.5 capture (v1.1)
 
+    def _take_ack(self) -> None:
+        """§6.5 v1.3: rptr <= tape_ack_v at this edge, if the host acknowledged."""
+        if self._host_tape_ack is not None:
+            self.cap.rptr, self._host_tape_ack = self._host_tape_ack, None
+
+    def _drain_stopped(self) -> None:
+        """Staged records drain after stop while the drain is not held (§6.5)."""
+        while self.cap.stage and not self.cap.held():
+            self._capture_drain()
+
     def _capture_drain(self) -> bool:
         """§6.5 step 1: write the staged head at ptr. Returns True if this set `full`."""
         cp = self.cap
-        self.tape[cp.ptr] = cp.stage.pop(0)
+        w = cp.stage.pop(0)
+        self.tape[cp.ptr] = w
+        self.tape_log.append((self.now, cp.ptr, w))
         nptr = (cp.ptr + 1) & 0xFF
         set_full = False
         if nptr == cp.lim:
-            if cp.ring:
+            if cp.ring or cp.stream:
                 nptr, cp.wrapped = cp.base, True
             else:
                 cp.full, cp.en, set_full = True, False, True
@@ -639,8 +689,9 @@ class Machine:
         busy = commit is not None and ((commit.insn >> 24) & 0xFF) in (OP_LDT, OP_STT)
         capt = commit.capt if (commit is not None and commit.outcome == "C") else None
         set_full = False
-        if cp.stage and not busy:                                       # 1 drain
+        if cp.stage and not busy and not cp.held():                     # 1 drain
             set_full = self._capture_drain()
+        self._take_ack()                                                # v1.3 TAPE_ACK
         if en_t and not set_full and capt is None:                      # 2 generate
             if snap_t or ((sync ^ prev_t) & mask_t) or (tm & 0xFFFFFF) == 0:
                 cp.prev, cp.snap = sync & 0xFF, False
@@ -653,7 +704,8 @@ class Machine:
                 self.cap = Capture(en=True, snap=True, mask=(capt >> 16) & 0xFF,
                                    base=capt & 0xFF, lim=(capt >> 8) & 0xFF,
                                    ring=bool((capt >> 24) & 1), bank=(capt >> 25) & 1,
-                                   ptr=capt & 0xFF, prev=cp.prev)
+                                   stream=bool((capt >> 26) & 1), ptr=capt & 0xFF,
+                                   rptr=capt & 0xFF, prev=cp.prev)
             else:
                 cp.en = cp.snap = False
 
@@ -811,6 +863,7 @@ class Machine:
         if cm.tape_write is not None:                  # §7.6 STT at E_c
             a, w = cm.tape_write
             self.tape[a] = w & M32
+            self.tape_log.append((self.now, a, w & M32))
         # cm.rx_pop / cm.tx_push are applied with the host ports (_apply_mailboxes)
 
     def _record_commit(self, cm: Commit, t: int) -> None:

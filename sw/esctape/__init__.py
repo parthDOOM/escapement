@@ -34,8 +34,14 @@ def decode_capture(tape: list[int], status: int, cfg: int, first_epoch: int = 0
     field is 0 opens a new epoch (§6.5 epoch markers). `first_epoch` is the epoch of the
     first record (0 for captures armed in the first 0.67 s of a run). In ring mode the
     epoch count is only exact if no marker was overwritten."""
+    return decode_records(capture_order(tape, status, cfg), first_epoch)
+
+
+def decode_records(words: list[int], first_epoch: int = 0) -> list[tuple[int, int]]:
+    """As decode_capture, for words already in time order, e.g. streamed during a run
+    (v1.3 stream mode, Host.stream_poll): [(absolute tick, levels)]."""
     out, epoch = [], first_epoch
-    for i, w in enumerate(capture_order(tape, status, cfg)):
+    for i, w in enumerate(words):
         t24 = w & 0xFFFFFF
         if t24 == 0 and i > 0:
             epoch += 1

@@ -1,4 +1,6 @@
 // Host-interface unit testbench: escapement_host + real SRAM wrapper + stand-in core signals.
+// v1.3: core_busy stands in for the core's tape_busy; the tape port is arbitrated as in
+// project.v (the host gets it in every cycle core_busy is low, while running too).
 // SPDX-License-Identifier: Apache-2.0
 `default_nettype none
 `timescale 1ns / 1ps
@@ -14,6 +16,11 @@ module tb_host (
     input  wire [3:0] mbx_rx_full,
     input  wire [127:0] mbx_tx_data,
     input  wire [3:0] mbx_tx_empty,
+    input  wire core_busy,
+    output wire tape_ack,
+    output wire [7:0] tape_ack_v,
+    output wire tape_req,
+    output wire tape_gnt,
     // observed host outputs
     output wire start, stop,
     output wire [3:0] ctx_enable,
@@ -41,8 +48,10 @@ module tb_host (
   escapement_sram u_sram (.clk(clk), .rst_n(rst_n), .addr(mem_addr), .re(mem_re & ~mem_space),
                           .we(mem_we & ~running & ~mem_space),
                           .wdata(mem_wdata), .rdata(imem_rdata));
-  escapement_sram u_tape (.clk(clk), .rst_n(rst_n), .addr(mem_addr), .re(mem_re & mem_space),
-                          .we(mem_we & ~running & mem_space),
+  // the stand-in core never really accesses the tape: while busy it only holds the port
+  assign tape_gnt = tape_req & ~core_busy;
+  escapement_sram u_tape (.clk(clk), .rst_n(rst_n), .addr(mem_addr), .re(tape_gnt & ~core_busy),
+                          .we(mem_we & mem_space & ~core_busy),
                           .wdata(mem_wdata), .rdata(tape_rdata));
   escapement_host u_host (
       .clk(clk), .rst_n(rst_n), .cs_n_pin(cs_n), .sck_pin(sck), .mosi_pin(mosi), .miso(miso),
@@ -52,6 +61,7 @@ module tb_host (
       .running(running), .ctx_state(ctx_state), .irq_pending(irq_pending), .fault_valid(fault_valid),
       .mem_we(mem_we), .mem_addr(mem_addr), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata),
       .mem_space(mem_space), .mem_re(mem_re),
+      .tape_req(tape_req), .tape_gnt(tape_gnt), .tape_ack(tape_ack), .tape_ack_v(tape_ack_v),
       .dbg_ctx(dbg_ctx), .dbg_sel(dbg_sel), .dbg_rdata(dbg_rdata),
       .mbx_rx_push(mbx_rx_push), .mbx_rx_data(mbx_rx_data), .mbx_rx_full(mbx_rx_full),
       .mbx_tx_pop(mbx_tx_pop), .mbx_tx_data(mbx_tx_data), .mbx_tx_empty(mbx_tx_empty));

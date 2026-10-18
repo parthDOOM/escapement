@@ -127,8 +127,11 @@ firmware can see:
   staging FIFO drains into any cycle without a load or store. If it would overflow,
   capture stops and latches the overflow tick; nothing is dropped silently. An epoch
   record at every 2^24-tick boundary lets absolute time be recovered from the words
-  alone.
-- **Host**: `WRITE_TAPE` / `READ_TAPE`, only while stopped.
+  alone. In stream mode (v1.3) the ring is shared with the host, which acknowledges
+  the records it has read; a record is never written over an unacknowledged one.
+- **Host**: `WRITE_TAPE` only while stopped. `READ_TAPE` at any time (v1.3): each word
+  is fetched in a cycle the core leaves free, so a host read never delays the core, and
+  a capture can stream to the host for as long as the host keeps up.
 
 A capture record has the shape of a DRIVE event (levels and a tick), so a captured trace
 replays tick for tick after adding an offset ([tape and digest](13-TAPE-AND-DIGEST.md)).
