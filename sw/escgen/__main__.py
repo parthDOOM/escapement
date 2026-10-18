@@ -37,7 +37,7 @@ def main(argv=None) -> int:
             print(f"{p.name}: {'up to date' if same else 'DIFFERS from ' + str(out)}")
             status |= 0 if same else 1
         else:
-            out.write_text(text)
+            out.write_text(text, newline="\n")
             print(f"{p.name}: {out} ({n} words, CHECKED)")
     return status
 
