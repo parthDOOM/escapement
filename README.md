@@ -77,7 +77,7 @@ flowchart LR
 | Clock | 25 MHz, timing met at all three corners |
 | Physical | 25,864 cells and two SRAM macros, 58.9% utilisation; LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
 | Power | 3.0 mW sending UART, 2.3 mW stopped (typical corner) |
-| Firmware | 19 programs; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
+| Firmware | 24 programs, four of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
 | Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 28 of 28 RTL mutants killed; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 
 Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),
@@ -93,6 +93,7 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | [Host protocol](docs/12-HOST-PROTOCOL.md) | The SPI command set |
 | [Tape and digest](docs/13-TAPE-AND-DIGEST.md) | Why one timestamped memory, and how the digest works |
 | [Instrument](docs/17-INSTRUMENT.md) | Capture, streaming, PulseView, file export and replay, with their limits |
+| [Protocols as data](docs/18-PROTOCOLS-AS-DATA.md) | Transmitter firmware generated from timing tables, and certified |
 | [Firmware guide](docs/14-FIRMWARE-GUIDE.md) | Idioms for writing new protocols |
 | [Verification](docs/04-VERIFICATION.md) | Methods, results and how to rerun them |
 | [Physical design](docs/03-PHYSICAL-DESIGN.md) | Floorplan, routing, timing and sign-off |
@@ -109,8 +110,9 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | `src/` | RTL and the Tiny Tapeout flow configuration |
 | `macro/` | The IHP SRAM macro views (vendored, unmodified) |
 | `firmware/` | Protocol and device firmware in Escapement assembly |
+| `protocols/` | Timing tables that `escgen` turns into transmitter firmware |
 | `isa/isa.yaml` | The single source of instruction encodings |
-| `sw/` | Assembler (`escasm`), instruction-set simulator (`esciss`), certificate checker (`escert`), host library (`eschost`), tape tools (`esctape`), bus models (`escmodels`), RP2350 demo host (`rp2350`) |
+| `sw/` | Assembler (`escasm`), instruction-set simulator (`esciss`), certificate checker (`escert`), firmware generator (`escgen`), host library (`eschost`), tape tools (`esctape`), bus models (`escmodels`), RP2350 demo host (`rp2350`) |
 | `test/` | Chip-level, co-simulation, host, unit and mutation tests |
 | `formal/` | SymbiYosys proofs |
 | `scripts/` | Local hardening, precheck, power and routing analysis |
