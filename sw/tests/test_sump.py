@@ -103,3 +103,28 @@ def test_capture_matches_the_pin(groups):
     edges = [k for k in range(trig, n) if pin[k] != pin[k - 1]]
     assert edges[0] == trig and all(b - a == HALF // 25 for a, b in zip(edges, edges[1:]))
     assert "OVERFLOW" not in br.log[0]
+
+
+@pytest.mark.skipif(sys.platform == "win32" or __import__("shutil").which("sigrok-cli") is None,
+                    reason="needs Linux and sigrok-cli")
+def test_sigrok_cli_captures_through_the_bridge(tmp_path):
+    """The real libsigrok `ols` driver, through a pseudo-terminal: sigrok-cli identifies
+    the bridge, captures 2048 samples at 1 MHz triggered on a rising edge of channel 1
+    (uio1; SUMP has no channel names, so libsigrok numbers them), and the VCD it writes
+    shows the square wave, every edge 240 samples apart."""
+    import subprocess
+    from esctape.export import read_vcd
+    srv = subprocess.Popen([sys.executable, str(ROOT / "sw" / "tests" / "sump_pty.py")],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        port = srv.stdout.readline().strip()
+        out = tmp_path / "cap.vcd"
+        r = subprocess.run(["sigrok-cli", "-d", f"ols:conn={port}", "--config", "samplerate=1m",
+                            "--samples", "2048", "-t", "1=r", "-O", "vcd", "-o", str(out)],
+                           capture_output=True, text=True, timeout=600)
+        assert r.returncode == 0, r.stderr
+        recs, names = read_vcd(out, clock_hz=1e6, signals=["1"])
+        e = [t for (t, lv), (_, pv) in zip(recs[1:], recs) if lv != pv]
+        assert len(e) >= 6 and all(b - a == HALF // 25 for a, b in zip(e, e[1:])), recs[:12]
+    finally:
+        srv.kill()
