@@ -792,21 +792,28 @@
       });
       leg.appendChild(b);
     });
-    const cap = $("#slice-caption"), capText = cap.textContent;
+    // the hovered cell is named in a fixed tag inside the view, so the caption below never reflows
+    const tag = $("#slice-tag");
     const ray = new T.Raycaster(), plane = new T.Plane(new T.Vector3(0, 0, 1), 0), hit = new T.Vector3();
     let cur = null;
+    function show(q) {
+      if (q === cur) return;
+      if (cur) cur.ln.material = outline;
+      cur = q;
+      if (cur) {
+        cur.ln.material = hot;
+        tag.textContent = cellDesc(cur.cl.cell) + " · " + (cur.x1 - cur.x0).toFixed(2) + " µm wide";
+      }
+      tag.hidden = !cur;
+      need();
+    }
+    renderer.domElement.addEventListener("pointerleave", () => show(null));
     renderer.domElement.addEventListener("pointermove", (e) => {
       const r = renderer.domElement.getBoundingClientRect();
       ray.setFromCamera({ x: ((e.clientX - r.left) / r.width) * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 }, cam);
       let found = null;
       if (ray.ray.intersectPlane(plane, hit)) found = rects.find((q) => hit.x >= q.x0 && hit.x <= q.x1 && hit.y >= q.y0 && hit.y <= q.y1) || null;
-      if (found !== cur) {
-        if (cur) cur.ln.material = outline;
-        cur = found;
-        if (cur) { cur.ln.material = hot; cap.textContent = cellDesc(cur.cl.cell) + ", " + (cur.x1 - cur.x0).toFixed(2) + " µm wide"; }
-        else cap.textContent = capText;
-        need();
-      }
+      show(found);
     });
     let on = false, frames = 0, looping = false;
     const need = () => { frames = 60; if (on) loop(); };

@@ -109,6 +109,7 @@ section { padding-block: clamp(3rem, 7vw, 6rem); }
 .stage-ui { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; padding: 0.7rem 0.9rem; background: linear-gradient(transparent, color-mix(in srgb, var(--bg) 85%, transparent)); font-size: var(--step--1); color: var(--fg-2); }
 .stage-ui label { display: flex; align-items: center; gap: 0.5rem; }
 .stage-ui input[type="range"] { width: 8rem; accent-color: var(--brass); }
+.cell-tag { position: absolute; top: 0.6rem; left: 0.7rem; max-width: calc(100% - 1.4rem); padding: 0.3rem 0.6rem; border-radius: 6px; background: color-mix(in srgb, var(--bg) 82%, transparent); border: 1px solid var(--brass); color: var(--fg); font: 500 0.76rem var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .hint { position: absolute; top: 0.7rem; right: 0.9rem; font: 500 0.72rem var(--font-mono); color: var(--fg-3); letter-spacing: 0.04em; }
 .legend { display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; font: 500 0.74rem var(--font-mono); color: var(--fg-2); }
 .legend i { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; margin-right: 0.35rem; vertical-align: -0.08rem; }
