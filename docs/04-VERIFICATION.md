@@ -35,7 +35,7 @@ digest, the capture state and all 256 tape words.
 | Random programs with tape traffic, version 1.1 | 300 | 21,055 | 0 |
 | Random programs with pin bank B, version 1.2 | 1,000 | 66,991 | 0 |
 | Firmware programs with their bus models | 15 | — | 0 |
-| Regression run (`make cosim`, 200 random programs plus all firmware) | 4 tests | — | 0 |
+| Regression run (`make cosim`, 200 random programs plus all firmware) | 5 tests | 14,472 in the random test | 0 |
 
 Random programs come from a constrained generator (`test/cosim/progen.py`) that mixes
 every instruction class, deliberate faults, host mailbox traffic, and tape loads and
@@ -103,7 +103,7 @@ step.
 
 The proofs above are about the RTL; the chip is built from the netlist that synthesis,
 placement and routing produce. `make equiv` proves that the two are the same machine:
-the final netlist of the version 1.2 harden (sha256 `65db67ec…`) is
+the final netlist of the version 1.2 harden (sha256 `c6851909…`) is
 sequentially equivalent to the RTL in `src/`, for every input sequence after reset.
 
 Both designs are flattened and placed side by side in a miter that feeds them the same

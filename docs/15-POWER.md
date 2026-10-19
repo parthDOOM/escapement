@@ -106,12 +106,13 @@ estimate, which LibreLane prints in its power report.
 | + D-28 only | 27,025 | 57.5% | 197 | 7.21 mW | n/m | n/m | n/m |
 | + D-29a, tape gating | 23,326 | 54.7% | 486 | 2.77 mW | 3.56 mW | 3.42 mW | 2.89 mW |
 | + D-29b fetch/host gating (v1.1) | 23,484 | 54.7% | 383 | 2.44 mW | 2.92 mW | 2.58 mW | 2.23 mW |
-| **v1.2: pin bank B (D-31), hold margin 0.2 ns** | **25,423** | **57.9%** | **1,528** | 2.47 mW | **3.00 mW** | **2.66 mW** | **2.29 mW** |
-| change, before → v1.2 | −21% | | −66% | −67% | **−65%** | **−69%** | **−71%** |
+| **v1.2: pin bank B (D-31), hold margin 0.2 ns** | **25,399** | **58.3%** | **1,515** | 2.48 mW | **3.01 mW** | **2.67 mW** | **2.30 mW** |
+| change, before → v1.2 | −21% | | −66% | −67% | **−65%** | **−68%** | **−71%** |
 
 n/m = not measured. The workload columns use the exact SRAM count below. Pin bank B
-and the larger hold margin cost 0.06–0.08 mW (3%) in every workload: 1,145 more hold
-buffers and the bank B logic, all on flops that are clocked anyway. The D-29a
+and the larger hold margin cost 0.07–0.09 mW (3%) in every workload: 1,132 more hold
+buffers and the bank B logic, all on flops that are clocked anyway. The 34 hold buffers
+of the second repair, after global routing, come later and are not in these columns. The D-29a
 row was measured before the counter and before the logic-analyser window was moved
 after the load. Neither changes it by more than 2 µW: its program store reads every
 cycle, which OpenSTA prices correctly, and the missed peer is 14 tape writes.
@@ -164,7 +165,7 @@ this reporting convention, not a slow path.
 
 ## 6. Reproduce
 
-```
+```sh
 scripts/local-harden.sh --tag NAME [--to OpenROAD.ResizerTimingPostCTS]
 scripts/power-workload.sh runs/NAME            # static + 3 workloads -> runs/NAME/power/
 openroad hold_sweep.tcl                        # env vars in its header

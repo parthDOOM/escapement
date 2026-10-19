@@ -97,10 +97,11 @@ split pins, B0–B4, each an output on `uo_out[3+i]` and an input on `ui_in[3+i]
   every existing program has its v1.1 digest (checked for all 16 on both simulators).
   WRITE_CFG gains four optional bytes that a v1.1 chip ignores. The capture unit
   chooses its bank with a CAPT bit that v1.1 ignored.
-- *Cost.* 1,623 cells (6.8%) and 0.06–0.08 mW (3%) per workload. Most of the cells are
+- *Cost.* 1,886 cells (7.9%) and 0.07–0.09 mW (3%) per workload. Most of the cells are
   hold buffers: with the old 0.1 ns hold margin, routing left 33 fast-corner paths at
-  up to −0.036 ns, so the margin is now 0.2 ns ([physical design](03-PHYSICAL-DESIGN.md)).
-  Utilisation rises from 55.2% to 58.0%, still at 6×4.
+  up to −0.036 ns, so hold is now repaired with a 0.2 ns margin after clock-tree
+  synthesis and again after global routing ([physical design](03-PHYSICAL-DESIGN.md)).
+  Utilisation rises from 55.2% to 58.9%, still at 6×4.
 
 ## Power and timing margin
 
@@ -179,10 +180,15 @@ is real. Long wires are buffered at 500 µm, which cut slow-corner slew warnings
   pass take 48% longer. Tightening it (0.45) pushed wiring onto Metal3, where overflow
   rose from 264 to 711 and detailed routing stopped converging. Every layer keeps the
   default derate.
-- **Repair after global routing, with a larger hold margin.** Sign-off stayed clean, but
-  532 more hold buffers bought only 9 ps of fast-corner hold slack, and slow-corner slew
-  warnings rose from 124 to 166. The worst slew nets are detours taken by the detailed
-  router (a 375 µm connection routed as 1.8 mm), which repair before detailed routing
-  cannot see.
+- **Repair after global routing, with a larger hold margin (v1.1).** Sign-off stayed
+  clean, but 532 more hold buffers bought only 9 ps of fast-corner hold slack, and
+  slow-corner slew warnings rose from 124 to 166. The worst slew nets are detours taken
+  by the detailed router (a 375 µm connection routed as 1.8 mm), which repair before
+  detailed routing cannot see. Version 1.2 does repair after global routing, with a
+  0.1 ns margin, because its hold losses come from routed clock feeds: there it adds
+  34 buffers.
+- **A larger hold margin after clock-tree synthesis (v1.2).** At 0.35 ns, 1,100 more
+  hold buffers still left fast-corner paths at −0.101 ns, and the extra cells raised
+  routing congestion.
 - **More detailed-routing optimisation iterations.** Values above 64 crash this OpenROAD
   build in `detailed_route`.
