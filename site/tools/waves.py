@@ -233,7 +233,8 @@ def main(out):
     data = {"tick_ns": TICK_NS, "protocols": protos, "barrel": barrel}
     text = json.dumps(data, separators=(",", ":"))
     Path(out).write_text(text)
-    Path(out[:-5] + ".js").write_text("window.ESC = window.ESC || {};\nESC.waves = " + text + ";\n")
+    Path(out[:-5] + ".js").write_text("window.ESC = window.ESC || {};\nESC.waves = " + text + ";\n",
+                                      newline="\n")
     for p in protos:
         print(p["id"], p["result"], sum(len(s["w"]) for s in p["signals"]), "changes",
               [c["status"] for c in p["cert"]])
