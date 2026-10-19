@@ -123,9 +123,14 @@ def main():
 
     lw = a.layer_width
     lh = round(lw * H / W)
+    drawn = []                                      # layers with any shape in the design
     for i, (_, key, *_rest) in enumerate(LAYERS):
-        Image.fromarray(m.mask(i, die, lw, lh)).save(os.path.join(a.out, f"layer_{key}.png"),
-                                                     optimize=True)
+        mask = m.mask(i, die, lw, lh)
+        if not mask.any():                          # TopMetal1: a TT block has none
+            print("layer", key, "empty, left out", flush=True)
+            continue
+        Image.fromarray(mask).save(os.path.join(a.out, f"layer_{key}.png"), optimize=True)
+        drawn.append(key)
         print("layer", key, flush=True)
 
     levels = []
@@ -152,7 +157,7 @@ def main():
         "levels": levels,
         "macros": macros,
         "layers": [{"key": k, "label": lab, "color": "#%02x%02x%02x" % c, "z": zz, "t": t}
-                   for (_, k, lab, c, _, zz, t) in LAYERS],
+                   for (_, k, lab, c, _, zz, t) in LAYERS if k in drawn],
         "layer_px": [lw, lh],
     }
     with open(os.path.join(a.out, "die.json"), "w") as f:

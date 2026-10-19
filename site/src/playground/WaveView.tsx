@@ -1,6 +1,11 @@
 // Waveforms with the commits that made them. Each context has a lane of commits under
 // the pins; select a commit to see the event it queued and where it landed, or click an
 // edge to find the commit that scheduled it.
+//
+// Time: x = sx(t) is the start of cycle t, which is clock edge E(t-1). An instruction is
+// fetched in cycle c-3 and commits at edge E(c), so its box spans sx(c-3)..sx(c+1). An
+// event with deadline d is applied at edge E(d), so its pin changes at sx(d+1), and the
+// recorded level of cycle d+1 is the new one.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { css, CTX_VARS, fit, fmtTime, niceStep, useResize, useThemeTick } from "../lib/util";
 import type { Commit, Ev, Run } from "./types";
@@ -53,7 +58,7 @@ export default function WaveView({ run, view, setView, selected, onSelect, hitPc
       }
     });
     const edges = run.signals.map((s) => Int32Array.from(s.w.map((p) => p[0])));
-    // queue occupancy per context: an event is queued from its commit until its deadline
+    // queue occupancy per context: an event is in the queue in cycles c+1 .. d
     const queue = lanes.map((k) => {
       const c: number[] = [], d: number[] = [];
       run.commits.forEach((x) => { if (x[1] === k && x[3] === "C" && isEv(x[4])) { c.push(x[0]); d.push(x[4][1]); } });
@@ -152,19 +157,20 @@ export default function WaveView({ run, view, setView, selected, onSelect, hitPc
     const top = TOP + rows * RH + GAP;
     g.fillStyle = fg3; g.font = "600 9.5px " + mono; g.textAlign = "left";
     g.fillText("COMMITS", 8, top - 7);
-    const i0 = lowerBound(idx.ticks, t0 - 4), i1 = lowerBound(idx.ticks, t1 + 1);
+    const i0 = lowerBound(idx.ticks, t0 - 1), i1 = lowerBound(idx.ticks, t1 + 4);
     idx.lanes.forEach((k, li) => {
       g.fillStyle = ctxCol[k]; g.textAlign = "right"; g.font = "600 10px " + mono;
       g.fillText("ctx " + k, LEFT - 12, laneY(li) + LH - 5);
     });
     const laneOf = new Map(idx.lanes.map((k, i) => [k, i]));
     const showText = ppt * 4 >= 54;
+    g.save(); g.beginPath(); g.rect(LEFT, 0, w - LEFT - 10, h); g.clip();   // keep boxes off the labels
     const dim = hitPcs.size > 0;
     for (let i = i0; i < i1; i++) {
       const [t, k, pc, o] = run.commits[i];
       const li = laneOf.get(k);
       if (li == null) continue;
-      const X = sx(t), Y = laneY(li) + 2, wd = Math.max(1, ppt * 4 - 2), hh = LH - 4;
+      const X = sx(t - 3), Y = laneY(li) + 2, wd = Math.max(1, ppt * 4 - 2), hh = LH - 4;
       const hit = hitPcs.has(pc);
       if (o === "F") { g.fillStyle = bad; g.fillRect(X, Y - 1, Math.max(wd, 3), hh + 2); continue; }
       g.globalAlpha = dim && !hit ? 0.25 : 0.9;
@@ -180,6 +186,8 @@ export default function WaveView({ run, view, setView, selected, onSelect, hitPc
       }
     }
 
+    g.restore();
+
     // queue depth, 0..4, per context
     const qTop = queueY(0);
     g.fillStyle = fg3; g.font = "600 9.5px " + mono; g.textAlign = "left";
@@ -192,44 +200,67 @@ export default function WaveView({ run, view, setView, selected, onSelect, hitPc
       g.strokeStyle = line; g.beginPath(); g.moveTo(LEFT, y + QH - 0.5); g.lineTo(w - 10, y + QH - 0.5); g.stroke();
       g.fillStyle = ctxCol[k]; g.globalAlpha = 0.55;
       for (let x = LEFT; x < w - 10; x += 2) {
-        const t = tx(x);
-        const n = lb(q.c, t) - lb(q.d, t);
+        const t = Math.floor(tx(x));
+        const n = lb(q.c, t - 1) - lb(q.d, t - 1);
         if (n > 0) g.fillRect(x, y + QH - 1 - (n / 4) * (QH - 2), 2, (n / 4) * (QH - 2));
       }
       g.globalAlpha = 1;
     });
 
-    // event arrows: every visible one when zoomed in, the selected one always
+    // event arrows: every visible one when zoomed in, the selected one always. A DRIVE
+    // ends in a filled dot where the pin changes and a ring where it was already at that
+    // level; EXPECT (a check over a window) and SAMPLE (one input bit) are dashed.
     const arrow = (i: number, strong: boolean) => {
       const cm = run.commits[i];
       const ev = cm[4];
       if (!isEv(ev)) return;
       const li = laneOf.get(cm[1]);
       if (li == null) return;
-      const x0 = sx(cm[0] + 1.5), y0 = laneY(li) + 2;
-      const xd = sx(ev[1]);
+      const x0 = sx(cm[0] + 1), y0 = laneY(li) + 2;
+      const xd = sx(ev[1] + 1);
       const targets = rowsOf(cm[1], ev);
       const col = strong ? brass : ctxCol[cm[1]];
+      const drive = ev[0] === 1;
       g.strokeStyle = col; g.fillStyle = col;
-      g.globalAlpha = strong ? 1 : 0.35; g.lineWidth = strong ? 1.6 : 1;
-      for (const r of targets.length ? targets : [Math.max(0, rows - 1)]) {
-        const y1 = TOP + r * RH + RH / 2;
+      g.globalAlpha = strong ? 1 : 0.4; g.lineWidth = strong ? 1.6 : 1;
+      for (const r of targets) {
+        const yHi = TOP + r * RH + 6, yLo = yHi + RH - 16;
+        // the marker sits on the waveform, at the pin's level just after the edge
+        const e0 = idx.edges[r], k0 = lowerBound(e0, ev[1] + 2) - 1;
+        const y1 = k0 >= 0 && run.signals[r].w[k0][1] ? yHi : yLo;
+        g.setLineDash(drive ? [] : [3, 3]);
         g.beginPath(); g.moveTo(x0, y0);
-        g.bezierCurveTo(x0, (y0 + y1) / 2, xd, (y0 + y1) / 2, xd, y1 + 6);
+        g.bezierCurveTo(x0, (y0 + y1) / 2, xd, (y0 + y1) / 2, xd, y1);
         g.stroke();
-        g.beginPath(); g.arc(xd, y1 + 6, strong ? 3.5 : 2, 0, Math.PI * 2); g.fill();
+        g.setLineDash([]);
+        const R = strong ? 3.5 : 2.4;
+        if (drive) {
+          const e = idx.edges[r];
+          const k = lowerBound(e, ev[1] + 1);
+          const changes = k < e.length && e[k] === ev[1] + 1;
+          g.beginPath(); g.arc(xd, y1, R, 0, Math.PI * 2);
+          if (changes) g.fill();
+          else { g.fillStyle = css("--bg"); g.fill(); g.stroke(); g.fillStyle = col; }
+        } else {
+          g.strokeRect(xd - R, y1 - R, 2 * R, 2 * R);
+          if (ev[0] === 2 && ev[6] > 0) {           // the EXPECT window
+            g.beginPath(); g.moveTo(xd, yHi - 3); g.lineTo(sx(ev[1] + 1 + ev[6]), yHi - 3); g.stroke();
+          }
+        }
       }
       g.globalAlpha = 1; g.lineWidth = 1;
       if (strong) {
         g.setLineDash([3, 3]); g.beginPath(); g.moveTo(xd + 0.5, TOP - 4); g.lineTo(xd + 0.5, laneEnd); g.stroke(); g.setLineDash([]);
       }
     };
+    g.save(); g.beginPath(); g.rect(LEFT, 0, w - LEFT - 10, h); g.clip();
     if (span <= 700) for (let i = i0; i < i1; i++) if (i !== selected) arrow(i, false);
     if (selected != null && selected < run.commits.length) arrow(selected, true);
+    g.restore();
 
     // the first fault
     if (run.fault) {
-      const X = Math.round(sx(run.fault.tick)) + 0.5;
+      const X = Math.round(sx(run.fault.tick + 1)) + 0.5;
       if (X >= LEFT && X <= w) {
         g.strokeStyle = bad; g.lineWidth = 2; g.beginPath(); g.moveTo(X, TOP - 6); g.lineTo(X, laneEnd); g.stroke(); g.lineWidth = 1;
         g.fillStyle = bad; g.font = "700 10px " + mono; g.textAlign = "left";
@@ -281,14 +312,14 @@ export default function WaveView({ run, view, setView, selected, onSelect, hitPc
   const drag = useRef<{ x: number; v: View; moved: boolean; overview: boolean } | null>(null);
   const pick = (x: number, y: number) => {
     const { tx, laneY } = geom();
-    const t = Math.round(tx(x));
+    const t = Math.floor(tx(x));
     const top = laneY(0);
     let lane: number | null = null, i: number | null = null;
     if (y >= top && y < laneY(idx.lanes.length)) {
       lane = Math.floor((y - top) / LH);
       const k = idx.lanes[lane];
-      // that context's commit whose 4-tick slot contains t
-      for (let j = lowerBound(idx.ticks, t - 3); j < run.commits.length && run.commits[j][0] <= t; j++) {
+      // that context's commit whose slot (fetch in c-3 .. commit at the end of c) contains t
+      for (let j = lowerBound(idx.ticks, t); j < run.commits.length && run.commits[j][0] <= t + 3; j++) {
         if (run.commits[j][1] === k) { i = j; break; }
       }
     }
@@ -327,7 +358,7 @@ export default function WaveView({ run, view, setView, selected, onSelect, hitPc
     let s = `tick ${t} · ctx ${k} · pc ${pc} · ${text.get(pc) || ""}`;
     if (o === "W") s += " · waits";
     if (o === "F" && x) s += ` · FAULT ${x[0]} ${x[1]}`;
-    if (o === "C" && isEv(x)) s += ` → ${EVENT_KIND[x[0]]} at tick ${x[1]}, lead ${x[7]}`;
+    if (o === "C" && isEv(x)) s += ` → ${EVENT_KIND[x[0]]} at the end of tick ${x[1]}, lead ${x[7]}`;
     return s;
   };
   const hv = hover?.i != null ? run.commits[hover.i] : null;
@@ -349,6 +380,11 @@ export default function WaveView({ run, view, setView, selected, onSelect, hitPc
             setView(clampView(a - pad, b + pad));
           }}>zoom to commit and edge</button>
         )}
+        <span className="wave-key" aria-hidden="true">
+          <span><i className="k-dot" />edge it made</span>
+          <span><i className="k-ring" />pin already there</span>
+          <span><i className="k-box" />input check or sample</span>
+        </span>
         <span className="mono wave-span">{fmtTime(view[1] - view[0])} shown · {Math.round(view[1] - view[0])} ticks</span>
       </div>
       <div className="wave-canvas">
@@ -407,7 +443,7 @@ export default function WaveView({ run, view, setView, selected, onSelect, hitPc
                 if (dx < bd) { bd = dx; best = t; }
               }
               if (best != null) {
-                const cands = idx.byDeadline.get(best) || [];
+                const cands = idx.byDeadline.get(best - 1) || [];  // changed at the end of its deadline
                 const own = cands.find((i) => rowsOf(run.commits[i][1], run.commits[i][4] as Ev).includes(row));
                 onSelect(own ?? cands[0] ?? null);
                 return;

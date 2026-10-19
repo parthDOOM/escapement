@@ -38,18 +38,43 @@ def set_firmware_dir(path: str) -> None:
 # mailboxes, how long to run, and how to say in one line what the models observed.
 # Parameters are what a visitor may change without touching the firmware.
 
-def _hexbytes(s: str, limit: int = 32) -> list[int]:
+class ParamError(ValueError):
+    """A parameter the visitor typed that the scenario cannot use."""
+
+
+def _hexbytes(s: str, what: str, limit: int = 32) -> list[int]:
     out = []
     for tok in str(s).replace(",", " ").split():
-        out.append(int(tok, 16) & 0xFF)
-    return out[:limit]
+        try:
+            v = int(tok, 16)
+        except ValueError:
+            raise ParamError(f"{what}: '{tok}' is not a hex byte") from None
+        if not 0 <= v <= 0xFF:
+            raise ParamError(f"{what}: {tok} does not fit in a byte")
+        out.append(v)
+    if len(out) > limit:
+        raise ParamError(f"{what}: at most {limit} bytes")
+    return out
 
 
-def _hex(s, default: int = 0) -> int:
+def _hex(s, what: str, bits: int) -> int:
     try:
-        return int(str(s), 16)
+        v = int(str(s).strip() or "x", 16)
     except ValueError:
-        return default
+        raise ParamError(f"{what}: '{s}' is not a hex number") from None
+    if not 0 <= v < (1 << bits):
+        raise ParamError(f"{what}: {s} does not fit in {bits} bits")
+    return v
+
+
+def _int(s, what: str, lo: int, hi: int) -> int:
+    try:
+        v = int(str(s).strip())
+    except ValueError:
+        raise ParamError(f"{what}: '{s}' is not a whole number") from None
+    if not lo <= v <= hi:
+        raise ParamError(f"{what}: between {lo} and {hi}")
+    return v
 
 
 def _text(b) -> str:
@@ -77,8 +102,10 @@ def sc_uart_tx(p):
 
 
 def sc_uart_rx(p):
-    data = str(p.get("text", "Hi!")).encode("latin-1", "replace")[:24]
-    err = float(p.get("baud_err", 0)) / 100.0
+    data = str(p.get("text", "Hi!")).encode("latin-1", "replace")
+    if not 1 <= len(data) <= 24:
+        raise ParamError("Peer sends: 1 to 24 characters")
+    err = _int(p.get("baud_err", 0), "Peer baud error", -2, 2) / 100.0
     tx = UartTx(1, TPB * (1 + err), data, start=500, gap_bits=0.0)
     script = HostScript([], drain=[1], poll=1400)
     board = Board(tx, script)
@@ -89,13 +116,13 @@ def sc_uart_rx(p):
 
 
 def sc_i2c(p):
-    addr = _hex(p.get("addr", "42"), 0x42) & 0x7F
-    target = _hex(p.get("target", "42"), 0x42) & 0x7F
-    reg = _hex(p.get("reg", "05"), 5) & 0xFF
-    data = _hex(p.get("data", "A5"), 0xA5) & 0xFF
+    addr = _hex(p.get("addr", "42"), "Address", 7)
+    target = _hex(p.get("target", "42"), "Target address", 7)
+    reg = _hex(p.get("reg", "05"), "Register", 8)
+    data = _hex(p.get("data", "A5"), "Data", 8)
     read = p.get("op", "write") == "read"
     dev = I2cTarget(scl=2, sda=3, addr7=target, regs={reg: 0x00, 6: 0x5C}, mode="fast",
-                    tick_ns=TICK_NS, stretch_ticks=int(p.get("stretch", 37)))
+                    tick_ns=TICK_NS, stretch_ticks=37)
     cmd = (addr << 24) | (reg << 16) | (data << 8) | (2 if read else 1)
     script = HostScript([(50, 0, cmd)], drain=[0], poll=500)
     w = World(Board(dev, script), script=script, ticks=4500)
@@ -114,9 +141,11 @@ def sc_i2c(p):
 
 
 def sc_spi(p):
-    mode = int(p.get("mode", 0)) & 3
-    tx = _hexbytes(p.get("bytes", "A5 5A"), 8) or [0xA5]
-    reply = _hexbytes(p.get("reply", "3C C3 81"), 8) or [0]
+    mode = _int(p.get("mode", 0), "Mode", 0, 3)
+    tx = _hexbytes(p.get("bytes", "A5 5A"), "Send", 8)
+    reply = _hexbytes(p.get("reply", "3C C3 81"), "Target answers", 8) or [0]
+    if not tx:
+        raise ParamError("Send: at least one byte")
     dev = SpiTarget(sck=4, mosi=5, miso=6, cs=7, mode=mode, reply=bytes(reply))
     pushes = [(20, 2, ((mode >> 1) << 1) | (mode & 1))]
     for i, b in enumerate(tx):
@@ -129,9 +158,9 @@ def sc_spi(p):
 
 
 def sc_ws2812(p):
-    start = _hex(p.get("start", "102030"), 0x102030) & 0xFFFFFF
-    step = _hex(p.get("step", "010203"), 0x010203) & 0xFFFFFF
-    count = max(1, min(16, int(p.get("count", 6))))
+    start = _hex(p.get("start", "102030"), "First colour", 24)
+    step = _hex(p.get("step", "010203"), "Step", 24)
+    count = _int(p.get("count", 6), "LEDs", 1, 16)
     dec = Ws2812Decoder(0, TICK_NS)
     script = HostScript([(30, 3, start), (40, 3, step), (2000, 3, count)], drain=[3], poll=97)
     w = World(Board(dec, script), script=script, ticks=4000 + 900 * count + 3000)
@@ -139,14 +168,15 @@ def sc_ws2812(p):
     def result(m):
         dec.finish()
         leds = dec.frames[0] if dec.frames else []
-        return "Decoder model: %d LEDs, %s" % (len(leds), " ".join("%06X" % c for c in leds))
+        return "Decoder model: %d LED%s, %s" % (len(leds), "" if len(leds) == 1 else "s",
+                                                " ".join("%06X" % c for c in leds))
     w.result = result
     w.leds = lambda: (dec.frames[0] if dec.frames else [])
     return w
 
 
 def sc_onewire(p):
-    rom = bytes(_hexbytes(p.get("rom", "28 AA 01 02 03 04 05"), 7)).ljust(7, b"\0")
+    rom = bytes([0x28, 0xAA, 0x01, 0x02, 0x03, 0x04, 0x05])
     rom += bytes([crc8_maxim(rom)])
     dev = OneWireDevice(1, rom, TICK_NS)
     script = HostScript([(30, 3, 0x80000033)], drain=[3], poll=500)
@@ -158,8 +188,8 @@ def sc_onewire(p):
 
 
 def sc_can(p):
-    ident = _hex(p.get("id", "123"), 0x123) & 0x7FF
-    data = _hexbytes(p.get("data", "DE AD"), 8)
+    ident = _hex(p.get("id", "123"), "Identifier", 11)
+    data = _hexbytes(p.get("data", "DE AD"), "Data", 8)
     bus = CanBus(0, 1, 100)
     w = World(Board(bus), ticks=0)
     word0 = (ident << 16) | len(data)
@@ -172,21 +202,26 @@ def sc_can(p):
         for v in (word0, word1, word2):
             m.host_rx_push(0, v)
             m.run(50, stop_when_idle=False)
-        m.run(16_000 + 1200 * len(data), stop_when_idle=False)
+        # composing the frame takes the firmware a while (CRC and stuffing, bit by bit),
+        # so run until the receiver has it, then a little longer for the ACK and EOF
+        while not bus.frames and m.now < 90_000:
+            m.run(2000, stop_when_idle=False)
+        m.run(2000, stop_when_idle=False)
     w.steps = steps
 
     def result(m):
         if not bus.frames:
             return "Receiver model saw no frame"
         f = bus.frames[0]
-        return "Receiver model: ID 0x%03X, %d data bytes %s, CRC %s" % (
-            f["id"], f["dlc"], _text(f["data"]), "good" if f["crc_ok"] else "bad")
+        data = (" " + _text(f["data"])) if f["dlc"] else ""
+        return "Receiver model: ID 0x%03X, %d data byte%s%s, CRC %s" % (
+            f["id"], f["dlc"], "" if f["dlc"] == 1 else "s", data, "good" if f["crc_ok"] else "bad")
     w.result = result
     return w
 
 
 def sc_jtag(p):
-    idcode = _hex(p.get("idcode", "4BA00477"), 0x4BA00477) & 0xFFFFFFFF
+    idcode = _hex(p.get("idcode", "4BA00477"), "Target IDCODE", 32)
     tap = JtagTap(4, 5, 6, 7, idcode=idcode)
     w = World(Board(tap), ticks=0)
     got = []
@@ -203,7 +238,7 @@ def sc_jtag(p):
 
 
 def sc_swd(p):
-    dpidr = _hex(p.get("dpidr", "2BA01477"), 0x2BA01477) & 0xFFFFFFFF
+    dpidr = _hex(p.get("dpidr", "2BA01477"), "Target DPIDR", 32)
     tgt = SwdTarget(4, 5, dpidr=dpidr)
     w = World(Board(tgt), ticks=0)
     got = []
@@ -232,7 +267,9 @@ def sc_swd(p):
 
 
 def sc_ps2(p):
-    codes = _hexbytes(p.get("codes", "1C F0 1C"), 6) or [0x1C]
+    codes = _hexbytes(p.get("codes", "1C F0 1C"), "Scancodes", 6)
+    if not codes:
+        raise ParamError("Scancodes: at least one")
     host = Ps2Host(4, 5)
     w = World(Board(host), ticks=0)
 
@@ -264,7 +301,7 @@ def sc_combo(p):
 
 
 def sc_blank(p):
-    w = World(Board(), SplitBoard(outputs=0b11111), ticks=int(p.get("ticks", 4000)))
+    w = World(Board(), SplitBoard(outputs=0b11111), ticks=_int(p.get("ticks", 4000), "Run for", 100, MAX_TICKS))
     w.result = lambda m: "No device models on the pins"
     return w
 
@@ -348,7 +385,7 @@ SCENARIOS = [
     {"id": "combo", "title": "Four protocols at once", "firmware": "combo_two_banks.asm",
      "fn": sc_combo,
      "signals": [_sig("PS/2 CLK", 0), _sig("PS/2 DATA", 1), _sig("JTAG TCK", 4),
-                 _sig("JTAG TMS", 5), _sig("JTAG TDO", 7), _sig("SPI SCK", 0, "B"),
+                 _sig("JTAG TMS", 5), _sig("JTAG TDI", 6), _sig("JTAG TDO", 7), _sig("SPI SCK", 0, "B"),
                  _sig("SPI MOSI", 1, "B"), _sig("SPI CS", 3, "B"), _sig("UART TX", 4, "B")],
      "params": [],
      "blurb": "PS/2 and JTAG on bank A, SPI and UART on bank B, one context each. Every "
@@ -483,15 +520,22 @@ def run(source: str, sid: str, params_json: str = "{}") -> str:
     except Exception as e:                       # the run is still worth showing
         certs.append({"ctx": -1, "status": "ERROR", "note": str(e)})
 
-    w = s["fn"](params)
+    try:
+        w = s["fn"](params)
+    except ParamError as e:
+        return json.dumps({"ok": False, "error": str(e), "line": None})
     m = PlayMachine(image, board=w.board, **({"board_b": w.board_b} if w.board_b else {}))
     if w.script is not None:
         w.script.machine = m
-    if w.steps:
-        w.steps(m)
-    else:
-        m.run(min(w.ticks, MAX_TICKS), stop_when_idle=False)
-    result = w.result(m)
+    try:
+        if w.steps:
+            w.steps(m)
+        else:
+            m.run(min(w.ticks, MAX_TICKS), stop_when_idle=False)
+        result = w.result(m)
+    except Exception as e:                       # a model or host step gave up
+        return json.dumps({"ok": False, "line": None,
+                           "error": f"The run stopped: {type(e).__name__}: {e}"})
 
     span = len(w.board.history)
     sigs = []

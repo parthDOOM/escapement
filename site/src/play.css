@@ -143,8 +143,11 @@ kbd { font: 500 0.68rem var(--font-mono); padding: 0.05rem 0.3rem; border-radius
 .decoded { font-size: var(--step-0); color: var(--fg); padding-bottom: 0.35rem; overflow-wrap: anywhere; }
 
 /* ---- history ---- */
-.hist { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.2rem; align-items: end; }
-.hist-col { display: grid; gap: 0.3rem; align-content: end; min-width: 0; }
+/* every bar sits in a track of the same height at the top of its column, so the bars
+   share one baseline whatever the length of the text below them */
+.hist { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.2rem; align-items: start; }
+@media (max-width: 900px) { .hist { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.hist-col { display: grid; gap: 0.3rem; align-content: start; min-width: 0; }
 .hist-col > b { font: 600 var(--step-2) var(--font-display); }
 .hist-col p { color: var(--fg-2); }
 .hist-track { height: 190px; display: flex; align-items: flex-end; border-bottom: 1px solid var(--line); }
@@ -157,10 +160,17 @@ kbd { font: 500 0.68rem var(--font-mono); padding: 0.05rem 0.3rem; border-radius
 @media (max-width: 640px) { .pin-grid { grid-template-columns: minmax(0, 1fr); } }
 .pin-col { display: grid; gap: 0.3rem; align-content: start; }
 .pin-col h4 { margin: 0 0 0.3rem; font: 600 0.74rem var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3); }
-.pin { all: unset; cursor: pointer; display: flex; justify-content: space-between; gap: 0.6rem; padding: 0.3rem 0.6rem; border-radius: 6px; border: 1px solid var(--line); border-left: 4px solid var(--k); font-size: 0.78rem; background: var(--bg); }
+.pin { cursor: default; display: flex; justify-content: space-between; gap: 0.6rem; padding: 0.3rem 0.6rem; border-radius: 6px; border: 1px solid var(--line); border-left: 4px solid var(--k); font-size: 0.78rem; background: var(--bg); }
 .pin b { color: var(--fg); font-weight: 600; }
-.pin:hover, .pin[aria-pressed="true"] { background: color-mix(in srgb, var(--k) 16%, var(--bg)); border-color: var(--k); }
+.pin:hover, .pin.on { background: color-mix(in srgb, var(--k) 16%, var(--bg)); border-color: var(--k); }
 .pin:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
 .pin-about { margin-top: 1rem; display: grid; gap: 0.3rem; min-height: 4.4rem; }
 .pin-about b { color: var(--brass-2); }
 .pin-about p { color: var(--fg-2); font-size: var(--step--1); }
+
+.wave-key { display: flex; flex-wrap: wrap; gap: 0.2rem 0.9rem; margin-left: 0.6rem; font: 500 0.72rem var(--font-mono); color: var(--fg-3); }
+.wave-key span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.wave-key i { display: inline-block; width: 0.55rem; height: 0.55rem; border: 1.5px solid var(--brass); }
+.wave-key .k-dot { background: var(--brass); border-radius: 50%; }
+.wave-key .k-ring { border-radius: 50%; }
+.wave-key .k-box { border-style: dashed; }

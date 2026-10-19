@@ -154,3 +154,19 @@ export function webgl(): boolean {
 }
 
 export const hex = (v: number, n = 8) => (v >>> 0).toString(16).toUpperCase().padStart(n, "0");
+
+/** Scroll to a section, and keep aiming at it for a moment while sections above it load
+ *  and change height (a plain smooth scroll would stop short or overshoot). */
+export function scrollToSection(id: string) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  try { history.replaceState(null, "", "#" + id); } catch { /* sandboxed */ }
+  el.scrollIntoView({ behavior: reduced() ? "auto" : "smooth", block: "start" });
+  let last = document.documentElement.scrollHeight;
+  const ro = new ResizeObserver(() => {
+    const h = document.documentElement.scrollHeight;
+    if (h !== last) { last = h; el.scrollIntoView({ behavior: "auto", block: "start" }); }
+  });
+  ro.observe(document.body);
+  setTimeout(() => ro.disconnect(), 2500);
+}

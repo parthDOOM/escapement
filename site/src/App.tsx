@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense } from "react";
+import { Component, lazy, Suspense, useEffect, useState } from "react";
 import Header from "./components/Header";
 import Ruler from "./components/Ruler";
 import Deadline from "./components/Deadline";
@@ -8,7 +8,7 @@ import Isa from "./components/Isa";
 import Proof, { ProofTable } from "./components/Proof";
 import { History, Power } from "./components/Power";
 import Pinout from "./components/Pinout";
-import { useVisible } from "./lib/util";
+import { scrollToSection, useVisible } from "./lib/util";
 
 // the heavy parts load when they come near the screen
 const Die3D = lazy(() => import("./components/Die3D"));
@@ -27,8 +27,25 @@ class Guard extends Component<{ children: React.ReactNode }, { err: string | nul
   }
 }
 
+// Mounted when near the screen, or anyway once the page has settled, so that sections
+// below keep their real heights and links into the page land where they should.
+let idle = false;
+const idleSubs = new Set<() => void>();
+if (typeof window !== "undefined") {
+  const go = () => { idle = true; idleSubs.forEach((f) => f()); };
+  addEventListener("load", () => setTimeout(go, 1500), { once: true });
+}
+
 function Later({ children, h = 360 }: { children: React.ReactNode; h?: number }) {
-  const [ref, vis] = useVisible<HTMLDivElement>(false, "600px");
+  const [ref, near] = useVisible<HTMLDivElement>(false, "600px");
+  const [settled, setSettled] = useState(idle);
+  useEffect(() => {
+    if (idle) return;
+    const f = () => setSettled(true);
+    idleSubs.add(f);
+    return () => { idleSubs.delete(f); };
+  }, []);
+  const vis = near || settled;
   return (
     <div ref={ref} style={vis ? undefined : { minHeight: h }}>
       {vis && <Guard><Suspense fallback={<div className="loading" style={{ minHeight: h }}>loading…</div>}>{children}</Suspense></Guard>}
@@ -40,7 +57,7 @@ export function tryInPlayground(sid: string, edit?: [string, string]) {
   // the playground may not be mounted yet: it picks the request up when it is
   (window as any).__escPlay = { sid, edit };
   window.dispatchEvent(new CustomEvent("esc:play"));
-  document.getElementById("play")?.scrollIntoView({ behavior: "smooth" });
+  scrollToSection("play");
 }
 
 export default function App() {
@@ -64,8 +81,8 @@ export default function App() {
                 <div><b>40 ns</b><span>one tick at 25 MHz</span></div>
                 <div><b>4</b><span>programs running at once</span></div>
                 <div><b>13</b><span>protocol pins, two banks</span></div>
-                <div><b>19</b><span>firmware programs</span></div>
-                <div><b>3.0 mW</b><span>sending UART</span></div>
+                <div><b>25</b><span>firmware programs</span></div>
+                <div><b>3.1 mW</b><span>sending UART</span></div>
                 <div><b>0</b><span>late edges, proved for all time</span></div>
               </div>
             </div>
@@ -191,7 +208,7 @@ export default function App() {
                 <p>A 32-bit <strong>execution digest</strong> folds every commit, register write and pin change of a
                   run into one word. After a run on silicon, one SPI read compares the chip with the model's
                   prediction.</p>
-                <p>To check the tests themselves, 28 one-line faults were planted in the RTL. All 28 were caught.</p>
+                <p>To check the tests themselves, 35 one-line faults were planted in the RTL. All 35 were caught.</p>
               </div>
               <ProofTable />
             </div>
@@ -220,18 +237,18 @@ export default function App() {
                   A standard cell is one row of that structure, 3.78 µm tall.</p>
                 <p>Only four metal layers can carry signals in a Tiny Tapeout block on this process, and each SRAM
                   blocks three of them over its whole footprint. Routing Metal1 as a signal layer cut global-route
-                  overflow from 5,276 to 76, and the final layout ends with 68.</p>
+                  overflow from 5,276 to 76, and the final layout ends with 4.</p>
                 <p>To save power, register banks that are not being written do not see the clock: 68 clock gates cover
                   about 2,600 flip-flops, and each memory is selected only on the cycles that read it.</p>
               </div>
             </div>
 
             <div className="stats" style={{ marginTop: "3rem" }} aria-label="Sign-off results">
-              <div><b>25,864</b><span>standard cells</span></div>
-              <div><b>58.9%</b><span>utilisation</span></div>
-              <div><b>2.22 m</b><span>of wire</span></div>
-              <div><b>225,080</b><span>vias</span></div>
-              <div><b>+0.068 ns</b><span>worst hold slack, fast corner</span></div>
+              <div><b>25,931</b><span>standard cells</span></div>
+              <div><b>59.7%</b><span>utilisation</span></div>
+              <div><b>2.13 m</b><span>of wire</span></div>
+              <div><b>216,809</b><span>vias</span></div>
+              <div><b>+0.175 ns</b><span>worst hold slack, fast corner</span></div>
               <div><b>0</b><span>DRC, LVS and antenna errors</span></div>
             </div>
 
@@ -247,7 +264,7 @@ export default function App() {
               <Power />
             </div>
             <div style={{ marginTop: "3rem" }}>
-              <h3 style={{ marginBottom: "1rem" }}>Three layouts, one story</h3>
+              <h3 style={{ marginBottom: "1rem" }}>Four layouts, one story</h3>
               <History />
             </div>
           </div>
@@ -275,6 +292,10 @@ export default function App() {
               <div className="prose">
                 <p>A staged bring-up script for the Tiny Tapeout demo board's RP2350 tests the link, both memories,
                   every pin and every firmware in order, and says what each failure most likely means.</p>
+                <p>The chip is also an instrument. Its capture unit timestamps every change of the watched pins to the
+                  40 ns tick, and the host reads the records during the run, so a capture lasts as long as the host
+                  keeps up and a record is never overwritten before it has been read. On the demo board, PulseView and
+                  sigrok-cli record from the chip through their existing Openbench Logic Sniffer driver.</p>
                 <p>Everything is open: RTL, firmware, assembler, simulator, certificate checker, proofs and the flow
                   configuration.</p>
                 <ul className="links">
@@ -282,6 +303,7 @@ export default function App() {
                   <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/02-ISA.md">ISA reference</a></li>
                   <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/14-FIRMWARE-GUIDE.md">Firmware guide</a></li>
                   <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/16-BRING-UP.md">Bring-up</a></li>
+                  <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/17-INSTRUMENT.md">Capture, streaming and PulseView</a></li>
                 </ul>
               </div>
             </div>

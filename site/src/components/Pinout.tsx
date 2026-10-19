@@ -23,14 +23,15 @@ const KIND = { host: ["--m2", "host link"], status: ["--brass", "status"], a: ["
 export default function Pinout() {
   const [sel, setSel] = useState<Pin>(IO[0]);
   const col = (title: string, pins: Pin[]) => (
-    <div className="pin-col">
+    <div className="pin-col" role="list" aria-label={title}>
       <h4>{title}</h4>
       {pins.map((p) => (
-        <button key={p.id} type="button" className="pin" aria-pressed={sel.id === p.id}
+        // not a control: hovering (or focusing, from the keyboard) shows what the pin does
+        <div key={p.id} role="listitem" tabIndex={0} className={"pin" + (sel.id === p.id ? " on" : "")}
           style={{ ["--k" as string]: `var(${KIND[p.kind][0]})` }}
-          onMouseEnter={() => setSel(p)} onFocus={() => setSel(p)} onClick={() => setSel(p)}>
+          onMouseEnter={() => setSel(p)} onFocus={() => setSel(p)}>
           <span className="mono dim">{p.id}</span><b className="mono">{p.name}</b>
-        </button>
+        </div>
       ))}
     </div>
   );
@@ -48,7 +49,7 @@ export default function Pinout() {
       <div className="arch-key">
         {Object.values(KIND).map(([v, n]) => <span key={n}><i style={{ background: `var(${v})` }} />{n}</span>)}
       </div>
-      <figcaption>Plus the clock (25 MHz), reset and enable that every Tiny Tapeout design gets. Four wires carry
+      <figcaption>Hover a pin to see what it does. Plus the clock (25 MHz), reset and enable that every Tiny Tapeout design gets. Four wires carry
         the host link and two report status; the other 18 are protocol pins.</figcaption>
     </figure>
   );

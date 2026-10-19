@@ -50,7 +50,7 @@ export default function Die3D() {
       p.renderOrder = i + 1; scene.add(p);
       planes.push({ p, z: L.z, i: i + 1, key: L.key });
     });
-    // the block map, under the transistors, hidden until asked for
+    // the block map: the floor of the stack, seen through the faded layout when shown
     floorplan().then((f) => {
       const tex = new THREE.CanvasTexture(paint(f, null, 0.85));
       tex.magFilter = THREE.NearestFilter;
@@ -60,7 +60,7 @@ export default function Die3D() {
       p.position.x = (f.w * f.bin_um - W) * U / 2;
       p.position.y = (f.h * f.bin_um - H) * U / 2;
       p.renderOrder = 0; p.visible = false; scene.add(p);
-      planes.push({ p, z: -0.03, i: 0, key: "blocks" });
+      planes.push({ p, z: 0, i: 0, key: "blocks" });          // on the floor of the stack
       place(cur);
     });
     let cur = 0.6;
@@ -95,7 +95,15 @@ export default function Die3D() {
     size(); place(0.6);
     api.current = {
       place,
-      show: (key, v) => { planes.filter((q) => q.key === key).forEach((q) => (q.p.visible = v)); need(); },
+      show: (key, v) => {
+        planes.filter((q) => q.key === key).forEach((q) => (q.p.visible = v));
+        if (key === "blocks") {                     // the layout recedes behind the map
+          planes.filter((q) => q.key !== "blocks").forEach((q) => {
+            (q.p.material as THREE.MeshBasicMaterial).opacity = v ? 0.12 : q.i < 3 ? 0.75 : 0.9;
+          });
+        }
+        need();
+      },
     };
     return () => {
       io.disconnect(); ro.disconnect(); ctl.dispose(); renderer.dispose();

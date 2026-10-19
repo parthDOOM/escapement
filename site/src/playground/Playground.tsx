@@ -348,7 +348,7 @@ export default function Playground() {
                   {sel[3] === "C" && sel[4] && typeof sel[4][0] === "number" && (() => {
                     const ev = sel[4] as Ev;
                     return (<>
-                      <dt>event</dt><dd>{EVENT_KIND[ev[0]]} at tick {ev[1]}, lead {ev[7]} ticks ({fmtTime(ev[7])})</dd>
+                      <dt>event</dt><dd>{EVENT_KIND[ev[0]]} at the clock edge ending tick {ev[1]}, lead {ev[7]} ticks ({fmtTime(ev[7])}){ev[0] === 2 ? `, window ${ev[6]} ticks` : ""}{ev[0] === 3 ? `, pin ${ev[8]}` : ""}</dd>
                       {ev[0] !== 3 && <><dt>pins</dt><dd>mask {hex(ev[2], 2)} · value {hex(ev[0] === 2 ? ev[5] : ev[3], 2)}{ev[0] === 1 ? " · oe " + hex(ev[4], 2) : ""}</dd></>}
                     </>);
                   })()}
