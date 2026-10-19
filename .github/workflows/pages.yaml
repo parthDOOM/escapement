@@ -1,0 +1,76 @@
+name: site
+
+# The explainer site (site/) on GitHub Pages. The die imagery is rendered here from the
+# GDS of the latest successful gds run on master, so the site always shows the layout that
+# CI built, and the large images never enter the repository.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yaml'
+  workflow_run:
+    workflows: [gds]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Tools
+        run: pip install klayout==0.29.12 numpy pillow
+
+      - name: GDS of the latest successful master harden
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN=$(gh run list -R "$GITHUB_REPOSITORY" -w gds -b master -s success -L 1 \
+                --json databaseId -q '.[0].databaseId')
+          echo "gds run $RUN"
+          gh run download "$RUN" -R "$GITHUB_REPOSITORY" -n tt_submission -D gds
+          find gds -name 'tt_um_escapement.gds' | head -1 > gds_path
+          test -s gds_path
+
+      - name: Die imagery and 3D slice
+        run: |
+          GDS=$(cat gds_path)
+          python site/tools/die_assets.py "$GDS" site/assets/die
+          python site/tools/slice_model.py "$GDS" site/assets/slice.json
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
