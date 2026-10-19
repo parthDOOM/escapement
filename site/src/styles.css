@@ -1,4 +1,4 @@
-/* Layout: one long reading column with full-bleed figure bands; a 40 ns tick ruler
+/* Escapement site. Layout: one long reading column with full-bleed figure bands; a 40 ns tick ruler
    divides the sections. Dark first (the die is drawn on its substrate), light mirrors. */
 :root {
   --bg: #0c1018;          /* substrate */
@@ -14,6 +14,8 @@
   --bad: #ef6b5b;
   --m1: #4f8fef; --m2: #c4c6d6; --m3: #ec7a40; --m4: #98e260; --poly: #d6523c; --activ: #2e8c54; --tm1: #e8c45c;
   --wave: #9fd3ff;
+  --c0: #e0a43a; --c1: #4fb3a9; --c2: #9a88f0; --c3: #e8705f;
+  --code-k: #f0c66e; --code-n: #9fd3ff; --code-l: #c39af5; --code-d: #5cc98a;
   --font-display: "Bodoni Moda", "Didot", "Bodoni 72", Georgia, serif;
   --font-body: "Figtree", "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
@@ -27,6 +29,8 @@
     --line: #d5d9e1; --brass: #9a6810; --brass-2: #7c520a; --ok: #1f8a4f; --bad: #c43c2c;
     --m1: #2f6fd6; --m2: #6e7286; --m3: #cc5a1e; --m4: #4f9a1e; --poly: #b8402c; --activ: #237544; --tm1: #a8821c;
     --wave: #1d5fa8; color-scheme: light;
+    --c0: #b07812; --c1: #1f8579; --c2: #6a55d0; --c3: #c24a38;
+    --code-k: #8a5a00; --code-n: #1d5fa8; --code-l: #7b3fc4; --code-d: #1f8a4f;
   }
 }
 :root[data-theme="light"] {
@@ -34,6 +38,8 @@
   --line: #d5d9e1; --brass: #9a6810; --brass-2: #7c520a; --ok: #1f8a4f; --bad: #c43c2c;
   --m1: #2f6fd6; --m2: #6e7286; --m3: #cc5a1e; --m4: #4f9a1e; --poly: #b8402c; --activ: #237544; --tm1: #a8821c;
   --wave: #1d5fa8; color-scheme: light;
+  --c0: #b07812; --c1: #1f8579; --c2: #6a55d0; --c3: #c24a38;
+  --code-k: #8a5a00; --code-n: #1d5fa8; --code-l: #7b3fc4; --code-d: #1f8a4f;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -97,6 +103,7 @@ section { padding-block: clamp(3rem, 7vw, 6rem); }
 .hero h1 { font: 600 clamp(3.4rem, 9vw, var(--step-5))/0.92 var(--font-display); letter-spacing: -0.02em; }
 .hero h1 em { font-style: italic; color: var(--brass); font-weight: 500; }
 .hero .lede { margin-top: 1.2rem; }
+.hero .eyebrow { line-height: 1.5; margin-bottom: 0.6rem; }
 .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.2rem 1.4rem; margin-top: 2rem; border-top: 1px solid var(--line); padding-top: 1.1rem; }
 .facts div { display: grid; gap: 0.15rem; min-width: 0; }
 .facts b { font: 600 var(--step-2)/1.1 var(--font-display); font-variant-numeric: tabular-nums; }

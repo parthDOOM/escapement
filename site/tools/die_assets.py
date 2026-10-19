@@ -8,12 +8,10 @@ Writes into OUT_DIR:
   die_<z>_<x>_<y>.jpg  the composite die, as tiles of 1024 px: level 0 is one tile across,
                      each further level doubles the width, up to --max px
   die.json           die size, tile levels, macro outlines and the layer stack
-  die.js             the same, with the layer masks inlined, for pages opened from disk
 
 The layout-art cell is removed before anything is drawn.
 """
 import argparse
-import base64
 import json
 import math
 import os
@@ -159,13 +157,6 @@ def main():
     }
     with open(os.path.join(a.out, "die.json"), "w") as f:
         json.dump(info, f, indent=1)
-    tex = {}
-    for L in info["layers"]:
-        with open(os.path.join(a.out, "layer_%s.png" % L["key"]), "rb") as f:
-            tex[L["key"]] = "data:image/png;base64," + base64.b64encode(f.read()).decode()
-    with open(os.path.join(a.out, "die.js"), "w") as f:
-        f.write("window.ESC = window.ESC || {};\nESC.die = %s;\nESC.dieTex = %s;\n"
-                % (json.dumps(info, separators=(",", ":")), json.dumps(tex)))
 
 
 if __name__ == "__main__":

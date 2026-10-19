@@ -1,0 +1,110 @@
+name: site
+
+# The explainer site (site/). The die imagery is rendered here from the GDS of the latest
+# successful gds run on master, so the site always shows the layout that CI built and the
+# large images never enter the repository. The build is a static folder (site/dist): it
+# is published to GitHub Pages, and also to Netlify or Vercel when their tokens are set
+# as repository secrets (NETLIFY_AUTH_TOKEN + NETLIFY_SITE_ID, or VERCEL_TOKEN +
+# VERCEL_ORG_ID + VERCEL_PROJECT_ID).
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'site/**'
+      - 'sw/**'
+      - 'firmware/**'
+      - 'isa/**'
+      - 'docs/02-ISA.md'
+      - '.github/workflows/site.yaml'
+  workflow_run:
+    workflows: [gds]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: site
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Tools
+        run: pip install pyyaml klayout==0.29.12 numpy pillow
+
+      - name: GDS of the latest successful master harden
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN=$(gh run list -R "$GITHUB_REPOSITORY" -w gds -b master -s success -L 1 \
+                --json databaseId -q '.[0].databaseId')
+          echo "gds run $RUN"
+          gh run download "$RUN" -R "$GITHUB_REPOSITORY" -n tt_submission -D gds
+          find gds -name 'tt_um_escapement.gds' | head -1 > gds_path
+          test -s gds_path
+
+      - name: Die imagery and 3D slice
+        run: |
+          GDS=$(cat gds_path)
+          python site/tools/die_assets.py "$GDS" site/public/die
+          python site/tools/slice_model.py "$GDS" site/public/data/slice.json
+
+      - name: Build
+        working-directory: site
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+      - name: Netlify
+        if: env.NETLIFY_AUTH_TOKEN != '' && env.NETLIFY_SITE_ID != ''
+        run: npx --yes netlify-cli@17.36.2 deploy --dir site/dist --prod --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+
+      - name: Vercel
+        if: env.VERCEL_TOKEN != '' && env.VERCEL_PROJECT_ID != ''
+        run: npx --yes vercel@37.14.0 deploy site/dist --prod --yes --token "$VERCEL_TOKEN"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

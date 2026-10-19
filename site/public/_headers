@@ -1,0 +1,11 @@
+# Netlify cache rules. Built files in /assets have content hashes; the rest change with the chip.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/pyodide/*
+  Cache-Control: public, max-age=604800
+/die/*
+  Cache-Control: public, max-age=3600
+/data/*
+  Cache-Control: public, max-age=300
+/py/*
+  Cache-Control: public, max-age=300
