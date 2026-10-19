@@ -116,7 +116,7 @@ async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b):
         dut.dbg_sel.value = sel
         await Timer(1, unit="ps")
         final[(0, sel)] = int(dut.dbg_rdata.value)
-    for ctx in range(4):                          # 20-27 read 0; 28-31 the bells (v1.2)
+    for ctx in range(4):                          # 20-31 read 0
         for sel in range(20, 32):
             dut.dbg_sel_ctx.value = ctx
             dut.dbg_sel.value = sel
