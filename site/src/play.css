@@ -90,6 +90,10 @@ kbd { font: 500 0.68rem var(--font-mono); padding: 0.05rem 0.3rem; border-radius
 .pg-foot { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 0.8fr); gap: 1rem; align-items: start; }
 @media (max-width: 980px) { .pg-foot { grid-template-columns: minmax(0, 1fr); } }
 .pg-foot h4, .isa h4 { margin: 0 0 0.6rem; font: 600 0.74rem var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3); }
+.step-head { display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.6rem; }
+.step-head h4 { margin: 0 !important; }
+.step-head .icon-btn { padding: 0.2rem 0.5rem; }
+.wave-canvas canvas:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; border-radius: 4px; }
 .commit > p { color: var(--fg); font-weight: 600; margin-bottom: 0.5rem; }
 .commit dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.25rem 0.9rem; margin: 0 0 0.7rem; font-size: 0.8rem; }
 .commit dt { color: var(--fg-3); font-family: var(--font-mono); }

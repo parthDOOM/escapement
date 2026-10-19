@@ -158,6 +158,28 @@ export default function Playground() {
   const sel: Commit | null = selected != null && run ? run.commits[selected] ?? null : null;
   const focusLine = sel ? lineOf.get(sel[2]) ?? null : null;
 
+  // step through one context's commits, keeping the selection on screen
+  const step = (dir: 1 | -1) => {
+    if (!run || !run.commits.length) return;
+    let i = selected;
+    if (i == null) {
+      i = run.commits.findIndex((c) => c[0] >= view[0]);
+      if (i < 0) i = 0;
+      setSelected(i);
+    } else {
+      const k = run.commits[i][1];
+      let j = i + dir;
+      while (j >= 0 && j < run.commits.length && run.commits[j][1] !== k) j += dir;
+      if (j < 0 || j >= run.commits.length) return;
+      i = j;
+      setSelected(j);
+    }
+    const t = run.commits[i][0], span = view[1] - view[0];
+    if (t < view[0] + span * 0.05 || t > view[1] - span * 0.05) {
+      const a = Math.max(0, Math.min(run.span - span, t - span / 2));
+      setView([a, a + span]);
+    }
+  };
   const certFor = (k: number) => run?.certs.find((c) => c.ctx === k);
   const faultKey = run?.fault ? (run.fault.cause + (run.fault.subcode ? " " + run.fault.subcode : "")) : "";
 
@@ -302,14 +324,19 @@ export default function Playground() {
       {run && (
         <div className="panel pg-wave">
           <WaveView run={run} view={view} setView={setView} selected={selected} onSelect={setSelected}
-            hitPcs={hitPcs} text={text} />
+            hitPcs={hitPcs} text={text} onStep={step} />
         </div>
       )}
 
       {run && (
         <div className="pg-foot">
           <div className="panel">
-            <h4>Selected commit</h4>
+            <div className="step-head">
+              <h4>Selected commit</h4>
+              <span className="grow" />
+              <button type="button" className="icon-btn" onClick={() => step(-1)} aria-label="Previous commit of this context">◀</button>
+              <button type="button" className="icon-btn" onClick={() => step(1)} aria-label="Next commit of this context">▶</button>
+            </div>
             {sel ? (
               <div className="commit">
                 <p className="mono">{text.get(sel[2])}</p>
@@ -341,7 +368,8 @@ export default function Playground() {
                 )}
               </div>
             ) : <p className="dim small">Click a commit in a lane, or an edge on a pin, to see which instruction
-              queued it and when. Put the cursor on a line of the source to mark every commit of that line.</p>}
+              queued it and when. Put the cursor on a line of the source to mark every commit of that line. With the waveform focused,
+              the arrow keys step through one context's commits.</p>}
           </div>
           <div className="panel listing-box">
             <h4>Program memory <span className="dim">· {run.words} words</span></h4>

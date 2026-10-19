@@ -18,6 +18,7 @@ type Props = {
   onSelect: (i: number | null) => void;
   hitPcs: Set<number>;
   text: Map<number, string>;
+  onStep: (dir: 1 | -1) => void;
 };
 
 function lowerBound(a: ArrayLike<number>, x: number) {
@@ -32,7 +33,7 @@ function lowerBound(a: ArrayLike<number>, x: number) {
 
 const isEv = (x: Commit[4]): x is Ev => !!x && typeof x[0] === "number";
 
-export default function WaveView({ run, view, setView, selected, onSelect, hitPcs, text }: Props) {
+export default function WaveView({ run, view, setView, selected, onSelect, hitPcs, text, onStep }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const theme = useThemeTick();
   const [hover, setHover] = useState<{ t: number; lane: number | null; i: number | null } | null>(null);
@@ -332,7 +333,7 @@ export default function WaveView({ run, view, setView, selected, onSelect, hitPc
   const hv = hover?.i != null ? run.commits[hover.i] : null;
   const sel = selected != null ? run.commits[selected] : null;
   const info = hv ? describe(hv) : hover ? `tick ${hover.t} · ${fmtTime(hover.t)}` : sel ? describe(sel)
-    : "Drag to pan · Ctrl/⌘ + wheel or the buttons to zoom · click a commit, or an edge to find its commit";
+    : "Drag to pan · Ctrl/⌘ + wheel or + − to zoom · click a commit, or an edge to find its commit · ← → step";
 
   return (
     <div className="wave-view">
@@ -351,7 +352,14 @@ export default function WaveView({ run, view, setView, selected, onSelect, hitPc
         <span className="mono wave-span">{fmtTime(view[1] - view[0])} shown · {Math.round(view[1] - view[0])} ticks</span>
       </div>
       <div className="wave-canvas">
-        <canvas ref={ref} aria-label="Waveforms and commits"
+        <canvas ref={ref} tabIndex={0}
+          aria-label="Waveforms and commits. Left and right arrows step through the selected context's commits; plus and minus zoom."
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); onStep(e.key === "ArrowRight" ? 1 : -1); }
+            else if (e.key === "+" || e.key === "=") { e.preventDefault(); zoom(0.5); }
+            else if (e.key === "-") { e.preventDefault(); zoom(2); }
+            else if (e.key === "Escape") onSelect(null);
+          }}
           onPointerDown={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             e.currentTarget.setPointerCapture(e.pointerId);
