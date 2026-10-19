@@ -221,7 +221,10 @@ def test_keep_going_reports_later_stages(bundles, tmp_path):
     small = subset(bundles, tmp_path, ["uart_tx.json"])
     ok, results, log = run_on(SimChip(mem_faults={1: {"data_stuck": (17, 1)}}), small,
                               keep_going=True)
-    assert [(n, p) for n, p, _ in results][3:] == [(3, False), (4, True), (5, False)], log
+    # v1.3: stage 4's streaming check stores its records in the tape, so it fails too and
+    # says why; its pin checks before that still run and pass.
+    assert [(n, p) for n, p, _ in results][3:] == [(3, False), (4, False), (5, False)], log
+    assert "records are stored in the tape" in log, log
     assert "LOAD FAILED" in log and "tape readback differs" in log, log
 
 

@@ -700,14 +700,19 @@ class Bringup:
         levels = [(x >> 24) & 1 for x in words]
         ticks = [x & 0xFFFFFF for x in words]
         want = [1] + [i & 1 for i in range(toggles)]
+        # The records pass through the tape, so a tape fault from stage 3 shows up here too.
+        tape = ("; the memories stage failed, and the records are stored in the tape"
+                if any(n == 3 and not ok for n, ok, _ in self.results) else "")
         if ovf:
             raise Fail("streaming capture overflowed (ovf) with only %d edges: the host "
                        "read and acknowledged after every edge, so the ring should never "
-                       "fill. Check TAPE_ACK (the capture's rptr, READ_DBG sel 20)." % toggles)
+                       "fill. Check TAPE_ACK (the capture's rptr, READ_DBG sel 20)%s."
+                       % (toggles, tape))
         if levels != want or any(b <= a for a, b in zip(ticks, ticks[1:])):
-            raise Fail("streaming capture: uio[0] levels %s (ticks %s), expected %s: %s"
+            raise Fail("streaming capture: uio[0] levels %s (ticks %s), expected %s: %s%s"
                        % ("".join(map(str, levels)), ticks[:6], "".join(map(str, want)),
-                          "records lost" if len(levels) < len(want) else "wrong records"))
+                          "records lost" if len(levels) < len(want) else "wrong records",
+                          tape))
         return toggles
 
     def _bank_b(self, n):
