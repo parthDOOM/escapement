@@ -8,35 +8,37 @@ with the reasoning for each setting in its comments and in
 
 ## Sign-off results
 
-Version 1.2 (pin bank B), local harden `v12h`:
+Version 1.3 (streaming capture), local harden `v13b`:
 
 | | |
 | --- | --- |
 | Die | 1289.28 × 710.64 µm (916,214 µm²) |
-| Standard cells | 25,864 (428,890 µm²), of which 3,912 sequential |
+| Standard cells | 25,931 (435,322 µm²), of which 3,964 sequential |
 | Macros | 2 × `RM_IHPSG13_1P_256x32_c2_bm_bist` (98,977 µm²) |
-| Utilisation | 58.9% |
+| Utilisation | 59.7% |
 | Clock | 25 MHz (40 ns) |
-| Setup | No violations at any corner. Worst slack: typical +3.37 ns, fast +9.13 ns; at the slow corner the worst path ends on a clock-gate latch and uses time borrowing (see below) |
-| Hold | No violations. Worst slack: fast +0.068 ns, typical +0.224 ns, slow +0.400 ns |
-| Hold buffers | 1,549: 1,515 after clock-tree synthesis (margin 0.2 ns), 34 after global routing (see below) |
-| Routing | 2.22 m of wire, 225,080 vias; global-route overflow 68; detailed-route DRC 0 |
+| Setup | No violations at any corner. Worst slack: typical +3.62 ns, fast +9.34 ns; at the slow corner the worst path ends on a clock-gate latch and uses time borrowing (see below) |
+| Hold | No violations. Worst slack: fast +0.175 ns, typical +0.331 ns, slow +0.576 ns |
+| Hold buffers | 1,727: 1,614 after clock-tree synthesis (margin 0.2 ns), 113 after global routing (margin 0.2 ns, see below) |
+| Routing | 2.13 m of wire, 216,809 vias; global-route overflow 4; detailed-route DRC 0 |
 | LVS | Clean (0 errors, 0 net or device differences) |
 | DRC | Clean (KLayout SG13CMOS5L deck in the Tiny Tapeout precheck) |
-| Antenna | 0 violations (57 diodes) |
-| IR drop | 0.13 mV worst |
-| Power (static estimate) | 2.65 mW; workload measurements in [power](15-POWER.md) |
+| Antenna | 0 violations (102 diodes) |
+| IR drop | 0.14 mV worst |
+| Power (static estimate) | 2.73 mW; workload measurements in [power](15-POWER.md) |
 | Precheck | Tiny Tapeout precheck (tt-support-tools `d66cf17`) passes: all nine checks, including KLayout SG13CMOS5L DRC |
 | Gate level | The chip-level and pin test suites pass on the final netlist, including the execution digest against the ISS and both pin banks at once; the netlist is proved equivalent to the RTL |
 
 Version 1.1 (`rc14`: 23,978 cells, 55.2%, fast-corner hold +0.025 ns, 395 hold buffers) was
 reproduced exactly, metric for metric, by the GitHub Actions harden from a clean checkout
-with the pinned toolchain (258 minutes on a standard public runner). Version 1.2 has
-1,886 more cells (7.9%): 1,154 are hold buffers from the larger hold margin, and 732 are
-the pin bank B logic and its repair buffers.
+with the pinned toolchain (258 minutes on a standard public runner). Version 1.2 (`v12h`:
+25,864 cells, 58.9%, fast-corner hold +0.068 ns) had 1,886 more cells than version 1.1:
+1,154 hold buffers from the larger hold margin, and 732 for pin bank B and its repair
+buffers. Version 1.3 adds the streaming logic (D-32) for 67 more cells, and needs 79 more
+hold buffers after global routing (see below).
 
 Corners: `nom_slow_1p08V_125C`, `nom_typ_1p20V_25C`, `nom_fast_1p32V_m40C`. The
-remaining design-rule warnings are 202 max-slew and 45 max-capacitance nets at the slow
+remaining design-rule warnings are 123 max-slew and 29 max-capacitance nets at the slow
 corner. They cause no timing violations. The worst are nets that the detailed router
 detours around the congested horizontal layer: one 375 µm connection is routed as 1.8 mm.
 
@@ -92,10 +94,10 @@ Other routing settings:
   slew warnings from 314 to 124 and improved fast-corner hold slack.
 
 **Headroom.** Each SRAM blocks Metal1 to Metal3 over its whole footprint, so congestion
-gathers around the tape SRAM. Version 1.2 ends global routing with an overflow of 68. A
-variant with about 1,000 more cells reached 1,900 to 3,200, and detailed routing then
-left shorts over the tape SRAM in four of five runs. Global-route overflow is the number
-to watch when adding logic.
+gathers around the tape SRAM. Version 1.3 ends global routing with an overflow of 4
+(version 1.2: 68). A variant with about 1,000 more cells reached 1,900 to 3,200, and
+detailed routing then left shorts over the tape SRAM in four of five runs. Global-route
+overflow is the number to watch when adding logic.
 
 ## Timing constraints
 
@@ -113,8 +115,10 @@ synthesis (`PL_RESIZER_HOLD_SLACK_MARGIN`) cannot see this. With 0.1 ns, version
 ended with 33 fast-corner paths at up to −0.036 ns. At 0.2 ns one layout passed and
 another ended at −0.106 ns, and 0.35 ns, with 1,100 more buffers, still ended at
 −0.101 ns. So hold is repaired twice: after clock-tree synthesis with a 0.2 ns margin,
-and after global routing (`RUN_POST_GRT_RESIZER_TIMING`, 0.1 ns margin), where the
-routed clock feed is known. The second repair adds 34 buffers and leaves +0.068 ns.
+and after global routing (`RUN_POST_GRT_RESIZER_TIMING`), where the routed clock feed
+is known. In version 1.2 a 0.1 ns margin there was enough: 34 buffers, +0.068 ns. In
+version 1.3 it left two fast-corner paths at −0.030 ns after detailed routing, so the
+margin is 0.2 ns: 113 buffers, +0.175 ns.
 
 **Reading the setup report with clock gates.** The worst setup path at the slow corner
 ends at a clock-gate latch, and OpenSTA reports slack to the latch's opening edge

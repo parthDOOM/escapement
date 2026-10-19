@@ -75,10 +75,10 @@ flowchart LR
 | --- | --- |
 | Process | IHP SG13CMOS5L (130 nm), Tiny Tapeout, **6×4 tiles** (1289.28 × 710.64 µm) |
 | Clock | 25 MHz, timing met at all three corners |
-| Physical | 25,864 cells and two SRAM macros, 58.9% utilisation; LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
+| Physical | 25,931 cells and two SRAM macros, 59.7% utilisation; LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
 | Power | 3.0 mW sending UART, 2.3 mW stopped (typical corner) |
 | Firmware | 25 programs, five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
-| Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 28 of 28 RTL mutants killed; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
+| Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 35 of 35 RTL mutants killed; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 
 Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),
 [power](docs/15-POWER.md), [measurements](asic/reports/area.csv).

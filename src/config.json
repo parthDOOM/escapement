@@ -27,10 +27,11 @@
   "//": "repair (up to 0.31 ns, through the clock feed of a FIFO's clock gate), so a post-CTS",
   "//": "margin alone ends with fast-corner violations: -0.106 ns at 0.2, -0.101 ns at 0.35",
   "//": "(with 1,100 more cells). The post-GRT repair sees the routed clock feed and fixes it",
-  "//": "with a few dozen cells (docs/03).",
+  "//": "with a few dozen cells (docs/03). v1.3: its margin is 0.2 (was 0.1, which left two",
+  "//": "fast-corner paths at -0.030 ns after detailed routing).",
   "PL_RESIZER_HOLD_SLACK_MARGIN": 0.2,
   "RUN_POST_GRT_RESIZER_TIMING": 1,
-  "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.1,
+  "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.2,
 
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",
   "RUN_LINTER": 1,

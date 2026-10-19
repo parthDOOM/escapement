@@ -132,6 +132,8 @@ the change is arbitration, not a new memory.
 - *What it gives.* A capture is limited by the host's link, not by the tape: the chip
   test streams a UART message through an 8-word ring while another context hammers the
   port with LDT/STT.
+- *Cost.* 67 more cells than v1.2 in the final layout and 0.09–0.10 mW (3%) in every
+  workload ([power](15-POWER.md)); global-route overflow 4.
 
 ## Power and timing margin
 

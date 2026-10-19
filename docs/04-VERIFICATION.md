@@ -35,7 +35,8 @@ digest, the capture state and all 256 tape words.
 | Random programs with tape traffic, version 1.1 | 300 | 21,055 | 0 |
 | Random programs with pin bank B, version 1.2 | 1,000 | 66,991 | 0 |
 | Firmware programs with their bus models | 15 | — | 0 |
-| Regression run (`make cosim`, 200 random programs plus all firmware) | 5 tests | 14,472 in the random test | 0 |
+| Random programs with the host reading the tape during the run, version 1.3 | 60 | 7,598 words read | 0 |
+| Regression run (`make cosim`, 200 random programs plus all firmware) | 7 tests | 14,472 in the random test | 0 |
 
 Random programs come from a constrained generator (`test/cosim/progen.py`) that mixes
 every instruction class, deliberate faults, host mailbox traffic, and tape loads and
@@ -62,6 +63,7 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start, stop or fault edge | Unbounded (PDR, with P2 for the lateness part of the last clause, below) |
 | H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction); H3 and H4 also by PDR in the core proof, as lemmas for P5 |
 | C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
+| C4 | In stream mode a capture drain never writes over a record the host has not acknowledged (v1.3) | Unbounded (PDR) |
 | G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
 | S1 | The configuration the core runs with (enabled contexts, entry points, pin ownership, open-drain pins, pin banks) never changes during a run | Unbounded (PDR), on the host interface |
 
@@ -103,7 +105,7 @@ step.
 
 The proofs above are about the RTL; the chip is built from the netlist that synthesis,
 placement and routing produce. `make equiv` proves that the two are the same machine:
-the final netlist of the version 1.2 harden (sha256 `c6851909…`) is
+the final netlist of the version 1.3 harden (sha256 `54236b4f…`) is
 sequentially equivalent to the RTL in `src/`, for every input sequence after reset.
 
 Both designs are flattened and placed side by side in a miter that feeds them the same
@@ -141,7 +143,12 @@ low, a context reading the other bank, ownership checked against the wrong bank,
 that keeps its bank B pins, inputs that never reach the synchronisers, a digest blind to
 bank B, and capture ignoring the bank bit.
 
-**Result: 28 of 28 mutants killed.** Twenty-seven are caught by the co-simulation. One
+Seven target streaming capture: a drain writing over unacknowledged records, the hold
+point one record late, TAPE_ACK ignored, arming that keeps the old read pointer, a
+stream that stops at the limit instead of wrapping, a drain that loses the port to the
+host, and debug select 20 not showing the read pointer.
+
+**Result: 35 of 35 mutants killed.** Thirty-four are caught by the co-simulation. One
 clock-gate mutant (START not clearing `tmr`) is caught only by the directed suite, and
 the report keeps that visible.
 
@@ -224,11 +231,11 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, tape tools, bring-up script | 261 | Pass |
-| Chip level on the RTL (`make test`) | 5 | Pass |
-| Chip level on the final gate-level netlist (`make gl-test`) | 5 | Pass |
-| Co-simulation (`make cosim`) | 5 | Pass |
-| Host interface (`make host-test`) | 10 | Pass |
+| Software (`make sw-test`): assembler, simulator, certificates, models, tape tools, capture export and SUMP bridge, bring-up script | 293 | Pass (2 need `sigrok-cli`) |
+| Chip level on the RTL (`make test`) | 6 | Pass |
+| Chip level on the final gate-level netlist (`make gl-test`) | 6 | Pass |
+| Co-simulation (`make cosim`) | 7 | Pass |
+| Host interface (`make host-test`) | 14 | Pass |
 | Core unit tests (`make unit-test`) | 22 | Pass |
 | Newer firmware (SWD, SPI target, NEC, both pin banks at once) through the chip pins (`make pin-test`, `make gl-pin-test`) | 5 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
