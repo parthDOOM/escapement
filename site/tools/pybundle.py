@@ -25,7 +25,7 @@ SITE = Path(__file__).resolve().parents[1]
 ROOT = SITE.parent
 PUB = SITE / "public"
 PACKAGES = ["escasm", "esciss", "escert", "escmodels"]
-SKIP_FW = {"westminster.asm"}
+SKIP_FW = {"westminster.asm", "seven_seg.asm"}
 RUNTIME = ["pyodide.mjs", "pyodide.asm.js", "pyodide.asm.wasm", "python_stdlib.zip",
            "pyodide-lock.json"]
 
