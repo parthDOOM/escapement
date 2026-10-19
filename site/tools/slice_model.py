@@ -1,6 +1,6 @@
 """A small window of the routed chip as layered polygons, for the 3D close-up.
 
-    python site/tools/slice_model.py GDS OUT.json [--box X0,Y0,X1,Y1]
+    python site/tools/slice_model.py GDS OUT.json [--box X0,Y0,X1,Y1]   (also writes OUT.js)
 
 Every drawing layer from active to TopMetal1, vias included, is flattened, clipped to the
 window and merged. Standard-cell outlines and names come along for labels. Coordinates
@@ -72,8 +72,11 @@ def main():
                                              round(cb.right - x0, 3), round(cb.top - y0, 3)]})
     out = {"box_um": [x0, y0, x1, y1], "size_um": [round(x1 - x0, 3), round(y1 - y0, 3)],
            "layers": layers, "cells": cells}
+    text = json.dumps(out, separators=(",", ":"))
     with open(a.out, "w") as f:
-        json.dump(out, f, separators=(",", ":"))
+        f.write(text)
+    with open(a.out[:-5] + ".js", "w") as f:              # for pages opened from disk
+        f.write("window.ESC = window.ESC || {};\nESC.slice = " + text + ";\n")
 
 
 if __name__ == "__main__":

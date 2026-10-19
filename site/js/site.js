@@ -21,6 +21,10 @@
     return { g, w, h: H };
   }
 
+  function data(name, url) {
+    return window.ESC && window.ESC[name] ? Promise.resolve(window.ESC[name]) : json(url);
+  }
+
   async function json(url) {
     const r = await fetch(url);
     if (!r.ok) throw new Error(url + ": " + r.status);
@@ -178,63 +182,84 @@
     const svg = $("#arch"), detail = $("#arch-detail");
     if (!svg) return;
     const NS = "http://www.w3.org/2000/svg";
+    // 5 columns x 3 rows; every wire runs in the channels between blocks
+    const BW = 160, BH = 60, C = [10, 220, 430, 640, 850], R = [20, 165, 310];
+    const KIND = { host: ["--m2", "host side"], mem: ["--m1", "memory"], time: ["--brass", "time and core"], io: ["--m4", "pins and inputs"] };
     const B = {
-      host: { x: 10, y: 40, w: 120, h: 56, t: "Host link", s: "SPI, 4 wires",
+      host: { c: 0, r: 1, k: "host", t: "Host link", s: "SPI, 4 wires",
         d: "The host talks to the chip over SPI mode 0 on four pins. The link is oversampled in the core clock, so the whole chip has one clock domain.",
         f: [["Commands", "load and verify memories, configure, start, stop, mailboxes, debug reads"], ["Clock", "SCK up to f_clk / 8"], ["Also", "an interrupt line and a running flag"]] },
-      hi: { x: 170, y: 40, w: 140, h: 56, t: "Host interface", s: "decoder, mailboxes",
-        d: "Decodes commands and gives each context two 32-bit mailbox entries in each direction, so firmware and host can exchange data while running.",
+      hi: { c: 1, r: 1, k: "host", t: "Host interface", s: "commands, mailboxes",
+        d: "Decodes commands and gives each context two 32-bit mailbox entries in each direction, so firmware and host exchange data while the chip runs. Every debug register, the telemetry and the digest are read here.",
         f: [["Mailboxes", "2 words each way, per context"], ["Debug reads", "registers, telemetry, checkers, faults, digest"]] },
-      imem: { x: 350, y: 20, w: 150, h: 56, t: "Program memory", s: "SRAM 256 × 32",
+      imem: { c: 2, r: 0, k: "mem", t: "Program memory", s: "SRAM 256 × 32",
         d: "One IHP single-port SRAM holds the firmware for all four contexts. It is read only for running contexts; on idle cycles it is deselected and spends no read energy.",
         f: [["Macro", "RM_IHPSG13_1P_256x32_c2_bm_bist"], ["Written", "by the host, only while stopped"]] },
-      core: { x: 350, y: 112, w: 150, h: 70, t: "Barrel core", s: "4 contexts, fixed slots",
-        d: "Four hardware contexts share one pipeline in fixed slots: context k fetches when t mod 4 = k and commits three ticks later. No stalls, no forwarding, no context can delay another.",
+      core: { c: 2, r: 1, k: "time", t: "Barrel core", s: "4 fixed slots",
+        d: "Four hardware contexts share one pipeline in fixed slots: context k fetches when t mod 4 = k and commits three ticks later. No stalls, no forwarding, and no context can delay another.",
         f: [["Per context", "4 registers, shift register, loop counter, timer, PC, link, flags"], ["Issue rate", "one instruction every 4 ticks"]] },
-      time: { x: 560, y: 20, w: 150, h: 56, t: "Tick counter", s: "32 bit, 40 ns",
-        d: "One free-running counter is the only notion of time. It wraps after 171.8 s; deadlines may be up to half that range ahead.",
+      tape: { c: 2, r: 2, k: "mem", t: "Tape", s: "SRAM 256 × 32",
+        d: "A second SRAM shared by firmware loads and stores, the capture unit and the host. One memory serves as device storage, logic-analyser buffer and replay source.",
+        f: [["Users", "firmware LDT / STT, capture, host"], ["Conflicts", "none: one context commits per cycle"]] },
+      time: { c: 3, r: 0, k: "time", t: "Tick counter", s: "32 bit, 40 ns",
+        d: "One free-running counter is the only notion of time on the chip. It wraps after 171.8 s; deadlines may be up to half that range ahead.",
         f: [["Resolution", "40 ns at 25 MHz"], ["Horizon", "85.9 s"]] },
-      fifo: { x: 560, y: 112, w: 150, h: 70, t: "Event queues", s: "4 entries per context",
+      fifo: { c: 3, r: 1, k: "time", t: "Event queues", s: "4 per context",
         d: "DRIVE, EXPECT and SAMPLE events wait here with absolute deadlines. Admission checks each one when it is queued; retirement applies the head on its exact tick.",
         f: [["Refusals", "MASK, OWNER, PAST, ORDER, OVERLAP"], ["Proved", "no head is ever past its deadline"]] },
-      pins: { x: 560, y: 222, w: 150, h: 70, t: "Pin banks", s: "A: 8 pins · B: 5 split",
+      tel: { c: 4, r: 0, k: "time", t: "Telemetry", s: "lead, depth, digest",
+        d: "Each context records its minimum scheduling lead and maximum queue depth. A 32-bit digest folds every commit, register write and pin change into one word that the simulator predicts exactly.",
+        f: [["Checks", "the firmware's timing certificate"], ["Read by", "the host, at any time"]] },
+      pins: { c: 4, r: 1, k: "io", t: "Pin banks", s: "A 8 pins, B 5 split",
         d: "Bank A is eight bidirectional pins, push-pull or open-drain. Bank B turns five spare dedicated inputs and outputs into split pins. Each context sees one bank as its eight logical pins.",
         f: [["Signals", "up to 18 protocol signals"], ["Open drain", "can never drive high, by construction"]] },
-      sync: { x: 350, y: 222, w: 150, h: 70, t: "Input side", s: "synchronisers, checkers",
+      sync: { c: 4, r: 2, k: "io", t: "Input side", s: "sync, checkers",
         d: "Inputs pass two-flop synchronisers. Checkers run EXPECT windows and count passes and failures; SAMPLE shifts bits into a per-context register.",
         f: [["Latency", "2 ticks from pad to logic"], ["Checker window", "up to 127 ticks"]] },
-      cap: { x: 350, y: 330, w: 150, h: 56, t: "Capture unit", s: "timestamped edges",
+      cap: { c: 3, r: 2, k: "io", t: "Capture unit", s: "timestamped edges",
         d: "Watches a pin bank and writes every change as {levels, tick} into a region of the tape. Overflow stops capture and records when; nothing is dropped silently.",
         f: [["Record", "8 levels + 24-bit tick"], ["Firmware fetches", "none needed while capturing"]] },
-      tape: { x: 170, y: 330, w: 140, h: 56, t: "Tape", s: "SRAM 256 × 32",
-        d: "A second SRAM shared by firmware loads and stores, the capture unit and the host. One memory serves as device storage, logic-analyser buffer and replay source.",
-        f: [["Users", "firmware LDT/STT, capture, host"], ["Conflicts", "none: one context commits per cycle"]] },
-      tel: { x: 560, y: 330, w: 150, h: 56, t: "Telemetry, digest", s: "self-measurement",
-        d: "Each context records its minimum scheduling lead and maximum queue depth. A 32-bit digest folds every commit, register write and pin change into one word.",
-        f: [["Checks", "the firmware's timing certificate"], ["Digest", "predicted exactly by the simulator"]] },
     };
-    const W = [["host", "hi"], ["hi", "imem"], ["imem", "core"], ["core", "fifo"], ["time", "fifo"], ["fifo", "pins"],
-      ["pins", "sync"], ["sync", "core"], ["sync", "cap"], ["cap", "tape"], ["core", "tape"], ["hi", "tape"], ["fifo", "tel"], ["tel", "hi"]];
-    const ctr = (b) => [b.x + b.w / 2, b.y + b.h / 2];
-    function edge(a, b) {
-      const [ax, ay] = ctr(a), [bx, by] = ctr(b);
-      const pa = clip(a, bx - ax, by - ay), pb = clip(b, ax - bx, ay - by);
-      return "M" + pa.join(",") + " L" + pb.join(",");
-    }
-    function clip(b, dx, dy) {
-      const [cx, cy] = ctr(b);
-      const sx = dx ? (b.w / 2) / Math.abs(dx) : Infinity, sy = dy ? (b.h / 2) / Math.abs(dy) : Infinity;
-      const s = Math.min(sx, sy);
-      return [cx + dx * s, cy + dy * s];
-    }
+    Object.values(B).forEach((b) => { b.x = C[b.c]; b.y = R[b.r]; });
+    // [from, to, points, label, label x, label y, both ways]; labels sit in the 50-unit
+    // channels between blocks (centred) or beside a vertical wire (left-aligned)
+    const W = [
+      ["host", "hi", [[170, 195], [220, 195]], "SPI", 195, 186, true],
+      ["hi", "imem", [[380, 180], [405, 180], [405, 50], [430, 50]], "load", 411, 116],
+      ["hi", "core", [[380, 195], [430, 195]], "", 0, 0, true],
+      ["hi", "tape", [[380, 210], [405, 210], [405, 340], [430, 340]], "", 0, 0, true],
+      ["imem", "core", [[510, 80], [510, 165]], "fetch", 516, 126],
+      ["core", "fifo", [[590, 190], [640, 190]], "push", 615, 182],
+      ["time", "fifo", [[720, 80], [720, 165]], "now", 726, 126],
+      ["fifo", "tel", [[800, 180], [825, 180], [825, 50], [850, 50]], "lead", 831, 116],
+      ["fifo", "pins", [[800, 205], [850, 205]], "drive", 825, 222],
+      ["pins", "sync", [[930, 225], [930, 310]], "pads", 936, 270],
+      ["sync", "cap", [[850, 350], [800, 350]], "edges", 825, 366],
+      ["cap", "tape", [[640, 340], [590, 340]], "records", 615, 332],
+      ["core", "tape", [[510, 225], [510, 310]], "LDT / STT", 516, 270, true],
+      ["sync", "core", [[850, 325], [825, 325], [825, 255], [615, 255], [615, 215], [590, 215]], "inputs", 720, 249],
+    ];
+    const MID = new Set(["SPI", "push", "drive", "edges", "records", "inputs"]);
+    const defs = document.createElementNS(NS, "defs");
+    defs.innerHTML = '<marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">' +
+      '<path class="ahead" d="M0,0 L8,4 L0,8 z"/></marker>';
+    svg.appendChild(defs);
     const wires = {};
-    W.forEach(([a, b]) => {
-      const p = document.createElementNS(NS, "path");
-      p.setAttribute("d", edge(B[a], B[b]));
+    W.forEach(([a, b, pts, lab, lx, ly, both]) => {
+      const p = document.createElementNS(NS, "polyline");
+      p.setAttribute("points", pts.map((q) => q.join(",")).join(" "));
       p.setAttribute("class", "wire");
+      p.setAttribute("marker-end", "url(#ah)");
+      if (both) p.setAttribute("marker-start", "url(#ah)");
       svg.appendChild(p);
-      (wires[a] = wires[a] || []).push(p);
-      (wires[b] = wires[b] || []).push(p);
+      const parts = [p];
+      if (lab) {
+        const t = document.createElementNS(NS, "text");
+        t.setAttribute("x", lx); t.setAttribute("y", ly); t.setAttribute("class", "wlab"); t.textContent = lab;
+        if (MID.has(lab)) t.setAttribute("text-anchor", "middle");
+        svg.appendChild(t); parts.push(t);
+      }
+      [a, b].forEach((k) => (wires[k] = wires[k] || []).push(...parts));
     });
     const els = {};
     Object.entries(B).forEach(([k, b]) => {
@@ -245,24 +270,34 @@
       gEl.setAttribute("aria-pressed", "false");
       gEl.setAttribute("aria-label", b.t);
       const r = document.createElementNS(NS, "rect");
-      Object.entries({ x: b.x, y: b.y, width: b.w, height: b.h, rx: 7 }).forEach(([a, v]) => r.setAttribute(a, v));
+      Object.entries({ x: b.x, y: b.y, width: BW, height: BH, rx: 8, class: "box" }).forEach(([a, v]) => r.setAttribute(a, v));
+      const dot = document.createElementNS(NS, "circle");
+      dot.setAttribute("cx", b.x + BW - 14); dot.setAttribute("cy", b.y + 14); dot.setAttribute("r", 4);
+      dot.style.fill = "var(" + KIND[b.k][0] + ")";
       const t1 = document.createElementNS(NS, "text");
-      t1.setAttribute("x", b.x + 12); t1.setAttribute("y", b.y + 24); t1.textContent = b.t;
+      t1.setAttribute("x", b.x + 14); t1.setAttribute("y", b.y + 26); t1.textContent = b.t;
       const t2 = document.createElementNS(NS, "text");
-      t2.setAttribute("x", b.x + 12); t2.setAttribute("y", b.y + 42); t2.setAttribute("class", "sub"); t2.textContent = b.s;
-      gEl.append(r, t1, t2);
+      t2.setAttribute("x", b.x + 14); t2.setAttribute("y", b.y + 45); t2.setAttribute("class", "sub"); t2.textContent = b.s;
+      gEl.append(r, dot, t1, t2);
       svg.appendChild(gEl);
       els[k] = gEl;
       const pick = () => select(k);
       gEl.addEventListener("click", pick);
       gEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
     });
+    const key = document.createElement("div");
+    key.className = "arch-key";
+    Object.values(KIND).forEach(([v, n]) => {
+      const s = document.createElement("span"), i = document.createElement("i");
+      i.style.background = "var(" + v + ")"; s.append(i, n); key.appendChild(s);
+    });
+    svg.parentElement.appendChild(key);
     function select(k) {
       Object.entries(els).forEach(([kk, el]) => el.setAttribute("aria-pressed", String(kk === k)));
-      document.querySelectorAll("#arch .wire").forEach((p) => p.classList.remove("hot"));
+      svg.querySelectorAll(".hot").forEach((p) => p.classList.remove("hot"));
       (wires[k] || []).forEach((p) => p.classList.add("hot"));
       const b = B[k];
-      detail.innerHTML = "<h3></h3><div class=\"prose\"><p></p></div><dl></dl>";
+      detail.innerHTML = '<h3></h3><div class="prose"><p></p></div><dl></dl>';
       detail.querySelector("h3").textContent = b.t;
       detail.querySelector("p").textContent = b.d;
       const dl = detail.querySelector("dl");
@@ -276,7 +311,7 @@
 
   /* ------------------------------------------------------------------ waves + barrel */
   const CTX = ["--m1", "--m3", "--m4", "--brass"];
-  json("assets/waves.json").then((data) => { waves(data); barrel(data); }).catch((e) => console.error(e));
+  data("waves", "assets/waves.json").then((data) => { waves(data); barrel(data); }).catch((e) => console.error(e));
 
   function niceStep(span) {
     const raw = span / 8, p = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -385,7 +420,7 @@
     const N = 160, rows = 4, commits = data.barrel;
     const byT = new Map(commits.map((x) => [x[0], x]));
     let play = null, at = null;
-    const OUT = ["completes", "waits", "faults"];
+    const OUT = { C: "completes", W: "waits (tries again in its next slot)", F: "faults" };
     function draw() {
       const width = Math.max(c.parentElement.clientWidth, 880);
       c.style.width = width + "px";
@@ -408,7 +443,7 @@
         if (t >= N || (at != null && t > at)) return;
         const col = css(CTX[k]);
         const X = L + t * cw, Y = T + k * rh + 5;
-        if (o === 0) { g.fillStyle = col; g.fillRect(X + 0.5, Y, Math.max(cw - 1, 1.5), rh - 10); }
+        if (o === "C") { g.fillStyle = col; g.fillRect(X + 0.5, Y, Math.max(cw - 1, 1.5), rh - 10); }
         else { g.strokeStyle = col; g.strokeRect(X + 1, Y + 0.5, Math.max(cw - 2, 1), rh - 11); }
       });
       if (at != null) {
@@ -488,10 +523,16 @@
   })();
 
   /* ------------------------------------------------------------------ zoomable die */
-  json("assets/die/die.json").then((info) => { zoom(info); die3d(info); }).catch((e) => {
+  data("die", "assets/die/die.json").then((info) => { zoom(info); die3d(info); }).catch((e) => {
     console.error(e);
-    const f = $("#die3d-fallback"); if (f) f.hidden = false;
+    fallback3d();
   });
+
+  function fallback3d() {
+    $("#die3d-fallback").hidden = false;
+    $("#die3d-hint").hidden = true;
+    $("#die3d .stage-ui").hidden = true;
+  }
 
   function macroName(m, info) {
     return m.box[1] > info.die_um[1] / 2 ? "Tape · SRAM 256 × 32" : "Program memory · SRAM 256 × 32";
@@ -602,7 +643,7 @@
 
   function die3d(info) {
     const stage = $("#die3d");
-    if (!webgl()) { $("#die3d-fallback").hidden = false; $("#die3d-hint").hidden = true; return; }
+    if (!webgl()) { fallback3d(); return; }
     const T = THREE, [W, H] = info.die_um, U = 0.01;     // 1 unit = 100 um
     const renderer = new T.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(DPR());
@@ -610,9 +651,9 @@
     const scene = new T.Scene();
     const cam = new T.PerspectiveCamera(32, 1.6, 0.1, 200);
     cam.up.set(0, 0, 1);
-    cam.position.set(1.5, -15.5, 10.5);
+    cam.position.set(3.2, -13.2, 5.6);
     const ctl = new T.OrbitControls(cam, renderer.domElement);
-    ctl.enableDamping = true; ctl.target.set(0, 0, 0.6);
+    ctl.enableDamping = true; ctl.target.set(0, 0.4, 1.3);
     ctl.minDistance = 4; ctl.maxDistance = 40; ctl.enablePan = false;
     ctl.autoRotate = !reduced; ctl.autoRotateSpeed = 0.35;
     ctl.addEventListener("start", () => { ctl.autoRotate = false; $("#die3d-hint").hidden = true; });
@@ -622,7 +663,8 @@
     edges.position.copy(base.position); scene.add(edges);
     const loader = new T.TextureLoader(), planes = [];
     info.layers.forEach((L, i) => {
-      const tex = loader.load("assets/die/layer_" + L.key + ".png", () => need());
+      const src = (window.ESC && ESC.dieTex && ESC.dieTex[L.key]) || "assets/die/layer_" + L.key + ".png";
+      const tex = loader.load(src, () => need());
       tex.anisotropy = 4;
       const m = new T.MeshBasicMaterial({ color: new T.Color(L.color), alphaMap: tex, transparent: true,
         depthWrite: false, side: T.DoubleSide, opacity: i < 2 ? 0.75 : 0.9 });
@@ -683,7 +725,7 @@
     return (hit ? hit[1] : "standard cell") + " (" + n + ")";
   };
 
-  json("assets/slice.json").then(slice3d).catch((e) => console.error(e));
+  data("slice", "assets/slice.json").then(slice3d).catch((e) => console.error(e));
 
   function slice3d(S) {
     const stage = $("#slice3d");

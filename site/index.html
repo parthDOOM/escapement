@@ -52,7 +52,7 @@
         <img class="fallback" id="die3d-fallback" src="assets/die/die_0_0_0.jpg" alt="The Escapement die: two SRAM macros at opposite corners and about 26,000 standard cells between them" hidden>
         <span class="hint" id="die3d-hint">drag to turn · scroll to zoom</span>
         <div class="stage-ui">
-          <label for="explode">Separate layers <input id="explode" type="range" min="0" max="100" value="35"></label>
+          <label for="explode">Separate layers <input id="explode" type="range" min="0" max="100" value="60"></label>
           <div class="legend" id="die3d-legend" aria-label="Layers"></div>
         </div>
       </div>
@@ -132,13 +132,13 @@ bit:
       <p class="lede">Select a block to see what it does.</p>
     </div>
     <div class="arch">
-      <div class="arch-svg panel"><svg id="arch" viewBox="0 0 760 430" role="group" aria-label="Block diagram"></svg></div>
+      <div class="arch-svg panel"><svg id="arch" viewBox="0 0 1020 390" role="group" aria-label="Block diagram"></svg></div>
       <div class="arch-detail panel" id="arch-detail" aria-live="polite"></div>
     </div>
 
     <div class="sec-head" style="margin-top: 4rem">
       <h3>The barrel</h3>
-      <p class="prose" style="color: var(--fg-2)">Four contexts share one pipeline in fixed slots. Context <i>k</i>
+      <p style="color: var(--fg-2)">Four contexts share one pipeline in fixed slots. Context <i>k</i>
         fetches in every cycle where <i>t</i> mod 4 = <i>k</i> and commits three cycles later. There are no
         stalls between contexts, so a slow protocol in one context never moves another context's edges.
         Below are the first 160 ticks of a real run with four protocols at once.</p>
@@ -149,8 +149,9 @@ bit:
         <button class="icon-btn" id="barrel-play" type="button">play</button>
         <span id="barrel-readout" class="mono" aria-live="polite"></span>
       </div>
-      <figcaption>From the instruction-set simulator running <code>combo_two_banks.asm</code>. An empty
-        cell is a context waiting: its slot stays free and nothing else moves into it.</figcaption>
+      <figcaption>From the instruction-set simulator running <code>combo_two_banks.asm</code>. A filled
+        cell is an instruction that completes; a hollow one waits, for example on a full queue, and is
+        tried again in that context's next slot. No other context ever uses the slot.</figcaption>
     </figure>
   </div>
 </section>
@@ -327,9 +328,12 @@ bit:
   </div>
 </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/controls/OrbitControls.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/utils/BufferGeometryUtils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/utils/BufferGeometryUtils.js"></script>
+<script src="assets/waves.js"></script>
+<script src="assets/slice.js"></script>
+<script src="assets/die/die.js"></script>
 <script src="js/site.js"></script>
 </body>
 </html>

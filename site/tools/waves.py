@@ -1,6 +1,6 @@
 """Waveforms for the site, from the instruction-set simulator and the bus models.
 
-    python site/tools/waves.py site/assets/waves.json
+    python site/tools/waves.py site/assets/waves.json   (also writes waves.js)
 
 Each protocol runs the real firmware on the ISS against the same independent bus model
 the tests use. The pin levels are recorded every tick and stored as change lists. The
@@ -231,7 +231,9 @@ def main(out):
     combo, barrel = two_banks()
     protos.append(combo)
     data = {"tick_ns": TICK_NS, "protocols": protos, "barrel": barrel}
-    Path(out).write_text(json.dumps(data, separators=(",", ":")))
+    text = json.dumps(data, separators=(",", ":"))
+    Path(out).write_text(text)
+    Path(out[:-5] + ".js").write_text("window.ESC = window.ESC || {};\nESC.waves = " + text + ";\n")
     for p in protos:
         print(p["id"], p["result"], sum(len(s["w"]) for s in p["signals"]), "changes",
               [c["status"] for c in p["cert"]])
