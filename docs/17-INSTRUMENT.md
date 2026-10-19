@@ -38,8 +38,10 @@ sigrok-cli capture from the chip with no new driver. PulseView asks for a sample
 a sample count and a trigger. The board streams change records during the window and
 then expands them into samples at the requested rate, so the edges keep the chip's
 40 ns timing whatever rate is chosen. The trigger is the first record whose pins match
-the stage 0 mask and value; the capture is placed around it at PulseView's pre-trigger
-ratio.
+the stage 0 mask and value (the driver offers level triggers, 0 or 1 per channel); the
+capture is placed around it at PulseView's pre-trigger ratio. `sw/tests/test_sump.py`
+runs sigrok-cli 0.7.2 (libsigrok 0.5.2) against the bridge on the simulated board,
+through a pseudo-terminal, and checks the waveform it writes, edge for edge.
 
 ## Files
 

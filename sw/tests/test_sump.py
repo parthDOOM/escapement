@@ -105,26 +105,37 @@ def test_capture_matches_the_pin(groups):
     assert "OVERFLOW" not in br.log[0]
 
 
-@pytest.mark.skipif(sys.platform == "win32" or __import__("shutil").which("sigrok-cli") is None,
-                    reason="needs Linux and sigrok-cli")
+@pytest.mark.skipif(sys.platform == "win32" or __import__("shutil").which("sigrok-cli") is None
+                    or __import__("shutil").which("cc") is None,
+                    reason="needs Linux, a C compiler and sigrok-cli")
 def test_sigrok_cli_captures_through_the_bridge(tmp_path):
     """The real libsigrok `ols` driver, through a pseudo-terminal: sigrok-cli identifies
-    the bridge, captures 2048 samples at 1 MHz triggered on a rising edge of channel 1
-    (uio1; SUMP has no channel names, so libsigrok numbers them), and the VCD it writes
-    shows the square wave, every edge 240 samples apart."""
+    the bridge, captures 2048 samples at 1 MHz triggered on channel 1 high (uio1; SUMP has
+    no channel names, so libsigrok numbers them, and the ols driver has level triggers
+    only), and the VCD it writes shows the square wave, every edge 240 samples apart.
+    libserialport cannot open a pty by itself; pty_serial_shim.c lets it."""
     import subprocess
     from esctape.export import read_vcd
-    srv = subprocess.Popen([sys.executable, str(ROOT / "sw" / "tests" / "sump_pty.py")],
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    try:
-        port = srv.stdout.readline().strip()
-        out = tmp_path / "cap.vcd"
-        r = subprocess.run(["sigrok-cli", "-d", f"ols:conn={port}", "--config", "samplerate=1m",
-                            "--samples", "2048", "-t", "1=r", "-O", "vcd", "-o", str(out)],
-                           capture_output=True, text=True, timeout=600)
-        assert r.returncode == 0, r.stderr
-        recs, names = read_vcd(out, clock_hz=1e6, signals=["1"])
-        e = [t for (t, lv), (_, pv) in zip(recs[1:], recs) if lv != pv]
-        assert len(e) >= 6 and all(b - a == HALF // 25 for a, b in zip(e, e[1:])), recs[:12]
-    finally:
-        srv.kill()
+    shim = tmp_path / "pty_serial_shim.so"
+    subprocess.run(["cc", "-shared", "-fPIC", "-o", str(shim),
+                    str(ROOT / "sw" / "tests" / "pty_serial_shim.c"), "-ldl"], check=True)
+    out = tmp_path / "cap.vcd"
+    # The scan allows the ID reply about 10 ms; a busy machine can miss that, so retry.
+    for attempt in range(3):
+        srv = subprocess.Popen([sys.executable, str(ROOT / "sw" / "tests" / "sump_pty.py")],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            port = srv.stdout.readline().strip()
+            r = subprocess.run(["sigrok-cli", "-d", f"ols:conn={port}", "--config",
+                                "samplerate=1m", "--samples", "2048", "-t", "1=1",
+                                "-O", "vcd", "-o", str(out)],
+                               capture_output=True, text=True, timeout=600,
+                               env={**__import__("os").environ, "LD_PRELOAD": str(shim)})
+        finally:
+            srv.kill()
+        if "No devices found" not in r.stderr:
+            break
+    assert r.returncode == 0, r.stderr
+    recs, names = read_vcd(out, clock_hz=1e6, signals=["1"])
+    e = [t for (t, lv), (_, pv) in zip(recs[1:], recs) if lv != pv]
+    assert len(e) >= 6 and all(b - a == HALF // 25 for a, b in zip(e, e[1:])), recs[:12]

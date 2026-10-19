@@ -1,12 +1,15 @@
 """The SUMP bridge on the simulated demo board behind a pseudo-terminal, so the real
 libsigrok `ols` driver (sigrok-cli, PulseView) can capture from it (Linux/WSL only):
 
+    cc -shared -fPIC -o /tmp/pty_serial_shim.so sw/tests/pty_serial_shim.c -ldl
     python3 sw/tests/sump_pty.py &        # prints the port, e.g. /dev/pts/5
-    sigrok-cli -d ols:conn=/dev/pts/5 --config samplerate=1m --samples 2048 \\
-        -t 1=r -O vcd -o capture.vcd
+    LD_PRELOAD=/tmp/pty_serial_shim.so sigrok-cli -d ols:conn=/dev/pts/5 \\
+        --config samplerate=1m --samples 2048 -t 1=1 -O vcd -o capture.vcd
+
+(libserialport cannot open a pty without the shim; a real board's /dev/ttyACM0 needs none.)
 
 A square wave on uio[1] (HALF ticks low, HALF high) is the signal. The bridge serves
-until the terminal is closed. test_sump.py::test_sigrok_cli_captures_through_the_bridge
+captures one after another until it is stopped (Ctrl-C). test_sump.py::test_sigrok_cli_captures_through_the_bridge
 runs this when sigrok-cli is installed.
 """
 
@@ -17,7 +20,6 @@ import os
 import pty
 import sys
 import termios
-import time
 import tty
 from pathlib import Path
 
@@ -50,21 +52,14 @@ def main():
     attrs[3] &= ~termios.ECHO
     termios.tcsetattr(slave, termios.TCSANOW, attrs)
     print(os.ttyname(slave), flush=True)
-    os.close(slave)                  # the client opens it by name
-    seen = [False]
+    # The client opens the port by name. Keeping this end open makes a read wait for
+    # bytes instead of failing until a client arrives: libsigrok's scan sends the ID
+    # command right after opening and allows the reply about 10 ms.
 
     def rd(n):
         out = b""
         while len(out) < n:
-            try:
-                chunk = os.read(master, n - len(out))
-            except OSError:          # EIO: no client has the port open
-                if seen[0]:
-                    return b""       # the client has gone: stop serving
-                time.sleep(0.05)
-                continue
-            seen[0] = True
-            out += chunk
+            out += os.read(master, n - len(out))
         return out
 
     def wr(data):
@@ -72,9 +67,8 @@ def main():
 
     br = sump.Bridge(b, bundle, rd, wr)
     while br.step():
-        pass
-    for line in br.log:
-        print(line, file=sys.stderr)
+        while br.log:
+            print(br.log.pop(0), file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":
