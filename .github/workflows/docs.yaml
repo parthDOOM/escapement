@@ -2,6 +2,7 @@ name: docs
 
 on:
   push:
+    branches: ['**']        # not on tags: a release tag reruns nothing
   workflow_dispatch:
 
 jobs:

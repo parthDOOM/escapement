@@ -70,7 +70,8 @@ lint:
 	cd test/rtl_unit && $(MAKE) lint
 
 formal: formal-quick
-	cd formal && $(PYTHON) split_core.py --jobs $(JOBS) $(if $(FORMAL_JSON),--json $(abspath $(FORMAL_JSON)))
+	cd formal && $(PYTHON) split_core.py --jobs $(JOBS) $(if $(FORMAL_TIMEOUT),--timeout $(FORMAL_TIMEOUT)) \
+	  $(if $(FORMAL_JSON),--json $(abspath $(FORMAL_JSON)))
 
 formal-quick:
 	cd formal && sby -f esc_core.sby bmc && sby -f esc_core.sby cover \

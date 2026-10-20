@@ -6,6 +6,7 @@ name: mutation
 
 on:
   push:
+    branches: ['**']        # not on tags: a release tag reruns nothing
     paths:
       - 'src/**'
       - 'test/**'
@@ -69,7 +70,7 @@ jobs:
 
   summary:
     needs: shard
-    if: always()
+    if: ${{ !cancelled() }}  # failed shards still report; a cancelled run does not
     runs-on: ubuntu-24.04
     steps:
       - name: checkout repo

@@ -7,6 +7,7 @@ name: gds
 
 on:
   push:
+    branches: ['**']        # not on tags: a release tag reruns nothing
     # Harden only when something that affects the GDS or the GL test changes
     # (a harden takes hours; docs/03-PHYSICAL-DESIGN.md).
     paths:

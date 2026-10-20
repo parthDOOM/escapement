@@ -6,6 +6,7 @@ name: formal
 
 on:
   push:
+    branches: ['**']        # not on tags: a release tag reruns nothing
     paths:
       - 'src/**'
       - 'formal/**'
@@ -24,7 +25,9 @@ jobs:
       - uses: ./.github/actions/oss-cad-suite
 
       - name: Proofs
-        run: make formal JOBS=4 PYTHON=python3 FORMAL_JSON=results/formal-split.json
+        # PDR run times vary between machines: a task that takes 18 min locally took over an
+        # hour on the 4-vCPU runner, so CI allows each task 3 hours
+        run: make formal JOBS=4 FORMAL_TIMEOUT=10800 PYTHON=python3 FORMAL_JSON=results/formal-split.json
 
       - name: Summary
         if: always()
