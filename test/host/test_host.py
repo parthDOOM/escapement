@@ -244,6 +244,45 @@ async def test_tape_read_stale_sets_host_error(dut):
 
 
 @cocotb.test()
+async def test_tape_read_stale_first_word(dut):
+    """The first word of a READ_TAPE is checked too. The frame ends before the last byte of
+    that word, where the engine would fetch (and check) the next word, so only the first
+    word's fetch can set host error here."""
+    host, spi, _ = await setup(dut, half=4)
+    await host.write_tape(0x10, [0x12345678])
+    dut.running.value = 1
+    dut.core_busy.value = 1
+    await spi.xfer(bytes((0x14, 0x10, 0x00, 0x00, 0x00, 0x00)))   # READ_TAPE, addr, 4 of 5 bytes
+    dut.core_busy.value = 0
+    s = await host.clear_err()                   # status byte before the clear
+    assert s["host_err"], s
+
+
+@cocotb.test()
+async def test_reset_clears_config_and_keeps_memories(dut):
+    """sec. 9: a reset clears the configuration, fires no strobe, starts nothing, and writes
+    no memory word: the program store and the tape keep what was loaded before it."""
+    host, _, pulses = await setup(dut)
+    imem = [(0x9E3779B9 * (i + 3)) & 0xFFFFFFFF for i in range(8)]
+    tape = [(0x85EBCA6B * (i + 5)) & 0xFFFFFFFF for i in range(8)]
+    await host.write_imem(0, imem)
+    await host.write_tape(0, tape)
+    await host.write_cfg(0b1111, 0x44332211, 0x1FFF, 0x3FFFFFF, 0xFF, 0b1111)
+    seen = (pulses.start, pulses.stop, len(pulses.irq_clear), len(pulses.push), len(pulses.pop))
+    dut.rst_n.value = 0
+    await ClockCycles(dut.clk, 3)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 8)
+    for s in ("ctx_enable", "entry_pcs", "pin_owned", "pin_owner", "pin_od", "ctx_bank"):
+        assert int(getattr(dut, s).value) == 0, s
+    assert (pulses.start, pulses.stop, len(pulses.irq_clear), len(pulses.push), len(pulses.pop)) == seen
+    s = await host.status()
+    assert not s["host_err"] and not s["running"], s
+    assert await host.read_imem(0, 8) == imem
+    assert await host.read_tape(0, 8) == tape
+
+
+@cocotb.test()
 async def test_tape_ack(dut):
     """TAPE_ACK gives one tape_ack strobe with the byte, while running or stopped."""
     host, _, _ = await setup(dut)

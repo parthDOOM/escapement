@@ -33,6 +33,8 @@ harden-*.log
 formal/esc_v11p.sby
 test/cosim/results_*.xml
 test/results_*.xml
+# CI summaries for the results page (scripts/ci_summary.py)
+/results/
 # demo-board bundles and model traces (sw/rp2350/make_bundle.py)
 /bundles/
 /traces/

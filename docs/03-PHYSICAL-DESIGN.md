@@ -35,12 +35,35 @@ with the pinned toolchain (258 minutes on a standard public runner). Version 1.2
 25,864 cells, 58.9%, fast-corner hold +0.068 ns) had 1,886 more cells than version 1.1:
 1,154 hold buffers from the larger hold margin, and 732 for pin bank B and its repair
 buffers. Version 1.3 adds the streaming logic (D-32) for 67 more cells, and needs 79 more
-hold buffers after global routing (see below).
+hold buffers after global routing (see below). The GitHub Actions harden of version 1.3
+(run 39246310949, commit `d49044a`) reproduced `v13b` metric for metric, with the same
+netlist (sha256 `54236b4f…`).
 
 Corners: `nom_slow_1p08V_125C`, `nom_typ_1p20V_25C`, `nom_fast_1p32V_m40C`. The
 remaining design-rule warnings are 123 max-slew and 29 max-capacitance nets at the slow
 corner. They cause no timing violations. The worst are nets that the detailed router
 detours around the congested horizontal layer: one 375 µm connection is routed as 1.8 mm.
+
+**Frequency headroom.** 25 MHz is the rating at the slow corner with margin to spare (D-5),
+not the limit of the layout. Static timing analysis of the final v13b netlist with its
+extracted parasitics (OpenSTA, the sign-off constraints with the period shortened and the
+20% I/O delays scaled with it) finds the shortest period at which setup still holds:
+
+| Corner | Shortest passing period | Clock | Fails at |
+| --- | ---: | ---: | ---: |
+| Slow, 1.08 V, 125 °C | 28.5 ns | 35 MHz | 28 ns |
+| Typical, 1.20 V, 25 °C | 18 ns | 55 MHz | 17.5 ns |
+| Fast, 1.32 V, −40 °C | 12 ns | 83 MHz | 11 ns |
+
+Hold slack does not depend on the period. At every corner the limiting path is the
+enable of a clock-gated register bank (D-29a): it starts at one flip-flop, passes the
+gate's latch while the clock is low (see below) and must reach the gate's AND cell before
+the next rising edge. At the fast corner flip-flop paths from the same source fail at
+nearly the same period. Firmware takes the tick length as a
+constant (`CLK_KHZ` in the timing tables, and the tick counts in hand-written programs), so
+a faster board clock needs only rebuilt firmware, not a new chip. These figures leave out
+the Tiny Tapeout multiplexer and pads, whose delays the flow does not model (the Tiny
+Tapeout clock specification gives 66 MHz).
 
 ## Floorplan
 

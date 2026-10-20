@@ -48,9 +48,9 @@ export function ProofTable() {
           <tr><td>Random programs with the host reading the tape during the run</td><td className="num">60</td><td>7,598 words, 0 mismatches</td></tr>
           <tr><td>Commits compared tick by tick</td><td className="num">155,416</td><td>0 mismatches</td></tr>
           <tr><td>Firmware with independent bus models</td><td className="num">15</td><td>all decoded</td></tr>
-          <tr><td>Planted RTL faults (mutants)</td><td className="num">35</td><td>35 caught</td></tr>
+          <tr><td>Planted RTL faults (mutants)</td><td className="num">431</td><td>403 caught, 10 proved equivalent, 0 surviving</td></tr>
           <tr><td>Software tests: assembler, simulator, certificates, models</td><td className="num">293</td><td>pass</td></tr>
-          <tr><td>Chip tests on the final gate-level netlist</td><td className="num">11</td><td>pass</td></tr>
+          <tr><td>Chip tests on the final gate-level netlist</td><td className="num">12</td><td>pass</td></tr>
           <tr><td>Netlist against RTL, sequential equivalence</td><td className="num">332 bits</td><td>proved</td></tr>
         </tbody>
       </table>

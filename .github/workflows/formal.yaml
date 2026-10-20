@@ -1,0 +1,48 @@
+name: formal
+
+# Every SymbiYosys proof (docs/04-VERIFICATION.md): formal-quick (bounded core, cover,
+# never late per context, clock gates, configuration), then the unbounded core proof with
+# one PDR task per assertion. The result goes to the results page on the site.
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'formal/**'
+      - 'Makefile'
+      - '.github/workflows/formal.yaml'
+  workflow_dispatch:
+
+jobs:
+  formal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+
+      - uses: ./.github/actions/oss-cad-suite
+
+      - name: Proofs
+        run: make formal JOBS=4 PYTHON=python3 FORMAL_JSON=results/formal-split.json
+
+      - name: Summary
+        if: always()
+        run: python3 scripts/ci_summary.py results/summary.json formal formal results/formal-split.json
+
+      - name: Upload summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-summary-formal
+          path: results/summary.json
+
+      - name: Upload proof logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: formal-logs
+          path: |
+            formal/*/logfile.txt
+            formal/*/status
+            results/formal-split.json

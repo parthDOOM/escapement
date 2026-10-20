@@ -1,0 +1,81 @@
+name: equivalence
+
+# After every successful gds run on master, the gate-level netlist it produced is proved
+# sequentially equivalent to the RTL of the same commit (formal/equiv.sh). The result goes
+# to the results page on the site.
+
+on:
+  workflow_run:
+    workflows: [gds]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  equivalence:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: The gds run and its commit
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = workflow_run ]; then
+            echo "id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            gh run list -R "$GITHUB_REPOSITORY" -w gds -b master -s success -L 1 \
+              --json databaseId,headSha -q '.[0] | "id=\(.databaseId)\nsha=\(.headSha)"' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: checkout repo
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.run.outputs.sha }}
+
+      - name: Netlist from that run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "${{ steps.run.outputs.id }}" -R "$GITHUB_REPOSITORY" -n tt_submission -D gds
+          find gds -name 'tt_um_escapement.v' -path '*tt_submission*' | head -1 > netlist_path
+          test -s netlist_path
+
+      - name: Standard-cell liberty at the pinned PDK commit
+        run: |
+          git clone -q --filter=blob:none --no-checkout https://github.com/IHP-GmbH/IHP-Open-PDK pdk
+          cd pdk
+          git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/'
+          git checkout -q 2bbec755dc67ca3db0261c3d6163e15735d66710
+
+      - uses: ./.github/actions/oss-cad-suite
+
+      - name: Equivalence
+        run: |
+          set -o pipefail
+          PDK_ROOT="$PWD/pdk" bash formal/equiv.sh "$(cat netlist_path)" 2>&1 | tee equiv.log
+
+      - name: Summary
+        if: always()
+        run: python3 scripts/ci_summary.py results/summary.json equiv equiv.log
+
+      - name: Upload summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-summary-equivalence
+          path: results/summary.json
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: equivalence-logs
+          path: |
+            equiv.log
+            formal/equiv_build/*.log

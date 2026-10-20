@@ -2,7 +2,7 @@
 """The unbounded core proof (esc_core.sby `pdr`), split into one SymbiYosys task per
 assertion and run in parallel.
 
-    python3 split_core.py [--jobs N] [--timeout SECONDS]      (from formal/)
+    python3 split_core.py [--jobs N] [--timeout SECONDS] [--json FILE]      (from formal/)
 
 One ABC PDR run over every assertion proves them one at a time on one core. Here each
 task keeps the assertions written on one source line (a `for` loop gives several) and
@@ -17,6 +17,7 @@ named NAME, so each serves as a lemma for the others. Proving more assertions in
 task never makes a result unsound either.
 """
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -79,6 +80,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     ap.add_argument("--timeout", type=int, default=3600, help="seconds per task")
+    ap.add_argument("--json", help="also write each task's result to this file")
     a = ap.parse_args()
 
     sec = sections(SBY.read_text())
@@ -110,7 +112,7 @@ def main():
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     wall = time.time() - t0
 
-    worst = 0
+    worst, record = 0, []
     for n in names:
         (f, ln), more = tasks[n][0], len(tasks[n]) - 1
         d = HERE / f"esc_core_split_{n}"
@@ -121,7 +123,13 @@ def main():
         text = src[f][ln - 1].strip() if not more else f"group {n}: {f}:{ln} and {more} more"
         print(f"{status:8s} {secs:>6s} s  {f}:{ln:<4d} {text[:70]}")
         worst = max(worst, {"PASS": 0, "UNKNOWN": 1, "TIMEOUT": 1}.get(status, 2))
+        record.append({"task": n, "where": [f"{g}:{k}" for g, k in tasks[n]], "status": status,
+                       "secs": int(secs) if secs.isdigit() else None, "text": text})
     print(f"wall time {wall:.0f} s")
+    if a.json:
+        Path(a.json).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.json).write_text(json.dumps({"engine": "abc pdr", "jobs": a.jobs, "wall_secs": round(wall),
+                                            "tasks": record}, indent=1) + "\n")
     return worst
 
 

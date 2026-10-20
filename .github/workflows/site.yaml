@@ -17,8 +17,9 @@ on:
       - 'isa/**'
       - 'docs/02-ISA.md'
       - '.github/workflows/site.yaml'
+  # After each verification workflow, so the results page shows its latest run
   workflow_run:
-    workflows: [gds]
+    workflows: [gds, test, formal, equivalence, mutation]
     types: [completed]
     branches: [master]
   workflow_dispatch:
@@ -35,7 +36,8 @@ concurrency:
 
 jobs:
   build:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    # a failed verification run is shown on the results page too; a cancelled one changes nothing
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-24.04
     env:
       NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -78,6 +80,11 @@ jobs:
           GDS=$(cat gds_path)
           python site/tools/die_assets.py "$GDS" site/public/die
           python site/tools/slice_model.py "$GDS" site/public/data/slice.json
+
+      - name: Results page data (latest master run of each verification workflow)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python site/tools/ci_results.py site/public/data/ci.json
 
       - name: Build
         working-directory: site

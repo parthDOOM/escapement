@@ -7,3 +7,4 @@ public/data/isa.json
 public/data/runs/
 node_modules/
 dist/
+public/data/ci.json

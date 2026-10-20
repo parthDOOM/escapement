@@ -37,6 +37,17 @@ jobs:
           paths: "test/results.xml"
         if: always()
 
+      - name: Results page summary
+        if: always()
+        run: python3 scripts/ci_summary.py results/summary.json junit "Chip tests on the RTL" test/results.xml
+
+      - name: Upload results page summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-summary-test
+          path: results/summary.json
+
       - name: upload waveform and test results
         if: success() || failure()
         uses: actions/upload-artifact@v7
@@ -69,10 +80,14 @@ jobs:
         run: pip install -r test/requirements.txt pytest-xdist==3.8.0
 
       - name: Software tests
-        run: make sw-test
+        run: |
+          mkdir -p results
+          make sw-test PYTEST_ARGS="--junitxml=$PWD/results/sw.xml"
 
       - name: Timing certificates
-        run: make cert
+        run: |
+          set -o pipefail
+          make cert | tee results/cert.log
 
       - name: Co-simulation
         run: make cosim-parallel JOBS=4
@@ -81,3 +96,19 @@ jobs:
         run: |
           make pin-test
           ! grep failure test/results_pins.xml
+
+      - name: Results page summary
+        if: always()
+        run: |
+          S=results/summary.json
+          python3 scripts/ci_summary.py $S junit "Software tests" results/sw.xml
+          python3 scripts/ci_summary.py $S cert results/cert.log
+          python3 scripts/ci_summary.py $S junit "RTL against the model, lockstep" test/cosim/results_*.xml
+          python3 scripts/ci_summary.py $S junit "Firmware through the chip pins" test/results_pins.xml
+
+      - name: Upload results page summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-summary-verification
+          path: results/summary.json

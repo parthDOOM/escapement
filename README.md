@@ -1,6 +1,7 @@
 # Escapement
 
-**A programmable protocol engine that never runs late silently.**
+**No pin edge is ever late, whatever program runs. Proved, for every program, on the
+netlist that goes to silicon.**
 
 Escapement is a protocol emulator ASIC for the
 [Jane Street protocol emulator competition](https://blog.janestreet.com/protocol-emulator-asic-competition/),
@@ -8,6 +9,19 @@ built for IHP's 130 nm SG13CMOS5L process through Tiny Tapeout. Firmware schedul
 changes at absolute clock ticks. Each change is **admitted or refused when it is queued**:
 an admitted event happens on its exact tick, and an impossible one raises a visible fault
 instead of a late edge.
+
+The guarantee is in the hardware, not in a tool that vets programs:
+
+- **Every program.** The formal proof of "never late" (P2) leaves the program memory a
+  free input, so it covers every program anyone will ever load, not one firmware image
+  at a time. A program nobody has analysed still cannot make a late edge; at worst it is
+  refused with a fault that says why.
+- **For all time.** The proof is unbounded, from reset through counter wrap.
+- **On the silicon's netlist.** The gate-level netlist from the sign-off flow is proved
+  sequentially equivalent to the RTL, so the proved design is the one that is fabricated.
+
+These proofs run in CI on every change; the [results page](https://parthdoom.github.io/escapement/#results)
+shows their last runs.
 
 UART, SPI (controller and target), I2C, CAN, PS/2, WS2812, 1-Wire, JTAG, ARM SWD, NEC
 infrared and whole devices such as a 24C02 EEPROM or a 25xx SPI memory are firmware.
@@ -74,11 +88,11 @@ flowchart LR
 | | |
 | --- | --- |
 | Process | IHP SG13CMOS5L (130 nm), Tiny Tapeout, **6×4 tiles** (1289.28 × 710.64 µm) |
-| Clock | 25 MHz, timing met at all three corners |
+| Clock | 25 MHz rated, timing met at all three corners; the layout meets timing up to 35 MHz at the slow corner and 55 MHz at the typical one |
 | Physical | 25,931 cells and two SRAM macros, 59.7% utilisation; LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
 | Power | 3.0 mW sending UART, 2.3 mW stopped (typical corner) |
 | Firmware | 25 programs, five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
-| Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 35 of 35 RTL mutants killed; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
+| Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 403 of 431 RTL mutants killed and none surviving (10 proved equivalent, 18 excluded with a written argument); the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 
 Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),
 [power](docs/15-POWER.md), [measurements](asic/reports/area.csv).

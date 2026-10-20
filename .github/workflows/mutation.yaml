@@ -1,0 +1,121 @@
+name: mutation
+
+# The mutation campaign (test/mutation/run_mutants.py): every curated and generated RTL
+# mutant against the test suites that can see it, in eight shards; a mutant no test kills
+# is checked formally against the original RTL. The result goes to the results page.
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'sw/esciss/**'
+      - 'sw/escasm/**'
+      - 'formal/equiv.sh'
+      - '.github/workflows/mutation.yaml'
+  workflow_dispatch:
+
+jobs:
+  shard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+
+      # yosys and ABC only, for the equivalence check of survivors; the simulator is the
+      # distribution's Icarus Verilog, as in the test workflow
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          tools: yosys yosys-abc
+
+      - name: Install iverilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: Setup python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install Python packages
+        run: pip install -r test/requirements.txt
+
+      - name: Standard-cell liberty at the pinned PDK commit
+        run: |
+          git clone -q --filter=blob:none --no-checkout https://github.com/IHP-GmbH/IHP-Open-PDK pdk
+          cd pdk
+          git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/'
+          git checkout -q 2bbec755dc67ca3db0261c3d6163e15735d66710
+
+      - name: Mutants
+        env:
+          PDK_ROOT: ${{ github.workspace }}/pdk
+          EQUIV_LIMIT: '3600'
+        run: |
+          mkdir -p results
+          python test/mutation/run_mutants.py --shard ${{ matrix.shard }}/8 --jobs 4 \
+            --json results/mutation-${{ matrix.shard }}.json
+
+      - name: Upload shard result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-shard-${{ matrix.shard }}
+          path: results/mutation-${{ matrix.shard }}.json
+
+  summary:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+
+      - name: Shard results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mutation-shard-*
+          path: shards
+          merge-multiple: true
+
+      - name: Merge
+        run: |
+          python3 - <<'EOF'
+          import glob, json
+          from collections import Counter
+          res = []
+          for f in sorted(glob.glob("shards/mutation-*.json")):
+              res += json.load(open(f))["results"]
+          counts = Counter(r["result"] for r in res)
+          json.dump({"counts": dict(counts), "shards": len(glob.glob("shards/mutation-*.json")), "results": res},
+                    open("mutation.json", "w"), indent=1)
+          print(dict(counts))
+          for r in res:
+              if r["result"] in ("SURVIVED", "BADPATCH", "COMPILE-ERROR"):
+                  print(r["result"], r["id"], r["desc"])
+          EOF
+
+      - name: Results page summary
+        run: python3 scripts/ci_summary.py results/summary.json mutation mutation.json
+
+      - name: Upload results page summary
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-summary-mutation
+          path: results/summary.json
+
+      - name: Upload merged results
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-results
+          path: mutation.json
+
+      - name: Every mutant killed or proved equivalent
+        run: |
+          python3 -c "import json,sys; c=json.load(open('mutation.json'))['counts']; \
+            sys.exit(1 if c.get('SURVIVED',0) or c.get('BADPATCH',0) or c.get('COMPILE-ERROR',0) or \
+            json.load(open('mutation.json'))['shards'] != 8 else 0)"

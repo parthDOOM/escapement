@@ -1,0 +1,44 @@
+name: OSS CAD Suite
+description: The pinned OSS CAD Suite release (scripts/versions.txt), cached, on the PATH.
+
+inputs:
+  tools:
+    description: >
+      Space-separated tools to put on the PATH (for example "yosys yosys-abc"), so the
+      suite's own Python and simulators do not shadow the job's. Empty: the whole suite.
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Cache
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/oss-cad-suite
+        key: oss-cad-suite-linux-x64-20261004
+
+    - name: Download
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        curl -sSfL -o /tmp/oss-cad-suite.tgz \
+          https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-10-04/oss-cad-suite-linux-x64-20261004.tgz
+        tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
+        rm /tmp/oss-cad-suite.tgz
+
+    - name: PATH
+      shell: bash
+      env:
+        TOOLS: ${{ inputs.tools }}
+      run: |
+        if [ -z "$TOOLS" ]; then
+          echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
+        else
+          mkdir -p "$HOME/oss-cad-tools"
+          for t in $TOOLS; do
+            printf '#!/bin/sh\nexec "%s" "$@"\n' "$HOME/oss-cad-suite/bin/$t" > "$HOME/oss-cad-tools/$t"
+            chmod +x "$HOME/oss-cad-tools/$t"
+          done
+          echo "$HOME/oss-cad-tools" >> "$GITHUB_PATH"
+        fi

@@ -6,6 +6,7 @@ import Arch from "./components/Arch";
 import Barrel from "./components/Barrel";
 import Isa from "./components/Isa";
 import Proof, { ProofTable } from "./components/Proof";
+import CiResults from "./components/CiResults";
 import { History, Power } from "./components/Power";
 import Pinout from "./components/Pinout";
 import { scrollToSection, useVisible } from "./lib/util";
@@ -70,9 +71,12 @@ export default function App() {
             <div>
               <p className="eyebrow">Protocol emulator ASIC · IHP SG13CMOS5L 130 nm · Tiny Tapeout 6×4</p>
               <h1>Escape<em>ment</em></h1>
+              <p className="claim">No pin edge is ever late, whatever program runs.
+                <a href="#proof">Proved for every program, on the netlist that goes to silicon.</a></p>
               <p className="lede">A chip that speaks UART, SPI, I2C, CAN, JTAG, ARM SWD and more, with none of them
                 built into the hardware. Firmware schedules every pin change for an exact 40 ns tick. The chip makes
-                that tick, or refuses the change when it is queued. It never runs late.</p>
+                that tick, or refuses the change when it is queued. The guarantee is in the silicon, not in a tool
+                that vets programs: one nobody has checked still cannot make a late edge.</p>
               <div className="hero-cta">
                 <a className="run-btn" href="#play">Run the firmware</a>
                 <a className="icon-btn" href="#inside">How it works</a>
@@ -83,7 +87,7 @@ export default function App() {
                 <div><b>13</b><span>protocol pins, two banks</span></div>
                 <div><b>25</b><span>firmware programs</span></div>
                 <div><b>3.1 mW</b><span>sending UART</span></div>
-                <div><b>0</b><span>late edges, proved for all time</span></div>
+                <div><b>0</b><span>late edges, for any program, for all time</span></div>
               </div>
             </div>
             <Later h={420}><Die3D /></Later>
@@ -198,6 +202,12 @@ export default function App() {
                 are proved for every reachable state instead.</p>
             </div>
             <Proof />
+            <div className="sub-head" id="results">
+              <h3>Checked on every change</h3>
+              <p>Each proof and test runs in GitHub Actions on every change it depends on. These are the latest runs on
+                master, with their commits and logs.</p>
+            </div>
+            <CiResults />
             <div className="cols" style={{ marginTop: "3rem" }}>
               <div className="prose">
                 <h3>Two models in lockstep</h3>
@@ -208,7 +218,10 @@ export default function App() {
                 <p>A 32-bit <strong>execution digest</strong> folds every commit, register write and pin change of a
                   run into one word. After a run on silicon, one SPI read compares the chip with the model's
                   prediction.</p>
-                <p>To check the tests themselves, 35 one-line faults were planted in the RTL. All 35 were caught.</p>
+                <p>To check the tests themselves, 431 faults are planted in the RTL one at a time, across every
+                  module. The tests catch 403. Of the rest, 10 are proved to change no output of the chip, and 18
+                  are excluded with a written reason, such as logic the never-late proof shows can never run. None
+                  survives. The 57 that first slipped through led to nine new tests.</p>
               </div>
               <ProofTable />
             </div>

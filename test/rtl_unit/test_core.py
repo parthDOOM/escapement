@@ -51,6 +51,11 @@ class Env:
     async def reset(self):
         d = self.dut
         Clock(d.clk, 40, unit="ns").start()
+        # a real falling edge: the behavioural register models clear on negedge rst_n, and a
+        # clock-gated bank sees no clock edge while its enable is low (silicon flops reset on
+        # the level; tb_core starts rst_n at 0, which is no edge)
+        d.rst_n.value = 1
+        await Timer(1, unit="ns")
         d.rst_n.value = 0
         for name in ("start", "stop", "ld_en", "ld_we", "lb"):
             getattr(d, name).value = 0
@@ -658,6 +663,35 @@ async def test_sample_geti(dut):
     assert (env.commit_at(35)["r1"], env.commit_at(35)["z"]) == (0, 1)
 
 
+@cocotb.test()
+async def test_geti_ignores_retired_sample(dut):
+    """GETI waits only for SAMPLEs still in the FIFO: an entry slot keeps its old contents
+    after it retires, so a retired SAMPLE one slot past the tail must not count."""
+    env = await new_env(dut)
+    src = """
+    .entry 0, s
+    .own 0, 0
+    s: ADDT 40          ; t3
+       EMIT 1, 0, 1     ; t7   slot 0, d 40
+       ADDT 1           ; t11
+       SAMPLE 2, LSB    ; t15  slot 1, d 41
+       ADDT 1           ; t19
+       EMIT 1, 0, 1     ; t23  slot 2, d 42
+       ADDT 1           ; t27
+       EMIT 1, 0, 1     ; t31  slot 3, d 43; all four retire at E_40..E_43: head 0, count 0
+       ADDT 100         ; t35
+       NOP              ; t39
+       NOP              ; t43
+       EMIT 1, 0, 1     ; t47  slot 0, d 143: count 1, slot 1 still holds the old SAMPLE
+       GETI r0          ; t51  no SAMPLE queued: completes
+       HALT             ; t55
+    """
+    await env.load_and_start(src)
+    await env.run(60)
+    assert env.commit_at(51)["oc"] == C, env.commit_summary()[-4:]
+    assert env.commit_at(55)["pc"] == 13
+
+
 # --------------------------------------------------------------------------- sec. 6.4
 @cocotb.test()
 async def test_expect_checker(dut):
@@ -849,6 +883,120 @@ async def test_start_reinitialises_context(dut):
     await env.run(8)
     c = env.commit_at(3)
     assert (c["r0"], c["r1"], c["r2"], c["r3"], c["sh"], c["tmr"]) == (0, 0, 0, 0, 0, 0), c
+
+
+# --------------------------------------------------------------------------- sec. 9 Reset
+# Every observable register before the first START. A host can read the debug selects
+# over SPI at any time, so a wrong reset value is a visible bug, not a hidden one; the
+# runs above always START first, which hides it.
+RESET_SEL = {9: 0xFFFF0000,             # min_lead 0xFFFF, wait_full 0, as after START
+             16: 0xFFFFFFFF}            # dg (sec. 10.1); every other select reads 0
+
+
+@cocotb.test()
+async def test_reset_state(dut):
+    env = await new_env(dut)
+    await env.run(6, full=True)
+    tr = env.trace
+    assert all((r["out"], r["oe"], r["running"], r["state"], r["fv"], r["irqp"]) == (0, 0, 0, 0, 0, 0)
+               for r in tr), tr[0]
+    assert all((r["rxf"], r["txe"]) == (0, 0xF) for r in tr), (tr[0]["rxf"], tr[0]["txe"])
+    bad = {}
+    for s in range(32):
+        for k in range(4):
+            dut.dbg_sel.value, dut.dbg_sel_ctx.value = s, k
+            await Timer(1, unit="ns")
+            v = dut.dbg_rdata.value
+            if not v.is_resolvable or int(v) != RESET_SEL.get(s, 0):
+                bad[f"sel {s} ctx {k}"] = str(v)
+    assert not bad, sorted({(k.split()[1], v if "X" not in v else "X") for k, v in bad.items()})
+
+
+# --------------------------------------------------------------------------- sec. 7.1 flags
+@cocotb.test()
+async def test_logic_zero_flag(dut):
+    """Z of AND/OR/XOR is the result == 0, not the adder's: 0x80000000 | 0x80000000 sums to
+    0 mod 2^32 but is not zero."""
+    env = await new_env(dut)
+    await env.load_and_start("""
+    .entry 0, s
+    s: MOVI r0, 0          ; 0 t3
+       MOVHI r0, 0x8000    ; 1 t7   r0 = 0x80000000
+       MOV r1, r0          ; 2 t11
+       OR r0, r1           ; 3 t15  0x80000000, Z 0
+       XOR r1, r1          ; 4 t19  0, Z 1
+       MOV r1, r0          ; 5 t23
+       AND r0, r1          ; 6 t27  0x80000000, Z 0
+       HALT
+    """)
+    await env.run(40)
+    assert (env.commit_at(15)["r0"], env.commit_at(15)["z"]) == (0x80000000, 0)
+    assert (env.commit_at(19)["r1"], env.commit_at(19)["z"]) == (0, 1)
+    assert (env.commit_at(27)["r0"], env.commit_at(27)["z"]) == (0x80000000, 0)
+
+
+# --------------------------------------------------------------------------- sec. 7 PC_RANGE
+@cocotb.test()
+async def test_taken_branch_at_255(dut):
+    """A taken JC, JNC or DJNZ at PC 255 is not sequential, so it must not fault PC_RANGE
+    (test_pc_range covers JMP and a not-taken JZ)."""
+    env = await new_env(dut)
+    cases = [
+        ("s: CMPI r0, 1\nJMP b", "b: JC t"),       # 0 < 1: C = 1, taken
+        ("s: NOP\nJMP b", "b: JNC t"),             # C = 0 after start, taken
+        ("s: LDLC 2\nJMP b", "b: DJNZ t"),         # lc 2 -> 1, taken
+    ]
+    for head, at255 in cases:
+        await env.load_and_start(f".entry 0, s\n{head}\n.org 16\nt: HALT\n.org 255\n{at255}")
+        await env.run(20)
+        assert env.commit_summary()[2:4] == [(11, 0, 255, C), (15, 0, 16, C)], (at255, env.commit_summary())
+        assert await env.rd(14) == 0, at255
+
+
+# --------------------------------------------------------------------------- D-29b
+@cocotb.test()
+async def test_program_store_reads_on_demand(dut):
+    """D-29b: the program store is read only in the fetch slot of a running context, so a
+    one-context program leaves it idle three cycles in four, and a stopped chip leaves it
+    idle (a power claim: docs/15-POWER.md)."""
+    env = await new_env(dut)
+    await env.load_and_start(".entry 0, s\ns: JMP s")
+    re = []
+    for _ in range(40):
+        re.append(int(dut.imem_re.value))
+        await FallingEdge(dut.clk)
+    # context 0 fetches in cycles t = 0 mod 4 of the run (sec. 3)
+    assert re == [1 if t % 4 == 0 else 0 for t in range(40)], re
+    dut.stop.value = 1
+    await FallingEdge(dut.clk)
+    dut.stop.value = 0
+    for _ in range(8):
+        await FallingEdge(dut.clk)
+        assert int(dut.imem_re.value) == 0
+
+
+# --------------------------------------------------------------------------- sec. 9 Stop, 10.1
+@cocotb.test()
+async def test_digest_frozen_by_stop(dut):
+    """sec. 9: after STOP `dg` stops changing, although STOP itself releases driven pins
+    (an output change that would fold into the digest during a run)."""
+    env = await new_env(dut)
+    await env.load_and_start("""
+    .entry 0, s
+    .own 0, 0
+    s: ADDT 10
+       EMIT 1, 1, 1         ; drive pin 0 high
+    l: JMP l
+    """)
+
+    def stim(t):
+        dut.stop.value = 1 if t == 40 else 0
+
+    await env.run(60, stim=stim, sels=[(16, 0)])
+    tr = env.trace
+    assert tr[39]["oe"] == 1 and tr[45]["oe"] == 0      # driven before STOP, released after
+    frozen = {tr[t]["sel"][(16, 0)] for t in range(41, 60)}
+    assert len(frozen) == 1, [hex(v) for v in sorted(frozen)]
 
 
 # --------------------------------------------------------------------------- sec. 7.2 IRQ, sec. 10 v1.0.1

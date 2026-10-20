@@ -14,6 +14,7 @@ can catch a mistake the others miss:
 | On-chip telemetry and digest | The silicon checks the certificates and the model | [architecture](01-ARCHITECTURE.md) |
 | Gate-level simulation | The hardened netlist behaves like the RTL | `test/` with `GATES=yes` |
 | Equivalence checking | The hardened netlist equals the RTL for every input sequence | `formal/equiv.sh` |
+| Continuous integration | Every check above reruns on each change it depends on | `.github/workflows`, [results page](https://parthdoom.github.io/escapement/#results) |
 
 ## Two implementations of one specification
 
@@ -132,11 +133,25 @@ afterwards, as is every other input.
 
 ## Mutation testing
 
-`test/mutation/run_mutants.py` applies one-line faults to a copy of `src/`: inverted
-comparisons, off-by-one deadlines and pointers, a dropped polynomial term in the digest,
-a missing GETI wait, broken tape forwarding, capture rule changes and clock-gate enable
-errors. Each mutant runs against the co-simulation first; if that misses it, the
-directed unit suite runs too, and the report says which one caught it.
+`test/mutation/run_mutants.py` plants one fault at a time in a copy of `src/` and runs
+the test suites that can see the mutated file, cheapest first, until one fails: the
+lockstep co-simulation, the core unit tests, the host interface tests, the chip tests and
+the firmware-through-the-pins tests. A suite that hangs counts as a kill.
+
+The campaign has 431 mutants across the whole RTL. Thirty-five are written by hand, each
+aimed at one feature (below). The other 396 are generated (`test/mutation/generate.py`):
+every synthesisable line outside the formal blocks is scanned for classic fault sites
+(a comparison or logic operator swapped, an inversion dropped, an arithmetic operator
+swapped, a constant changed, an `if` condition negated, a register that keeps its value
+instead of taking an assignment), and a site is chosen when a hash of its file, operator
+and line text falls under a fixed rate, so editing one line changes only that line's
+mutants.
+
+A mutant that every suite misses is then checked formally against the original RTL with
+`formal/equiv.sh`: if no input sequence ever makes any chip output differ, it is
+**equivalent**, and no test could kill it. Otherwise it is a test hole.
+
+The hand-written mutants:
 
 Eight mutants target pin bank B: a DRIVE landing one pin off, a released output going
 low, a context reading the other bank, ownership checked against the wrong bank, a fault
@@ -148,9 +163,50 @@ point one record late, TAPE_ACK ignored, arming that keeps the old read pointer,
 stream that stops at the limit instead of wrapping, a drain that loses the port to the
 host, and debug select 20 not showing the read pointer.
 
-**Result: 35 of 35 mutants killed.** Thirty-four are caught by the co-simulation. One
-clock-gate mutant (START not clearing `tmr`) is caught only by the directed suite, and
-the report keeps that visible.
+and the original twenty: inverted comparisons, off-by-one deadlines and pointers, a
+dropped polynomial term in the digest, a missing GETI wait, broken tape forwarding,
+capture rule changes and clock-gate enable errors.
+
+**Result: 403 of 431 mutants killed, none surviving.**
+
+| Outcome | Mutants |
+| --- | ---: |
+| Killed by the lockstep co-simulation | 294 |
+| Killed by the host interface tests | 80 |
+| Killed by the core unit tests | 24 |
+| Killed by the chip tests | 4 |
+| Killed by the firmware-through-the-pins tests | 1 |
+| Proved equivalent (`formal/equiv.sh`): no chip output can differ | 10 |
+| Excluded, each with its written argument in `run_mutants.py` | 18 |
+
+**The campaign found test holes, now closed.** With the tests as they were, 57
+mutants survived. Each was read against the RTL; the holes they showed were closed with
+nine new tests, which kill 29 of them:
+
+- *Nothing read the chip between reset and its first START.* A host can read every debug
+  select over SPI at any time, so a wrong reset value is a visible bug. `test_reset_state`
+  reads all of them after reset; the host test checks that a reset clears the
+  configuration, fires no strobe and writes no memory word, and that both memories keep
+  their contents.
+- *Edge cases random programs rarely reach:* the Z flag of OR and AND when the operands'
+  sum wraps to zero (`0x80000000 | 0x80000000`), a taken JC, JNC or DJNZ at PC 255 (not
+  sequential, so no PC_RANGE fault), GETI next to a retired SAMPLE that still sits one slot
+  past the FIFO tail, the stale-fetch error on the first word of a tape read, and the
+  digest after a STOP that releases driven pins.
+- *A power claim with no test:* a one-context program reads the program store one cycle
+  in four, and a stopped chip never (D-29b).
+- *The attention pin* `uo_out[1]`, IRQ or fault, for an IRQ alone and for a fault alone.
+
+Writing the reset test also showed that the unit testbench never gave reset a falling
+edge, so the behavioural model of a clock-gated register could stay unknown after reset
+in simulation; silicon flip-flops reset on the level. The testbench now does.
+
+**The 18 exclusions** are mutants that the equivalence check did not decide within its
+time limit and that change no behaviour by argument: three act only when a FIFO head is
+past its deadline, which P2 proves never happens; two change tie-offs of the SRAM macro's
+configuration pins that have no function in any model; thirteen change the reset or idle
+value of state that is always loaded before anything reads it (the capture unit's
+snapshot flag and staging word, the host engine's data, address and context registers).
 
 ## Timing certificates
 
@@ -232,11 +288,11 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | Suite | Tests | Result |
 | --- | ---: | --- |
 | Software (`make sw-test`): assembler, simulator, certificates, models, tape tools, capture export and SUMP bridge, bring-up script | 293 | Pass (2 need `sigrok-cli`) |
-| Chip level on the RTL (`make test`) | 6 | Pass |
-| Chip level on the final gate-level netlist (`make gl-test`) | 6 | Pass |
+| Chip level on the RTL (`make test`) | 7 | Pass |
+| Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Co-simulation (`make cosim`) | 7 | Pass |
-| Host interface (`make host-test`) | 14 | Pass |
-| Core unit tests (`make unit-test`) | 22 | Pass |
+| Host interface (`make host-test`) | 16 | Pass |
+| Core unit tests (`make unit-test`) | 28 | Pass |
 | Newer firmware (SWD, SPI target, NEC, both pin banks at once) through the chip pins (`make pin-test`, `make gl-pin-test`) | 5 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
@@ -256,6 +312,25 @@ the commits, register values and pin changes of the model.
   not; its Fast-mode margin is measured against our controller model only.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
 
+## In CI
+
+Every check above runs on GitHub Actions whenever something it depends on changes, and the
+[results page](https://parthdoom.github.io/escapement/#results) shows the latest run of each
+on master, with its commit and log, failures included.
+
+| Workflow | Runs on | Checks |
+| --- | --- | --- |
+| `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, firmware through the pins |
+| `formal` | a change to `src/` or `formal/` | `make formal`: formal-quick, then the unbounded core proof as one PDR task per assertion |
+| `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in eight shards, with the equivalence check of survivors |
+| `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
+| `equivalence` | each successful `gds` run on master | that run's netlist against the RTL of its commit (`formal/equiv.sh`) |
+
+Each job writes a summary (`scripts/ci_summary.py`); the site's build collects the
+summaries of the latest master runs (`site/tools/ci_results.py`) and rebuilds after each of
+these workflows. The formal and equivalence jobs use the OSS CAD Suite release pinned in
+`scripts/versions.txt`, and the equivalence job the standard-cell liberty of the pinned PDK.
+
 ## Rerunning
 
 ```sh
@@ -265,7 +340,7 @@ make gl-test gl-pin-test                                         # the same chip
 make formal-quick                                                # bounded core proof, cover, never-late, clock gate
 make formal JOBS=8                                               # adds the unbounded core proof (~20 min)
 make equiv                                                       # final netlist equals the RTL (~4 min)
-make mutation JOBS=8                                             # mutation campaign, 8 mutants at a time
+make mutation JOBS=8                                             # mutation campaign, 8 mutants at a time (~2 h)
 ```
 
 The suites run in parallel where they can: `sw-test` uses every core when pytest-xdist is

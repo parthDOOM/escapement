@@ -10,7 +10,9 @@
 # netlist's renamed, duplicated and inverted registers need no mapping file.
 #
 # Usage: formal/equiv.sh [NETLIST] [OUT_DIR]
-#   NETLIST  default test/gate_level_netlist.v (the tt_submission netlist, as for gl-test)
+#   NETLIST  default test/gate_level_netlist.v (the tt_submission netlist, as for gl-test);
+#            a directory instead is read as a second RTL tree (the mutation campaign uses
+#            this to prove that a mutant no test kills changes no output)
 #   OUT_DIR  default formal/equiv_build
 # Needs yosys and yosys-abc (OSS CAD Suite) and PDK_ROOT pointing at the IHP PDK.
 set -euo pipefail
@@ -18,7 +20,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 NET=$(realpath "${1:-$ROOT/test/gate_level_netlist.v}")
 OUT=${2:-$ROOT/formal/equiv_build}
 [ -n "${LIB:-}" ] || [ -n "${PDK_ROOT:-}" ] || { echo "equiv.sh: set PDK_ROOT (or LIB to the stdcell liberty)" >&2; exit 2; }
-[ -f "$NET" ] || { echo "equiv.sh: no netlist at $NET" >&2; exit 2; }
+[ -e "$NET" ] || { echo "equiv.sh: no netlist at $NET" >&2; exit 2; }
 LIB=${LIB:-$PDK_ROOT/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/sg13cmos5l_stdcell_typ_1p20V_25C.lib}
 SRC=$ROOT/src
 RTL="$SRC/project.v $SRC/escapement_host.v $SRC/escapement_sram.v $SRC/esc_core.v $SRC/esc_ctx.v $SRC/esc_cap.v $SRC/esc_greg.v"
@@ -36,10 +38,15 @@ $PREP
 rename tt_um_escapement gold
 write_rtlil gold.il"
 
+if [ -d "$NET" ]; then
+  READ_GATE="read_verilog -DSCL_sg13cmos5l_stdcell ${RTL//$SRC/$NET}"
+else
+  READ_GATE="read_verilog $NET"
+fi
 yosys -q -l gate.log -p "
 read_liberty -ignore_miss_func -ignore_miss_dir $LIB
 read_verilog -lib $STUB
-read_verilog $NET
+$READ_GATE
 $PREP
 rename tt_um_escapement gate
 write_rtlil gate.il"

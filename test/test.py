@@ -104,6 +104,28 @@ async def test_identity_over_spi(dut):
 
 
 @cocotb.test()
+async def test_attention_pin(dut):
+    """uo_out[1] is IRQ-or-fault (docs/info.md): high for an IRQ alone, low again after
+    IRQ_CLEAR, and high for a fault alone."""
+    host = await bring_up(dut, Board())
+    attn = lambda: (int(dut.uo_out.value) >> 1) & 1   # noqa: E731
+    assert attn() == 0
+    await host.load(assemble(".entry 0, s\ns: IRQ 0x5A\nHALT"))
+    await host.start()
+    await ClockCycles(dut.clk, 40)
+    assert attn() == 1 and (await host.read_dbg(0, 14)) >> 31 == 0     # IRQ, no fault
+    await host.irq_clear(0x1)
+    await ClockCycles(dut.clk, 8)
+    assert attn() == 0
+    await host.stop()
+    await host.write_imem(0, [0])            # ILLEGAL at the entry (load() skips zero words)
+    await host.start()
+    await ClockCycles(dut.clk, 40)
+    assert attn() == 1 and (await host.read_dbg(0, 13)) & 0x100 == 0      # fault, no IRQ
+    await host.stop()
+
+
+@cocotb.test()
 async def test_load_and_run_uart_tx(dut):
     """Load firmware over SPI (with readback verify), run it, decode UART on uio[0]."""
     rx = UartRx(0, 25e6 / 115200)

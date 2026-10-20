@@ -33,7 +33,7 @@ env:
 
 # Uses every core when pytest-xdist is installed.
 sw-test:
-	cd sw && $(PYTHON) -m pytest -q $$($(PYTHON) -c "import xdist" 2>/dev/null && echo "-n auto") tests
+	cd sw && $(PYTHON) -m pytest -q $$($(PYTHON) -c "import xdist" 2>/dev/null && echo "-n auto") $(PYTEST_ARGS) tests
 
 cert:
 	@cd sw && for f in $(FIRMWARE); do echo "== $$f"; $(PYTHON) -m escert ../$$f || exit 1; done
@@ -70,7 +70,7 @@ lint:
 	cd test/rtl_unit && $(MAKE) lint
 
 formal: formal-quick
-	cd formal && $(PYTHON) split_core.py --jobs $(JOBS)
+	cd formal && $(PYTHON) split_core.py --jobs $(JOBS) $(if $(FORMAL_JSON),--json $(abspath $(FORMAL_JSON)))
 
 formal-quick:
 	cd formal && sby -f esc_core.sby bmc && sby -f esc_core.sby cover \
