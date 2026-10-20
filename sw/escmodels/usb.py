@@ -296,16 +296,25 @@ class UsbHost:
     Helpers below (`in_txn`, `control_read`, ...) are written as such scripts, so tests
     compose them with `yield from`. Every device packet is checked here: its EOP (SE0 of
     1.25-1.5 us, then J), its stuffing, and the turnaround (2 to 6.5 bit times, USB 2.0
-    7.1.18.1). Rule breaks are collected in `errors`.
+    7.1.18.1). The device may drive the bus only to answer: from a listen to the end of
+    its packet's EOP. Rule breaks are collected in `errors`; every answer is in `replies`.
+
+    `rate` is the host's own bit time in ticks (default `period`): USB allows a low-speed
+    host 1.5% either way (7.1.11).
     """
 
-    def __init__(self, period: int = 16, dp: int = 0, dm: int = 1, gap: int = 2):
+    def __init__(self, period: int = 16, dp: int = 0, dm: int = 1, gap: int = 2,
+                 rate: Optional[float] = None):
         self.p, self.dp, self.dm = period, dp, dm
+        self.rate = float(period if rate is None else rate)
         self.gap = gap                     # bit times of J the host leaves before sending
         self.drive: dict[int, str] = {}
         self.states: list[str] = []
         self.errors: list[str] = []
+        self.replies: list[Reply] = []
         self.log: list[tuple[int, str, str]] = []
+        self._dev_end: Optional[int] = None
+        self._rogue = False
         self.done = False
         self.result = None
         self._gen = None
@@ -330,6 +339,11 @@ class UsbHost:
             bus_dm, chip = (uio_out >> self.dm) & 1, True
         if chip and h is not None:
             self.errors.append(f"t={t}: host and device drive the bus together")
+        rogue = (chip and self._listen is None and t >= 0
+                 and (self._dev_end is None or t > self._dev_end + self.p + 2))
+        if rogue and not self._rogue:                      # once per incident
+            self.errors.append(f"t={t}: the device drives the bus unprompted")
+        self._rogue = rogue
         if t >= 0:
             self._t = t
             st = state(bus_dp, bus_dm)
@@ -358,15 +372,14 @@ class UsbHost:
         if kind == "idle":
             self._wake = t + max(1, arg)
         elif kind == "send":
-            u = t + 1
-            for s in arg:
-                for _ in range(self.p):
+            edge = [t + 1 + round(i * self.rate) for i in range(len(arg) + 1)]
+            for i, s in enumerate(arg):
+                for u in range(edge[i], edge[i + 1]):
                     self.drive[u] = s
-                    u += 1
             n = len(arg)
             if n >= 2 and arg[-1] == J and arg[-2] == SE0:
-                self._host_eop_j = t + 1 + (n - 1) * self.p
-            self._wake = u
+                self._host_eop_j = edge[n - 1]
+            self._wake = edge[n]
         elif kind == "listen":
             self._listen = t + arg
             self._sop = None
@@ -406,14 +419,17 @@ class UsbHost:
                 self.errors.append(f"t={t}: device packet error {pkt.error}")
             self.log.append((self._sop, "dev", pkt.name))
             self._listen = None
-            self._resume(Reply(pkt, ta))
+            self._dev_end = t
+            self.replies.append(Reply(pkt, ta))
+            self._resume(self.replies[-1])
 
 
 # ----------------------------------------------------------------------------- host scripts
 
 
 def send(h: UsbHost, bits: list[int], name: str):
-    yield ("idle", h.gap * h.p)
+    gap = h.gap() if callable(h.gap) else h.gap          # bit times; a callable draws each one
+    yield ("idle", round(gap * h.p))
     h.log.append((h._t + 1, "host", name))
     yield ("send", line(bits))
 
@@ -424,15 +440,17 @@ def listen(h: UsbHost, bits: float = 18):
     return r
 
 
-def in_txn(h: UsbHost, addr: int, ep: int):
-    """IN transaction: the device's DATA (ACKed here), NAK, STALL, or None."""
+def in_txn(h: UsbHost, addr: int, ep: int, ack: bool = True):
+    """IN transaction: the device's DATA (ACKed here unless `ack` is False, as when the
+    host's ACK is lost), NAK, STALL, or None."""
     yield from send(h, token("IN", addr, ep), f"IN {addr}.{ep}")
     r = yield from listen(h)
     if r is not None and r.packet.name in ("DATA0", "DATA1"):
         if not r.packet.crc16_ok():
             h.errors.append(f"t={h._t}: device DATA with a bad CRC")
             return r
-        yield from send(h, handshake("ACK"), "ACK")
+        if ack:
+            yield from send(h, handshake("ACK"), "ACK")
     return r
 
 

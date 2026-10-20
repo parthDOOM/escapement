@@ -978,7 +978,7 @@ class Machine:
 
     # ------------------------------------------------------------------ §6.2 admission
 
-    def _admit(self, x: Context, k: int, cm: Commit, e: Entry, c: int, q: list[Entry]) -> None:
+    def _admit(self, x: Context, k: int, cm: Commit, e: Entry, c: int, q: list[Entry]) -> bool:
         if len(q) == FIFO_DEPTH:                                        # 1
             self._wait(cm, full=True)
         if e.kind in (DRIVE, EXPECT) and e.mask == 0:                   # 2
@@ -995,6 +995,9 @@ class Machine:
             if lu.engaged():
                 self._wait(cm)
         if not ahead(e.deadline, c):                                    # 4
+            if e.kind == LINE:                                          # v1.4: a late SEND
+                cm.z = 0                                                # is dropped
+                return False
             self._fail(cm, "ADMIT", "PAST")
         if q and not ahead(e.deadline, q[-1].deadline):                 # 5
             self._fail(cm, "ADMIT", "ORDER")
@@ -1005,6 +1008,7 @@ class Machine:
         cm.occupancy = len(q) + 1
         if e.kind == EXPECT:
             cm.expect_end = (e.deadline + e.window) & M32
+        return True
 
     # ------------------------------------------------------------------ trace / summary
 
@@ -1310,8 +1314,9 @@ def _SAMPLE(m, x, k, cm, f, c, sync, q, ca):
 
 def _SEND(m, x, k, cm, f, c, sync, q, ca):
     v = cm.r[f["rs"]]
-    m._admit(x, k, cm, Entry(LINE, cm.tmr, cmd=v & 0xFFFFFF), c, q)
-    cm.lu_op = ("SEND", v, k)                         # only reached on COMPLETE
+    if m._admit(x, k, cm, Entry(LINE, cm.tmr, cmd=v & 0xFFFFFF), c, q):
+        cm.z = 1
+        cm.lu_op = ("SEND", v, k)                     # admitted; Z = 0 if dropped
 
 
 # ---- §7.7 line unit (v1.4)

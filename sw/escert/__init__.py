@@ -5,6 +5,27 @@ OVERLAP) can occur for ANY input behaviour, and give a lower bound on the
 hardware's own `min_lead` telemetry. The chip measures `min_lead`, so every certificate
 is falsifiable on RTL, gates and silicon: a measurement below the bound is a checker bug.
 
+Line unit (v1.4). The zone also holds `lue`, the end tick of the unit's current or last
+job, `lua`, the tick the receiver was last armed, and `ge`, the end tick the last GETL
+returned. The unit is abstracted as idle, armed (a reception may be under way: its end
+is an input), own (a job the program started: CONFIG ends at c + 9, CRC at c + nb, a
+packet after its deadline) or unknown. GETL completes in the first slot after the job's
+end, or at its timeout. SEND is an event that is dropped (Z = 0) instead of faulting
+when late, so a late reply is never a fault; escert reports reply timing separately:
+
+    for every SEND, on paths where the line was quiet while the firmware was busy
+    (the packet being answered ended after its GETL began waiting), the bound on
+    deadline - ge (the reply time) and on the lead;
+    for every GETL that waits on a reception, the most ticks from the arm to the
+    start of the wait (W): a packet that ends more than W after the arm is answered
+    on time.
+
+Paths where a packet ended, or bits arrived, while the firmware was not waiting are
+followed too (they may drop a reply, never fault), and are counted apart. To know which
+LINE operation runs, a context that uses the line unit reads tape words that no STT can
+write and no receive buffer covers as constants (the host must not write them during
+the run).
+
 Method: the firmware of one context is a timed automaton, analysed with ZONES
 (difference-bound matrices, as in UPPAAL; Dill 1989, Bengtsson & Yi 2004). Contexts
 cannot affect each other's timing (fixed barrel slots); pins, tape and mailbox data are
@@ -50,6 +71,8 @@ INF = float("inf")
 SLOT = 4
 HALF = 1 << 31
 WIDEN_AFTER = 4
+WIDEN_AFTER_LINE = 32       # line unit contexts: reply bounds meet at loops entered from many
+                            # sites, and joins there need more visits to settle exactly
 MAX_KEYS_PER_PC = 48
 THRESHOLDS = (-HALF, -65536, -1024, -256, -64, -16, 0, 16, 64, 256, 1024, 65536, HALF - 1)
 
@@ -57,8 +80,11 @@ NOW, TMR = 0, 1
 R = [2, 3, 4, 5]
 F = [6, 7, 8, 9]
 LEE = 10
-NV = 11
+LUE, LUA, GE = 11, 12, 13     # line unit: job end, receiver armed, end returned by GETL
+SCR = 14                      # scratch: the commit tick before a wait (see _align)
+NV = 15
 EVENTS = {"EMIT", "EMITR", "EMITX", "EXPECT", "SAMPLE"}
+LINE_OPS = {"LINE", "SEND", "GETL"}
 
 # --------------------------------------------------------------------------- DBM
 
@@ -174,17 +200,20 @@ class St:
     zf: Optional[int]                # Z flag if known
     lr: frozenset
     lee: bool                        # an EXPECT has been admitted
+    lu: str = "idle"                 # line unit: idle | armed | own | top
+    stale: bool = False              # the line was busy while the firmware was not waiting
 
     def copy(self) -> "St":
         return St(self.z.copy(), list(self.reg), list(self.fifo), self.lc, self.zf,
-                  self.lr, self.lee)
+                  self.lr, self.lee, self.lu, self.stale)
 
     def key(self, pc: int):
         consts = tuple(r if (r[0] == "const" and r[1] == r[2]) else (r[0],) for r in self.reg)
-        return (pc, self.lc, self.zf, tuple(k for _, k in self.fifo), consts, self.lee)
+        return (pc, self.lc, self.zf, tuple(k for _, k in self.fifo), consts, self.lee,
+                self.lu, self.stale)
 
     def coarse_key(self, pc: int):
-        return (pc, tuple(k for _, k in self.fifo), self.lee)
+        return (pc, tuple(k for _, k in self.fifo), self.lee, self.lu, self.stale)
 
     def free_slot(self) -> int:
         used = {s for s, _ in self.fifo}
@@ -212,7 +241,8 @@ def join_st(a: St, b: St, widen: bool) -> St:
         if r[0] != "time":
             z.free(R[i])
     return St(z, reg, list(a.fifo), a.lc if a.lc == b.lc else None,
-              a.zf if a.zf == b.zf else None, a.lr | b.lr, a.lee or b.lee)
+              a.zf if a.zf == b.zf else None, a.lr | b.lr, a.lee or b.lee,
+              a.lu if a.lu == b.lu else "top", a.stale or b.stale)
 
 
 def rename_fifo(s: St, slots: list) -> Zone:
@@ -244,15 +274,52 @@ class Cert:
     states: int = 0
     findings: list = field(default_factory=list)
     witness: Optional[dict] = None
+    sends: dict = field(default_factory=dict)   # pc -> SendSite
+    getls: dict = field(default_factory=dict)   # pc -> W (arm to wait, quiet line), ticks
+
+    def line_report(self) -> list[str]:
+        out = []
+        for pc in sorted(self.sends):
+            x = self.sends[pc]
+            if x.lead == INF:
+                out.append(f"  SEND pc {pc}: only after the line was busy unwaited"
+                           + (" (may be dropped)" if x.drop_stale else ""))
+                continue
+            turn = (_fmt(x.turn[0]) if x.turn[0] == x.turn[1]
+                    else f"[{_fmt(x.turn[0])}, {_fmt(x.turn[1])}]")
+            state = "MAY DROP on a quiet line" if x.drop else "on time"
+            out.append(f"  SEND pc {pc}: deadline = ge + {turn}, lead >= {_fmt(x.lead)}: {state}"
+                       + ("; may be dropped if the line was busy unwaited" if x.drop_stale else ""))
+        for pc in sorted(self.getls):
+            w = self.getls[pc]
+            out.append(f"  GETL pc {pc}: waits within {_fmt(w)} ticks of the arm or its last timeout")
+        return out
+
+    @property
+    def replies_on_time(self) -> bool:
+        return all(not x.drop for x in self.sends.values())
 
     def __str__(self) -> str:
         head = f"ctx {self.ctx}: {self.status}"
         if self.status == "CHECKED":
             ml = int(self.min_lead) if self.min_lead < INF else "inf"
-            return f"{head}, min_lead >= {ml} ({self.events} event sites, {self.states} states)"
+            text = f"{head}, min_lead >= {ml} ({self.events} event sites, {self.states} states)"
+            return "\n".join([text] + self.line_report())
         f = self.findings[0] if self.findings else None
         w = f" witness {self.witness}" if self.witness else ""
         return head + (f" at pc {f.pc}: {f.kind} {f.note}" if f else "") + w
+
+
+def _fmt(v: float) -> str:
+    return str(int(v)) if abs(v) < INF else ("inf" if v > 0 else "-inf")
+
+
+@dataclass
+class SendSite:
+    lead: float = INF                 # min lead over quiet-line paths
+    turn: tuple = (INF, -INF)         # deadline - ge over quiet-line paths
+    drop: bool = False                # a quiet-line path may drop the reply
+    drop_stale: bool = False          # a path where the line was busy unwaited may
 
 # --------------------------------------------------------------------------- analysis
 
@@ -294,7 +361,7 @@ def timing_regs(image: Image) -> set:
     for pc, (n, f) in enumerate(code):
         if n == "RDTIME":
             rel.add(f["rd"])
-        elif n in ("SETT", "ADDTR"):
+        elif n in ("SETT", "ADDTR", "LINE"):
             rel.add(f["rs"])
         elif n in ("CMP", "CMPI", "TSTI"):
             rel.add(f["rd"])
@@ -369,6 +436,203 @@ def _advance(s: St, lo: float, hi: float) -> Optional[St]:
     return s
 
 
+def _signed(v: float) -> float:
+    """A 32-bit constant added to a time: arithmetic is modulo 2^32, so 0xFFFFFFF0 is -16."""
+    return v - (1 << 32) if HALF <= v <= 0xFFFFFFFF else v
+
+
+def _writes(name: str, f: dict) -> Optional[int]:
+    """The register an instruction writes, if any."""
+    if name in ("CMP", "CMPI", "TSTI", "STT") or name is None:
+        return None
+    if name == "LDT":
+        return f["ra"]
+    return f.get("rd")
+
+
+def _reach(image: Image, ctx: int) -> set:
+    """Instructions reachable in the control-flow graph (every branch both ways, RET to
+    every CALL's return address)."""
+    rets = {pc + 1 for pc, w in enumerate(image.words) if _decode(w)[0] == "CALL"}
+    seen, todo = set(), [image.entry_pcs[ctx]]
+    while todo:
+        pc = todo.pop()
+        if pc in seen or not 0 <= pc <= 255:
+            continue
+        seen.add(pc)
+        name, f = _decode(image.words[pc])
+        if name is None or name == "HALT":
+            continue
+        if name == "JMP":
+            todo.append(f["target"])
+        elif name in ("JZ", "JNZ", "JC", "JNC", "DJNZ"):
+            todo += [f["target"], pc + 1]
+        elif name == "CALL":
+            todo.append(f["target"])
+        elif name == "RET":
+            todo += list(rets)
+        else:
+            todo.append(pc + 1)
+    return seen
+
+
+_PURE_WRITE = {"MOVI", "MOV", "LDT", "POP", "GETL", "GETI", "GETC", "GETP", "GETX", "RDTIME",
+               "STSH"}
+
+
+def _reads(name: str, f: dict) -> set:
+    """Registers an instruction reads."""
+    r = {f[k] for k in ("rs", "rb") if k in f}
+    if name == "STT":
+        r.add(f["ra"])
+    if "rd" in f and name not in _PURE_WRITE:
+        r.add(f["rd"])
+    return r
+
+
+def _liveness(image: Image, ctx: int) -> dict:
+    """Registers live on entry to each reachable instruction (read before written on
+    some path). A dead register cannot affect anything, so the analysis forgets it."""
+    reach = _reach(image, ctx)
+    code = {pc: _decode(image.words[pc]) for pc in reach}
+    rets = [pc + 1 for pc, (n, _) in code.items() if n == "CALL"]
+    succ = {pc: [q for q in _succ(image.words, pc, n, f, rets) if q in reach]
+            for pc, (n, f) in code.items()}
+    live = {pc: set() for pc in reach}
+    changed = True
+    while changed:
+        changed = False
+        for pc in sorted(reach, reverse=True):
+            n, f = code[pc]
+            out = set().union(*(live[q] for q in succ[pc])) if succ[pc] else set()
+            w = _writes(n, f)
+            new = _reads(n, f) | (out - ({w} if w is not None else set()))
+            if new != live[pc]:
+                live[pc] = new
+                changed = True
+    return live
+
+
+def _loop_heads(image: Image, ctx: int) -> set:
+    """Targets of back edges in a depth-first walk of the control-flow graph. Every
+    cycle contains one, so widening only there still makes the analysis terminate,
+    and joins elsewhere stay exact."""
+    reach = _reach(image, ctx)
+    code = {pc: _decode(image.words[pc]) for pc in reach}
+    rets = [pc + 1 for pc, (n, _) in code.items() if n == "CALL"]
+    succ = {pc: [q for q in _succ(image.words, pc, n, f, rets) if q in reach]
+            for pc, (n, f) in code.items()}
+    heads, state = set(), {}
+    stack = [(image.entry_pcs[ctx], iter(succ.get(image.entry_pcs[ctx], [])))]
+    state[image.entry_pcs[ctx]] = 1                      # 1 on the stack, 2 done
+    while stack:
+        pc, it = stack[-1]
+        q = next(it, None)
+        if q is None:
+            state[pc] = 2
+            stack.pop()
+        elif state.get(q) == 1:
+            heads.add(q)
+        elif q not in state:
+            state[q] = 1
+            stack.append((q, iter(succ[q])))
+    return heads
+
+
+def _uses_line(image: Image, ctx: int) -> bool:
+    return any(_decode(image.words[pc])[0] in LINE_OPS for pc in _reach(image, ctx))
+
+
+def _fixed_regs(image: Image, ctx: int) -> set:
+    """Registers no reachable instruction of the context writes: they hold 0 (sec. 9)."""
+    written = {_writes(*_decode(image.words[pc])) for pc in _reach(image, ctx)}
+    return {r for r in range(4) if r not in written}
+
+
+def const_tape(image: Image) -> dict:
+    """Tape words that keep their image value for the whole run: set by .tape, never the
+    target of an STT (every STT's base register must be fixed, so its address is its
+    immediate), outside every receive buffer a constant RECV word names, and with no
+    capture unit in use. Empty if any of that cannot be shown. The host is assumed not
+    to write the tape during the run."""
+    written: set = set()
+    for k, en in enumerate(image.ctx_enable):
+        if not en:
+            continue
+        fixed = _fixed_regs(image, k)
+        for pc in _reach(image, k):
+            name, f = _decode(image.words[pc])
+            if name == "CAPT":
+                return {}
+            if name == "STT":
+                if f["rb"] not in fixed:
+                    return {}
+                written.add(f["imm"])
+    cand = {a: image.tape[a] for a in image.tape_used if a not in written}
+    for a, v in list(cand.items()):
+        if (v >> 28) == 1:                       # a RECV command: its buffer may change
+            nbytes = ((v >> 8) & 31) or 32
+            for i in range((8 * nbytes + 31) // 32):
+                written.add(((v & 0xFF) + i) & 0xFF)
+    return {a: v for a, v in cand.items() if a not in written}
+
+
+def _mark(t: St) -> St:
+    t.z.assign(SCR, NOW, 0)
+    return t
+
+
+def _align(t: St) -> bool:
+    """A context commits only in its own slots, 4 ticks apart, so the time a wait took is
+    a multiple of 4: round its bounds inward. False if no multiple fits."""
+    lo, hi = t.z.diff(NOW, SCR)
+    ok = True
+    if hi < INF:
+        ok = t.z.constrain(NOW, SCR, (hi // SLOT) * SLOT)
+    if ok and lo > -INF:
+        ok = t.z.constrain(SCR, NOW, -(-(-lo // SLOT) * SLOT))
+    t.z.free(SCR)
+    return ok
+
+
+def _lu_wait(s: St) -> list:
+    """A LINE (not OFF) or SEND waits while the line unit is engaged. Returns the states
+    at its commit (now = the commit tick)."""
+    if s.lu == "idle":
+        return [s.copy()]
+    out = []
+    if s.lu == "own":
+        t = s.copy()
+        if t.z.constrain(LUE, NOW, -1):          # ended before this cycle
+            out.append(t)
+        t = _mark(s.copy())
+        if t.z.constrain(NOW, LUE, 0):           # still running: the first slot after it
+            t.z.assign(NOW, LUE, 1)
+            _advance(t, 0, 3)
+            if _align(t):
+                out.append(t)
+        return out
+    out.append(s.copy())                         # armed but not receiving: no wait
+    t = s.copy()                                 # a reception under way: wait for its end
+    _advance(t, 0, INF)
+    if t.z.constrain(LUE, NOW, -1):
+        if s.lu == "armed":
+            t.stale = True
+        out.append(t)
+    return out
+
+
+def _port_waits(lu: str) -> list:
+    """(lo, hi, stale) waits of the owner's LDT/STT on line unit tape accesses: CONFIG
+    reads in its next two slots, a packet or CRC job reads one word at a time, and a
+    reception writes one word per 32 bits received."""
+    if lu == "idle":
+        return [(0, 0, False)]
+    if lu == "armed":
+        return [(0, 0, False), (0, SLOT, True)]
+    return [(0, 2 * SLOT, False)]
+
+
 def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     words = image.words
     z0 = Zone()
@@ -377,11 +641,27 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     first = ctx + 3
     z0.d[TMR][NOW], z0.d[NOW][TMR] = -first, first
     tracked = timing_regs(image)
+    live_at = _liveness(image, ctx)
+    heads = _loop_heads(image, ctx)
+    lu_ctx = _uses_line(image, ctx)
+    widen_after = WIDEN_AFTER_LINE if lu_ctx else WIDEN_AFTER
+    if lu_ctx:
+        z0.d[LUE][NOW], z0.d[NOW][LUE] = -first, first  # e = 0 until a job ends
+        # tape walks over constant tables: their base registers matter
+        tracked |= {_decode(image.words[pc])[1]["rb"] for pc in _reach(image, ctx)
+                    if _decode(image.words[pc])[0] == "LDT"}
+    fixed = _fixed_regs(image, ctx)
+    consts = const_tape(image) if lu_ctx else {}
+    lu_users = [k for k, en in enumerate(image.ctx_enable) if en and _uses_line(image, k)]
+    claimed = [0, False]                         # pins a CONFIG claims; unknown config seen
+    emit_masks: set = set()
     init = St(z0, [("const", 0, 0) if i in tracked else ("top",) for i in range(4)], [], 0, 0,
               frozenset({0}), False)
     for i in range(4):
         init.z.free(R[i])
     cert = Cert(ctx, "CHECKED")
+    if lu_ctx and len(lu_users) > 1:
+        cert.findings.append(Finding(-1, "OWNER", f"contexts {lu_users} all use the line unit"))
     seen: dict = {}
     visits: dict = {}
     keys_at: dict = {}
@@ -400,6 +680,11 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
         if not 0 <= pc <= 255:
             flag(pc, "RANGE", "control leaves memory")
             return
+        live = live_at.get(pc, range(4))
+        for i in range(4):
+            if i not in live and s.reg[i] != ("top",):
+                s.reg[i] = ("top",)
+                s.z.free(R[i])
         for t in _retire_split(s):
             key = t.key(pc)
             ks = keys_at.setdefault(pc, set())
@@ -416,7 +701,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                         and t.lr <= old.lr:
                     continue
                 visits[key] = visits.get(key, 0) + 1
-                t = join_st(old, t, widen=visits[key] > WIDEN_AFTER)
+                t = join_st(old, t, widen=visits[key] > widen_after and pc in heads)
                 if not t.z.canon():
                     continue
             seen[key] = t
@@ -473,14 +758,14 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             sign = -1 if name == "SUB" else 1
             rd = f["rd"]
             if a[0] == "time" and b[0] == "const" and b[1] == b[2]:
-                s.z.shift(R[rd], sign * b[1])
+                s.z.shift(R[rd], sign * _signed(b[1]))
                 s.zf = None
             elif name == "SUB" and a[0] == b[0] == "time":
                 lo, hi = s.z.diff(R[rd], R[f["rs"]])
                 setreg(rd, ("const", lo, hi))
                 s.zf = int(lo == hi == 0) if lo == hi else None
             elif name != "SUB" and a[0] == "const" and b[0] == "time" and a[1] == a[2]:
-                s.z.assign(R[rd], R[f["rs"]], a[1])
+                s.z.assign(R[rd], R[f["rs"]], _signed(a[1]))
                 setreg(rd, ("time",))
                 s.zf = None
             elif a[0] == b[0] == "const":
@@ -510,7 +795,10 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             setreg(f["rd"], ("top",))
             s.zf = None
         elif name == "LDT":
-            setreg(f["ra"], ("top",))
+            base = ("const", 0, 0) if f["rb"] in fixed else s.reg[f["rb"]]
+            v = (consts.get((int(base[1]) + f["imm"]) & 0xFF)
+                 if base[0] == "const" and base[1] == base[2] else None)
+            setreg(f["ra"], ("top",) if v is None else ("const", v, v))
         elif name in ("WAITP", "RXREADY", "TXREADY"):
             s.zf = None                              # Z is written from an input
         elif name == "RDTIME":
@@ -560,7 +848,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
         elif name == "ADDTR":
             r = s.reg[f["rs"]]
             if r[0] == "const" and r[1] == r[2]:
-                s.z.shift(TMR, r[1])
+                s.z.shift(TMR, _signed(r[1]))
             else:
                 s.z.free(TMR)
             go(s, nxt)
@@ -609,6 +897,149 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             s.zf = None
         elif name == "HALT":
             continue
+        elif name in ("LDT", "STT") and lu_ctx:
+            for lo, hi, stale in _port_waits(s.lu):
+                t = s.copy()
+                t.stale = t.stale or stale
+                go(t, nxt, lo, hi)
+        elif name == "LINE":
+            r = s.reg[f["rs"]]
+            v = int(r[1]) if r[0] == "const" and r[1] == r[2] else None
+            op = None if v is None else (v >> 28) & 0xF
+            if op is not None and op > 3:
+                flag(pc, "ILLEGAL", f"LINE operation {op}")
+                continue
+            if op == 0:                                  # OFF: no wait
+                s.lu = "idle"
+                go(s, nxt)
+                continue
+            for t in _lu_wait(s):
+                if op == 1:                              # RECV
+                    t.lu = "armed"
+                    t.z.assign(LUA, NOW, 0)
+                    t.z.free(LUE)
+                    t.z.constrain(LUA, LUE, -1)          # its job ends after the arm
+                elif op == 2 and (v >> 8) & 0xFF:        # CRC: the last bit at E_(c+nb)
+                    t.lu = "own"
+                    t.z.assign(LUE, NOW, (v >> 8) & 0xFF)
+                elif op == 3:                            # CONFIG: complete at E_(c+9)
+                    t.lu = "own"
+                    t.z.assign(LUE, NOW, 9)
+                    a = v & 0xFF
+                    blk = [consts.get((a + i) & 0xFF) for i in range(3)]
+                    if None in blk:
+                        claimed[1] = True
+                    else:
+                        from esciss.line import Cfg
+                        claimed[0] |= Cfg(*blk).claimed()
+                else:
+                    t.lu = "top"
+                    t.z.free(LUE)
+                    if consts:
+                        flag(pc, "TAPE", "LINE operand unknown: a receive buffer could "
+                                         "overwrite words read as constants")
+                go(t, nxt)
+            continue
+        elif name == "GETL":
+            setreg(f["rd"], ("top",))
+            if s.lu == "armed" and not s.stale:
+                w = s.z.diff(NOW, LUA)[1]
+                cert.getls[pc] = max(cert.getls.get(pc, -INF), w)
+            outs = []
+            if s.lu == "idle":                           # the last job's end again
+                t = s.copy()
+                t.z.assign(TMR, LUE, 0)
+                t.z.assign(GE, LUE, 0)
+                outs.append((t, 1))
+            else:
+                ext = s.lu != "own"                      # its end comes from the line
+                # a reception stays busy past e until its last word is written, in the
+                # first owner slot after e (sec. 6.6 Finish): up to 4 ticks more
+                tail = SLOT if ext else 0
+                t = _mark(s.copy())
+                if t.z.constrain(LUE, NOW, -1):          # ended before this GETL
+                    _advance(t, 0, tail)                 # (its last write may hold it a slot)
+                    _align(t)                            # (0 always fits)
+                    t.z.assign(TMR, LUE, 0)
+                    t.z.assign(GE, LUE, 0)
+                    t.stale = t.stale or ext
+                    outs.append((t, 1))
+                t = _mark(s.copy())
+                if t.z.constrain(NOW, LUE, 0):           # ends while it waits
+                    t.z.assign(NOW, LUE, 1)
+                    _advance(t, 0, 3 + tail)
+                    if _align(t) and t.z.constrain(NOW, TMR, 3):   # (no earlier timeout)
+                        t.z.assign(TMR, LUE, 0)
+                        t.z.assign(GE, LUE, 0)
+                        if ext:
+                            t.stale = False
+                        outs.append((t, 1))
+                t = s.copy()                             # timeout now, still busy
+                if t.z.constrain(TMR, NOW, 0) and t.z.constrain(NOW, LUE, tail):
+                    outs.append((t, 0))
+                t = _mark(s.copy())                      # timeout in a later slot
+                if t.z.constrain(NOW, TMR, -1):
+                    t.z.assign(NOW, TMR, 0)
+                    _advance(t, 0, 3)
+                    if _align(t) and t.z.constrain(NOW, LUE, tail):
+                        outs.append((t, 0))
+                for t, zv in outs:                       # it was waiting until now:
+                    if not zv:                           # W counts from here on
+                        t.z.assign(LUA, NOW, 0)
+            for t, zv in outs:
+                t.zf = zv
+                if zv:
+                    t.lu = "idle"
+                go(t, nxt)
+            continue
+        elif name == "SEND":
+            cert.events += 1
+            visited_events.add(pc)
+            site = cert.sends.setdefault(pc, SendSite())
+            if len(s.fifo) >= 4:                         # a full FIFO, as for events
+                head = s.fifo[0][0]
+                s.z.assign(NOW, head, 0)
+                _advance(s, 0, 3)
+                s.z.free(head)
+                s.fifo = s.fifo[1:]
+                splits = _retire_split(s)
+            else:
+                splits = [s]
+            for s1 in splits:
+                for t in _lu_wait(s1):
+                    lo, hi = t.z.diff(TMR, NOW)
+                    late = lo < 1 or hi >= HALF
+                    if not t.stale:
+                        site.lead = min(site.lead, lo)
+                        g = t.z.diff(TMR, GE)
+                        site.turn = (min(site.turn[0], g[0]), max(site.turn[1], g[1]))
+                        site.drop = site.drop or late
+                    elif late:
+                        site.drop_stale = True
+                    if late:                             # dropped: Z = 0, nothing else
+                        u = t.copy()
+                        if hi >= HALF or u.z.constrain(TMR, NOW, 0):
+                            u.zf = 0
+                            go(u, nxt)
+                    u = t.copy()
+                    if not (u.z.constrain(NOW, TMR, -1) and u.z.constrain(TMR, NOW, HALF - 1)):
+                        continue
+                    cert.min_lead = min(cert.min_lead, u.z.diff(TMR, NOW)[0])
+                    if u.fifo:
+                        flo, fhi = u.z.diff(TMR, u.fifo[-1][0])
+                        if flo < 1:
+                            flag(pc, "ORDER", f"tmr - tail in [{flo}, {fhi}]")
+                        if not u.z.constrain(u.fifo[-1][0], TMR, -1):
+                            continue
+                    slot = u.free_slot()
+                    u.z.assign(slot, TMR, 0)
+                    u.fifo.append((slot, "LINE"))
+                    u.lu = "own"
+                    u.z.free(LUE)
+                    u.z.constrain(TMR, LUE, 0)           # the packet ends at or after d
+                    u.zf = 1
+                    go(u, nxt)
+            continue
         elif name in EVENTS:
             cert.events += 1
             visited_events.add(pc)
@@ -616,6 +1047,8 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             if name != "SAMPLE" and f["mask"] == 0:
                 flag(pc, "MASK", "event with an empty mask")
                 continue
+            if name in ("EMIT", "EMITR", "EMITX"):
+                emit_masks.add((pc, f["mask"]))
             if name in ("EMIT", "EMITR", "EMITX") and f["mask"] & ~owned:
                 flag(pc, "OWNER", f"drives pins 0x{f['mask'] & ~owned & 0xFF:02x} not owned by ctx {ctx}")
                 continue
@@ -664,6 +1097,9 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
 
     # Guard against vacuous proofs: every event site the control-flow graph can reach must
     # have been analysed, otherwise the analysis lost paths (a bug or a precision limit).
+    for epc, mask in sorted(emit_masks):           # sec. 6.2 step 3: claimed pins
+        if lu_ctx and (claimed[1] or mask & claimed[0]):
+            flag(epc, "OWNER", "may drive a pin the line unit claims")
     missed = sorted(_cfg_events(image, ctx) - visited_events)
     if missed:
         flag(missed[0], "INCOMPLETE", f"event sites never analysed: {missed[:8]}")
@@ -689,7 +1125,7 @@ def _cfg_events(image: Image, ctx: int) -> set:
         name, f = _decode(image.words[pc])
         if name is None or name == "HALT":
             continue
-        if name in EVENTS:
+        if name in EVENTS or name == "SEND":
             ev.add(pc)
         if name == "JMP":
             todo.append(f["target"])

@@ -344,9 +344,43 @@ def test_send_with_lead_one_uses_the_word_read_in_its_commit_cycle():
 # ----------------------------------------------------------------------------- SEND admission
 
 
-def test_send_past_deadline_faults():
-    m = run(send_program(0xD2 << 16, lead=19))            # d = 39 = c
-    assert (ff(m)["cause"], ff(m)["subcode"], ff(m)["tick"]) == (3, 3, 39)
+LATE = " JNZ late\n HALT\nlate:\n MOVI r3, 7\n HALT"
+
+
+@pytest.mark.parametrize("lead,late", [(28, False), (27, True), (0, True), (-1000, True),
+                                       ((1 << 31) + 26, False), ((1 << 31) + 27, True)])
+def test_a_late_send_is_dropped_with_z_clear(lead, late):
+    # tmr = 20 + lead at 35; SEND commits at 47. Not ahead (d <= c, or d >= c + 2^31): the
+    # reply would be late, so it is not sent, and it is not a fault.
+    code = li(2, lead & 0xFFFFFFFF) + " ADDTR r2\n" + li(0, 0xD2 << 16) + " SEND r0\n" + LATE
+    m = run(program(code), ticks=1000)
+    send = [c for c in m.commits if c["insn"] >> 24 == 0x2D][0]
+    assert send["t"] == 47 and send["outcome"] == "C" and ff(m)["valid"] == 0
+    assert send["post"]["z"] == int(not late) and m.ctx[0].r[3] == (7 if late else 0)
+    pk = usb.decode(usb.chip_states(m.pins), 16)
+    if late:
+        assert pk == [] and m.lu.last_job == 3 and m.lu.mode == 0
+        assert m.ctx[0].min_lead == 0xFFFF and m.ctx[0].max_occupancy == 0
+    elif lead == 28:
+        assert [p.name for p in pk] == ["ACK"] and m.ctx[0].min_lead == 1
+
+
+def test_a_dropped_send_leaves_an_armed_receiver_armed():
+    code = (li(0, (1 << 28) | DATA_AT) + " LINE r0\n" + li(2, 0xFFFFFFFF) + " ADDTR r2\n"
+            + li(0, 0xD2 << 16) + " SEND r0\n ADDT 0xFFFFFF\n GETL r1\n HALT")
+    bus = usb.UsbBus()
+    bus.send(200, usb.line(usb.token("IN", 3, 0)))
+    m = run(program(code), board=bus, ticks=2000)
+    assert ff(m)["valid"] == 0 and m.lu.last_job == 1 and (m.lu.status() >> 16) & 0x1FF == 24
+    assert m.tape[DATA_AT] & 0xFFFFFF == usb.PID["IN"] | (usb.token_field(3, 0) << 8)
+
+
+def test_a_late_send_is_dropped_before_the_order_check():
+    code = (" ADDT 100\n EMIT 0x04, 0x04, 0x04\n" + li(2, (-110) & 0xFFFFFFFF) + " ADDTR r2\n"
+            + li(0, 0xD2 << 16) + " SEND r0\n" + LATE)
+    m = run(program(code, own=(0, 1, 2)), ticks=1000)
+    assert ff(m)["valid"] == 0 and m.ctx[0].r[3] == 7
+    assert m.pins[121]["uio_out"] & 4 and m.pins[121]["uio_oe"] & 4    # the EMIT still drives
 
 
 def test_send_order_against_a_queued_event():

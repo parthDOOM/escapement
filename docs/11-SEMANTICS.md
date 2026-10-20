@@ -20,7 +20,8 @@ host side during a run (§10). A program that does not set the new CAPT bit beha
 exactly as on 1.2.0, digest included. 1.4.0 adds the line unit (§6.6): packets with NRZI,
 bit stuffing and a CRC sent from and received into the tape, with clock recovery on
 receive, a packet start admitted as an event (`SEND`), and the instructions `LINE` and
-`GETL` (§7.7). A program that does not use them behaves exactly as on 1.3.0, digest
+`GETL` (§7.7). A late `SEND` is dropped rather than faulted, so a reply is on time or
+not sent. A program that does not use them behaves exactly as on 1.3.0, digest
 included.
 
 Notation: all arithmetic on 32-bit values is modulo 2^32 unless stated. `zext` is
@@ -169,6 +170,10 @@ d the new entry's deadline. Check in this order:
    not the line unit's owner, or while the line unit is unconfigured or has no
    `tx_pins` → FAULT ADMIT/OWNER; SEND while the line unit is engaged (§6.6) → **WAIT**.
 4. Not `ahead(d, c)` → FAULT ADMIT/PAST. (Deadline must be ≥ c+1 and < c + 2^31.)
+   SEND (v1.4) instead **drops** the packet: COMPLETE with no entry, no other effect and
+   Z = 0. (A SEND's deadline usually comes from the line, through GETL's `tmr = e`, so
+   a late one means the line did something early, not that the program is wrong: the
+   reply is sent on time or not at all, and the protocol's own retry recovers.)
 5. Q nonempty and not `ahead(d, tail(Q).deadline)` → FAULT ADMIT/ORDER.
 6. EXPECT only: if an EXPECT has been admitted since `start`, and not
    `ahead(d, last_expect_end)` → FAULT ADMIT/OVERLAP. On admission set
@@ -540,9 +545,9 @@ quantised to the 4-tick slot grid. Exact-tick I/O uses events.
 | EMITX mask, dir, oe | b = dir ? sh[31] : sh[0]; DRIVE {tmr, mask, b ? mask : 0, oe}; on COMPLETE also sh = dir ? sh<<1 : sh>>1 and C = b |
 | EXPECT mask, level, mode, window | EXPECT {tmr, mask, level, mode, window} |
 | SAMPLE pin, dir | SAMPLE {tmr, pin, dir} |
-| SEND rs (v1.4) | LINE {tmr, R[rs][23:0]}: a packet (§6.6) |
+| SEND rs (v1.4) | LINE {tmr, R[rs][23:0]}: a packet (§6.6); on COMPLETE, Z = 1 if admitted, 0 if dropped (§6.2 step 4) |
 
-Outcome per §6.2. On a WAIT caused by a full FIFO, `wait_full` (16 b, saturating)
+Outcome per §6.2. A dropped SEND changes no telemetry. On a WAIT caused by a full FIFO, `wait_full` (16 b, saturating)
 increments at E_c; that is the only effect of a WAIT. On COMPLETE, telemetry updates:
 `lead = (d − c) mod 2^32`, `min_lead = min(min_lead, min(lead, 0xFFFF))`,
 `max_occupancy = max(max_occupancy, |Q| + 1)`.

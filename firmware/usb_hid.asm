@@ -6,7 +6,9 @@
 ; the CRCs, SYNC and EOP; this firmware handles packets.
 ;
 ; Context 0 is the device. Every reply leaves exactly TURN ticks after the end of the
-; host's packet (TURN + 3 at the pins: 4.2 bit times, inside USB's 2 to 6.5). Context 1
+; host's packet (TURN + 3 at the pins: 4.69 bit times, inside USB's 2 to 6.5), and escert
+; proves it on time on every path where the host keeps to USB timing; a reply that would
+; be late is dropped (v1.4 SEND) and the host's retry is answered. Context 1
 ; moves key reports from its mailbox into the tape: the host pushes a report as two words
 ; (bytes 0-3, bytes 4-7, little-endian) and they go out on the next IN to endpoint 1.
 ;
@@ -18,7 +20,7 @@
 .default DP, 0
 .default DM, 1
 .default P, 16                    ; ticks per bit
-.equ TURN, 4 * P                  ; reply time after the end of the host's packet, ticks
+.equ TURN, 4 * P + 8              ; reply time after the end of the host's packet, ticks
 .equ ACKWAIT, 160 * P             ; our longest packet, the gap and the host's ACK
 .equ DATAWAIT, 140 * P            ; the gap and an 8-byte DATA stage
 .equ FAR, 0xFFFFFF
@@ -77,7 +79,7 @@
 
 .tape ZERO, 0
 .tape ONE, 1
-.tape EP1CMD, 0x5A << 16, C_REP0
+.tape EP1CMD, 0x5A << 16, C_REP0   ; EP1CMD = NAK, T1 = DATA0 with the report
 
 ; ---- requests with a data stage: key = bmRequestType | bRequest << 8 | wValue << 16;
 ; reply = length << 24 | the SEND command of a full first packet (DATA1, CRC, 64 bits, word)
@@ -111,20 +113,19 @@ busreset:
     CALL  set_addr                ; address 0
     STT   r3, r3, PEND
     LDT   r0, r3, K_NAK
-    STT   r0, r3, INCMD
-    LDT   r0, r3, K_REP0
-    STT   r0, r3, T1              ; endpoint 1 starts again with DATA0
-arm:
+    STT   r0, r3, INCMD           ; (endpoint 1 restarts at SET_CONFIGURATION, which a
+arm:                              ;  host must send before it polls it again: 9.1.1.5)
     LDT   r2, r3, K_RECV
     LINE  r2                      ; (after any packet we are sending)
 next:
     ADDT  FAR
     GETL  r1                      ; a packet ended; tmr = its end tick
     JNZ   next                    ; (a timeout: keep waiting)
-    LDT   r0, r3, RXB
-    LDT   r2, r3, K_RECV
-    LINE  r2                      ; armed at once for what follows
-    LDT   r2, r3, T_IN0
+    LDT   r2, r3, RXB
+fresh:                            ; r2 = the packet's first word, r1 = its status
+    LDT   r0, r3, K_RECV
+    LINE  r0                      ; armed at once for what follows
+    LDT   r0, r3, T_IN0
     XOR   r0, r2                  ; 0: an IN to endpoint 0
     JZ    in0
     LDT   r2, r3, K_IN1
@@ -188,7 +189,8 @@ in1:
     JMP   next
 
 ; After a SEND of r0: arm for the host's handshake. Z = 1 if r0 carried data and the host
-; acknowledged it.
+; acknowledged it. (A SEND that would have been late was dropped and the host repeats its
+; token: the packet that comes instead of an ACK is answered like any other.)
 acked:
     LDT   r2, r3, K_RECV
     LINE  r2                      ; waits for the end of our packet, then armed
@@ -199,6 +201,9 @@ acked:
     JNZ   not_acked               ; no answer: the host will repeat the IN
     LDT   r2, r3, RXB
     CMPI  r2, 0xD2                ; ACK
+    JNZ   fresh                   ; anything else is the host's next packet: answer it
+    LDT   r2, r3, K_RECV
+    LINE  r2                      ; armed at once for that next packet (Z stays 1)
     RET
 not_acked:
     MOVI  r2, 1                   ; Z = 0
@@ -236,7 +241,7 @@ setup:
     JNZ   next
     LDT   r2, r3, K_SETUPOK
     CMP   r1, r2
-    JNZ   next                    ; corrupt: no handshake, the host repeats the SETUP
+    JNZ   arm                     ; corrupt: no handshake, the host repeats the SETUP
     CALL  ack
     LDT   r0, r3, RXB             ; PID | bmRequestType << 8 | bRequest << 16 | wValue.lo << 24
     LDT   r1, r3, RXB + 1         ; wValue.hi | wIndex << 8 | wLength.lo << 24
@@ -249,6 +254,14 @@ setup:
     MOV   r2, r0                  ; host to device: accepted with an empty status stage;
     SHL   r2, 16                  ; SET_ADDRESS takes effect after it
     SHR   r2, 16
+    CMPI  r2, 0x0900              ; SET_CONFIGURATION and CLEAR_FEATURE(ENDPOINT_HALT):
+    JZ    restart                 ; endpoint 1 restarts with DATA0 (9.4.5)
+    CMPI  r2, 0x0102
+    JNZ   not_config
+restart:
+    CALL  retoggle
+    JMP   accept
+not_config:
     CMPI  r2, 0x0500
     JNZ   accept
     SHR   r0, 16
@@ -298,9 +311,22 @@ out0:
     SHL   r1, 16
     SHR   r1, 16
     CMPI  r1, 0x800D              ; CRC-16 residual
-    JNZ   next
+    JNZ   arm
     CALL  ack                     ; status stages and LED reports are acknowledged
     JMP   next
+
+; Endpoint 1's next report goes with DATA0, a report already staged too (USB 2.0 9.1.1.5,
+; 9.4.5). The feeder writes EP1CMD only while it holds NAK, so it cannot race this.
+retoggle:
+    LDT   r0, r3, K_REP0
+    STT   r0, r3, T1
+    LDT   r1, r3, EP1CMD
+    LDT   r2, r3, K_NAK
+    CMP   r1, r2
+    JZ    retoggled
+    STT   r0, r3, EP1CMD
+retoggled:
+    RET
 
 ; r0 = address: T_IN0 = the token word of an IN to (address, endpoint 0). The CRC-5 comes
 ; from the line unit's CRC engine, in the order it is sent.
