@@ -882,11 +882,12 @@ module esc_core (
     // Register-level strengthening (makes P3/P5 inductive): nothing is enabled while
     // stopped; the OE register never covers an unowned pin; a faulted context's pins
     // stay released (its FIFO is empty, H3, and other contexts drive only their own
-    // pins, H4 in esc_ctx).
+    // pins, H4 in esc_ctx). Both OE parts rest on H4, so they are proved in one task
+    // with H3 and H4; alone, the P3 part ran past three hours.
     if (!run) assert (pin_oe == 13'd0);
     for (fk = 0; fk < 4; fk = fk + 1)                 // stop turns RUNNING into HALTED
       if (!run) assert (c_state[2*fk +: 2] != ST_RUN);
-    assert ((pin_oe & ~pin_owned) == 13'd0);
+    assert ((pin_oe & ~pin_owned) == 13'd0);                                     // lemma-group: faulted
     for (fk = 0; fk < 4; fk = fk + 1)
       if (c_state[2*fk +: 2] == 2'd3) assert ((pin_oe & pown[13*fk +: 13]) == 13'd0);  // lemma-group: faulted
     if (cm_ok && w_push) begin

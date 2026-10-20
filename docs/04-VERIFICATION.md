@@ -91,9 +91,9 @@ converged after seven hours of PDR; split this way, it proves in under a minute.
 one task per assertion source line from the elaborated design and runs `JOBS` of them at
 once. A task proves its assertions without the others as lemmas, so a property that
 needs a lemma can take far longer split than together. Assertions tagged with the same
-`lemma-group` are therefore proved in one task: "a faulted context's output enables stay
-clear" proves in 140 seconds together with H3 and H4, and did not finish in two hours on
-its own. With 6 jobs all 21 tasks pass in 17 minutes of wall time; the slowest is a
+`lemma-group` are therefore proved in one task: the output-enable parts of P3 and P5
+both rest on H4, and together with H3 and H4 they prove in two minutes. Alone, P5's did
+not finish in two hours, and P3's ran past the three-hour limit on the CI runner. With 6 jobs all 21 tasks pass in 17 minutes of wall time; the slowest is a
 capture-region bound. The single task (`sby -f esc_core.sby pdr`, all assertions
 together) passes too, in 34 minutes on one core.
 
