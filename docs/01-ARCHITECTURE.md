@@ -162,8 +162,11 @@ a time:
 
 A `SEND` that would be late is dropped instead of faulting the context, since its
 deadline comes from the line. The unit reads and writes the tape only in its owner's
-commit cycles, so the other contexts' timing is unchanged. The USB keyboard firmware and
-its certified reply timing are in [19-LINE-UNIT](19-LINE-UNIT.md).
+commit cycles, so the other contexts' timing is unchanged. In the RTL (`src/esc_line.v`)
+one 12-bit tick counter serves every mode, and the whole unit sits behind clock gates
+that stay closed while it is idle, so a program that never uses it pays for it in area
+only. The USB keyboard firmware and its certified reply timing are in
+[19-LINE-UNIT](19-LINE-UNIT.md).
 
 ## Execution digest
 
@@ -213,4 +216,5 @@ the host reloads both memories after every reselect.
 | `src/esc_core.v` | Barrel pipeline, decode, execute and admission, pins and synchronisers, first-fault register, digest |
 | `src/esc_ctx.v` | Per-context state, event FIFO, checker, telemetry, mailboxes |
 | `src/esc_cap.v` | Capture unit |
+| `src/esc_line.v` | Line unit (v1.4) |
 | `src/esc_greg.v` | Clock-gated register bank |

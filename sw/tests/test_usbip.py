@@ -15,8 +15,9 @@ from pathlib import Path
 import pytest
 
 from escasm import assemble_file
+from escmodels.usb import keyboard_reports
 from escusbip import (CMD_SUBMIT, CMD_UNLINK, ECONNRESET, EPIPE, HEADER, RET_SUBMIT,
-                      RET_UNLINK, Bridge, reports_for)
+                      RET_UNLINK, Bridge)
 
 FW = Path(__file__).resolve().parents[2] / "firmware" / "usb_hid.asm"
 
@@ -116,7 +117,7 @@ def test_typed_text_arrives_as_interrupt_urbs(kernel):
     seqs = [k.submit(1, 1, 8, wait=False) for _ in range(2)]  # usbhid keeps URBs queued
     text = "Hi!\n"
     k.bridge.type_text(text)
-    want = reports_for(text)
+    want = keyboard_reports(text)
     got = []
     while len(got) < len(want):
         _, seq, status, data = k.result()
@@ -145,7 +146,7 @@ def test_keys_typed_after_the_bridge_went_idle(kernel):
     assert k.bridge._idle
     k.bridge.type_text("a")
     _, got_seq, status, data = k.result()
-    assert (got_seq, status, data) == (seq, 0, reports_for("a")[0])
+    assert (got_seq, status, data) == (seq, 0, keyboard_reports("a")[0])
     seq = k.submit(1, 1, 8, wait=False)
     assert k.result()[1:] == (seq, 0, bytes(8))               # the release
 

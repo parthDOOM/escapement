@@ -8,8 +8,9 @@ absolute deadline, and a reception reports the tick its packet ended, so a reply
 be scheduled a fixed number of ticks after the host's packet, exact to the tick.
 
 The normative definition is [11-SEMANTICS §6.6](11-SEMANTICS.md#66-line-unit-v14-one-global).
-Status: v1.4 specification, simulator, firmware and timing certificates. The RTL comes
-next.
+Status: v1.4 specification, simulator, firmware, timing certificates and RTL
+(`src/esc_line.v`, integrated in the core and checked against the simulator cycle by
+cycle). Layout and sign-off come next.
 
 ```
 python -m escert firmware/usb_hid.asm      # the reply-timing certificate (below)
@@ -145,6 +146,8 @@ boundary: one tick less and the simulator faults.
 | `sw/tests/test_usb_hid.py` | 72 | The keyboard against a reactive USB host model that checks every device packet (EOP, stuffing, CRC, turnaround) and flags a device that drives the bus unasked: enumeration with exact descriptors, host clock ±1.5% and ±5%, random host gaps down to 2 bit times, keep-alives, `wLength` from 0 to 65535 around every packet boundary, standard and class requests, lost and corrupted handshakes, corrupted tokens and data, foreign addresses, bus reset at every stage, 10 ms resets with keep-alives every millisecond, long report sequences, glitches, hostile traffic |
 | `sw/tests/test_escert.py` | 10 more | The certificate above, checked against measured leads; exact boundaries for CONFIG, CRC and reception waits; the path after a dropped `SEND`; random programs on the line unit (wherever escert says CHECKED, the simulator never faults and measures no lead below the bound) |
 | `sw/tests/test_usbip.py` | 4 | The USB/IP bridge, with the test playing the kernel's side |
+| `make line-test` (`test/line/`) | 8 seeds | The line unit RTL against the simulator's model, every output on every cycle: configurations from USB-like, CAN-like and random profiles, packets at offset clocks with jitter and glitches, noise, the unit's own pins read back, owner faults, stop and start, tape writes from elsewhere. 12 million cycles across 40 seeds with no difference; both builds (clock-gated and plain flip-flops) |
+| `make cosim` | 3 jobs more | The whole chip, RTL against simulator, tick for tick and the final state of every debug register: `usb_hid.asm` enumerating and sending key reports to the USB host model, 40 firmware-shaped line unit programs (receives, packets at end-tick deadlines, CRC jobs, GETL timeouts, owner LDT/STT in the unit's tape cycles, another context's traffic), and random programs with line unit instructions from any context |
 
 Planted bugs check that these tests can fail: 18 in the line unit model, 28 in the
 firmware and 9 in escert's line unit analysis, all caught. The tests and the

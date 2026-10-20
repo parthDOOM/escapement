@@ -5,7 +5,7 @@ PYTHON ?= python3
 # from data, so it is checked by the replay tests instead of by escert.
 FIRMWARE := $(filter-out firmware/replay.asm,$(wildcard firmware/*.asm))
 
-.PHONY: help env sw-test cert test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test lint formal formal-quick equiv mutation harden precheck clean
+.PHONY: help env sw-test cert test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test lint formal formal-quick equiv mutation harden precheck clean
 
 help:
 	@echo "sw-test    assembler, ISS, certificate checker and bus-model tests (pytest)"
@@ -19,6 +19,7 @@ help:
 	@echo "bringup-test  sw/rp2350/bringup.py against the RTL on a simulated demo board (~15 min)"
 	@echo "           (add SIM=verilator to any simulation target to run it on Verilator: 3-7x faster on the long ones)"
 	@echo "unit-test  directed core tests"
+	@echo "line-test  line unit RTL against the ISS model, every output every cycle (LINE_SEEDS, default 8)"
 	@echo "lint       Verilator lint of the core"
 	@echo "formal     all SymbiYosys proofs, with the unbounded core proof split over JOBS cores (~25 min)"
 	@echo "formal-quick  bounded core proof, cover, never-late, clock-gate and configuration proofs (minutes)"
@@ -65,6 +66,9 @@ bringup-test:
 
 unit-test:
 	cd test/rtl_unit && $(MAKE) -B
+
+line-test:
+	$(PYTHON) test/line/run.py --jobs $(JOBS)
 
 lint:
 	cd test/rtl_unit && $(MAKE) lint

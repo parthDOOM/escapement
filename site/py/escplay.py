@@ -20,6 +20,7 @@ from esciss import Machine
 from escmodels import (Board, CanBus, HostScript, I2cTarget, JtagTap, OneWireDevice, Ps2Host,
                        SpiTarget, SplitBoard, SwdTarget, UartRx, UartTx, Ws2812Decoder,
                        crc8_maxim)
+from escmodels import usb
 
 TICK_NS = 40.0
 TPB = 25e6 / 115200                     # UART ticks per bit at 115,200 baud
@@ -300,6 +301,77 @@ def sc_combo(p):
     return w
 
 
+class UsbPins:
+    """The USB host model as a board: records the bus per cycle for the plot."""
+
+    def __init__(self, host):
+        self.host, self.history = host, []
+
+    def __call__(self, t, uio_out, uio_oe):
+        v = self.host(t, uio_out, uio_oe)
+        if t >= 0:
+            self.history.append(v)
+        return v
+
+    def errors(self):
+        return list(self.host.errors[:5])
+
+
+def sc_usb(p):
+    text = str(p.get("text", "Hi!"))
+    if not 1 <= len(text) <= 12:
+        raise ParamError("Type: 1 to 12 characters")
+    bad = sorted({c for c in text if c not in usb.KEYS})
+    if bad:
+        raise ParamError("Type: letters, digits, space and - = . , / ! ? : ; only (not %s)"
+                         % " ".join(repr(c) for c in bad))
+    reports = usb.keyboard_reports(text)
+    words = [int.from_bytes(r[i:i + 4], "little") for r in reports for i in (0, 4)]
+    out = {"keys": []}
+
+    def script(h):
+        yield from usb.bus_reset(h, 1000)
+        out["dev"] = yield from usb.control(h, 0, usb.setup_bytes(0x80, 6, 0x0100, 0, 18))
+        out["addr"] = yield from usb.control(h, 0, usb.setup_bytes(0, 5, 3, 0, 0))
+        yield ("idle", 2000)
+        out["name"] = yield from usb.control(h, 3, usb.setup_bytes(0x80, 6, 0x0302, 0x0409, 255))
+        out["cfg"] = yield from usb.control(h, 3, usb.setup_bytes(0, 9, 1, 0, 0))
+        polls = 0
+        while len(out["keys"]) < len(reports) and polls < 3 * len(reports) + 8:
+            yield ("idle", 1200)                    # the host's interrupt schedule, endpoint 1
+            r = yield from usb.in_txn(h, 3, 1)
+            polls += 1
+            if r is not None and r.packet.name in ("DATA0", "DATA1"):
+                out["keys"].append(bytes(r.packet.body[:-2]))
+
+    host = usb.UsbHost()
+    host.start(script)
+    w = World(UsbPins(host), ticks=0)
+
+    def steps(m):
+        while not host.done and m.now < MAX_TICKS and not m.ff.valid:
+            while words and len(m.ctx[1].rx) < 2:      # context 1 stages one report at a time
+                m.host_rx_push(1, words.pop(0))
+                m.run(1, stop_when_idle=False)
+            m.run(256, stop_when_idle=False)
+        m.run(64, stop_when_idle=False)
+    w.steps = steps
+
+    def result(m):
+        dev = out.get("dev")
+        if not isinstance(dev, (bytes, bytearray)) or len(dev) < 12:
+            return "The host model got no device descriptor"
+        name = out.get("name")
+        name = bytes(name[2:]).decode("utf-16-le", "replace") if isinstance(name, (bytes, bytearray)) else "?"
+        turns = sorted({r.turnaround for r in host.replies})
+        return ("Host model enumerated %04X:%04X \"%s\" at address 3 and received the keys %r. "
+                "Every reply left %s ticks after the end of the host's packet." % (
+                    int.from_bytes(dev[8:10], "little"), int.from_bytes(dev[10:12], "little"), name,
+                    usb.keyboard_text(out["keys"]), " / ".join(map(str, turns))))
+    w.result = result
+    return w
+
+
 def sc_blank(p):
     w = World(Board(), SplitBoard(outputs=0b11111), ticks=_int(p.get("ticks", 4000), "Run for", 100, MAX_TICKS))
     w.result = lambda m: "No device models on the pins"
@@ -390,6 +462,13 @@ SCENARIOS = [
      "params": [],
      "blurb": "PS/2 and JTAG on bank A, SPI and UART on bank B, one context each. Every "
               "context has its own fixed issue slot, so none can move another's edges."},
+    {"id": "usb", "title": "USB keyboard (v1.4)", "firmware": "usb_hid.asm", "fn": sc_usb,
+     "signals": [_sig("D+", 0), _sig("D−", 1)],
+     "params": [{"key": "text", "label": "Type", "type": "text", "default": "Hi!"}],
+     "blurb": "Low-speed USB, on version 1.4's line unit: the host model resets the bus, reads "
+              "the descriptors, gives the chip an address (the chip computes its own token "
+              "CRC-5) and polls the keyboard. A tick is 41.7 ns here: USB runs the chip at "
+              "24 MHz, 16 ticks per bit. The same firmware enumerates on a real Linux kernel."},
     {"id": "blank", "title": "Your own program", "firmware": None, "fn": sc_blank,
      "signals": [], "params": [{"key": "ticks", "label": "Run for (ticks)", "type": "int",
                                 "default": "4000"}],

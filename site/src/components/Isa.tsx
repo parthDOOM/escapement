@@ -13,7 +13,8 @@ const FIELD_COL: Record<string, string> = {
   rd: "--c0", rs: "--c1", ra: "--c0", rb: "--c1", imm: "--c2", code: "--c2", n: "--c2", target: "--c3",
   mask: "--c3", value: "--c1", oe: "--c2", level: "--c1", mode: "--c0", window: "--c2", pin: "--c3", dir: "--c0",
 };
-const GROUP_ORDER = ["Data", "Control", "Time and input", "Events", "Tape and capture", "Host mailboxes"];
+const GROUP_ORDER = ["Data", "Control", "Time and input", "Events", "Tape and capture", "Host mailboxes",
+  "Line unit (v1.4)"];
 
 function reservedMask(o: Op) {
   let used = 0;

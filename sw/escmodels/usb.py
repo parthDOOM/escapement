@@ -534,3 +534,30 @@ def bus_reset(h: UsbHost, ticks: int):
         h.drive[h._t + 1 + _] = SE0
     yield ("idle", ticks + 1)
     yield ("idle", 2 * h.p)
+
+
+# ----------------------------------------------------------------------------- HID keyboard
+
+# HID usage IDs for the keys `keyboard_reports` can type (HID Usage Tables, page 0x07)
+KEYS = {**{chr(ord("a") + i): (4 + i, False) for i in range(26)},
+        **{chr(ord("A") + i): (4 + i, True) for i in range(26)},
+        **{str((i + 1) % 10): (30 + i, False) for i in range(10)},
+        "\n": (40, False), " ": (44, False), "-": (45, False), "=": (46, False),
+        ".": (55, False), ",": (54, False), "/": (56, False), "!": (30, True),
+        "?": (56, True), ":": (51, True), ";": (51, False)}
+
+
+def keyboard_reports(text: str) -> list[bytes]:
+    """Boot keyboard reports (HID 1.11 appendix B.1): each key pressed, then all released."""
+    out = []
+    for ch in text:
+        code, shift = KEYS[ch]
+        out.append(bytes((0x02 if shift else 0, 0, code, 0, 0, 0, 0, 0)))
+        out.append(bytes(8))
+    return out
+
+
+def keyboard_text(reports: list[bytes]) -> str:
+    """The text a boot keyboard's reports type (the inverse of keyboard_reports)."""
+    back = {v: k for k, v in KEYS.items()}
+    return "".join(back.get((r[2], bool(r[0] & 0x22)), "?") for r in reports if len(r) > 2 and r[2])

@@ -27,7 +27,8 @@ from esciss.machine import no_board_b
 from escmodels import (Board, CanBus, DmxRx, HostScript, I2cController, I2cTarget, JtagTap,
                        OneWireDevice, Ps2Host, SpiTarget, SplitBoard, UartRx, UartTx,
                        Ws2812Decoder, crc8_maxim)
-from progen import gen_program, loopback_board, make_board, make_board_b
+from escmodels.usb import UsbHost, bus_reset, control, in_txn, setup_bytes
+from progen import gen_lu_program, gen_program, loopback_board, lu_board, make_board, make_board_b
 
 REPO = Path(__file__).resolve().parents[2]
 MAX_TICKS = int(os.environ.get("COSIM_MAX_TICKS", "4000"))
@@ -607,6 +608,58 @@ def case_ws2812_gen():
     return Board(dec), None, check
 
 
+class UsbBoard:
+    """v1.4: the USB keyboard's world, a reactive USB host (escmodels.usb) on the pins and a
+    host that pushes key reports into context 1's mailbox."""
+
+    def __init__(self, script, pushes):
+        self.out: dict = {}
+        self.usb = UsbHost()
+        self.usb.start(lambda h: script(h, self.out))
+        self.host = HostScript(pushes)
+
+    def __call__(self, t, uio_out, uio_oe):
+        self.host.step(t, None)
+        return self.usb(t, uio_out, uio_oe)
+
+
+def case_usb_hid():
+    """firmware/usb_hid.asm (line unit, v1.4): reset, descriptors, SET_ADDRESS (the token
+    CRC-5 from a CRC job), SET_CONFIGURATION, then key reports on endpoint 1."""
+    def script(h, out):
+        yield from bus_reset(h, 1000)
+        out["dev"] = yield from control(h, 0, setup_bytes(0x80, 6, 0x0100, 0, 18))
+        out["setaddr"] = yield from control(h, 0, setup_bytes(0, 5, 3, 0, 0))
+        yield ("idle", 2000)
+        out["cfg"] = yield from control(h, 3, setup_bytes(0x80, 6, 0x0200, 0, 34))
+        out["setcfg"] = yield from control(h, 3, setup_bytes(0, 9, 1, 0, 0))
+        out["reports"] = []
+        for _ in range(4):
+            yield ("idle", 3000)
+            r = yield from in_txn(h, 3, 1)
+            out["reports"].append((r.packet.name, r.packet.body[:-2].hex()) if r else None)
+
+    reports = [bytes([0, 0, 4 + i, 0, 0, 0, 0, 0]) for i in range(2)]
+    pushes = [(30000 + 4000 * j + i, 1, int.from_bytes(r[4 * i:4 * i + 4], "little"))
+              for j, r in enumerate(reports) for i in range(2)]
+    board = UsbBoard(script, pushes)
+
+    def check(b, h):
+        o, errs = b.out, list(b.usb.errors)
+        if not b.usb.done:
+            errs.append("usb script unfinished")
+        elif (len(o["dev"]) != 18 or o["dev"][8:12] != bytes((0x09, 0x12, 0x01, 0x00))
+              or len(o["cfg"]) != 34 or o["setaddr"] != b"" or o["setcfg"] != b""):
+            errs.append(f"usb enumeration {o}")
+        elif o["reports"] != [("DATA0", "0000040000000000"), ("DATA1", "0000050000000000"),
+                              ("NAK", ""), ("NAK", "")]:
+            errs.append(f"usb reports {o['reports']}")
+        if any(r.turnaround != 75 for r in b.usb.replies):
+            errs.append(f"turnarounds {sorted({r.turnaround for r in b.usb.replies})}")
+        return errs
+    return board, board.host, check
+
+
 def case_nec_gen():
     """One generated NEC frame at 2.5 MHz into the receiver model, acknowledged."""
     from escmodels import NecReceiver
@@ -642,6 +695,8 @@ FIRMWARE_CASES = {
     "ws2812_gen": ("ws2812_gen.asm", 9000, case_ws2812_gen),   # ends inside the latch
     "gen_slow": ("../test/cosim/gen_cosim.asm", 130000, case_gen_slow),
     "nec_tx_gen": ("../test/cosim/nec_gen_cosim.asm", 300000, case_nec_gen),
+    # v1.4 line unit
+    "usb_hid": ("usb_hid.asm", 70000, case_usb_hid),
 }
 TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
@@ -927,3 +982,30 @@ async def test_v13_streaming_capture(dut):
         if errs:
             failures.append(poll)
     assert not failures, f"streaming cases failing: {failures}"
+
+
+# --------------------------------------------------------------------------- v1.4 line unit
+@cocotb.test()
+async def test_v14_line_unit(dut):
+    """Firmware-shaped line unit programs (progen.gen_lu_program): configuration, receives
+    of the unit's own packets and of noise, packets at fresh or end-tick deadlines, CRC
+    jobs, GETL waits and timeouts, OFF, and owner LDT/STT that meet the unit's tape
+    cycles, beside another context's traffic. COSIM_LU_SEEDS programs (default 40)."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    seeds = int(os.environ.get("COSIM_LU_SEEDS", "40"))
+    seed0 = int(os.environ.get("COSIM_SEED0", "1"))
+    out_dir = Path(os.environ.get("COSIM_OUT", "cosim_failures"))
+    failures = []
+    for seed in range(seed0, seed0 + seeds):
+        src = gen_lu_program(seed)
+        errs, m = await cosim_one(dut, f"lu{seed}", assemble(src), lu_board(seed),
+                                  max_ticks=6000, stop_when_idle=False)
+        if errs:
+            failures.append(seed)
+            out_dir.mkdir(exist_ok=True)
+            (out_dir / f"lu{seed}.asm").write_text(src)
+            (out_dir / f"lu{seed}.txt").write_text("\n".join(errs))
+            if len(failures) >= 3:
+                break
+    dut._log.info(f"line unit: {seeds} programs, {len(failures)} mismatching {failures}")
+    assert not failures, f"mismatching line unit seeds: {failures} (see {out_dir}/)"

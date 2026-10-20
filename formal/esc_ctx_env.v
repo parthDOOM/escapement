@@ -103,7 +103,6 @@ module esc_ctx_env (
       assume (d_now != 32'd0 && !d_now[31]);                        // ahead(d, c)
       if (cnt_after != 3'd0) assume (d_tail != 32'd0 && !d_tail[31]); // ahead(d, tail)
       if (w_entry[57:56] == 2'd1) assume ((w_entry[23:16] & ~owned) == 8'd0); // OWNER
-      assume (w_entry[57:56] != 2'd0);
     end
     if (ld_we) assume (!start);
   end

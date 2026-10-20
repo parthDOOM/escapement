@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-// 5 columns x 3 rows; every wire runs in the channels between blocks
-const BW = 160, BH = 60, C = [10, 220, 430, 640, 850], R = [20, 165, 310];
+// 5 columns x 4 rows; every wire runs in the channels between blocks
+const BW = 160, BH = 60, C = [10, 220, 430, 640, 850], R = [20, 165, 310, 455];
 const KIND: Record<string, [string, string]> = {
   host: ["--m2", "host side"], mem: ["--m1", "memory"], time: ["--brass", "time and core"], io: ["--m4", "pins and inputs"],
 };
@@ -21,12 +21,12 @@ const B: Record<string, Block> = {
     f: [["Per context", "4 registers, shift register, loop counter, timer, PC, link, flags"], ["Issue rate", "one instruction every 4 ticks"]] },
   tape: { c: 2, r: 2, k: "mem", t: "Tape", s: "SRAM 256 × 32",
     d: "A second SRAM shared by firmware loads and stores, the capture unit and the host. One memory serves as device storage, logic-analyser buffer and replay source. The host reads it during a run, in the cycles the core leaves free, so a capture can stream out for as long as the host keeps up.",
-    f: [["Users", "firmware LDT / STT, capture, host"], ["Priority", "the core first; the host never delays an instruction"]] },
+    f: [["Users", "firmware LDT / STT, the line unit, capture, host"], ["Priority", "the core first; the host never delays an instruction"]] },
   time: { c: 3, r: 0, k: "time", t: "Tick counter", s: "32 bit, 40 ns",
     d: "One free-running counter is the only notion of time on the chip. It wraps after 171.8 s; deadlines may be up to half that range ahead.",
     f: [["Resolution", "40 ns at 25 MHz"], ["Horizon", "85.9 s"]] },
   fifo: { c: 3, r: 1, k: "time", t: "Event queues", s: "4 per context",
-    d: "DRIVE, EXPECT and SAMPLE events wait here with absolute deadlines. Admission checks each one when it is queued; retirement applies the head on its exact tick.",
+    d: "DRIVE, EXPECT and SAMPLE events wait here with absolute deadlines, and so does each packet SEND queues for the line unit. Admission checks each one when it is queued; retirement applies the head on its exact tick.",
     f: [["Refusals", "MASK, OWNER, PAST, ORDER, OVERLAP"], ["Proved", "no head is ever past its deadline"]] },
   tel: { c: 4, r: 0, k: "time", t: "Telemetry", s: "lead, depth, digest",
     d: "Each context records its minimum scheduling lead and maximum queue depth. A 32-bit digest folds every commit, register write and pin change into one word that the simulator predicts exactly.",
@@ -37,7 +37,10 @@ const B: Record<string, Block> = {
   sync: { c: 4, r: 2, k: "io", t: "Input side", s: "sync, checkers",
     d: "Inputs pass two-flop synchronisers. Checkers run EXPECT windows and count passes and failures; SAMPLE shifts bits into a per-context register.",
     f: [["Latency", "2 ticks from pad to logic"], ["Checker window", "up to 127 ticks"]] },
-  cap: { c: 3, r: 2, k: "io", t: "Capture unit", s: "timestamped edges",
+  line: { c: 3, r: 2, k: "time", t: "Line unit", s: "NRZI, stuffing, CRC",
+    d: "Version 1.4. Does the bit work of packet protocols for one context: sends a packet at its deadline with sync byte, header, tape data and CRC, NRZI-coded and bit-stuffed, then an end-of-packet; receives with clock recovery into the tape and records the tick the packet ended, so a reply can leave a fixed number of ticks later. Low-speed USB and CAN frames are configurations of it, not hardware.",
+    f: [["Commands", "SEND (a queued event), LINE, GETL"], ["Configuration", "three tape words: pins, coding, bit period, sample point, any CRC up to 16 bits"], ["Idle cost", "none: its clock gates stay closed"]] },
+  cap: { c: 2, r: 3, k: "io", t: "Capture unit", s: "timestamped edges",
     d: "Watches a pin bank and writes every change as {levels, tick} into a region of the tape. Overflow stops capture and records when; nothing is dropped silently.",
     f: [["Record", "8 levels + 24-bit tick"], ["Firmware fetches", "none needed while capturing"]] },
 };
@@ -53,12 +56,18 @@ const W: [string, string, number[][], string, number, number, boolean?][] = [
   ["fifo", "tel", [[800, 180], [825, 180], [825, 50], [850, 50]], "lead", 831, 116],
   ["fifo", "pins", [[800, 205], [850, 205]], "drive", 825, 222],
   ["pins", "sync", [[930, 225], [930, 310]], "pads", 936, 270],
-  ["sync", "cap", [[850, 350], [800, 350]], "edges", 825, 366],
-  ["cap", "tape", [[640, 340], [590, 340]], "records", 615, 332],
+  ["sync", "cap", [[930, 370], [930, 485], [590, 485]], "edges", 760, 501],
+  ["cap", "tape", [[510, 455], [510, 370]], "records", 516, 416],
+  ["fifo", "line", [[720, 225], [720, 310]], "start", 726, 270],
+  ["core", "line", [[575, 225], [575, 285], [680, 285], [680, 310]], "LINE / GETL", 586, 301, true],
+  ["line", "tape", [[640, 345], [590, 345]], "packets", 615, 337, true],
+  ["sync", "line", [[850, 345], [800, 345]], "line in", 825, 361],
   ["core", "tape", [[510, 225], [510, 310]], "LDT / STT", 516, 270, true],
-  ["sync", "core", [[850, 325], [825, 325], [825, 255], [615, 255], [615, 215], [590, 215]], "inputs", 720, 249],
+  // the hop at x 720 jumps the queue's "start" wire to the line unit
+  ["sync", "core", [[850, 325], [825, 325], [825, 255], [727, 255], [727, 247], [713, 247], [713, 255],
+    [615, 255], [615, 215], [590, 215]], "inputs", 664, 249],
 ];
-const MID = new Set(["SPI", "push", "drive", "edges", "records", "inputs"]);
+const MID = new Set(["SPI", "push", "drive", "edges", "inputs", "packets", "line in"]);
 
 export default function Arch() {
   const [sel, setSel] = useState("fifo");
@@ -66,7 +75,7 @@ export default function Arch() {
   return (
     <div className="arch">
       <div className="arch-svg panel">
-        <svg viewBox="0 0 1020 390" role="group" aria-label="Block diagram">
+        <svg viewBox="0 0 1020 530" role="group" aria-label="Block diagram">
           <defs>
             <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path className="ahead" d="M0,0 L8,4 L0,8 z" />

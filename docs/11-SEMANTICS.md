@@ -701,12 +701,12 @@ first-fault register.
 | 19 | capture `ovf_tick` |
 | 20 | capture `rptr` in [7:0] (v1.3) |
 | 21 | line unit status, as GETL (v1.4) |
-| 22–24 | line unit configuration W0, W1, W2 (v1.4) |
+| 22–24 | 0 (the configuration words are tape words the firmware wrote) |
 | 25 | line unit end tick `e` (v1.4) |
 | 26 | line unit: [31] owned, [29:28] owner, [26:24] mode (0 IDLE, 1 CFG, 2 PEND, 3 TX, 4 ARM, 5 RX, 6 CRC), [20] configured (v1.4) |
 | 27–31 | 0 |
 
-`dbg_sel` is 5 bits wide since v1.1 (16–26 ignore `dbg_sel_ctx`; 27–31 read 0).
+`dbg_sel` is 5 bits wide since v1.1 (16–26 ignore `dbg_sel_ctx`; 22–24 and 27–31 read 0).
 
 ### 10.1 Execution digest (v1.1)
 

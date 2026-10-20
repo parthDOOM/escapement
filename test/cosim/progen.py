@@ -62,9 +62,80 @@ def _tape_op(rng: random.Random, nasty: bool, capt_bank: float = 0.0) -> list[st
             f"    GETI {_reg(rng)}"]
 
 
+LU_CFG = 0xF4      # v1.4: line unit configuration blocks at tape words 0xF4..0xFF
+
+
+def lu_blocks(rng: random.Random, owned: dict[int, list[int]], owner: int) -> list[str]:
+    """Four configuration blocks (W0, W1, W2) at LU_CFG: mostly valid, with short bit
+    periods so packets fit a run. Block 0 is valid on the owner's pins (no tx_pins if it
+    owns fewer than two); the others may be invalid or on pins it does not own (CONFIG
+    faults OWNER or CONFIG)."""
+    pins = sorted({p for ps in owned.values() for p in ps}) or [0, 1]
+    mine = owned.get(owner) or []
+    words = []
+    for b in range(4):
+        d, n, r = rng.choice(pins), rng.choice(pins), rng.choice(pins)
+        if b == 0 and len(mine) >= 2:
+            d, n = rng.sample(mine, 2)
+        elif b == 0:
+            d = n = r = rng.choice(mine or [0])
+        w0 = (d | n << 3 | r << 6 | rng.randrange(2) << 9 | rng.randrange(2) << 10
+              | rng.randrange(2) << 11 | rng.choice([0, 0, 1, 3, 5, 6]) << 12 | rng.randrange(2) << 15
+              | rng.randrange(4) << 16 | rng.randrange(2) << 18 | rng.randrange(2) << 19
+              | int(rng.random() < 0.8) << 20 | rng.choice([0, 0x80, rng.randrange(256)]) << 24)
+        p = rng.choice([8, 9, 12, 16])
+        w1 = p | rng.choice([0, 0, 64, 255]) << 12 | rng.randrange(4, p) << 20
+        if rng.random() < 0.15:
+            w1 = rng.choice([7 | 5 << 20, 10 | 10 << 20, 10 | 3 << 20])     # invalid
+        w2 = (rng.choice([0, 0x8005, 0x2800, 0x8B32, 0x3100]) | rng.randrange(1 << 9) << 16
+              | rng.choice([0, 0, 1, 2]) << 21)
+        if b == 0:
+            w1 = p | rng.choice([0, 64]) << 12 | rng.randrange(4, p) << 20
+            if len(mine) < 2:
+                w0 &= ~(1 << 20)                                            # receive only
+        elif rng.random() < 0.1:
+            w0 = rng.randrange(1 << 32)                                     # anything
+        words += [w0, w1, w2]
+    return [f".tape {LU_CFG}, " + ", ".join(f"0x{w:08x}" for w in words)]
+
+
+def _line_op(rng: random.Random, nasty: bool) -> list[str]:
+    """v1.4 line unit traffic: CONFIG, RECV, CRC, SEND, GETL waits and OFF, from any
+    context (only the owner may, so the others fault OWNER), with real waits on jobs and
+    on the unit's tape cycles."""
+    reg = _reg(rng)
+    r = rng.random()
+
+    def val(v: int) -> list[str]:
+        return [f"    MOVI {reg}, {v & 0xFFFF}", f"    MOVHI {reg}, {(v >> 16) & 0xFFFF}"]
+
+    if r < 0.14:
+        return val(3 << 28 | (LU_CFG + 3 * rng.randrange(4))) + [f"    LINE {reg}"]
+    if r < 0.30:
+        lim = rng.choice([0, 1, 2, 8, 31, rng.randrange(32)])
+        return val(1 << 28 | lim << 8 | rng.randrange(0x80, 0xF0)) + [f"    LINE {reg}"]
+    if r < 0.40:
+        nb = rng.choice([0, 1, 5, 16, 32, 33, 64, rng.randrange(256)])
+        return val(2 << 28 | rng.randrange(2) << 16 | nb << 8 | rng.randrange(256)) + [f"    LINE {reg}"]
+    if r < 0.62:
+        nb = rng.choice([0, 0, 1, 8, 16, 32, 33, rng.randrange(128)])
+        v = rng.randrange(256) << 16 | rng.randrange(2) << 15 | nb << 8 | rng.randrange(256)
+        lead = rng.choice([1, 2, 6, 20, 40, rng.randrange(1, 300)])
+        return [f"    RDTIME {reg}", f"    ADDI {reg}, {lead}", f"    SETT {reg}"] + val(v) + [f"    SEND {reg}"]
+    if r < 0.86:
+        return [f"    ADDT {rng.choice([1, 8, 50, 300, 2000])}", f"    GETL {reg}"]
+    if r < 0.94:
+        return val(rng.randrange(1 << 28)) + [f"    LINE {reg}"]          # OFF
+    v = rng.randrange(4, 16) << 28 if nasty else 0
+    return val(v) + [f"    LINE {reg}"]                                    # ILLEGAL (nasty)
+
+
 def gen_context(rng: random.Random, k: int, owned: list[int], length: int,
-                nasty: bool = True, capt_bank: float = 0.0) -> list[str]:
+                nasty: bool = True, capt_bank: float = 0.0,
+                lu: random.Random | None = None, lu_rate: float = 0.0) -> list[str]:
     lines = [f"ctx{k}_start:"]
+    if lu is not None and lu_rate > 0.1:          # the line unit's intended owner
+        lines += [f"    MOVI r3, {LU_CFG}", "    MOVHI r3, 0x3000", "    LINE r3"]
     label_n = 0
     pending_forward: list[str] = []
 
@@ -92,6 +163,8 @@ def gen_context(rng: random.Random, k: int, owned: list[int], length: int,
                 r = 0.92                          # more DJNZ loops
         if pending_forward and rng.random() < 0.25:
             lines.append(f"{pending_forward.pop()}:")
+        if lu is not None and lu.random() < lu_rate:   # v1.4 line unit (own generator)
+            lines += _line_op(lu, nasty)
         if rng.random() < 0.10:                    # v1.1 tape / capture / GETI-wait
             ops = _tape_op(rng, nasty, capt_bank)
             lines += ops
@@ -203,12 +276,109 @@ def gen_program(seed: int) -> str:
         out.append(f".tape {a}, " + ", ".join(f"0x{rng.randrange(1 << 32):08x}" for _ in range(16)))
     for k in ctxs:
         out.append(f".entry {k}, ctx{k}_start")
+    # v1.4: a third of the seeds use the line unit, from a generator of their own, so
+    # every other seed keeps its earlier program
+    rngl = random.Random(seed * 104729 + 0x1E)
+    use_lu = rngl.random() < 0.35
+    if use_lu:
+        out += lu_blocks(rngl, owned, ctxs[0])
     body: list[str] = []
     for k in ctxs:
         length = rng.randrange(8, max(9, budget // (n_ctx * 2)))
-        body += gen_context(rng, k, owned[k], length, nasty, capt_bank)
+        body += gen_context(rng, k, owned[k], length, nasty, capt_bank,
+                            rngl if use_lu else None, 0.25 if k == ctxs[0] else 0.02)
     # Keep inside 256 words: trim (by context) if the assembler would overflow.
     return "\n".join(out + body) + "\n"
+
+
+def gen_lu_program(seed: int) -> str:
+    """v1.4: a firmware-shaped line unit program. The owner configures the unit (block 0
+    valid on its pins), then loops over receptions, packets sent at a fresh deadline or
+    right after the last job's end tick, CRC jobs, GETL with and without a timeout, OFF
+    and reconfiguration, and LDT/STT bursts that meet the unit's tape cycles. Another
+    context keeps emitting on its own pins and using the tape. Board: lu_board."""
+    rng = random.Random(seed * 7 + 0x14)
+    owner, other = rng.sample(range(4), 2)
+    mine = rng.sample(range(8), 3)
+    theirs = [p for p in range(8) if p not in mine][:3]
+    owned = {owner: mine, other: theirs}
+    out = [f"; generated by progen gen_lu_program seed {seed}"]
+    out += [f".own {p}, {owner}" for p in mine] + [f".own {p}, {other}" for p in theirs]
+    out += lu_blocks(rng, owned, owner)
+    out += [f".tape 0x80, " + ", ".join(f"0x{rng.randrange(1 << 32):08x}" for _ in range(16))]
+    out += [f".entry {owner}, own", f".entry {other}, oth"]
+    body = ["own:", f"    MOVI r3, {LU_CFG}", "    MOVHI r3, 0x3000", "    LINE r3",
+            "    ADDT 40", "    GETL r0", "loop:"]
+    n = 0
+    for _ in range(rng.randrange(6, 14)):
+        n += 1
+        r = rng.random()
+        if r < 0.3:                                   # receive, wait with a timeout
+            lim = rng.choice([1, 2, 4, 8, 0])
+            body += [f"    MOVI r1, {lim << 8 | 0xC0}", "    MOVHI r1, 0x1000", "    LINE r1",
+                     f"    ADDT {rng.choice([200, 800, 3000])}", "    GETL r0"]
+        elif r < 0.55:                                # a packet, from the end tick or fresh
+            nb = rng.choice([0, 8, 16, 33, 64])
+            v = rng.randrange(256) << 16 | rng.randrange(2) << 15 | nb << 8 | 0x80
+            if rng.random() < 0.5:
+                body += [f"    ADDT {rng.choice([1, 4, 40, 72])}"]
+            else:
+                body += ["    RDTIME r2", f"    ADDI r2, {rng.choice([1, 2, 12, 30])}", "    SETT r2"]
+            body += [f"    MOVI r1, {v & 0xFFFF}", f"    MOVHI r1, {v >> 16}", "    SEND r1",
+                     f"    ADDT {rng.choice([100, 2000])}", "    GETL r0"]
+        elif r < 0.68:                                # CRC job over tape words
+            nb = rng.choice([5, 16, 33, 64, 255])
+            body += [f"    MOVI r1, {nb << 8 | 0x80}", f"    MOVHI r1, {0x2000 | rng.randrange(2)}",
+                     "    LINE r1", "    ADDT 400", "    GETL r0"]
+        elif r < 0.85:                                # tape traffic against the unit's cycles
+            body += [f"    {rng.choice(['LDT', 'STT'])} r{rng.randrange(4)}, r3, {rng.randrange(8)}"
+                     for _ in range(rng.randrange(1, 5))]
+        elif r < 0.93:                                # another configuration
+            body += [f"    MOVI r1, {LU_CFG + 3 * rng.randrange(4)}", "    MOVHI r1, 0x3000",
+                     "    LINE r1", "    ADDT 40", "    GETL r0"]
+        else:                                         # OFF, and back
+            body += ["    MOVI r1, 0", "    LINE r1", "    LINE r3"]
+    body += ["    JMP loop"]
+    body += ["oth:", "    ADDT 30", "oloop:"]
+    for _ in range(rng.randrange(2, 6)):
+        m = 0
+        for p in range(len(theirs)):
+            if rng.random() < 0.6:
+                m |= 1 << p
+        m = m or 1
+        lm = sum(1 << theirs[i] for i in range(len(theirs)) if (m >> i) & 1)
+        body += [f"    ADDT {rng.choice([3, 17, 60])}", f"    EMIT 0x{lm:02x}, 0x{rng.randrange(256) & lm:02x}, 0x{lm:02x}"]
+        if rng.random() < 0.4:
+            body += [f"    LDT r1, r0, {rng.randrange(0x80, 0x90)}"]
+    body += ["    WAITT", "    JMP oloop"]
+    return "\n".join(out + body) + "\n"
+
+
+def lu_board(seed: int):
+    """The line unit's world: an idle-high bus that loops the chip's drive back (so a
+    receive can see the unit's own packets), with seeded noise bursts and SE0-like drops
+    on every pin, and occasional long quiet stretches."""
+    rng = random.Random(seed ^ 0x11E)
+    bursts = []
+    t = rng.randrange(50, 400)
+    while t < 200000:
+        bursts.append((t, t + rng.choice([3, 20, 120, 600]), rng.randrange(256), rng.choice([2, 5, 9, 16])))
+        t += rng.choice([300, 1500, 5000])
+
+    def board(t: int, uio_out: int, uio_oe: int) -> int:
+        if t < 0:
+            return 0
+        ext = 0xFF
+        for s, e, mask, per in bursts:
+            if s <= t < e:
+                if ((t - s) // per) & 1:
+                    ext &= ~mask
+                break
+            if s > t:
+                break
+        return ((uio_oe & uio_out) | (~uio_oe & ext)) & 0xFF
+
+    return board
 
 
 def make_board(seed: int):

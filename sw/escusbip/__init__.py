@@ -26,7 +26,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from esciss import Machine
-from escmodels.usb import UsbError, UsbHost, bus_reset, control, in_txn, setup_bytes
+from escmodels.usb import (UsbError, UsbHost, bus_reset, control, in_txn, keyboard_reports,
+                           setup_bytes)
 
 CMD_SUBMIT, CMD_UNLINK, RET_SUBMIT, RET_UNLINK = 1, 2, 3, 4
 EPIPE, ECONNRESET, EPROTO = 32, 104, 71
@@ -63,25 +64,6 @@ def ret_unlink(seqnum: int, status: int) -> bytes:
     return struct.pack(">5I", RET_UNLINK, seqnum, 0, 0, 0) + struct.pack(">i", -status) + bytes(24)
 
 
-# HID usage IDs for the keys `type_text` can type (HID Usage Tables, keyboard page 0x07)
-_KEYS = {**{chr(ord("a") + i): (4 + i, False) for i in range(26)},
-         **{chr(ord("A") + i): (4 + i, True) for i in range(26)},
-         **{str((i + 1) % 10): (30 + i, False) for i in range(10)},
-         "\n": (40, False), " ": (44, False), "-": (45, False), "=": (46, False),
-         ".": (55, False), ",": (54, False), "/": (56, False), "!": (30, True),
-         "?": (56, True), ":": (51, True), ";": (51, False)}
-
-
-def reports_for(text: str) -> list[bytes]:
-    """Boot keyboard reports: each key pressed, then all released."""
-    out = []
-    for ch in text:
-        code, shift = _KEYS[ch]
-        out.append(bytes((0x02 if shift else 0, 0, code, 0, 0, 0, 0, 0)))
-        out.append(bytes(8))
-    return out
-
-
 @dataclass
 class Bridge:
     """Serves the USB/IP side of `sock` with the firmware `image` on the ISS."""
@@ -109,7 +91,7 @@ class Bridge:
 
     def type_text(self, text: str) -> None:
         with self._lock:
-            for r in reports_for(text):
+            for r in keyboard_reports(text):
                 self.words += [int.from_bytes(r[:4], "little"), int.from_bytes(r[4:], "little")]
                 self.outstanding += 1
         self.work.set()

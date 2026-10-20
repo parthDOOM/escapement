@@ -6,7 +6,7 @@
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
  *
- * Normative semantics: docs/11-SEMANTICS.md v1.3.0 (section numbers below refer
+ * Normative semantics: docs/11-SEMANTICS.md v1.4.0 (section numbers below refer
  * to it). Encodings: isa/isa.yaml (decoder constants hand-copied).
  *
  * v1.1: the tape port (LDT/STT in the commit cycle; the capture unit esc_cap drains
@@ -16,6 +16,9 @@
  * updates of the pin registers, and the outputs.
  * v1.3: streaming capture. tape_busy marks only the cycles the core uses the tape port,
  * so the host can read during a run; TAPE_ACK sets the capture unit's rptr (sec. 6.5).
+ * v1.4: the line unit esc_line (sec. 6.6, 7.7): SEND queues a LINE entry that starts a
+ * packet at its deadline (dropped with Z = 0 when late), LINE and GETL control it, and
+ * its tape accesses and pin writes go through the ports here.
  *
  * Pipeline (each stage holds a different context, so no same-context hazards):
  *   F  cycle t   : imem_addr = PC[now mod 4] (combinational); slot valid if the
@@ -105,7 +108,8 @@ module esc_core (
   localparam [1:0] K_DRIVE = 2'd1, K_EXPECT = 2'd2, K_SAMPLE = 2'd3;
   localparam [2:0] FC_ILLEGAL = 3'd1, FC_PC_RANGE = 3'd2, FC_ADMIT = 3'd3, FC_LATE = 3'd4;
   localparam [2:0] AS_MASK = 3'd1, AS_OWNER = 3'd2, AS_PAST = 3'd3, AS_ORDER = 3'd4,
-                   AS_OVERLAP = 3'd5;
+                   AS_OVERLAP = 3'd5, AS_CONFIG = 3'd6;
+  localparam [1:0] K_LINE = 2'd0;
 
   // opcodes (isa/isa.yaml)
   localparam [7:0] OP_NOP = 8'h01, OP_HALT = 8'h02, OP_IRQ = 8'h03, OP_RET = 8'h04,
@@ -120,7 +124,8 @@ module esc_core (
                    OP_EXPECT = 8'h2B, OP_SAMPLE = 8'h2C, OP_GETP = 8'h30, OP_WAITP = 8'h31,
                    OP_GETI = 8'h32, OP_GETX = 8'h33, OP_LDT = 8'h34, OP_STT = 8'h35,
                    OP_CAPT = 8'h36, OP_GETC = 8'h37, OP_POP = 8'h38, OP_PUSH = 8'h39,
-                   OP_RXREADY = 8'h3A, OP_TXREADY = 8'h3B;
+                   OP_RXREADY = 8'h3A, OP_TXREADY = 8'h3B,
+                   OP_SEND = 8'h2D, OP_LINE = 8'h3C, OP_GETL = 8'h3D;          // v1.4
 
   // reserved payload bits per format (payload bits not named by the format)
   localparam [23:0] RSV_N = 24'hFFFFFF, RSV_I8 = 24'hFFFF00, RSV_R = 24'h0FFFFF,
@@ -162,7 +167,7 @@ module esc_core (
   wire [11:0]  c_cnt, c_cnta, c_maxo;
   wire [7:0]   c_state;
   wire [3:0]   c_z, c_c, c_late, c_act, c_acta, c_failed, c_eseen, c_irqp;
-  wire [3:0]   c_rxe, c_rxf, c_txe, c_txf, c_drv, c_hsmp;
+  wire [3:0]   c_rxe, c_rxf, c_txe, c_txf, c_drv, c_hsmp, c_lret;
   // capture unit (v1.1)
   wire        cap_drain;
   wire [7:0]  cap_ptr, cap_rptr;
@@ -228,6 +233,17 @@ module esc_core (
   wire [7:0] owned_c = owned_by[8*cctx +: 8];
   wire [7:0] sync    = vsync[8*cctx +: 8];      // the committing context's input view
 
+  // Line unit (v1.4, sec. 6.6): its state during this cycle, as commits see it.
+  wire        lu_owned, lu_conf, lu_engaged, lu_busy, lu_port, lu_pwe, lu_flto, lu_fltc;
+  wire        lu_doe;
+  wire [1:0]  lu_owner;
+  wire [2:0]  lu_mode;
+  wire [7:0]  lu_claimed, lu_paddr, lu_rel, lu_drv, lu_dval;
+  wire [31:0] lu_status, lu_e, lu_pwdata;
+  wire        lu_mine   = lu_owned & (lu_owner == cctx);     // the committing context owns it
+  wire [7:0]  claimed_c = lu_mine ? lu_claimed : 8'd0;
+  wire        lu_cfgf   = lu_flto | lu_fltc;                 // a CONFIG completing now faults
+
   // ------------------------------------------------------------------ fields
   wire [1:0]  f_rd    = insn[23:22];
   wire [1:0]  f_rs    = (op == OP_EMITR) ? insn[15:14] : insn[21:20];
@@ -262,9 +278,10 @@ module esc_core (
       OP_MOV, OP_ADD, OP_SUB, OP_AND, OP_OR, OP_XOR, OP_CMP:     rsv = RSV_R;
       OP_MOVI, OP_MOVHI, OP_TSTI, OP_ADDI, OP_CMPI:              rsv = RSV_I16;
       OP_SHL, OP_SHR:                                            rsv = RSV_SH;
-      OP_LDSH, OP_SETT, OP_ADDTR, OP_PUSH, OP_CAPT:              rsv = RSV_RS;
+      OP_LDSH, OP_SETT, OP_ADDTR, OP_PUSH, OP_CAPT, OP_SEND,
+      OP_LINE:                                                   rsv = RSV_RS;
       OP_STSH, OP_RDTIME, OP_GETP, OP_GETI, OP_GETX, OP_POP,
-      OP_GETC:                                                   rsv = RSV_RD;
+      OP_GETC, OP_GETL:                                          rsv = RSV_RD;
       OP_LDT, OP_STT:                                            rsv = RSV_TM;
       OP_JMP, OP_JZ, OP_JNZ, OP_JC, OP_JNC, OP_DJNZ, OP_CALL:    rsv = RSV_B;
       OP_LDLC:                                                   rsv = RSV_L16;
@@ -318,7 +335,9 @@ module esc_core (
   wire        x_bit   = f_dir ? cs_sh[31] : cs_sh[0];          // EMITX bit
   wire [7:0]  ev_val  = (op == OP_EMITR) ? opb[7:0] :
                         (op == OP_EMITX) ? (x_bit ? f_mask : 8'd0) : f_val;
-  wire [1:0]  ev_kind = (op == OP_EXPECT) ? K_EXPECT : (op == OP_SAMPLE) ? K_SAMPLE : K_DRIVE;
+  wire [1:0]  ev_kind = (op == OP_EXPECT) ? K_EXPECT : (op == OP_SAMPLE) ? K_SAMPLE :
+                        (op == OP_SEND) ? K_LINE : K_DRIVE;
+  wire [3:0]  l_op    = opb[31:28];                            // LINE operation (sec. 7.7)
   wire [57:0] w_entry = {ev_kind, cs_tmr, f_mask, ev_val, insn[7:0]};
   wire        p_match = ((sync & f_mask) == f_val);            // WAITP
   wire [15:0] lc_dec  = cs_lc - 16'd1;
@@ -366,8 +385,9 @@ module esc_core (
         OP_HALT: begin
           seq  = 1'b0;
           w_pc = cs_pc;
-          if (cs_cnta == 3'd0 && !cs_acta) w_halt = 1'b1;
-          else                             outcome = OC_W;
+          // v1.4: the owner of an engaged line unit waits too (sec. 7.2)
+          if (cs_cnta == 3'd0 && !cs_acta && !(lu_mine && lu_engaged)) w_halt = 1'b1;
+          else                                                         outcome = OC_W;
         end
         OP_IRQ: w_irq = 1'b1;
         OP_RET: begin
@@ -434,8 +454,48 @@ module esc_core (
           w_rd_we = 1'b1; w_rd_data = cap_status; z_src = 3'd1;
         end
         // LDT: the tape reads at this edge; the register is written at the next one
-        // (ld_* below). STT: tape_we at this edge. CAPT: esc_cap.
-        OP_LDT, OP_STT, OP_CAPT: ;
+        // (ld_* below). STT: tape_we at this edge. CAPT: esc_cap. v1.4: LDT and STT wait
+        // in a cycle the line unit uses the port (always one of its owner's cycles).
+        OP_LDT, OP_STT: if (lu_port) outcome = OC_W;
+        OP_CAPT: ;
+        // v1.4 line unit (sec. 7.7)
+        OP_LINE: begin
+          if (l_op > 4'd3) begin
+            outcome = OC_F; f_cause = FC_ILLEGAL;
+          end else if ((l_op == 4'd3) ? (lu_owned && !lu_mine)
+                       : (!lu_mine || ((l_op == 4'd1 || l_op == 4'd2) && !lu_conf))) begin
+            outcome = OC_F; f_cause = FC_ADMIT; f_sub = AS_OWNER;
+          end else if (l_op != 4'd0 && lu_engaged) begin
+            outcome = OC_W;
+          end
+        end
+        OP_GETL: begin
+          if (!lu_mine) begin
+            outcome = OC_F; f_cause = FC_ADMIT; f_sub = AS_OWNER;
+          end else if (!lu_busy || rch_tmr) begin
+            w_rd_we = 1'b1; w_rd_data = lu_status; z_src = 3'd4; w_z = ~lu_busy;
+            if (!lu_busy) begin w_tmr_we = 1'b1; w_tmr = lu_e; end
+          end else begin
+            outcome = OC_W;
+          end
+        end
+        OP_SEND: begin
+          // sec. 6.2 for a LINE entry: no mask check; a late packet is dropped, not faulted
+          if (cs_cnta == 3'd4) begin
+            outcome  = OC_W;
+            waitfull = 1'b1;
+          end else if (lu_claimed == 8'd0 || !lu_mine) begin   // unconfigured or no tx_pins
+            outcome = OC_F; f_cause = FC_ADMIT; f_sub = AS_OWNER;
+          end else if (lu_engaged) begin
+            outcome = OC_W;
+          end else if (!ahd_now) begin
+            z_src = 3'd4; w_z = 1'b0;
+          end else if (cs_cnta != 3'd0 && !ahd_tail) begin
+            outcome = OC_F; f_cause = FC_ADMIT; f_sub = AS_ORDER;
+          end else begin
+            w_push = 1'b1; z_src = 3'd4; w_z = 1'b1;
+          end
+        end
         OP_GETX: begin
           w_rd_we = 1'b1; z_src = 3'd1;
           w_rd_data = {cs_fail, cs_pass, 14'd0, cs_act, cs_failed};
@@ -457,7 +517,7 @@ module esc_core (
             waitfull = 1'b1;
           end else if (ev_kind != K_SAMPLE && f_mask == 8'd0) begin
             outcome = OC_F; f_cause = FC_ADMIT; f_sub = AS_MASK;
-          end else if (ev_kind == K_DRIVE && (f_mask & ~owned_c) != 8'd0) begin
+          end else if (ev_kind == K_DRIVE && (f_mask & ~(owned_c & ~claimed_c)) != 8'd0) begin
             outcome = OC_F; f_cause = FC_ADMIT; f_sub = AS_OWNER;
           end else if (!ahd_now) begin
             outcome = OC_F; f_cause = FC_ADMIT; f_sub = AS_PAST;
@@ -512,15 +572,27 @@ module esc_core (
   // port in every cycle the core does not use (tape_busy low), during a run too.
   wire        is_tm    = (op == OP_LDT) | (op == OP_STT);
   wire        tp_busy  = commit_valid & is_tm;
-  assign tape_addr  = tp_busy ? (opb[7:0] + f_imm16[7:0]) : cap_ptr;
-  assign tape_we    = tp_busy ? (cm_ok & (op == OP_STT)) : cap_drain;
-  assign tape_re    = tp_busy & (op == OP_LDT);
-  assign tape_wdata = tp_busy ? opa : cap_head;
-  assign tape_busy  = tp_busy | cap_drain;
+  // v1.4 (sec. 6.6): the line unit has the port for its scheduled accesses (an owner LDT
+  // or STT then waits), and in the commit cycle of every SEND and LINE, whose operation
+  // reads word R[rs][7:0] when it starts a CONFIG, a CRC job or a packet with data.
+  // At a start or stop edge the unit makes no access.
+  wire        lu_cmc   = commit_valid & ((op == OP_SEND) | (op == OP_LINE));
+  wire        lu_rd_c  = cm_ok & (((op == OP_SEND) & w_push & (opb[14:8] != 7'd0))
+                                | ((op == OP_LINE) & ((l_op == 4'd3)
+                                                     | ((l_op == 4'd2) & (opb[15:8] != 8'd0)))));
+  wire        lu_acc   = lu_port & ~start & ~stop;
+  wire        lu_tb    = lu_port | lu_cmc;
+  assign tape_addr  = lu_port ? lu_paddr : lu_cmc ? opb[7:0]
+                    : tp_busy ? (opb[7:0] + f_imm16[7:0]) : cap_ptr;
+  assign tape_we    = lu_port ? (lu_acc & lu_pwe) : lu_cmc ? 1'b0
+                    : tp_busy ? (cm_ok & (op == OP_STT)) : cap_drain;
+  assign tape_re    = lu_port ? (lu_acc & ~lu_pwe) : lu_cmc ? lu_rd_c : (tp_busy & (op == OP_LDT));
+  assign tape_wdata = lu_port ? lu_pwdata : tp_busy ? opa : cap_head;
+  assign tape_busy  = tp_busy | lu_tb | cap_drain;
 
   esc_cap u_cap (
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop_q), .run(run), .now(now),
-      .psync(s2), .busy(tp_busy | tape_host_we), .ack(tape_ack), .ack_v(tape_ack_v),
+      .psync(s2), .busy(tp_busy | lu_tb | tape_host_we), .ack(tape_ack), .ack_v(tape_ack_v),
       .capt_we(cm_ok & (op == OP_CAPT)), .capt_v(opb),
       .drain(cap_drain), .ptr_o(cap_ptr), .head_o(cap_head),
       .status(cap_status), .cfg(cap_cfg), .rptr(cap_rptr), .ovf_tick(cap_ovf_tick));
@@ -531,16 +603,36 @@ module esc_core (
   wire cm_wf        = commit_valid & (outcome == OC_W) & waitfull;
   wire cm_fault     = commit_valid & (outcome == OC_F);
 
-  // per-context fault at this edge: commit fault or LATE_HEAD (not on start/stop)
-  wire [3:0] cm_sel;
+  // per-context fault at this edge: commit fault, LATE_HEAD or (v1.4) a CONFIG of the
+  // context's line unit completing invalid (not on start/stop)
+  wire [3:0] cm_sel, lu_sel;
   wire [3:0] fault_k;
   genvar gk;
   generate
     for (gk = 0; gk < 4; gk = gk + 1) begin : g_sel
       assign cm_sel[gk]  = (cctx == gk[1:0]);
-      assign fault_k[gk] = ~start & ~stop & ((cm_fault & cm_sel[gk]) | c_late[gk]);
+      assign lu_sel[gk]  = lu_owned & (lu_owner == gk[1:0]);
+      assign fault_k[gk] = ~start & ~stop & ((cm_fault & cm_sel[gk]) | c_late[gk]
+                                             | (lu_cfgf & lu_sel[gk]));
     end
   endgenerate
+
+  // ------------------------------------------------------------------ line unit (v1.4)
+  wire lu_cm = cm_ok & (op == OP_LINE);
+  esc_line u_line (
+      .clk(clk), .rst_n(rst_n), .start(start), .now(now),
+      .view(vsync[8*lu_owner +: 8]), .owns(owned_by[8*lu_owner +: 8]),
+      .op_send(cm_ok & (op == OP_SEND) & w_push),
+      .op_off(lu_cm & (l_op == 4'd0)), .op_recv(lu_cm & (l_op == 4'd1)),
+      .op_crc(lu_cm & (l_op == 4'd2)), .op_cfg(lu_cm & (l_op == 4'd3)),
+      .op_ctx(cctx), .op_v(opb[23:0]),
+      .line_ret(c_lret[lu_owner] & lu_owned), .halt_done(cm_ok & w_halt & lu_mine),
+      .kill(stop_q | (|(fault_k & lu_sel))), .rdata(tape_rdata),
+      .owned(lu_owned), .owner(lu_owner), .conf(lu_conf), .claimed(lu_claimed),
+      .engaged(lu_engaged), .busy(lu_busy), .status(lu_status), .e(lu_e), .mode(lu_mode),
+      .flt_owner(lu_flto), .flt_config(lu_fltc),
+      .port(lu_port), .port_we(lu_pwe), .port_addr(lu_paddr), .port_wdata(lu_pwdata),
+      .rel_m(lu_rel), .drv_m(lu_drv), .drv_val(lu_dval), .drv_oe(lu_doe));
 
   // ------------------------------------------------------------------ contexts
   generate
@@ -636,7 +728,8 @@ module esc_core (
           .o_drv_mask  (c_dmask[8*gk +: 8]),
           .o_drv_val   (c_dval[8*gk +: 8]),
           .o_drv_oe    (c_doe[8*gk +: 8]),
-          .o_has_smp   (c_hsmp[gk])
+          .o_has_smp   (c_hsmp[gk]),
+          .o_line_ret  (c_lret[gk])
 `ifdef FORMAL
           , .f_owned   (owned_by[8*gk +: 8])
 `endif
@@ -675,13 +768,16 @@ module esc_core (
     input [7:0] v;
     to_phys = bank ? {v[4:0], 8'd0} : {5'd0, v};
   endfunction
-  reg [12:0] val_n, oe_n, dm, dv, de;
+  // v1.4: a DRIVE leaves the pins its line unit claims during this cycle unchanged, and
+  // the unit's own writes come after DRIVE retirement (and after fault release; the unit
+  // of a faulting owner writes nothing).
+  reg [12:0] val_n, oe_n, dm, dv, de, lm;
   integer pk, pi;
   always @* begin
     val_n = pin_val;
     oe_n  = pin_oe;
     for (pk = 0; pk < 4; pk = pk + 1) begin
-      dm = to_phys(ctx_bank[pk], c_dmask[8*pk +: 8]);
+      dm = to_phys(ctx_bank[pk], c_dmask[8*pk +: 8] & ~(lu_sel[pk] ? lu_claimed : 8'd0));
       dv = to_phys(ctx_bank[pk], c_dval[8*pk +: 8]);
       de = to_phys(ctx_bank[pk], c_doe[8*pk +: 8]);
       for (pi = 0; pi < 13; pi = pi + 1)
@@ -692,6 +788,10 @@ module esc_core (
     end
     for (pk = 0; pk < 4; pk = pk + 1)
       if (fault_k[pk]) oe_n = oe_n & ~pown[13*pk +: 13];
+    oe_n  = oe_n & ~to_phys(ctx_bank[lu_owner], lu_rel);
+    lm    = to_phys(ctx_bank[lu_owner], lu_drv);
+    val_n = (val_n & ~lm) | (to_phys(ctx_bank[lu_owner], lu_dval) & lm);
+    oe_n  = lu_doe ? (oe_n | lm) : (oe_n & ~lm);
   end
 
   // ------------------------------------------------------------------ digest (sec. 10.1)
@@ -769,9 +869,14 @@ module esc_core (
         pin_val <= val_n;
         pin_oe  <= oe_n;
         if (!ff_valid) begin
-          if (cm_fault) begin
+          // a commit fault and a line unit CONFIG fault (v1.4, never the owner's commit
+          // edge) at one edge: the lower-numbered context is recorded (sec. 8)
+          if (cm_fault && !(lu_cfgf && lu_owner < cctx)) begin
             ff_valid <= 1'b1; ff_cause <= f_cause; ff_sub <= f_sub;
             ff_ctx <= cctx; ff_pc <= cs_pc; ff_tick <= now;
+          end else if (lu_cfgf) begin
+            ff_valid <= 1'b1; ff_cause <= FC_ADMIT; ff_sub <= lu_flto ? AS_OWNER : AS_CONFIG;
+            ff_ctx <= lu_owner; ff_pc <= c_pc[8*lu_owner +: 8]; ff_tick <= now;
           end else if (c_late != 4'd0) begin
             ff_valid <= 1'b1; ff_cause <= FC_LATE; ff_sub <= 3'd0;
             ff_ctx <= late_ctx; ff_pc <= c_pc[8*late_ctx +: 8]; ff_tick <= now;
@@ -829,6 +934,9 @@ module esc_core (
       5'd18: dbg_rdata = cap_cfg;
       5'd19: dbg_rdata = cap_ovf_tick;
       5'd20: dbg_rdata = {24'd0, cap_rptr};
+      5'd21: dbg_rdata = lu_status;                                            // v1.4
+      5'd25: dbg_rdata = lu_e;
+      5'd26: dbg_rdata = {lu_owned, 1'b0, lu_owner, 1'b0, lu_mode, 3'd0, lu_conf, 20'd0};
       default: dbg_rdata = 32'd0;
     endcase
   end
@@ -890,12 +998,17 @@ module esc_core (
     assert ((pin_oe & ~pin_owned) == 13'd0);                                     // lemma-group: faulted
     for (fk = 0; fk < 4; fk = fk + 1)
       if (c_state[2*fk +: 2] == 2'd3) assert ((pin_oe & pown[13*fk +: 13]) == 13'd0);  // lemma-group: faulted
+    // v1.4 the line unit writes only pins it claims (and, at a CONFIG, pins the CONFIG
+    // checked): it claims only pins its owner owns, and it is idle and unconfigured while
+    // stopped and once its owner has faulted (that owner never commits again).
+    if (lu_owned) assert ((lu_claimed & ~owned_by[8*lu_owner +: 8]) == 8'd0);  // lemma-group: faulted
+    if (!run) assert (lu_mode == 3'd0 && !lu_conf);                             // lemma-group: faulted
+    if (lu_owned && c_state[2*lu_owner +: 2] == 2'd3) assert (lu_mode == 3'd0 && !lu_conf);  // lemma-group: faulted
     if (cm_ok && w_push) begin
       assert (ahd_now);
       if (cs_cnta != 3'd0) assert (ahd_tail);
       // P8 the rest of what formal/esc_ctx_env.v assumes about a push
       assert (cs_cnta != 3'd4);
-      assert (ev_kind != 2'd0);
       if (ev_kind == K_DRIVE) assert ((f_mask & ~owned_c) == 8'd0);
     end
     // P8 a COMPLETE commit is a RUNNING context's, never on a start/stop/fault edge;
@@ -903,11 +1016,14 @@ module esc_core (
     // A late FIFO head is a fault too (fault_k includes c_late), so "no fault on a
     // commit" contains P2. The pdr task proves the rest, faults other than lateness;
     // esc_ctx.sby assumes no more than that and proves P2, which completes the clause.
+    // v1.4: the committing context's own fault; another context's CONFIG may fault it at
+    // the same edge (esc_ctx_env.v assumes the per-context clause only).
 `ifdef ESC_CORE_PDR
-    if (cm_ok) assert (run && cs_state == ST_RUN && !start && !stop
-                       && (fault_k & ~c_late) == 4'd0);
+    if (cm_ok) assert (run && cs_state == ST_RUN && !start && !stop             // lemma-group: commit
+                       && (fault_k & cm_sel & ~c_late) == 4'd0);
 `else
-    if (cm_ok) assert (run && cs_state == ST_RUN && !start && !stop && fault_k == 4'd0);
+    if (cm_ok) assert (run && cs_state == ST_RUN && !start && !stop
+                       && (fault_k & cm_sel) == 4'd0);
 `endif
     if (cm_ok && w_halt) assert (cs_cnta == 3'd0 && !w_push);
     if (fault_k != 4'd0) assert (run && !start && !stop);
@@ -932,6 +1048,9 @@ module esc_core (
     cover (c_fail != 32'd0);                      // an EXPECT failed
     cover (c_ish != 128'd0);                      // a SAMPLE shifted a 1 in
     cover (now == 32'hFFFF_FFFF);                 // tick counter wraps during a run
+    cover (lu_drv != 8'd0);                       // v1.4: the line unit drives its pins
+    cover (lu_mode == 3'd5);                      // ... receives a packet
+    cover (lu_fltc);                              // ... a CONFIG faults its owner
   end
 `endif
 

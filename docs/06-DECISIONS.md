@@ -173,6 +173,23 @@ the cycle alone.
 early, so the USB firmware and tests use a 24 MHz clock, 16 ticks per bit, and the chip
 keeps its 25 MHz rating.
 
+**D-38 The configuration words are not debug registers.** Debug selects 22 to 24 first
+showed W0 to W2. To keep them exact, a CONFIG would have had to hold its new words aside
+until it completes, and a failed one to keep the old ones: a 32-bit holding register and
+three more 32-bit inputs on the debug multiplexer, in a layout where routing is already
+the limit. The words are a tape block the firmware wrote, so the host can read them
+there; selects 22 to 24 read 0. In the RTL a new W0 waits in the unit's stream buffer and
+W1 loads as it arrives, which nothing can observe.
+
+**D-39 One counter and one clock gate.** The unit's timing state is one 12-bit tick
+counter, reused in every mode: bit timer while sending and receiving, idle counter while
+armed, bit index of a CRC job, step of a CONFIG, end-of-packet wait. A bit lasts P_int or
+P_int + 1 ticks, so the fractional rate is one 8-bit accumulator. The configuration,
+command and end tick are clock-gated banks like the core's, and all other state shares a
+gate that is closed whenever the unit is idle and nothing reaches it. A program that
+never uses the unit pays for it in area only: about 2,500 cells, 11% of the design before
+place and route (Yosys, same script for both).
+
 ## Power and timing margin
 
 **D-29 Measure power, then cut what dominates.** On the first v1.1 netlist, with

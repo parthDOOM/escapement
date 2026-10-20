@@ -73,8 +73,8 @@ export default function App() {
               <h1>Escape<em>ment</em></h1>
               <p className="claim">No pin edge is ever late, whatever program runs.
                 <a href="#proof">Proved for every program, on the netlist that goes to silicon.</a></p>
-              <p className="lede">A chip that speaks UART, SPI, I2C, CAN, JTAG, ARM SWD and more, with none of them
-                built into the hardware. Firmware schedules every pin change for an exact 40 ns tick. The chip makes
+              <p className="lede">A chip that speaks UART, SPI, I2C, CAN, JTAG, ARM SWD, low-speed USB and more, with
+                none of them built into the hardware. Firmware schedules every pin change for an exact 40 ns tick. The chip makes
                 that tick, or refuses the change when it is queued. The guarantee is in the silicon, not in a tool
                 that vets programs: one nobody has checked still cannot make a late edge.</p>
               <div className="hero-cta">
@@ -85,7 +85,7 @@ export default function App() {
                 <div><b>40 ns</b><span>one tick at 25 MHz</span></div>
                 <div><b>4</b><span>programs running at once</span></div>
                 <div><b>13</b><span>protocol pins, two banks</span></div>
-                <div><b>25</b><span>firmware programs</span></div>
+                <div><b>26</b><span>firmware programs</span></div>
                 <div><b>3.1 mW</b><span>sending UART</span></div>
                 <div><b>0</b><span>late edges, for any program, for all time</span></div>
               </div>
@@ -126,7 +126,8 @@ export default function App() {
                 <p>Nothing on the chip knows what UART or I2C is. The silicon offers three kinds of timed event:
                   <strong> DRIVE</strong> sets pins, <strong>EXPECT</strong> checks that an input holds a level or
                   arrives at it within a window of up to 127 ticks, and <strong>SAMPLE</strong> captures one input bit.
-                  Everything else is a program in the 256-word program memory.</p>
+                  Everything else is a program in the 256-word program memory. Version 1.4 adds one more timed
+                  event, a packet, for protocols whose bits come too fast for a program to code by hand.</p>
               </div>
               <div className="prose">
                 <h3>Proved before it runs</h3>
@@ -157,6 +158,27 @@ export default function App() {
                 160 ticks of a real run with four protocols at once.</p>
             </div>
             <Barrel />
+            <div className="cols" style={{ marginTop: "3.5rem" }}>
+              <div className="prose">
+                <h3>The line unit: packets as events</h3>
+                <p>Low-speed USB at 24 MHz leaves a program four instructions per bit, too few for NRZI coding, bit
+                  stuffing and a running CRC-16. Version 1.4 gives one context a line unit that does that bit
+                  work. <code>SEND</code> queues a packet like any other event, checked when it is queued and sent on its
+                  exact tick; a receive records the tick the packet ended, so a reply can leave a fixed number of
+                  ticks after the host's packet, whatever ran in between.</p>
+                <p>The unit knows no protocol. Three words in the tape set the pins, the coding, the stuffing rule,
+                  the bit period and any CRC up to 16 bits, so USB and CAN frames are configurations of it. While it
+                  is idle its clocks are gated off.</p>
+              </div>
+              <div className="prose">
+                <h3>A USB keyboard in 187 instructions</h3>
+                <p>The keyboard firmware enumerates on a real Linux kernel, through USB/IP, with the simulated chip
+                  on the other end. The timing checker proves that every reply leaves exactly 75 ticks after the end
+                  of the host's packet, 4.69 bit times, inside USB's 2 to 6.5.</p>
+                <p><button type="button" className="link" onClick={() => tryInPlayground("usb")}>
+                  Type through it in the playground</button>.</p>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -182,7 +204,7 @@ export default function App() {
           <div className="wrap">
             <div className="sec-head">
               <p className="eyebrow">Instruction set</p>
-              <h2>Fifty instructions, one word each</h2>
+              <h2>Fifty-three instructions, one word each</h2>
               <p className="lede">Every instruction is 32 bits: an 8-bit opcode and a 24-bit payload whose unused bits
                 must be zero, so erased or uninitialised memory traps instead of running. Pick an instruction, then
                 click bits to see how the word decodes.</p>
@@ -317,6 +339,7 @@ export default function App() {
                   <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/14-FIRMWARE-GUIDE.md">Firmware guide</a></li>
                   <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/16-BRING-UP.md">Bring-up</a></li>
                   <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/17-INSTRUMENT.md">Capture, streaming and PulseView</a></li>
+                  <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/19-LINE-UNIT.md">Line unit and the USB keyboard</a></li>
                 </ul>
               </div>
             </div>

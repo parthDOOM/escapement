@@ -83,12 +83,13 @@ flowchart LR
 - **Execution digest.** A 32-bit signature of every commit, register write and pin
   change in a run, readable over SPI and predicted by the reference model.
 
-**Next, version 1.4: a line unit** (specified and simulated; the RTL comes next). It does
-the per-bit work of packet protocols, NRZI, bit stuffing, CRCs and clock recovery, for
-one context, while the firmware handles packets. A 187-instruction USB low-speed
-keyboard runs on it in simulation: a real Linux kernel enumerates the simulated chip
-over USB/IP and receives typed text through it, and escert proves every reply leaves
-exactly 72 ticks after the host's packet ([line unit](docs/19-LINE-UNIT.md)).
+**Next, version 1.4: a line unit** (specified, simulated and in the RTL, checked against
+the simulator cycle by cycle; layout in progress). It does the per-bit work of packet
+protocols, NRZI, bit stuffing, CRCs and clock recovery, for one context, while the
+firmware handles packets. A 187-instruction USB low-speed keyboard runs on it: a real
+Linux kernel enumerates the simulated chip over USB/IP and receives typed text through
+it, and escert proves every reply leaves exactly 72 ticks after the host's packet
+([line unit](docs/19-LINE-UNIT.md)).
 
 ## Results
 

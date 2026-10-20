@@ -18,10 +18,11 @@
  * Retirement and checker evaluation are suppressed by `fault` or `stop_i`
  * at the same edge (sec. 6.3, 8, 9).
  *
- * FIFO entry layout (58 bits): [57:56] kind (1 DRIVE, 2 EXPECT, 3 SAMPLE),
+ * FIFO entry layout (58 bits): [57:56] kind (0 LINE, 1 DRIVE, 2 EXPECT, 3 SAMPLE),
  * [55:24] deadline, [23:0] payload = instruction bits [23:0] of the queued
  * instruction (DRIVE: mask/value/oe with the effective value; EXPECT:
- * mask/level/mode/window; SAMPLE: pin [18:16], dir [15]).
+ * mask/level/mode/window; SAMPLE: pin [18:16], dir [15]; LINE, v1.4: unused, the line
+ * unit keeps the SEND command, and the entry only starts it at its deadline).
  */
 `default_nettype none
 module esc_ctx (
@@ -122,14 +123,15 @@ module esc_ctx (
     output wire [7:0]  o_drv_mask,
     output wire [7:0]  o_drv_val,
     output wire [7:0]  o_drv_oe,
-    output wire        o_has_smp      // v1.1: a SAMPLE entry is in the FIFO (sec. 7.3 GETI)
+    output wire        o_has_smp,     // v1.1: a SAMPLE entry is in the FIFO (sec. 7.3 GETI)
+    output wire        o_line_ret     // v1.4: a LINE entry retires at this edge (after suppression)
 `ifdef FORMAL
     , input wire [7:0] f_owned        // formal only: pins this context owns (for H4)
 `endif
 );
 
   localparam [1:0] ST_IDLE = 2'd0, ST_RUN = 2'd1, ST_HALT = 2'd2, ST_FAULT = 2'd3;
-  localparam [1:0] K_DRIVE = 2'd1, K_EXPECT = 2'd2, K_SAMPLE = 2'd3;
+  localparam [1:0] K_LINE = 2'd0, K_DRIVE = 2'd1, K_EXPECT = 2'd2, K_SAMPLE = 2'd3;
 
   // ------------------------------------------------------------------ FIFO
   wire [57:0] ent0, ent1, ent2, ent3;   // clock-gated banks, below
@@ -201,6 +203,7 @@ module esc_ctx (
   assign     o_drv_val   = h_pl[15:8];
   assign     o_drv_oe    = h_pl[7:0];
   wire       sample_ret = ret_ok & (h_kind == K_SAMPLE);
+  assign     o_line_ret = ret_ok & (h_kind == K_LINE);
   wire       s_bit      = sync[h_pl[18:16]];
   wire [31:0] ish_base  = (cm_ok & w_geti) ? 32'd0 : o_ish;
   wire [31:0] ish_next  = ~sample_ret ? ish_base :

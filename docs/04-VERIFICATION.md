@@ -37,7 +37,10 @@ digest, the capture state and all 256 tape words.
 | Random programs with pin bank B, version 1.2 | 1,000 | 66,991 | 0 |
 | Firmware programs with their bus models | 15 | — | 0 |
 | Random programs with the host reading the tape during the run, version 1.3 | 60 | 7,598 words read | 0 |
-| Regression run (`make cosim`, 200 random programs plus all firmware) | 7 tests | 14,472 in the random test | 0 |
+| Firmware-shaped line unit programs, version 1.4 (`test_v14_line_unit`) | 40 | 260,000 cycles | 0 |
+| The USB keyboard (`usb_hid.asm`) against the USB host model, version 1.4 | 1 | 70,000 cycles | 0 |
+| The line unit alone against the simulator's model, every output every cycle (`make line-test`) | 40 seeds | 12 million cycles | 0 |
+| Regression run (`make cosim`, 200 random programs plus all firmware) | 8 tests | 14,472 in the random test | 0 |
 
 Random programs come from a constrained generator (`test/cosim/progen.py`) that mixes
 every instruction class, deliberate faults, host mailbox traffic, and tape loads and
@@ -45,7 +48,20 @@ stores that collide with capture drains. Since version 1.2 it also puts contexts
 bank B, owns and drives bank B pins, and points the capture unit at either bank, each on
 a random board for both banks: in the version 1.2 campaign, 520 programs configure a
 bank B context and 187 change a bank B output. A program with no bank B context is the
-same program as in version 1.1, so the earlier campaigns still apply.
+same program as in version 1.1, so the earlier campaigns still apply. Since version 1.4 a
+third of the seeds also use the line unit, from a generator of their own, so every other
+seed keeps its earlier program: one context configures the unit and issues receives,
+packets, CRC jobs, GETL waits and OFF, and the other contexts try the same and fault.
+
+The line unit has two more checks of its own. `make line-test` replays random stimulus
+that follows the core's rules into `src/esc_line.v` alone and compares every output with
+the simulator's model on every cycle: configurations from USB-like, CAN-like and random
+profiles, packets at offset clocks with jitter, glitches and stuffing errors, noise, the
+unit's own pins read back (the monitor), owner faults, stop, start and tape writes from
+elsewhere; every job type and every end cause occurs. The firmware-shaped programs
+(`progen.gen_lu_program`) run on the whole chip: receives of the unit's own packets and of
+noise, packets at fresh and end-tick deadlines, owner `LDT`/`STT` that meet the unit's tape
+cycles, and another context's traffic beside it.
 
 ## Formal proofs
 
@@ -61,7 +77,8 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | P5 | A faulted context drives none of its pins, in either bank | Unbounded (PDR), in two parts: a pin away from its released level has its output enable set, and a faulted context never has one set |
 | P6 | An admitted event is strictly ahead of its commit tick and of the FIFO tail | Unbounded (PDR) |
 | P7 | Fixed slot timing: a commit belongs to the context that owns that slot | Unbounded (PDR) |
-| P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start, stop or fault edge | Unbounded (PDR, with P2 for the lateness part of the last clause, below) |
+| P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start or stop edge or one where it faults | Unbounded (PDR, with P2 for the lateness part of the last clause, below) |
+| L1 | The line unit (v1.4) claims only pins its owner owns; it is idle and unconfigured while stopped and once its owner has faulted; a CONFIG never completes at one of its owner's commit edges | Unbounded (PDR), as lemmas for P3, P5 and P8 |
 | H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction); H3 and H4 also by PDR in the core proof, as lemmas for P5 |
 | C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
 | C4 | In stream mode a capture drain never writes over a record the host has not acknowledged (v1.3) | Unbounded (PDR) |
@@ -93,13 +110,22 @@ once. A task proves its assertions without the others as lemmas, so a property t
 needs a lemma can take far longer split than together. Assertions tagged with the same
 `lemma-group` are therefore proved in one task: the output-enable parts of P3 and P5
 both rest on H4, and together with H3 and H4 they prove in two minutes. Alone, P5's did
-not finish in two hours, and P3's ran past the three-hour limit on the CI runner. With 6 jobs all 21 tasks pass in 17 minutes of wall time; the slowest is a
-capture-region bound. The single task (`sby -f esc_core.sby pdr`, all assertions
-together) passes too, in 34 minutes on one core.
+not finish in two hours, and P3's ran past the three-hour limit on the CI runner. Since
+version 1.4 the line unit's L1 lemmas join that group (five minutes), and P8's commit
+clause is proved with the CONFIG phase lemma. With 6 jobs all 20 tasks pass in 17
+minutes of wall time; the slowest is a capture-region bound. The single task
+(`sby -f esc_core.sby pdr`, all assertions together) passed in 34 minutes on one core
+for version 1.3.
+
+**Faults from the line unit.** A CONFIG that turns out invalid faults its owner when it
+completes, an edge where another context may commit. P8's commit clause is therefore
+per context, which is all `formal/esc_ctx_env.v` assumes: the committing context does not
+fault at its own commit edge. L1's phase lemma shows a CONFIG never completes at one of
+its owner's commit edges.
 
 **Vacuity guards.** A cover task reaches the precondition of every property, including
-capture overflow, region full, ring wrap, and a drain and a push with two records
-staged. The clock-gate proof has teeth: a naive `clk & en` gate fails G3 at the first
+capture overflow, region full, ring wrap, a drain and a push with two records staged,
+and (v1.4) the line unit driving its pins, receiving, and a CONFIG faulting its owner. The clock-gate proof has teeth: a naive `clk & en` gate fails G3 at the first
 step.
 
 ## RTL to netlist equivalence

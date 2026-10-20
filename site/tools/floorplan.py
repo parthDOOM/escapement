@@ -26,6 +26,7 @@ BLOCKS = [  # key, label, colour, what it is
     ("ctx3", "Context 3", "#e0675a", "the same for context 3"),
     ("core", "Shared pipeline", "#6d9be8", "fetch, decode, execute, the timing unit, pins and digest"),
     ("cap", "Capture unit", "#c4d65a", "records pin changes into the tape"),
+    ("line", "Line unit", "#5ac8e0", "packet line coding: NRZI, stuffing, CRC, clock recovery (v1.4)"),
     ("host", "Host interface", "#d77fc0", "the SPI link, configuration and memory ports"),
     ("clock", "Clock tree", "#9aa3ad", "clock buffers and clock gates"),
 ]
@@ -41,6 +42,8 @@ def block_of(net):
         return "ctx" + m.group(1)
     if n.startswith("u_core.u_cap"):
         return "cap"
+    if n.startswith("u_core.u_line"):
+        return "line"
     if n.startswith("u_core.") or n in ("imem_rdata", "tape_rdata") or n.startswith(("imem_", "tape_")):
         return "core"
     if n.startswith(("u_host", "mbx_", "host_", "entry_pcs", "pin_own", "ctx_", "cfg")):

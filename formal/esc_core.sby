@@ -25,8 +25,8 @@ pdr: abc pdr
 kind: smtbmc yices
 
 [script]
-~pdr: read -formal -DFORMAL -DFORMAL_ANYNOW esc_greg.v esc_ctx.v esc_cap.v esc_core.v
-pdr: read -formal -DFORMAL -DESC_CORE_PDR esc_greg.v esc_ctx.v esc_cap.v esc_core.v
+~pdr: read -formal -DFORMAL -DFORMAL_ANYNOW esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v
+pdr: read -formal -DFORMAL -DESC_CORE_PDR esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v
 prep -top esc_core
 # PDR needs defined initial values: every flop is async-reset and step 0 is assumed to be
 # in reset, so the pre-reset contents are irrelevant; the unbounded run reaches the 2^32
@@ -42,5 +42,6 @@ pdr: setundef -init -zero
 [files]
 ../src/esc_ctx.v
 ../src/esc_cap.v
+../src/esc_line.v
 ../src/esc_greg.v
 ../src/esc_core.v

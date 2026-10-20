@@ -470,8 +470,7 @@ class Machine:
             lu = self.lu
             return {16: self.dg, 17: self.cap.status(), 18: self.cap.config(),
                     19: self.cap.ovf_tick, 20: self.cap.rptr,
-                    21: lu.status(), 22: lu.cfg.w0, 23: lu.cfg.w1, 24: lu.cfg.w2,
-                    25: lu.e, 26: lu.dbg26()}.get(sel, 0)
+                    21: lu.status(), 25: lu.e, 26: lu.dbg26()}.get(sel, 0)
         if sel <= 3:
             return x.r[sel]
         if sel == 4:
