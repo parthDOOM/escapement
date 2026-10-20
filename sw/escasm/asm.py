@@ -7,6 +7,8 @@ Syntax (one statement per line; `;` or `#` starts a comment):
     .equ NAME, expr             constant
     .org expr                   set the current word address
     .word expr                  emit a raw 32-bit word
+    .tape addr, w0, w1, ...     initial tape words from addr (host-loaded with WRITE_TAPE)
+    .tapeb addr, b0, b1, ...    initial tape bytes from addr, packed little-endian (v1.4)
     .entry ctx, label           context `ctx` starts at `label` and is enabled
     .own pin, ctx               context `ctx` owns its pin `pin`: 0..7 in bank A; in bank B
                                 0..4, which are B0..B4 (also written B0..B4)
@@ -293,6 +295,24 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
                         if ta in tape:
                             raise AsmError(f"{where}: tape word {ta} written twice")
                         tape[ta] = ev(op) & 0xFFFFFFFF
+            elif directive == ".tapeb":
+                # .tapeb ADDR, b0, b1, ... : bytes packed little-endian into tape words from
+                # ADDR (byte 4k+i in bits 8i+7..8i of word ADDR+k; a last partial word is
+                # padded with zeros), the order the line unit sends with `lsb` (v1.4)
+                if len(ops) < 2:
+                    raise AsmError(f"{where}: .tapeb ADDR, byte[, byte...]")
+                base_addr = ev(ops[0])
+                vals = [ev(op) for op in ops[1:]]
+                if final and any(not 0 <= v <= 0xFF for v in vals):
+                    raise AsmError(f"{where}: .tapeb values are bytes (0..255)")
+                for i in range(0, len(vals), 4):
+                    ta = base_addr + i // 4
+                    if not 0 <= ta < 256:
+                        raise AsmError(f"{where}: tape address {ta} out of range")
+                    if final:
+                        if ta in tape:
+                            raise AsmError(f"{where}: tape word {ta} written twice")
+                        tape[ta] = sum((v & 0xFF) << (8 * j) for j, v in enumerate(vals[i:i + 4]))
             elif directive == ".org":
                 pc = ev(ops[0])
             elif directive == ".word":

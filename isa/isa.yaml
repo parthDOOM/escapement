@@ -1,4 +1,4 @@
-# Escapement ISA v1.1 — machine-readable encoding.
+# Escapement ISA v1.4 — machine-readable encoding.
 # Single source for the assembler, documentation tables and RTL decoder constants.
 # Execution SEMANTICS are normative only in docs/11-SEMANTICS.md and must never be
 # generated from this file (independent ISS/RTL verification, docs/04-VERIFICATION.md).
@@ -7,7 +7,7 @@
 # format is reserved and must be zero; a nonzero reserved bit or an unlisted opcode is
 # ILLEGAL. 0x00000000 and 0xFFFFFFFF are ILLEGAL by construction (opcodes 0x00, 0xFF).
 
-version: "1.1"
+version: "1.4"
 word_bits: 32
 imem_words: 256
 tape_words: 256
@@ -74,6 +74,7 @@ opcodes:
   EMITX:   {op: 0x2A, format: PX,  wait_class: true}
   EXPECT:  {op: 0x2B, format: PE,  wait_class: true}
   SAMPLE:  {op: 0x2C, format: PS,  wait_class: true}
+  SEND:    {op: 0x2D, format: RS,  wait_class: true}   # v1.4 line unit packet (event)
   GETP:    {op: 0x30, format: RD}
   WAITP:   {op: 0x31, format: PW,  wait_class: true}
   GETI:    {op: 0x32, format: RD,  wait_class: true}   # v1.1: waits for in-flight SAMPLEs
@@ -86,6 +87,8 @@ opcodes:
   PUSH:    {op: 0x39, format: RS,  wait_class: true}
   RXREADY: {op: 0x3A, format: N}
   TXREADY: {op: 0x3B, format: N}
+  LINE:    {op: 0x3C, format: RS,  wait_class: true}   # v1.4 line unit control
+  GETL:    {op: 0x3D, format: RD,  wait_class: true}   # v1.4 line unit status / wait
 
 fault_causes:
   ILLEGAL: 1
@@ -99,8 +102,10 @@ admit_subcodes:
   PAST: 3      # deadline not in (now, now + 2^31)
   ORDER: 4     # deadline not after the FIFO tail
   OVERLAP: 5   # EXPECT window starts at or before the end of the previous EXPECT window
+  CONFIG: 6    # v1.4: invalid line unit configuration
 
 event_kinds:
+  LINE: 0      # v1.4
   DRIVE: 1
   EXPECT: 2
   SAMPLE: 3

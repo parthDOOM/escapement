@@ -24,6 +24,37 @@ def crc15(bits: list[int]) -> int:
     return crc
 
 
+def frame_bits(ident: int, data: bytes, rtr: int = 0) -> list[int]:
+    """A classic 2.0A data frame from SOF through the CRC sequence, unstuffed."""
+    dlc = len(data)
+    bits = [0] + [(ident >> (10 - i)) & 1 for i in range(11)] + [rtr, 0, 0]
+    bits += [(dlc >> (3 - i)) & 1 for i in range(4)]
+    for byte in data:
+        bits += [(byte >> (7 - i)) & 1 for i in range(8)]
+    crc = crc15(bits)
+    return bits + [(crc >> (14 - i)) & 1 for i in range(15)]
+
+
+def stuff_can(bits: list[int]) -> list[int]:
+    """After five equal bits the complement is inserted; it starts the next run."""
+    out: list[int] = []
+    last, run = None, 0
+    for b in bits:
+        out.append(b)
+        run = run + 1 if b == last else 1
+        last = b
+        if run == 5:
+            out.append(1 - b)
+            last, run = 1 - b, 1
+    return out
+
+
+def encode_frame(ident: int, data: bytes, ack: bool = True) -> list[int]:
+    """Bus levels of a whole frame: stuffed SOF..CRC, CRC delimiter, ACK slot (dominant if
+    a receiver acknowledged), ACK delimiter, seven recessive bits of end of frame."""
+    return stuff_can(frame_bits(ident, data)) + [1, 0 if ack else 1, 1] + [1] * 7
+
+
 class CanBus(Device):
     def __init__(self, tx: int, rx: int, bit_ticks: int, sample: float = 0.7, ack: bool = True):
         self.tx, self.rx, self.bit = tx, rx, bit_ticks

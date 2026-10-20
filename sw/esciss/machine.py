@@ -1,4 +1,4 @@
-"""Escapement instruction-set simulator: a cycle-by-cycle model of docs/11-SEMANTICS.md v1.3.0.
+"""Escapement instruction-set simulator: a cycle-by-cycle model of docs/11-SEMANTICS.md v1.4.0.
 
 v1.1 adds the tape and capture unit (§6.5, §7.6), the execution digest (§10.1) and the
 wait-class GETI (§7.3). v1.2 adds pin bank B (§5): five split pins seen by a context as
@@ -7,7 +7,8 @@ interface for bank A; bank B has its own `board_b(t, ob) -> ib` (5 bits, default
 v1.3 adds streaming capture (§6.5): CAPT bit 26, the host's read pointer `rptr` set by
 TAPE_ACK (`host_tape_ack`), and a drain that is held rather than overwrite an
 unacknowledged record. Host tape reads never affect the machine; `tape_log` records
-every tape write so a host read at any cycle can be checked.
+every tape write so a host read at any cycle can be checked. v1.4 adds the line unit
+(§6.6, `line.py`) and SEND, LINE and GETL (§6.2, §7.7).
 
 One loop iteration = one run cycle t, ending with edge E_t. State held in the Python
 objects is always "state during cycle self.now" (i.e. the register values after the
@@ -31,6 +32,7 @@ from typing import Callable, Optional
 from escasm import Image
 
 from .decode import ADMIT_SUB, EVENT_KIND, FAULT_CAUSE, ISA, decode
+from .line import IDLE as LU_IDLE, LineUnit, OP_CONFIG, OP_OFF, OP_RECV, OP_CRC
 
 M32 = 0xFFFFFFFF
 HALF = 1 << 31
@@ -40,6 +42,7 @@ IDLE, RUNNING, HALTED, FAULTED = 0, 1, 2, 3
 STATE_NAMES = {IDLE: "IDLE", RUNNING: "RUNNING", HALTED: "HALTED", FAULTED: "FAULTED"}
 
 DRIVE, EXPECT, SAMPLE = EVENT_KIND["DRIVE"], EVENT_KIND["EXPECT"], EVENT_KIND["SAMPLE"]
+LINE = EVENT_KIND["LINE"]     # v1.4
 HOLD, ARRIVE = 0, 1
 
 FIFO_DEPTH = 4          # §1
@@ -51,6 +54,7 @@ BANK_B = 8              # first bank B physical pin
 TAPE_WORDS = 256        # §1 (v1.1)
 CAP_STAGE = 2           # §1 (v1.1) capture staging records
 OP_LDT, OP_STT = ISA.by_name["LDT"].op, ISA.by_name["STT"].op
+OP_SEND, OP_LINE = ISA.by_name["SEND"].op, ISA.by_name["LINE"].op
 DG_POLY = 0x04C11DB7    # §10.1
 OUTCOME_CODE = {"C": 0, "W": 1, "F": 2}
 
@@ -119,6 +123,7 @@ class Entry:
     window: int = 0
     pin: int = 0
     dir: int = 0
+    cmd: int = 0            # LINE (v1.4): the SEND command, R[rs][23:0]
 
 
 @dataclass
@@ -284,6 +289,8 @@ class Commit:
     ld_val: Optional[int] = None        # §7.6 LDT loaded value (digest folds it at E_(c+1))
     tape_write: Optional[tuple[int, int]] = None   # STT (address, word)
     capt: Optional[int] = None          # CAPT operand
+    # v1.4
+    lu_op: Optional[tuple[str, int, int]] = None   # ("LINE"|"SEND", R[rs], ctx)
 
 
 class _Done(Exception):
@@ -339,6 +346,9 @@ class Machine:
         self.ff = FirstFault()
         self.now = 0
         self.cap = Capture()
+        self.lu = LineUnit()
+        self._lu_acc = False
+        self._lu_busy_port = False
         self.dg = 0xFFFFFFFF
         self._ld_dg: Optional[int] = None
         self._dg_prev = (0, 0, 0)
@@ -371,6 +381,7 @@ class Machine:
         self.oe = 0
         self.ff = FirstFault()
         self.cap = Capture()                       # §6.5 start
+        self.lu = LineUnit()                       # §9 v1.4 line unit
         self.dg = 0xFFFFFFFF                       # §10.1
         self._ld_dg = None                         # no pending LDT write
         self._dg_prev = (0, 0, 0)                  # outputs during the previous cycle
@@ -456,8 +467,11 @@ class Machine:
         ch = x.chk
         sel &= 0x1F
         if sel >= 16:                              # v1.1, ignore ctx
+            lu = self.lu
             return {16: self.dg, 17: self.cap.status(), 18: self.cap.config(),
-                    19: self.cap.ovf_tick, 20: self.cap.rptr}.get(sel, 0)
+                    19: self.cap.ovf_tick, 20: self.cap.rptr,
+                    21: lu.status(), 22: lu.cfg.w0, 23: lu.cfg.w1, 24: lu.cfg.w2,
+                    25: lu.e, 26: lu.dbg26()}.get(sel, 0)
         if sel <= 3:
             return x.r[sel]
         if sel == 4:
@@ -530,7 +544,7 @@ class Machine:
 
     def _is_idle(self) -> bool:
         return (all(x.state != RUNNING and not x.fifo and not x.chk.active for x in self.ctx)
-                and not self.cap.en and not self.cap.stage)
+                and not self.cap.en and not self.cap.stage and self.lu.mode == LU_IDLE)
 
     def _cycle(self) -> bool:
         """Run cycle t = self.now, ending with edge E_t. Returns True if the state during
@@ -574,6 +588,14 @@ class Machine:
         views = [view(self.ctx_bank[k], psync) for k in range(N_CTX)]
         # ---- plan: event engine for every context (§6.3, §6.4), state during cycle t
         plans = [self._event_plan(x, tm, views[k]) for k, x in enumerate(self.ctx)]
+        # ---- plan: the line unit (v1.4, §6.6): its scheduled access in cycle t (the
+        # owner's LDT/STT then waits) and a CONFIG completing at E_t that faults the owner
+        lu = self.lu
+        lu_owner = lu.owner
+        self._lu_acc = lu.access_scheduled(t)
+        cfg_fault = (lu.config_fault(t, lambda j: self._owns(lu_owner, j))
+                     if lu_owner is not None else None)
+        claimed_t = lu.claimed                     # claimed during cycle t (§6.6)
 
         # ---- plan: the commit at E_t, context j = (t - 3) mod 4 (§3)
         commit: Optional[Commit] = None
@@ -589,6 +611,8 @@ class Machine:
 
         # ---- apply
         new_val, new_oe = self.val, self.oe
+        owner_faulted = False
+        line_retired = False
         for k, x in enumerate(self.ctx):
             p = plans[k]
             sync, bank = views[k], self.ctx_bank[k]
@@ -600,6 +624,15 @@ class Machine:
                 self._apply_checker_eval_on_fault(x, p, tm, sync)
                 new_oe = self._fault(k, my_commit.cause, my_commit.subcode, my_commit.pc,
                                      tm, new_oe)
+                owner_faulted |= k == lu_owner
+                continue
+            if cfg_fault is not None and k == lu_owner:
+                # §6.6 CONFIG completing at E_t faults the owner (never on its commit edge);
+                # like any fault it cancels retirement and the checker at this edge (§8).
+                self._apply_checker_eval_on_fault(x, p, tm, sync)
+                new_oe = self._fault(k, FAULT_CAUSE["ADMIT"], ADMIT_SUB[cfg_fault],
+                                     pc_during_t, tm, new_oe)
+                owner_faulted = True
                 continue
 
             # §7.3 GETI reads ish during c; ish is cleared at E_c, then a retiring
@@ -611,11 +644,14 @@ class Machine:
                 e = x.fifo.pop(0)
                 assert e is p.retire
                 if e.kind == DRIVE:                # §6.3 onto the context's bank
-                    pm = to_phys(bank, e.mask)
+                    mask = e.mask & ~(claimed_t if k == lu_owner else 0)   # §6.6 v1.4
+                    pm = to_phys(bank, mask)
                     new_val = (new_val & ~pm) | (to_phys(bank, e.value) & pm)
                     new_oe = (new_oe & ~pm) | (to_phys(bank, e.oe) & pm)
                 elif e.kind == SAMPLE:
                     x.ish = shift_in(x.ish, (sync >> e.pin) & 1, e.dir)
+                elif e.kind == LINE:
+                    line_retired = True            # §6.3 v1.4: starts the line unit
                 # EXPECT: the checker start is part of p.chk
             if p.chk is not None:
                 self._apply_checker_eval(x, p.chk, tm, sync)
@@ -626,6 +662,32 @@ class Machine:
                 # effects; the flush discards whatever the commit appended. The checker
                 # evaluation above still counts (SPEC-Q 4). PC recorded = PC during t.
                 new_oe = self._fault(k, FAULT_CAUSE["LATE_HEAD"], 0, pc_during_t, tm, new_oe)
+                owner_faulted |= k == lu_owner
+
+        # ---- the line unit at E_t (§6.6), after DRIVE retirement
+        op = None
+        halt_done = False
+        if commit is not None and commit.outcome == "C":
+            op = commit.lu_op
+            halt_done = commit.halt and commit.k == lu_owner
+        lu_sync = views[lu_owner] if lu_owner is not None else 0
+        lu_pins, lu_tw, _ = lu.step(t, self.tape, lu_sync, owner_faulted=owner_faulted,
+                                    op=op, line_retired=line_retired, halt_completed=halt_done)
+        if lu.owner is not None:
+            lb = self.ctx_bank[lu.owner]
+            for w in lu_pins:
+                pm = to_phys(lb, w.mask)
+                if w.val is not None:
+                    new_val = (new_val & ~pm) | (to_phys(lb, w.val) & pm)
+                new_oe = (new_oe & ~pm) | (to_phys(lb, w.oe) & pm)
+        if lu_tw is not None:
+            a, w = lu_tw
+            self.tape[a] = w & M32
+            self.tape_log.append((self.now, a, w & M32))
+        # §6.6: the port is busy in cycle t for a scheduled access, and in the commit cycle
+        # of every SEND and LINE whatever its outcome
+        self._lu_busy_port = self._lu_acc or (
+            commit is not None and ((commit.insn >> 24) & 0xFF) in (OP_SEND, OP_LINE))
 
         self.val, self.oe = new_val & 0x1FFF, new_oe & 0x1FFF
 
@@ -651,6 +713,8 @@ class Machine:
         self._take_ack()
         self._drain_stopped()
         self._ld_dg = None                         # dg does not change while stopped
+        self.lu._abort()                           # §9 v1.4: as OFF, no access at E_t
+        self.lu._unconfigure()
 
     # ------------------------------------------------------------------ §6.5 capture (v1.1)
 
@@ -686,7 +750,8 @@ class Machine:
         cp = self.cap
         sync = view(cp.bank, psync)                                     # csync (v1.2)
         en_t, snap_t, prev_t, mask_t = cp.en, cp.snap, cp.prev, cp.mask
-        busy = commit is not None and ((commit.insn >> 24) & 0xFF) in (OP_LDT, OP_STT)
+        busy = ((commit is not None and ((commit.insn >> 24) & 0xFF) in (OP_LDT, OP_STT))
+                or self._lu_busy_port)             # v1.4 line unit (§6.6)
         capt = commit.capt if (commit is not None and commit.outcome == "C") else None
         set_full = False
         if cp.stage and not busy and not cp.held():                     # 1 drain
@@ -918,9 +983,17 @@ class Machine:
             self._wait(cm, full=True)
         if e.kind in (DRIVE, EXPECT) and e.mask == 0:                   # 2
             self._fail(cm, "ADMIT", "MASK")
-        if e.kind == DRIVE and any((e.mask >> i) & 1 and not self._owns(k, i)
+        claimed = self.lu.claimed if self.lu.owner == k else 0         # v1.4 §6.6
+        if e.kind == DRIVE and any((e.mask >> i) & 1 and (not self._owns(k, i)
+                                                          or (claimed >> i) & 1)
                                    for i in range(N_PINS)):             # 3
             self._fail(cm, "ADMIT", "OWNER")
+        if e.kind == LINE:                                              # 3 (v1.4 SEND)
+            lu = self.lu
+            if lu.owner != k or not lu.configured or not lu.cfg.tx_pins:
+                self._fail(cm, "ADMIT", "OWNER")
+            if lu.engaged():
+                self._wait(cm)
         if not ahead(e.deadline, c):                                    # 4
             self._fail(cm, "ADMIT", "PAST")
         if q and not ahead(e.deadline, q[-1].deadline):                 # 5
@@ -960,6 +1033,8 @@ class Machine:
             "digest": self.dg,
             "capture": {"status": self.cap.status(), "config": self.cap.config(),
                         "ovf_tick": self.cap.ovf_tick},
+            "line": {"status": self.lu.status(), "end_tick": self.lu.e,
+                     "dbg26": self.lu.dbg26()},
         }
 
     def write_trace(self, path: str) -> None:
@@ -1143,7 +1218,8 @@ def _IRQ(m, x, k, cm, f, c, sync, q, ca):
 
 
 def _HALT(m, x, k, cm, f, c, sync, q, ca):
-    if not q and not ca:
+    # v1.4: an owner of an engaged line unit waits too (§7.2)
+    if not q and not ca and not (m.lu.owner == k and m.lu.engaged()):
         cm.halt = True
         cm.next_pc = cm.pc                            # PC unchanged (not sequential)
         cm.sequential = False
@@ -1232,19 +1308,66 @@ def _SAMPLE(m, x, k, cm, f, c, sync, q, ca):
     m._admit(x, k, cm, Entry(SAMPLE, cm.tmr, pin=f["pin"], dir=f["dir"]), c, q)
 
 
+def _SEND(m, x, k, cm, f, c, sync, q, ca):
+    v = cm.r[f["rs"]]
+    m._admit(x, k, cm, Entry(LINE, cm.tmr, cmd=v & 0xFFFFFF), c, q)
+    cm.lu_op = ("SEND", v, k)                         # only reached on COMPLETE
+
+
+# ---- §7.7 line unit (v1.4)
+
+def _LINE(m, x, k, cm, f, c, sync, q, ca):
+    v = cm.r[f["rs"]]
+    op = (v >> 28) & 0xF
+    lu = m.lu
+    if op > OP_CONFIG:
+        Machine._fail(cm, "ILLEGAL")
+    if op == OP_CONFIG:
+        if lu.owner is not None and lu.owner != k:
+            Machine._fail(cm, "ADMIT", "OWNER")
+    else:
+        if lu.owner != k or (op in (OP_RECV, OP_CRC) and not lu.configured):
+            Machine._fail(cm, "ADMIT", "OWNER")
+    if op != OP_OFF and lu.engaged():
+        Machine._wait(cm)
+    cm.lu_op = ("LINE", v, k)
+
+
+def _GETL(m, x, k, cm, f, c, sync, q, ca):
+    lu = m.lu
+    if lu.owner != k:
+        Machine._fail(cm, "ADMIT", "OWNER")
+    st = lu.status()                                  # status during cycle c
+    if not lu.busy():
+        cm.z, cm.tmr = 1, lu.e
+    elif reached(c, cm.tmr):
+        cm.z = 0
+    else:
+        Machine._wait(cm)
+    cm.r[f["rd"]] = cm.rd_val = st
+
+
 # ---- §7.6 tape and capture (v1.1)
 
 def _tape_addr(cm, f):
     return (cm.r[f["rb"]] + f["imm"]) & 0xFF
 
 
+def _lu_conflict(m, k, cm) -> None:
+    """§6.6 v1.4: the owner's LDT/STT waits in a cycle with a scheduled LU access."""
+    if m._lu_acc and m.lu.owner == k:
+        Machine._wait(cm)
+
+
 def _LDT(m, x, k, cm, f, c, sync, q, ca):
+    _lu_conflict(m, k, cm)
     v = m.tape[_tape_addr(cm, f)]                     # T during cycle c
     cm.r[f["ra"]] = v
     cm.ld_val = v                                     # flags unchanged
 
 
 def _STT(m, x, k, cm, f, c, sync, q, ca):
+    _lu_conflict(m, k, cm)
     cm.tape_write = (_tape_addr(cm, f), cm.r[f["ra"]])
 
 
