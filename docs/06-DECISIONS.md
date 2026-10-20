@@ -137,6 +137,42 @@ the change is arbitration, not a new memory.
 - *Cost.* 67 more cells than v1.2 in the final layout and 0.09–0.10 mW (3%) in every
   workload ([power](15-POWER.md)); global-route overflow 4.
 
+## Version 1.4: the line unit
+
+**D-33 A configurable line unit, not a USB engine.** USB low speed at 24 MHz leaves four
+instructions per bit, too few for NRZI, stuffing and a CRC, so some datapath has to do
+the bit work. A fixed USB serial interface engine would do one protocol; the line unit
+is three configuration words of coding rules (pins, NRZI, stuffing rule, end-of-packet,
+sync byte, bit period with a fraction, sample point, any CRC up to 16 bits), so the same
+block sends and receives USB and CAN frames, runs CRC jobs on tape data, and monitors
+its own output for CAN arbitration. Firmware keeps everything above the bit:
+packets, toggles, addresses, requests. One unit per chip, owned by one context: four
+would cost four times the area for protocols a host rarely runs at once.
+
+**D-34 A reply is on time or not at all.** Every event still faults when late, except
+`SEND`, which is dropped with Z = 0. A reply's deadline comes from the line (`GETL` sets
+`tmr` to the end of the packet being answered), so a late reply means the line did
+something early, not that the program is wrong, and the protocol's retry recovers. A
+fault would turn one noisy packet into a dead device. It also separates two questions
+for `escert`: that no input can fault the firmware (proved for any input), and when the
+replies leave (proved exact, for a host that keeps to the protocol's timing).
+
+**D-35 The first CONFIG owns the unit.** Ownership could have been a configuration field
+sent by the host. Instead the first context whose `LINE` CONFIG commits owns the unit
+for the run: no host protocol change, and the program alone decides, deterministically.
+Only the line unit drives the pins it claims; a DRIVE on one faults.
+
+**D-36 The unit borrows its owner's tape cycles.** It reads and writes the tape only in
+the cycles in which its owner commits, so the other contexts' timing is unchanged and
+only the owner's `LDT`/`STT` can wait, for at most two slots. A scheduled access happens
+even when the job ends at that edge, which keeps the port arbitration a function of
+the cycle alone.
+
+**D-37 USB runs at 24 MHz.** Low-speed USB allows 25 ns of jitter per data transition. At
+25 MHz a bit is 16⅔ ticks and the fractional period puts edges up to one tick (40 ns)
+early, so the USB firmware and tests use a 24 MHz clock, 16 ticks per bit, and the chip
+keeps its 25 MHz rating.
+
 ## Power and timing margin
 
 **D-29 Measure power, then cut what dominates.** On the first v1.1 netlist, with

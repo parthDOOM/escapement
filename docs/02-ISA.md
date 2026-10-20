@@ -1,7 +1,8 @@
 # ISA reference
 
-The programmer's view of the Escapement instruction set, version 1.2 (the instructions
-are those of 1.1; 1.2 adds pin bank B and the CAPT bank bit). Encodings come
+The programmer's view of the Escapement instruction set, version 1.4. Versions 1.2 and
+1.3 add no instructions (pin bank B, and the CAPT bank and stream bits); 1.4 adds the
+line unit and its instructions `SEND`, `LINE` and `GETL`. Encodings come
 from [`isa/isa.yaml`](../isa/isa.yaml), the single source for the assembler, the
 simulator and the RTL decoder. The exact, cycle-level semantics are in
 [11-SEMANTICS](11-SEMANTICS.md) §7; where this page is shorter, that page is the
@@ -113,6 +114,7 @@ All event instructions wait while the context's FIFO is full. The deadline is `t
 | 2A | `EMITX mask, dir, oe` **W** | PX | DRIVE with every masked pin = the bit shifted out of sh; C = that bit |
 | 2B | `EXPECT mask, level, mode, window` **W** | PE | EXPECT: the masked inputs HOLD `level` for, or ARRIVE at it within, `window` ticks |
 | 2C | `SAMPLE pin, dir` **W** | PS | SAMPLE: shift that input bit into ish |
+| 2D | `SEND rs` **W** | RS | LINE (v1.4): the line unit sends a packet, command `rs[23:0]`; Z = 1, or Z = 0 if dropped as late (below) |
 
 ### Tape and capture
 
@@ -132,12 +134,26 @@ All event instructions wait while the context's FIFO is full. The deadline is `t
 | 3A | `RXREADY` | N | Z = RX mailbox empty |
 | 3B | `TXREADY` | N | Z = TX mailbox full |
 
+### Line unit (v1.4)
+
+One line unit per chip codes packets between the tape and the pins: NRZI, bit
+stuffing, a CRC, clock recovery ([19-LINE-UNIT](19-LINE-UNIT.md)). The first context
+whose CONFIG commits owns it; the others fault ADMIT/OWNER if they use it.
+
+| Op | Instruction | Format | Effect |
+| --- | --- | --- | --- |
+| 3C | `LINE rs` **W** | RS | `rs[31:28]`: 0 OFF, 1 RECV into word `rs[7:0]` (limit `rs[12:8]` bytes), 2 CRC over `rs[15:8]` bits from word `rs[7:0]`, 3 CONFIG from three words at `rs[7:0]`; waits while a job runs (not OFF) |
+| 3D | `GETL rd` **W** | RD | when the job has ended: rd = status, `tmr` = its end tick, Z = 1; if `tmr` comes first: rd = status, Z = 0 |
+
 ## Admission and faults
 
 An event is admitted only if its mask is nonempty, a DRIVE selects only pins the context
 owns, and its deadline is strictly after both the commit tick and the previous entry's
 deadline (within half the 32-bit range). EXPECT windows of one context may not overlap.
-A failed check never applies the event late: the context faults.
+A failed check never applies the event late: the context faults. The one exception is a
+`SEND` whose deadline has passed: it is dropped with Z = 0, because its deadline usually
+comes from the line (`GETL` sets `tmr` to the end of the packet being answered), and a
+protocol retries a missed reply. A reply is on time or not at all.
 
 | Cause | Trigger |
 | --- | --- |
@@ -168,7 +184,9 @@ after it, that context's `.own j, ctx` names its pin j, which is B*j* (`.own B2,
 the same). A bank B pin is push-pull and one-directional: drive it (an output on
 `uo_out`), or leave it unowned and read it (an input on `ui_in`). Released, it is high.
 [`firmware/combo_two_banks.asm`](../firmware/combo_two_banks.asm) runs four unchanged
-modules on both banks at once.
+modules on both banks at once. `.tape addr, words...` sets the tape's initial words, and
+`.tapeb addr, bytes...` packs bytes into words from `addr`, little-endian (USB
+descriptors, for instance).
 
 UART transmit at 115,200 baud (217 ticks per bit at 25 MHz), from
 [`firmware/uart_tx.asm`](../firmware/uart_tx.asm):

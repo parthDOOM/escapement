@@ -88,6 +88,32 @@ first.
 .include "spi_ctrl.asm"
 ```
 
+**10. Reply from the line (v1.4).** With the [line unit](19-LINE-UNIT.md), a reply's
+deadline is the end of the packet it answers plus a constant: `GETL` sets `tmr` to that
+end tick, so `ADDT TURN` then `SEND` puts the reply exactly TURN ticks after the
+packet, whatever ran in between. Three rules from `usb_hid` keep it on time:
+
+- *Re-arm first.* `LINE` RECV straight after `GETL`, before deciding what the packet was,
+  so a host that sends its next packet quickly is not missed. A path that goes back to
+  `GETL` without re-arming gets the old packet again.
+- *Keep the decision short.* The path from `GETL` to `SEND` must fit in TURN. A late
+  `SEND` is dropped rather than faulted, so no test failure shows a path that is too
+  long; the certificate does: escert reports the lead of every `SEND`, or "MAY DROP".
+- *Answer what comes.* Waiting for an ACK, any other packet is the host's next one:
+  dispatch it at once instead of waiting again.
+
+```text
+next: ADDT  FAR
+      GETL  r1                ; a packet ended; tmr = its end tick
+      JNZ   next              ; (a timeout)
+      LDT   r2, r3, RXB
+      LDT   r0, r3, K_RECV
+      LINE  r0                ; armed again at once
+      ...                     ; what was it? (usb_hid: 9 to 14 instructions, GETL to SEND)
+      ADDT  TURN
+      SEND  r0                ; exactly TURN after the host's packet
+```
+
 ## Budgeting a protocol
 
 - One instruction takes 4 ticks: a 3-instruction bit loop (`EMITX`, `ADDT`, `DJNZ`)

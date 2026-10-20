@@ -1,6 +1,6 @@
 # esciss: Escapement instruction-set simulator
 
-This is a cycle-by-cycle Python model of `docs/11-SEMANTICS.md` (v1.2.0). It is
+This is a cycle-by-cycle Python model of `docs/11-SEMANTICS.md` (v1.4.0). It is
 written independently of the RTL for N-version comparison. Only the encoding tables are
 shared, via `escasm.load_isa()` reading `isa/isa.yaml`. All behaviour is hand-written
 from the semantics document.
@@ -42,6 +42,13 @@ Each loop iteration is one run cycle t, ending with edge E_t (`Machine._cycle`):
      effects. Mailboxes and host ports (`_apply_mailboxes`) and irq_clear
      (`_apply_irq_clear`) follow.
 5. Synchroniser shift, then `now += 1`.
+
+The line unit (§6.6, v1.4) is `line.py`, a `LineUnit` stepped once per edge in the apply
+phase after the contexts' commits (`LineUnit.step`), with two plan-phase queries: whether
+the edge is one of its tape access cycles (`access_scheduled`, which makes the owner's
+LDT/STT wait) and whether a CONFIG completing now faults. Its pin writes go through the
+owner's bank after DRIVE retirement, so only the unit drives the pins it claims. Its tests
+are `sw/tests/test_line.py`.
 
 Reset and start (§9) run in the constructor. They include one pre-start cycle s = −1
 whose `uio_in = board(-1, 0, 0)` feeds the synchroniser (see SPEC_QUESTIONS.md #12).

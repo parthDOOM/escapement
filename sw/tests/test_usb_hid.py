@@ -383,6 +383,47 @@ def test_set_address_waits_for_its_status_stage_ack(image):
     assert out["old"] is None and len(out["d"]) == 18
 
 
+@pytest.mark.parametrize("wlength,packets", [(16, 2), (18, 3), (8, 1), (0, 0)])
+def test_an_in_after_the_data_stage_is_naked(image, wlength, packets):
+    """Once the data stage has sent wLength bytes (a short packet, or exactly wLength), the
+    device NAKs until the next SETUP: no stray zero-length packet, no STALL."""
+    def script(h, r):
+        yield from setup_txn(h, ADDR, get_desc(1, length=wlength))
+        got = []
+        for i in range(packets):
+            p = yield from in_txn(h, ADDR, 0)
+            got.append((p.packet.name, len(p.packet.body) - 2))
+        extra = []
+        for _ in range(2 if wlength else 0):
+            p = yield from in_txn(h, ADDR, 0)
+            extra.append(p.packet.name)
+        r.out["got"], r.out["extra"] = got, extra
+        yield from (out_txn(h, ADDR, 0, b"", "DATA1") if wlength else in_txn(h, ADDR, 0))
+        r.out["after"] = yield from in_txn(h, ADDR, 0)
+    out = run(image, addressed(script)).out
+    sizes = [min(8, wlength - 8 * i) for i in range(packets)]
+    assert out["got"] == [(("DATA1", "DATA0")[i % 2], n) for i, n in enumerate(sizes)]
+    assert out["extra"] == ["NAK"] * len(out["extra"]) and out["after"].packet.name == "NAK"
+
+
+def test_set_configuration_with_no_report_staged(image):
+    """Report 0 goes as DATA0; with nothing staged, SET_CONFIGURATION must still make the
+    next report go as DATA0."""
+    reports = [bytes((1, 0, 4, 0, 0, 0, 0, 0)), bytes((2, 0, 5, 0, 0, 0, 0, 0))]
+    got: list[bytes] = []
+    rng = random.Random(3)
+
+    def script(h, r):
+        yield from enumerate_device(h, r.out)
+        yield from poll_reports(h, 1, rng, got)
+        yield ("idle", 1000)
+        yield from control(h, ADDR, setup_bytes(0, 9, 1, 0, 0))
+        r.words += [int.from_bytes(reports[1][i:i + 4], "little") for i in (0, 4)]
+        yield from poll_reports(h, 2, rng, got)              # a fresh poll: wants DATA0
+    run(image, script, reports=reports[:1])
+    assert got == reports
+
+
 def test_a_new_setup_abandons_a_data_stage(image):
     def script(h, r):
         yield from setup_txn(h, ADDR, get_desc(2, length=34))

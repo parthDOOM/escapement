@@ -27,6 +27,10 @@ flowchart LR
     Core <--> Tape[Tape SRAM<br/>1P 256x32]
     Cap --> Tape
     HI <--> Tape
+    Q --> LU[Line unit v1.4<br/>NRZI, stuffing, CRC]
+    LU <--> Tape
+    LU --> Own
+    Sync --> LU
     Q --> Tel[Telemetry + digest]
     Tel --> HI
 ```
@@ -121,7 +125,8 @@ firmware can see:
 
 - **Firmware**: `LDT` / `STT` at address `R[rb] + imm8`. A context owns the port only in
   its own commit cycle, and one context commits per cycle, so loads and stores never
-  conflict or wait.
+  conflict. (v1.4: the line unit uses its owner's commit cycles, so only the owner's
+  loads and stores can wait, and only for one of the unit's own accesses.)
 - **Capture unit**: when a watched pin changes, it writes the record
   `{levels[7:0], tick[23:0]}` into a region `[base, lim)`, linear or ring. A two-record
   staging FIFO drains into any cycle without a load or store. If it would overflow,
@@ -135,6 +140,30 @@ firmware can see:
 
 A capture record has the shape of a DRIVE event (levels and a tick), so a captured trace
 replays tick for tick after adding an offset ([tape and digest](13-TAPE-AND-DIGEST.md)).
+
+## Line unit (v1.4)
+
+Some protocols need more work per bit than a context can do: at 24 MHz a low-speed USB
+bit lasts 16 ticks, four instructions, too few for NRZI, bit stuffing and a running
+CRC-16. The line unit does that bit work for one owner context, half duplex, one job at
+a time:
+
+- **Transmit**: `SEND` queues a packet as an event. At its deadline the unit sends an
+  optional sync byte and header, stream bits read from the tape, and the CRC, with NRZI
+  and stuffing, then an end-of-packet, on one pin or a differential pair it claims.
+  A monitor can stop the packet at the first bit that reads back wrong.
+- **Receive**: `LINE` RECV arms a receiver that recovers the clock from transitions,
+  destuffs, finds the sync pattern, runs the CRC, writes the bits to the tape, and
+  records the tick the packet ended. `GETL` waits for it and sets `tmr` to that tick, so
+  a reply's deadline is "the end of the host's packet plus a constant", exact to the
+  tick whatever the instruction timing in between.
+- **CRC jobs** run the CRC engine over tape words: the USB firmware computes its own
+  token CRC-5 when it gets an address.
+
+A `SEND` that would be late is dropped instead of faulting the context, since its
+deadline comes from the line. The unit reads and writes the tape only in its owner's
+commit cycles, so the other contexts' timing is unchanged. The USB keyboard firmware and
+its certified reply timing are in [19-LINE-UNIT](19-LINE-UNIT.md).
 
 ## Execution digest
 

@@ -83,6 +83,13 @@ flowchart LR
 - **Execution digest.** A 32-bit signature of every commit, register write and pin
   change in a run, readable over SPI and predicted by the reference model.
 
+**Next, version 1.4: a line unit** (specified and simulated; the RTL comes next). It does
+the per-bit work of packet protocols, NRZI, bit stuffing, CRCs and clock recovery, for
+one context, while the firmware handles packets. A 187-instruction USB low-speed
+keyboard runs on it in simulation: a real Linux kernel enumerates the simulated chip
+over USB/IP and receives typed text through it, and escert proves every reply leaves
+exactly 72 ticks after the host's packet ([line unit](docs/19-LINE-UNIT.md)).
+
 ## Results
 
 | | |
@@ -91,7 +98,7 @@ flowchart LR
 | Clock | 25 MHz rated, timing met at all three corners; the layout meets timing up to 35 MHz at the slow corner and 55 MHz at the typical one |
 | Physical | 25,931 cells and two SRAM macros, 59.7% utilisation; LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
 | Power | 3.0 mW sending UART, 2.3 mW stopped (typical corner) |
-| Firmware | 25 programs, five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
+| Firmware | 26 programs (one, the USB keyboard, for v1.4), five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
 | Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 403 of 431 RTL mutants killed and none surviving (10 proved equivalent, 18 excluded with a written argument); the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 
 Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),
@@ -108,6 +115,7 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | [Tape and digest](docs/13-TAPE-AND-DIGEST.md) | Why one timestamped memory, and how the digest works |
 | [Instrument](docs/17-INSTRUMENT.md) | Capture, streaming, PulseView, file export and replay, with their limits |
 | [Protocols as data](docs/18-PROTOCOLS-AS-DATA.md) | Transmitter firmware generated from timing tables, and certified |
+| [Line unit](docs/19-LINE-UNIT.md) | Version 1.4: packet line coding in hardware, a USB keyboard on it, certified reply timing, and Linux over USB/IP |
 | [Firmware guide](docs/14-FIRMWARE-GUIDE.md) | Idioms for writing new protocols |
 | [Verification](docs/04-VERIFICATION.md) | Methods, results and how to rerun them |
 | [Physical design](docs/03-PHYSICAL-DESIGN.md) | Floorplan, routing, timing and sign-off |
@@ -126,7 +134,7 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | `firmware/` | Protocol and device firmware in Escapement assembly |
 | `protocols/` | Timing tables that `escgen` turns into transmitter firmware |
 | `isa/isa.yaml` | The single source of instruction encodings |
-| `sw/` | Assembler (`escasm`), instruction-set simulator (`esciss`), certificate checker (`escert`), firmware generator (`escgen`), host library (`eschost`), tape tools (`esctape`), bus models (`escmodels`), RP2350 demo host (`rp2350`) |
+| `sw/` | Assembler (`escasm`), instruction-set simulator (`esciss`), certificate checker (`escert`), firmware generator (`escgen`), host library (`eschost`), tape tools (`esctape`), bus models (`escmodels`), USB/IP bridge to a Linux kernel (`escusbip`), RP2350 demo host (`rp2350`) |
 | `test/` | Chip-level, co-simulation, host, unit and mutation tests |
 | `formal/` | SymbiYosys proofs |
 | `scripts/` | Local hardening, precheck, power and routing analysis |

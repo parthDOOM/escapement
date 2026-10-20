@@ -33,8 +33,8 @@
 .equ ONE, 0x07                    ; GET_CONFIGURATION reply
 .equ T_IN0, 0x08                  ; the token word of an IN to our endpoint 0
 .equ INCMD, 0x09                  ; the reply to the next IN on endpoint 0
-.equ LEFT, 0x0A                   ; bytes of the data stage after the current packet
-.equ PEND, 0x0B                   ; 0x80 | address while SET_ADDRESS waits for its status
+.equ LEFT, 0x0A                   ; bytes of the data stage from the current packet on
+.equ PEND, 0x0B                   ; address << 1 | 1 while SET_ADDRESS waits for its status
 .equ EP1CMD, 0x0C                 ; the reply to the next IN on endpoint 1
 .equ T1, 0x0D                     ; endpoint 1's next report command (DATA0 or DATA1)
 .equ DTAB, 0x10                   ; requests answered with data: key, reply
@@ -99,22 +99,37 @@
 .tapeb STR0, 4, 3, 0x09, 0x04
 .tapeb STR2, 22, 3, 0x45, 0, 0x73, 0, 0x63, 0, 0x61, 0, 0x70, 0, 0x65, 0, 0x6D, 0, 0x65, 0, 0x6E, 0, 0x74, 0
 
-.entry CTX, usb
+.entry CTX, busreset
 .own DP, CTX
 .own DM, CTX
 .entry FEED, feed
 
 ; =========================================================================== device
-usb:                              ; r3 = 0 from start: the base of every tape address
-    LDT   r0, r3, K_CFG16
-    LINE  r0                      ; D+ and D- belong to the line unit (released: J)
+; r3 = 0 from start: the base of every tape address.
+
 busreset:
-    MOVI  r0, 0
-    CALL  set_addr                ; address 0
+    MOVI  r1, 1                   ; address 0, as a pending address (below)
+pend:
+    SHR   r1, 1                   ; r1 = the device's address from now on
+    STT   r1, r3, TOK
+    LDT   r2, r3, K_CFG5
+    LINE  r2                      ; the CRC-5 profile (the first CONFIG makes this context
+    LDT   r2, r3, K_CRCTOK        ; the line unit's owner: D+ and D- are its own, released)
+    LINE  r2                      ; the token CRC-5 by the line unit, in the order it is sent
+    ADDT  FAR
+    GETL  r2                      ; r2[4:0] = the CRC-5 field
+    SHL   r2, 27
+    SHR   r2, 8                   ; at token word bits 19..23
+    SHL   r1, 8                   ; address at bits 8..14
+    OR    r1, r2
+    ADDI  r1, 0x69                ; PID IN
+    STT   r1, r3, T_IN0           ; the token word of an IN to (address, endpoint 0)
+    LDT   r2, r3, K_CFG16
+    LINE  r2                      ; the packet profile
     STT   r3, r3, PEND
     LDT   r0, r3, K_NAK
-    STT   r0, r3, INCMD           ; (endpoint 1 restarts at SET_CONFIGURATION, which a
-arm:                              ;  host must send before it polls it again: 9.1.1.5)
+    STT   r0, r3, INCMD           ; (endpoint 1 restarts at SET_CONFIGURATION, which a host
+arm:                              ; must send before it polls it again: 9.1.1.5)
     LDT   r2, r3, K_RECV
     LINE  r2                      ; (after any packet we are sending)
 next:
@@ -146,39 +161,25 @@ in0:
     LDT   r0, r3, INCMD
     ADDT  TURN
     SEND  r0                      ; the reply, TURN after the token, to the tick
-    STT   r3, r3, RXB             ; used: an SE0 next leaves no token behind
     CALL  acked
     JNZ   next
     LDT   r1, r3, PEND            ; acknowledged
-    TSTI  r1, 0x80
-    JNZ   newaddr                 ; the status stage of a SET_ADDRESS
-    LDT   r1, r3, LEFT
-    LDT   r2, r3, K_NAK
-    CMPI  r1, 0
-    JZ    done                    ; the data stage is over: NAK until the next SETUP
+    TSTI  r1, 1
+    JNZ   pend                    ; the status stage of a SET_ADDRESS: the address applies
+    LDT   r1, r3, LEFT            ; bytes from the packet just acknowledged on
+    CMPI  r1, 9
+    JC    nak                     ; it was the last: NAK until the next SETUP
+    MOVI  r2, 8
+    SUB   r1, r2
     LDT   r2, r3, K_TOG           ; the next packet: the other DATA PID, two words on
     XOR   r0, r2
     ADDI  r0, 2
-    CALL  chunk
-    JMP   next
-newaddr:
-    SHL   r1, 25
-    SHR   r1, 25
-    MOV   r0, r1
-    CALL  set_addr
-    STT   r3, r3, PEND
-    LDT   r2, r3, K_NAK
-    STT   r2, r3, INCMD
-    JMP   arm
-done:
-    STT   r2, r3, INCMD
-    JMP   next
+    JMP   chunk
 
 in1:
     LDT   r0, r3, EP1CMD
     ADDT  TURN
     SEND  r0
-    STT   r3, r3, RXB
     CALL  acked
     JNZ   next
     LDT   r2, r3, K_TOG
@@ -192,6 +193,7 @@ in1:
 ; acknowledged it. (A SEND that would have been late was dropped and the host repeats its
 ; token: the packet that comes instead of an ACK is answered like any other.)
 acked:
+    STT   r3, r3, RXB             ; (a packet that stores nothing leaves no token behind)
     LDT   r2, r3, K_RECV
     LINE  r2                      ; waits for the end of our packet, then armed
     TSTI  r0, 1 << 15
@@ -207,22 +209,6 @@ acked:
     RET
 not_acked:
     MOVI  r2, 1                   ; Z = 0
-    RET
-
-; r0 = the command of a full packet, r1 = bytes from it on: INCMD and LEFT for them
-chunk:
-    CMPI  r1, 8
-    JNC   whole
-    MOVI  r2, 8                   ; fewer than 8 bytes: (8 - r1) * 8 bits fewer
-    SUB   r2, r1
-    SHL   r2, 11
-    SUB   r0, r2
-    MOVI  r1, 8
-whole:
-    MOVI  r2, 8
-    SUB   r1, r2
-    STT   r1, r3, LEFT
-    STT   r0, r3, INCMD
     RET
 
 ; ACK the packet that ended at tmr, TURN after it, and arm for the next one
@@ -251,27 +237,32 @@ setup:
     OR    r0, r2                  ; r0 = bmRequestType | bRequest << 8 | wValue << 16
     TSTI  r0, 0x80
     JNZ   get
-    MOV   r2, r0                  ; host to device: accepted with an empty status stage;
-    SHL   r2, 16                  ; SET_ADDRESS takes effect after it
-    SHR   r2, 16
+    MOV   r2, r0                  ; host to device: accepted with an empty status stage
+    SHL   r2, 16
+    SHR   r2, 16                  ; r2 = bmRequestType | bRequest << 8
+    CMPI  r2, 0x0500
+    JZ    set_address
     CMPI  r2, 0x0900              ; SET_CONFIGURATION and CLEAR_FEATURE(ENDPOINT_HALT):
     JZ    restart                 ; endpoint 1 restarts with DATA0 (9.4.5)
     CMPI  r2, 0x0102
-    JNZ   not_config
-restart:
-    CALL  retoggle
-    JMP   accept
-not_config:
-    CMPI  r2, 0x0500
     JNZ   accept
-    SHR   r0, 16
-    ADDI  r0, 0x80
-    STT   r0, r3, PEND
+restart:                          ; the next report goes with DATA0, one already staged too
+    LDT   r0, r3, K_REP0          ; (the feeder writes EP1CMD only while it holds NAK, so it
+    STT   r0, r3, T1              ; cannot race this)
+    LDT   r1, r3, EP1CMD
+    LDT   r2, r3, K_NAK
+    CMP   r1, r2
+    JZ    accept
+    STT   r0, r3, EP1CMD
 accept:
     LDT   r0, r3, K_FULL1
     MOVI  r1, 0
-    CALL  chunk                   ; a zero-length DATA1
-    JMP   next
+    JMP   chunk                   ; a zero-length DATA1
+set_address:                      ; it applies after the status stage: PEND = address << 1 | 1
+    SHR   r0, 15
+    ADDI  r0, 1
+    STT   r0, r3, PEND
+    JMP   accept
 get:
     MOVI  r2, DTAB
 look:
@@ -282,10 +273,6 @@ look:
     JZ    found
     ADDI  r2, 2
     JMP   look
-stall:
-    LDT   r0, r3, K_STALL
-    STT   r0, r3, INCMD
-    JMP   next
 found:
     LDT   r0, r2, 1               ; length << 24 | command
     LDT   r1, r3, RXB + 1
@@ -297,11 +284,27 @@ found:
     MOV   r2, r0
     SHR   r2, 24                  ; r2 = length
     CMP   r2, r1
-    JNC   send_wlength
+    JNC   chunk
     MOV   r1, r2                  ; r1 = min(length, wLength)
-send_wlength:
-    CALL  chunk
+
+; r0 = the command of a full packet, r1 = the bytes from it on: INCMD and LEFT for them
+chunk:
+    STT   r1, r3, LEFT
+    CMPI  r1, 8
+    JNC   setcmd
+    MOVI  r2, 8                   ; fewer than 8 bytes: (8 - r1) * 8 bits fewer
+    SUB   r2, r1
+    SHL   r2, 11
+    SUB   r0, r2
+setcmd:
+    STT   r0, r3, INCMD
     JMP   next
+nak:
+    LDT   r0, r3, K_NAK
+    JMP   setcmd
+stall:
+    LDT   r0, r3, K_STALL
+    JMP   setcmd
 
 out0:
     STT   r3, r3, RXB
@@ -314,39 +317,6 @@ out0:
     JNZ   arm
     CALL  ack                     ; status stages and LED reports are acknowledged
     JMP   next
-
-; Endpoint 1's next report goes with DATA0, a report already staged too (USB 2.0 9.1.1.5,
-; 9.4.5). The feeder writes EP1CMD only while it holds NAK, so it cannot race this.
-retoggle:
-    LDT   r0, r3, K_REP0
-    STT   r0, r3, T1
-    LDT   r1, r3, EP1CMD
-    LDT   r2, r3, K_NAK
-    CMP   r1, r2
-    JZ    retoggled
-    STT   r0, r3, EP1CMD
-retoggled:
-    RET
-
-; r0 = address: T_IN0 = the token word of an IN to (address, endpoint 0). The CRC-5 comes
-; from the line unit's CRC engine, in the order it is sent.
-set_addr:
-    STT   r0, r3, TOK
-    LDT   r2, r3, K_CFG5
-    LINE  r2                      ; the CRC-5 profile
-    LDT   r2, r3, K_CRCTOK
-    LINE  r2                      ; (waits for the configuration)
-    ADDT  FAR
-    GETL  r2                      ; r2[4:0] = the CRC-5 field
-    SHL   r2, 27
-    SHR   r2, 8                   ; at token word bits 19..23
-    SHL   r0, 8                   ; address at bits 8..14
-    OR    r0, r2
-    ADDI  r0, 0x69                ; PID IN
-    STT   r0, r3, T_IN0
-    LDT   r2, r3, K_CFG16
-    LINE  r2                      ; back to the packet profile
-    RET
 
 ; =========================================================================== report feeder
 feed:                             ; r3 = 0

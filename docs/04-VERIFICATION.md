@@ -235,10 +235,14 @@ replays into the fault, or NOT_PROVEN.
 | `swd_idcode` | CHECKED | 3 |
 | `logic_analyzer` | CHECKED | no events |
 | `westminster` | CHECKED | 57 |
+| `usb_hid` (v1.4 line unit) | CHECKED | 1; replies 4 (below) |
 
 Every certificate is CHECKED for all inputs, without assumptions about bus timing:
 re-anchoring the time base after every wait makes the input-dependent I2C paths provable
-unconditionally. The certified bounds are at or below the leads measured by the chip's
+unconditionally. For line unit firmware escert also reports when replies leave: every
+`usb_hid` reply has its deadline exactly 72 ticks after the end of the packet it
+answers, with a lead of at least 4 ticks on every path where the host keeps to USB
+timing; a late reply is dropped, never a fault ([line unit](19-LINE-UNIT.md)). The certified bounds are at or below the leads measured by the chip's
 telemetry in simulation, and most are equal to the tick. `replay.asm` computes its
 deadlines from captured data, so it is checked by the replay tests and by the hardware's
 admission rules instead.
@@ -282,6 +286,7 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | WS2812 from a timing table, colours in the tape | `ws2812_gen` | LED chain model with datasheet timing windows |
 | NEC infrared from a timing table | `nec_tx_gen` | NEC receiver model: carrier, pulse counts, every burst position |
 | Seven-segment animation on the demo board's display | `seven_seg` | Every frame on bank B, in order, to the tick |
+| USB 1.1 low-speed HID keyboard on the line unit (v1.4, simulator only until its RTL) | `usb_hid` | Reactive USB host model from the USB 2.0 text that checks every device packet and its turnaround: enumeration, lost and corrupted handshakes, corrupt tokens and data, bus resets at every stage, host clock ±5%, hostile traffic (72 tests); and the Linux kernel itself, which enumerates the simulated chip over USB/IP and receives typed text |
 
 ## Test suites
 
@@ -311,6 +316,8 @@ the commits, register values and pin changes of the model.
 - **The EEPROM** stretches the clock before each acknowledge, which a real 24C02 does
   not; its Fast-mode margin is measured against our controller model only.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
+- **The line unit** (v1.4) is specified, simulated, and used by certified firmware, but
+  has no RTL yet: everything about it on this page is checked on the simulator.
 
 ## In CI
 
