@@ -26,7 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[2] / "src"
-FILES = ["esc_core.v", "esc_ctx.v", "esc_cap.v", "esc_greg.v", "escapement_host.v", "escapement_sram.v", "project.v"]
+FILES = ["esc_core.v", "esc_ctx.v", "esc_cap.v", "esc_line.v", "esc_greg.v", "escapement_host.v",
+         "escapement_sram.v", "project.v"]
 RATE = 0.30            # fraction of all sites taken; about 400 mutants on v1.3
 SALT = "escapement-mutation-1"
 

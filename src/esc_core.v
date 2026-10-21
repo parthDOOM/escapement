@@ -958,8 +958,17 @@ module esc_core (
       default: dcs = cs_ish;
     endcase
   end
+  // While stopped the registers hold still, so dbg_cs loads once after the stop and again
+  // only when the host selects another field or context (dcs_tag): no clock otherwise.
   wire [31:0] dbg_cs;
-  esc_greg #(32) g_dcs (.clk(clk), .rst_n(rst_n), .en(cctx == sk), .d(dcs), .q(dbg_cs));
+  wire [5:0]  dcs_tag;
+  reg         dcs_ok;
+  wire        dcs_en = (cctx == sk) & (run | ~dcs_ok | (dcs_tag != {dbg_sel[3:0], sk}));
+  esc_greg #(32) g_dcs (.clk(clk), .rst_n(rst_n), .en(dcs_en), .d(dcs), .q(dbg_cs));
+  esc_greg #(6) g_dtag (.clk(clk), .rst_n(rst_n), .en(dcs_en), .d({dbg_sel[3:0], sk}), .q(dcs_tag));
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) dcs_ok <= 1'b0;
+    else        dcs_ok <= ~run & (dcs_ok | dcs_en);
   always @* begin
     case (dbg_sel)
       5'd0, 5'd1, 5'd2, 5'd3, 5'd4, 5'd5, 5'd6, 5'd7, 5'd8: dbg_rdata = dbg_cs;

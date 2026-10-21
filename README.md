@@ -83,8 +83,8 @@ flowchart LR
 - **Execution digest.** A 32-bit signature of every commit, register write and pin
   change in a run, readable over SPI and predicted by the reference model.
 
-**Next, version 1.4: a line unit** (specified, simulated and in the RTL, checked against
-the simulator cycle by cycle; layout in progress). It does the per-bit work of packet
+**Version 1.4: a line unit** (specified, simulated, in the RTL and laid out at 6×4 with
+every sign-off check passing; not yet released). It does the per-bit work of packet
 protocols, NRZI, bit stuffing, CRCs and clock recovery, for one context, while the
 firmware handles packets. A 187-instruction USB low-speed keyboard runs on it: a real
 Linux kernel enumerates the simulated chip over USB/IP and receives typed text through
@@ -96,9 +96,9 @@ it, and escert proves every reply leaves exactly 72 ticks after the host's packe
 | | |
 | --- | --- |
 | Process | IHP SG13CMOS5L (130 nm), Tiny Tapeout, **6×4 tiles** (1289.28 × 710.64 µm) |
-| Clock | 25 MHz rated, timing met at all three corners; the layout meets timing up to 35 MHz at the slow corner and 55 MHz at the typical one |
-| Physical | 25,931 cells and two SRAM macros, 59.7% utilisation; LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
-| Power | 3.0 mW sending UART, 2.3 mW stopped (typical corner) |
+| Clock | 25 MHz rated, timing met at all three corners with at least 9 ns of slack on every flip-flop path |
+| Physical | 27,972 cells and two SRAM macros, 58.2% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
+| Power | 3.1 mW sending UART, 2.5 mW stopped (typical corner) |
 | Firmware | 26 programs (one, the USB keyboard, for v1.4), five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
 | Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 403 of 431 RTL mutants killed and none surviving (10 proved equivalent, 18 excluded with a written argument); the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 

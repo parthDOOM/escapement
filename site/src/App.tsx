@@ -272,18 +272,20 @@ export default function App() {
                   A standard cell is one row of that structure, 3.78 µm tall.</p>
                 <p>Only four metal layers can carry signals in a Tiny Tapeout block on this process, and each SRAM
                   blocks three of them over its whole footprint. Routing Metal1 as a signal layer cut global-route
-                  overflow from 5,276 to 76, and the final layout ends with 4.</p>
-                <p>To save power, register banks that are not being written do not see the clock: 68 clock gates cover
-                  about 2,600 flip-flops, and each memory is selected only on the cycles that read it.</p>
+                  overflow from 5,276 to 76. Version 1.4 adds the line unit in the same area: most registers became
+                  latches, 44% smaller than flip-flops, and the design ended smaller than version 1.3.</p>
+                <p>To save power, register banks that are not being written do not see the clock: 80 clock gates cover
+                  about 3,150 of the 4,374 storage cells, and each memory is selected only on the cycles that read
+                  it.</p>
               </div>
             </div>
 
             <div className="stats" style={{ marginTop: "3rem" }} aria-label="Sign-off results">
-              <div><b>25,931</b><span>standard cells</span></div>
-              <div><b>59.7%</b><span>utilisation</span></div>
-              <div><b>2.13 m</b><span>of wire</span></div>
-              <div><b>216,809</b><span>vias</span></div>
-              <div><b>+0.175 ns</b><span>worst hold slack, fast corner</span></div>
+              <div><b>27,972</b><span>standard cells</span></div>
+              <div><b>58.2%</b><span>utilisation</span></div>
+              <div><b>2.22 m</b><span>of wire</span></div>
+              <div><b>243,088</b><span>vias</span></div>
+              <div><b>+0.138 ns</b><span>worst hold slack, fast corner</span></div>
               <div><b>0</b><span>DRC, LVS and antenna errors</span></div>
             </div>
 
@@ -299,7 +301,7 @@ export default function App() {
               <Power />
             </div>
             <div style={{ marginTop: "3rem" }}>
-              <h3 style={{ marginBottom: "1rem" }}>Four layouts, one story</h3>
+              <h3 style={{ marginBottom: "1rem" }}>Five layouts, one story</h3>
               <History />
             </div>
           </div>

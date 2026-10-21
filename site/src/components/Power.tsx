@@ -1,5 +1,5 @@
-// docs/15-POWER.md: the first v1.1 netlist, and v1.3 as built
-const ROWS: [string, number, number][] = [["Sending UART", 8.61, 3.11], ["Logic analyser", 8.45, 2.77], ["Stopped", 7.99, 2.39]];
+// docs/15-POWER.md: the first v1.1 netlist, and v1.4 as built
+const ROWS: [string, number, number][] = [["Sending UART", 8.61, 3.13], ["Logic analyser", 8.45, 2.82], ["Stopped", 7.99, 2.48]];
 const MAX = 9;
 
 export function Power() {
@@ -33,6 +33,8 @@ const VERSIONS = [
     what: "Pin bank B: five spare inputs and outputs become split pins, so four protocols run at once. Hold is repaired again after routing." },
   { v: "v1.3", date: "19 Oct", cells: 25931, util: 59.7,
     what: "Streaming capture: the host reads the tape during a run, so a capture lasts as long as the host keeps up, and PulseView records through the demo board." },
+  { v: "v1.4", date: "21 Oct", cells: 27972, util: 58.2,
+    what: "The line unit: USB and CAN on the pins, coded in hardware. Registers became latches, so the larger design takes less area than v1.3." },
 ];
 
 export function History() {

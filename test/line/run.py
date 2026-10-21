@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Line unit lockstep: src/esc_line.v against the ISS model, every output, every cycle.
 
-    python3 run.py [--seeds N] [--seed0 S] [--edges E] [--jobs J] [--no-cg]
+    python3 run.py [--seeds N] [--seed0 S] [--edges E] [--jobs J] [--no-cg] [--src DIR]
 
 For each seed, lockstep.py drives sw/esciss/line.py with random stimulus that follows the
 core's rules (configurations from USB-like, CAN-like and random profiles, packets encoded
 at offset clocks with jitter and glitches, noise, the unit's own pins read back, owner
 faults, stop and start, tape writes from elsewhere) and writes the expected outputs per
 edge; tb_line.v replays the same inputs into the RTL and compares. Needs Icarus Verilog
-(iverilog, vvp) on PATH. --no-cg checks the plain enable flip-flop build (ESC_NO_CG).
+(iverilog, vvp) on PATH. --no-cg checks the plain enable flip-flop build (ESC_NO_CG);
+CELLS=yes in the environment the standard-cell build (clock gates and W0's latches, D-40),
+with PDK_ROOT. --src takes the RTL from another tree (the mutation campaign).
 """
 import argparse
 import os
@@ -46,13 +48,19 @@ def main() -> int:
     ap.add_argument("--edges", type=int, default=int(os.environ.get("LINE_EDGES", "200000")))
     ap.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1))
     ap.add_argument("--no-cg", action="store_true")
+    ap.add_argument("--src", type=Path, default=SRC)
     a = ap.parse_args()
     with tempfile.TemporaryDirectory(prefix="line_") as tmp:
         work = Path(tmp)
         vvp = work / "tb.vvp"
         defs = ["-DESC_NO_CG"] if a.no_cg else []
+        cells = []
+        if os.environ.get("CELLS") == "yes":
+            lib = Path(os.environ["PDK_ROOT"]) / "ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog"
+            defs.append("-DSCL_sg13cmos5l_stdcell")
+            cells = [str(lib / "sg13cmos5l_stdcell.v"), str(lib / "sg13cmos5l_udp.v")]
         c = subprocess.run(["iverilog", "-g2012", *defs, "-o", str(vvp), str(HERE / "tb_line.v"),
-                            str(SRC / "esc_greg.v"), str(SRC / "esc_line.v")],
+                            str(a.src / "esc_greg.v"), str(a.src / "esc_line.v"), *cells],
                            capture_output=True, text=True)
         if c.returncode:
             print(c.stdout + c.stderr)

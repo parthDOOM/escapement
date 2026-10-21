@@ -113,21 +113,60 @@ MUTANTS = {
                            "ptr <= capt_v[7:0];", "arming does not reset rptr to base"),
     "st_no_wrap": ("esc_cap.v", "wire       wrap     = ring | stream;", "wire       wrap     = ring;",
                    "stream mode stops at lim instead of wrapping"),
-    "st_host_beats_drain": ("esc_core.v", "assign tape_busy  = tp_busy | cap_drain;",
-                            "assign tape_busy  = tp_busy;",
+    "st_host_beats_drain": ("esc_core.v", "assign tape_busy  = tp_busy | lu_tb | cap_drain;",
+                            "assign tape_busy  = tp_busy | lu_tb;",
                             "a capture drain does not claim the port from the host"),
     "st_rptr_hidden": ("esc_core.v", "5'd20: dbg_rdata = {24'd0, cap_rptr};",
                        "5'd20: dbg_rdata = 32'd0;", "sel 20 does not show rptr"),
     # ---- D-29 clock-gated banks: an enable that misses one condition holds a stale value
-    "cg_r0_no_ldt": ("esc_ctx.v", ".en(st | (live & ((rdw & (w_rd_idx == 2'd0)) | ldk0))),",
-                     ".en(st | (live & ((rdw & (w_rd_idx == 2'd0))))),",
+    "cg_r0_no_ldt": ("esc_ctx.v", "en_r0 = st | (live & ((rdw & (w_rd_idx == 2'd0)) | ldk0));",
+                     "en_r0 = st | (live & ((rdw & (w_rd_idx == 2'd0))));",
                      "r0 bank not clocked by a deferred LDT write"),
-    "cg_tmr_no_start": ("esc_ctx.v", ".en(st | (live & cm_ok & w_tmr_we)),",
-                        ".en(live & cm_ok & w_tmr_we),", "START does not clear tmr"),
+    "cg_tmr_no_start": ("esc_ctx.v", "en_tmr = st | (live & cm_ok & w_tmr_we);",
+                        "en_tmr = live & cm_ok & w_tmr_we;", "START does not clear tmr"),
     "cg_ish_no_geti": ("esc_ctx.v", ".en(st | (live & (sample_ret | (cm_ok & w_geti)))),",
                        ".en(st | (live & sample_ret)),", "GETI does not clear ish"),
-    "cg_rx_no_pop_shift": ("esc_ctx.v", ".en(live & (rx_popped | rx_w0)),", ".en(live & rx_w0),",
-                           "RX mailbox does not shift on pop"),
+    # ---- v1.4 D-40 latch banks: the shared write-data registers and each bank's input
+    "lr_wr_no_tx": ("esc_core.v", "w_sh_we ? w_sh : w_tx_push ? opb : w_rd_data",
+                    "w_sh_we ? w_sh : w_rd_data", "a TX mailbox word latches the register write data"),
+    "lr_wr_no_sh": ("esc_core.v", "w_sh_we ? w_sh : w_tx_push ? opb : w_rd_data",
+                    "w_tx_push ? opb : w_rd_data", "SH latches the register write data"),
+    "lr_wr_no_start": ("esc_core.v", ".d(start ? 32'd0 : w_sh_we ? w_sh", ".d(w_sh_we ? w_sh",
+                       "START latches stale write data into r0-r3 and SH"),
+    "lr_tmr_no_start": ("esc_core.v", ".d(start ? 32'd0 : w_tmr), .q(q_tmr)", ".d(w_tmr), .q(q_tmr)",
+                        "START latches a stale timer into tmr and lee"),
+    "lr_ent_late": ("esc_core.v", ".en(commit_valid & w_push),", ".en(commit_valid & w_push & ~w_exp_admit),",
+                    "an EXPECT's FIFO entry latches the previous entry"),
+    "lr_ld_wrong_ctx": ("esc_core.v", "q_ldk  <= (ld_v & ~start) ? (4'd1 << ld_ctx) : 4'd0;",
+                        "q_ldk  <= (ld_v & ~start) ? (4'd1 << cctx) : 4'd0;",
+                        "a deferred LDT write latches the commit data in its context"),
+    "lr_dq_swapped": ("esc_ctx.v", "wire [31:0] dq_r = q_ld_we ? q_ld : q_wr;",
+                      "wire [31:0] dq_r = q_ld_we ? q_wr : q_ld;", "register latches take the other port's data"),
+    "lr_lee_from_wr": ("esc_ctx.v", ".d(d_lee), .dq(q_tmr), .q(o_lee)", ".d(d_lee), .dq(q_wr), .q(o_lee)",
+                       "lee latches the register write data"),
+    "lr_rx_from_wr": ("esc_ctx.v", ".d(h_rx_data), .dq(h_rx_data), .q(rx1)", ".d(h_rx_data), .dq(q_wr), .q(rx1)",
+                      "an RX mailbox slot latches the commit data instead of the host's word"),
+    "lr_w0_from_rdata": ("esc_line.v", ".dq({buf_q[31:24], buf_q[20:0]}), .q(w0)",
+                         ".dq({rdata[31:24], rdata[20:0]}), .q(w0)", "the line unit's W0 latches the tape data"),
+    # ---- v1.4 two-slot mailbox rings
+    "mb_rx_no_advance": ("esc_ctx.v", "rx_rp  <= rx_rp ^ rx_popped;", "rx_rp  <= rx_rp;",
+                         "RX ring head does not advance on POP"),
+    "mb_tx_same_slot": ("esc_ctx.v", "wire       tx_wi     = tx_rp ^ tx_popped ^ tx_cnt_p[0];",
+                        "wire       tx_wi     = tx_rp ^ tx_cnt_p[0];",
+                        "a TX push in the cycle of a host pop overwrites the queued word"),
+    "mb_rx_head_fixed": ("esc_ctx.v", "assign o_rx_head  = rx_rp ? rx1 : rx0;", "assign o_rx_head  = rx0;",
+                         "POP always reads slot 0"),
+    # ---- v1.4 D-41 debug reads through the commit stage
+    "dbg_any_slot": ("esc_core.v", "wire        dcs_en = (cctx == sk) &", "wire        dcs_en = 1'b1 &",
+                     "selects 0-8 during a run show whichever context commits"),
+    "dbg_no_retag": ("esc_core.v", "(run | ~dcs_ok | (dcs_tag != {dbg_sel[3:0], sk}))", "(run | ~dcs_ok)",
+                     "a new select while stopped returns the previous field"),
+    "dbg_sel7_swapped": ("esc_core.v", "4'd7:    dcs = {8'd0, cs_lr, cs_pc,", "4'd7:    dcs = {8'd0, cs_pc, cs_lr,",
+                         "select 7 has LR and PC swapped"),
+    "cq_start_off": ("esc_core.v", "if (start)            cq <= START_NOW[1:0] + 2'd1;",
+                     "if (start)            cq <= START_NOW[1:0];", "the commit slots start one context off"),
+    "cq_stop_keeps": ("esc_core.v", "else                  cq <= dbg_sel_ctx;", "else                  cq <= cq;",
+                      "while stopped selects 0-8 read a fixed context"),
     # ---- v1.0 core (regression of the original campaign)
     "admit_past_off_by_one": ("esc_core.v", "wire        ahd_now = (d_now != 32'd0) & ~d_now[31];",
                               "wire        ahd_now = ~d_now[31];", "deadline == commit tick admitted"),
@@ -200,8 +239,10 @@ SUITES = {
     "host": ("test/host", [], 900),
     "chip": ("test", [], 2400),
     "pins": ("test", ["COCOTB_TEST_MODULES=test_firmware_pins"], 2400),
+    "line": ("test/line", [], 900),          # run.py, not make (v1.4)
 }
 PIPELINE = {
+    "esc_line.v": ["line", "cosim", "unit", "chip", "pins"],
     "escapement_host.v": ["host", "chip", "pins"],
     "escapement_sram.v": ["host", "cosim", "chip"],
     "project.v": ["chip", "pins"],
@@ -229,6 +270,16 @@ def run_suite(suite: str, src: Path, work: Path, seeds: int) -> str:
     """'pass', 'fail', 'timeout' or 'compile-error' for one suite on the mutated tree."""
     d, extra, limit = SUITES[suite]
     cwd = REPO / d
+    if suite == "line":
+        cmd = [sys.executable, str(cwd / "run.py"), "--src", str(src), "--seeds", "4", "--jobs", "1"]
+        try:
+            r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=limit)
+        except subprocess.TimeoutExpired:
+            return "timeout"
+        out = r.stdout + r.stderr
+        if ": PASS" in out:
+            return "pass"
+        return "fail" if " edges" in out or "errors" in out else "compile-error"
     env = dict(os.environ, PWD=str(cwd), COCOTB_PLUSARGS="+nodump",
                COCOTB_RESULTS_FILE=str(work / f"results_{suite}.xml"),
                COSIM_SEEDS=str(seeds), COSIM_OUT=str(work / "failures"))

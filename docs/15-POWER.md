@@ -48,8 +48,9 @@ PDK's own clock-gate cells are on its LibreLane exclusion lists, so the gate is 
 from two allowed cells, instantiated by name (`sg13cmos5l_dllrq_1`,
 `sg13cmos5l_and2_1`) so that synthesis cannot restructure the clock path.
 
-68 gates cover about 2,600 flops, 17 per context: r0–r3, sh, tmr, lee, ish, the
-first-failure record, the four FIFO entries and the four mailbox words. Each enable is
+68 gates covered about 2,600 flops in v1.1, 17 per context: r0–r3, sh, tmr, lee, ish, the
+first-failure record, the four FIFO entries and the four mailbox words. In v1.4, 80 gates
+cover about 3,150 of the 4,374 storage cells, and 2,365 of those are latches (below). Each enable is
 exactly the condition under which the old always block assigned the bank, with the same
 priority (reset, then start, then that edge's effects). So the change is invisible
 architecturally:
@@ -68,6 +69,16 @@ architecturally:
 
 OpenROAD's CTS recognised all 68 gated nets and built a subtree for each. The
 free-running register tree dropped from about 3,800 sinks to 1,179.
+
+### D-40: latch banks (`esc_lreg` in `src/esc_greg.v`, v1.4)
+
+In 2,365 bits of those banks the storage is a latch (`sg13cmos5l_dlhrq_1`, 27.2 µm²)
+instead of a flip-flop (49.0 µm²). It is transparent while its gated clock is high and
+copies the value written at the last edge from one flip-flop register per write port,
+shared by the four contexts. The gate already stopped these banks' clocks, so the change
+buys area, 13% of the design, not power. `formal/esc_lreg.sby` proves the latch bank equal
+to an enable flip-flop under its input contract, and the core proof shows every bank
+meets it (docs/04-VERIFICATION.md).
 
 ### D-29b: SRAMs read only on demand
 
@@ -107,10 +118,17 @@ estimate, which LibreLane prints in its power report.
 | + D-29a, tape gating | 23,326 | 54.7% | 486 | 2.77 mW | 3.56 mW | 3.42 mW | 2.89 mW |
 | + D-29b fetch/host gating (v1.1) | 23,484 | 54.7% | 383 | 2.44 mW | 2.92 mW | 2.58 mW | 2.23 mW |
 | v1.2: pin bank B (D-31), hold margin 0.2 ns | 25,399 | 58.3% | 1,515 | 2.48 mW | 3.01 mW | 2.67 mW | 2.30 mW |
-| **v1.3: streaming capture (D-32)** | **25,383** | **58.9%** | **1,614** | 2.57 mW | **3.11 mW** | **2.77 mW** | **2.39 mW** |
-| change, before → v1.3 | −21% | | −64% | −66% | **−64%** | **−67%** | **−70%** |
+| v1.3: streaming capture (D-32) | 25,383 | 58.9% | 1,614 | 2.57 mW | 3.11 mW | 2.77 mW | 2.39 mW |
+| **v1.4: line unit (D-33), latch banks (D-40, D-41)** | **27,461** | **57.4%** | **1,453** | 2.64 mW | **3.13 mW** | **2.82 mW** | **2.48 mW** |
+| change, before → v1.4 | −15% | | −68% | −65% | **−64%** | **−67%** | **−69%** |
 
-n/m = not measured. The workload columns use the exact SRAM count below. Pin bank B
+n/m = not measured. The workload columns use the exact SRAM count below. Version 1.4
+adds the line unit, 2,600 cells, and costs 1–4% over v1.3: the unit sits behind a clock
+gate that closes while it is idle, and the latch banks (D-40) replace flip-flops whose
+clock was already gated, so they save area rather than power. Stopped, the 11 new clock
+gates still see the clock; a first v1.4 layout also reloaded the debug read register in
+every stopped cycle (2.51 mW), which now happens only when the host selects another field.
+Between two layouts of the same RTL the busy workloads move by about 2%. Pin bank B
 and the larger hold margin cost 0.07–0.09 mW (3%) in every workload: 1,132 more hold
 buffers and the bank B logic, all on flops that are clocked anyway. Streaming capture
 adds another 0.09–0.10 mW (3%). The hold buffers of the second repair, after global

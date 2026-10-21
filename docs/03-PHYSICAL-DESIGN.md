@@ -8,26 +8,40 @@ with the reasoning for each setting in its comments and in
 
 ## Sign-off results
 
-Version 1.3 (streaming capture), local harden `v13b`:
+Version 1.4 (line unit, latch banks), local harden `v14i`:
 
 | | |
 | --- | --- |
 | Die | 1289.28 × 710.64 µm (916,214 µm²) |
-| Standard cells | 25,931 (435,322 µm²), of which 3,964 sequential |
+| Standard cells | 27,972 (422,057 µm²); storage: 2,009 flip-flops and 2,365 latches, plus 80 clock-gate latches |
 | Macros | 2 × `RM_IHPSG13_1P_256x32_c2_bm_bist` (98,977 µm²) |
-| Utilisation | 59.7% |
+| Utilisation | 58.2% |
 | Clock | 25 MHz (40 ns) |
-| Setup | No violations at any corner. Worst slack: typical +3.62 ns, fast +9.34 ns; at the slow corner the worst path ends on a clock-gate latch and uses time borrowing (see below) |
-| Hold | No violations. Worst slack: fast +0.175 ns, typical +0.331 ns, slow +0.576 ns |
-| Hold buffers | 1,727: 1,614 after clock-tree synthesis (margin 0.2 ns), 113 after global routing (margin 0.2 ns, see below) |
-| Routing | 2.13 m of wire, 216,809 vias; global-route overflow 4; detailed-route DRC 0 |
+| Setup | No violations at any corner. The latch banks' inputs borrow time (D-40) and report 0 slack; every other path has at least +9.11 ns (slow), +10.10 ns (typical), +10.73 ns (fast) |
+| Hold | No violations. Worst slack: fast +0.138 ns, typical +0.266 ns, slow +0.502 ns |
+| Hold buffers | 1,453 after clock-tree synthesis (margin 0.2 ns); none needed after global routing |
+| Routing | 2.22 m of wire, 243,088 vias; global-route overflow 1,683; detailed-route DRC 0 |
 | LVS | Clean (0 errors, 0 net or device differences) |
 | DRC | Clean (KLayout SG13CMOS5L deck in the Tiny Tapeout precheck) |
-| Antenna | 0 violations (102 diodes) |
-| IR drop | 0.14 mV worst |
-| Power (static estimate) | 2.73 mW; workload measurements in [power](15-POWER.md) |
-| Precheck | Tiny Tapeout precheck (tt-support-tools `d66cf17`) passes: all nine checks, including KLayout SG13CMOS5L DRC |
-| Gate level | The chip-level and pin test suites pass on the final netlist, including the execution digest against the ISS and both pin banks at once; the netlist is proved equivalent to the RTL |
+| Antenna | 0 violations (54 diodes) |
+| IR drop | 0.12 mV worst |
+| Power (static estimate) | 2.64 mW; workload measurements in [power](15-POWER.md) |
+| Precheck | Tiny Tapeout precheck (tt-support-tools `d66cf17`) passes, including KLayout SG13CMOS5L DRC |
+| Gate level | The chip-level and pin test suites pass on the final netlist; the netlist is proved equivalent to the RTL |
+
+The line unit made the design 11% larger, and the first v1.4 layouts failed with routing
+shorts in the tape's pin channel. Three changes fit it into the same 6×4 tiles with no
+feature removed (D-40, D-41): the rarely written registers became latches (the design
+went from 379,900 to 331,300 µm² before placement, below v1.3), debug reads of a
+context's registers share the commit stage's multiplexers (a thousand fewer long wires),
+and the macros' pin-side halo doubled to 60 µm. Placement and routing time each latch from
+its gate (`src/escapement_pnr.sdc`) and keep a 1 ns and a 2 ns setup margin, which the
+detours of detailed routing used up in an earlier trial; sign-off timing uses the full
+latch model. Every trial and the reason it was rejected is in
+[`asic/reports/area.csv`](../asic/reports/area.csv).
+
+Version 1.3 (streaming capture, `v13b`): 25,931 cells (435,322 µm²), 59.7%, fast-corner
+hold +0.175 ns, 1,727 hold buffers, global-route overflow 4, 2.13 m of wire.
 
 Version 1.1 (`rc14`: 23,978 cells, 55.2%, fast-corner hold +0.025 ns, 395 hold buffers) was
 reproduced exactly, metric for metric, by the GitHub Actions harden from a clean checkout
@@ -40,12 +54,12 @@ hold buffers after global routing (see below). The GitHub Actions harden of vers
 netlist (sha256 `54236b4f…`).
 
 Corners: `nom_slow_1p08V_125C`, `nom_typ_1p20V_25C`, `nom_fast_1p32V_m40C`. The
-remaining design-rule warnings are 123 max-slew and 29 max-capacitance nets at the slow
-corner. They cause no timing violations. The worst are nets that the detailed router
+remaining design-rule warnings in v1.4 are 163 max-slew and 41 max-capacitance nets at the
+slow corner (v1.3: 123 and 29). They cause no timing violations. The worst are nets that the detailed router
 detours around the congested horizontal layer: one 375 µm connection is routed as 1.8 mm.
 
 **Frequency headroom.** 25 MHz is the rating at the slow corner with margin to spare (D-5),
-not the limit of the layout. Static timing analysis of the final v13b netlist with its
+not the limit of the layout. Static timing analysis of the final v13b (v1.3) netlist with its
 extracted parasitics (OpenSTA, the sign-off constraints with the period shortened and the
 20% I/O delays scaled with it) finds the shortest period at which setup still holds:
 

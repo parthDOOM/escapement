@@ -10,7 +10,8 @@ be scheduled a fixed number of ticks after the host's packet, exact to the tick.
 The normative definition is [11-SEMANTICS §6.6](11-SEMANTICS.md#66-line-unit-v14-one-global).
 Status: v1.4 specification, simulator, firmware, timing certificates and RTL
 (`src/esc_line.v`, integrated in the core and checked against the simulator cycle by
-cycle). Layout and sign-off come next.
+cycle). Laid out with the rest of v1.4 at 6×4 (local harden `v14i`), every sign-off check passing
+([physical design](03-PHYSICAL-DESIGN.md)).
 
 ```
 python -m escert firmware/usb_hid.asm      # the reply-timing certificate (below)
