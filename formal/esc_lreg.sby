@@ -1,0 +1,24 @@
+# D-40: the latch bank equals an enable flip-flop whenever its dq is d registered at each
+# write (formal/esc_lreg_env.v L1-L2; the clock gate itself is esc_greg.sby's G2-G3).
+# Run: sby -f esc_lreg.sby
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+prove: depth 8
+cover: mode cover
+cover: depth 12
+multiclock on
+
+[engines]
+smtbmc
+
+[script]
+read -formal -DFORMAL -DESC_CG_FORMAL -DESC_LREG_FORMAL esc_greg.v esc_lreg_env.v
+prep -top esc_lreg_env
+
+[files]
+../src/esc_greg.v
+esc_lreg_env.v

@@ -189,10 +189,15 @@ interrupt line and `uo[2]` shows that the core is running.
 
 The design is built so that idle hardware costs little ([power](15-POWER.md)):
 
-- **Clock-gated register banks.** 68 latch-and-AND clock gates, built from standard
-  cells, cover about 2,600 flops that are written rarely: registers, FIFO entries,
-  mailboxes and checker records. A formal proof shows each gated bank behaves exactly
-  like an enable flop and that the gated clock cannot glitch.
+- **Clock-gated register banks.** Latch-and-AND clock gates, built from standard cells,
+  cover the registers that are written rarely: registers, FIFO entries, mailboxes and
+  checker records. A formal proof shows each gated bank behaves exactly like an enable
+  flop and that the gated clock cannot glitch.
+- **Latches instead of flip-flops (v1.4, D-40).** In 2,365 of those bits the storage
+  is a latch (27.2 µm² against 49.0 µm² for a flip-flop) that copies, while its gated
+  clock is high, the value written at the last edge from one flip-flop register per
+  write port. Reads see the new value right after the edge, as before; the design is
+  13% smaller than with flip-flops, below v1.3 with the line unit included.
 - **SRAMs read only on demand.** The program store is read only for running contexts,
   the tape only for LDT, and either one for the host only during a read command. On
   idle cycles the macro is deselected, which costs no read energy.
@@ -217,4 +222,4 @@ the host reloads both memories after every reselect.
 | `src/esc_ctx.v` | Per-context state, event FIFO, checker, telemetry, mailboxes |
 | `src/esc_cap.v` | Capture unit |
 | `src/esc_line.v` | Line unit (v1.4) |
-| `src/esc_greg.v` | Clock-gated register bank |
+| `src/esc_greg.v` | Clock-gated register bank, and the same bank in latches (v1.4) |

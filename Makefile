@@ -79,7 +79,7 @@ formal: formal-quick
 
 formal-quick:
 	cd formal && sby -f esc_core.sby bmc && sby -f esc_core.sby cover \
-	  && sby -f esc_ctx.sby kind && sby -f esc_greg.sby && sby -f esc_host.sby
+	  && sby -f esc_ctx.sby kind && sby -f esc_greg.sby && sby -f esc_lreg.sby && sby -f esc_host.sby
 
 equiv:
 	bash formal/equiv.sh

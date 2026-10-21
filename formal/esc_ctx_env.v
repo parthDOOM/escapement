@@ -72,6 +72,8 @@ module esc_ctx_env (
       .h_rx_push(h_rx_push), .h_rx_data(h_rx_data), .h_tx_pop(h_tx_pop),
       .h_irq_clear(h_irq_clear),
       .ld_we(ld_we), .ld_idx(ld_idx), .ld_data(ld_data),
+      // the latch banks' write data (D-40) is used only by the standard-cell build
+      .q_wr(32'd0), .q_tmr(32'd0), .q_entry(58'd0), .q_ld(32'd0), .q_ld_we(1'b0),
       .o_r0(), .o_r1(), .o_r2(), .o_r3(), .o_sh(), .o_lc(), .o_tmr(), .o_pc(), .o_lr(),
       .o_z(), .o_c(), .o_state(st), .o_ish(), .o_cnt(cnt), .o_cnt_after(cnt_after),
       .o_tail_dl(tail_dl), .o_late(late), .o_act(), .o_act_after(), .o_pass(), .o_fail(),

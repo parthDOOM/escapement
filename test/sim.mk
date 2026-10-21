@@ -5,3 +5,11 @@
 ifeq ($(SIM),verilator)
 EXTRA_ARGS += --timing -Wno-fatal -Wno-lint -Wno-style
 endif
+
+# CELLS=yes (any suite): the RTL as it is hardened, with the standard-cell clock gates and
+# latch banks (D-40) in place of their behavioural models. Needs PDK_ROOT.
+ifeq ($(CELLS),yes)
+COMPILE_ARGS    += -DSCL_sg13cmos5l_stdcell
+VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/sg13cmos5l_stdcell.v
+VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/sg13cmos5l_udp.v
+endif

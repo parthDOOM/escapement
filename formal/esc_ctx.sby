@@ -20,7 +20,7 @@ pdr: abc pdr
 bmc: smtbmc yices
 
 [script]
-read -formal -DFORMAL esc_greg.v esc_ctx.v esc_ctx_env.v
+read -formal -DFORMAL -DESC_CTX_ENV esc_greg.v esc_ctx.v esc_ctx_env.v
 prep -top esc_ctx_env
 pdr: setundef -undriven -anyseq
 pdr: techmap

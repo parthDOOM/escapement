@@ -25,6 +25,9 @@ SIM_BUILD				= sim_build/rtl
 COMPILE_ARGS    += -DFUNCTIONAL
 VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(PROJECT_SOURCES))
 VERILOG_SOURCES += $(MACRO_MODELS)
+ifeq ($(CELLS),yes)
+SIM_BUILD				= sim_build/cells
+endif
 
 else
 

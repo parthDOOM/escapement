@@ -42,6 +42,19 @@ def iv(sig):
         return None
 
 
+
+def ctx_reg(core, ctx, sel):
+    """dbg_sel 0-8 of context ctx computed from its register outputs (sec. 10 map)."""
+    c = core.g_ctx[ctx].u_ctx
+
+    def v(name):
+        return int(getattr(c, name).value)
+    if sel < 4:
+        return v(f"o_r{sel}")
+    if sel == 7:
+        return (v("o_lr") << 16) | (v("o_pc") << 8) | (v("o_state") << 2) | (v("o_z") << 1) | v("o_c")
+    return v({4: "o_sh", 5: "o_lc", 6: "o_tmr", 8: "o_ish"}[sel])
+
 class Env:
     def __init__(self, dut):
         self.dut = dut
@@ -100,10 +113,15 @@ class Env:
         self.trace = []
 
     async def rd(self, sel, ctx=0):
+        """dbg_sel `sel` of context `ctx` now. Selects 0-8 are the context's registers, read
+        from the context itself: the debug port shows them as of the context's last commit
+        slot (D-41; test_debug_reads_commit_slot checks the port)."""
         d = self.dut
         d.dbg_sel.value = sel
         d.dbg_sel_ctx.value = ctx
         await Timer(1, unit="ns")
+        if sel <= 8:
+            return ctx_reg(d.u_core, ctx, sel)
         return int(d.dbg_rdata.value)
 
     async def run(self, n, stim=None, sels=(), full=True):
@@ -910,6 +928,61 @@ async def test_reset_state(dut):
             if not v.is_resolvable or int(v) != RESET_SEL.get(s, 0):
                 bad[f"sel {s} ctx {k}"] = str(v)
     assert not bad, sorted({(k.split()[1], v if "X" not in v else "X") for k, v in bad.items()})
+
+
+@cocotb.test()
+async def test_debug_reads_commit_slot(dut):
+    """D-41: selects 0-8 come through the commit stage's multiplexers. During a run the port
+    shows a context's registers as of its last commit slot (at most 4 cycles old); after
+    the context halts, and while stopped, it shows them exactly, for every context."""
+    env = await new_env(dut)
+    src = """
+    .entry 0, go0
+    .entry 1, go1
+    .entry 2, go2
+    .entry 3, go3
+    go0: MOVI r0, 0x1234
+         LDLC 4
+    l0:  ADDI r2, 1
+         DJNZ l0
+         HALT
+    go1: MOVI r3, 0xBEEF
+         LDLC 7
+         HALT
+    go2: MOVI r0, 3
+         SHL r0, 4
+         HALT
+    go3: MOVI r1, 9
+         LDSH r1
+         HALT
+    """
+    await env.load_and_start(src)
+    d = dut
+    seen = []
+    for t in range(80):
+        d.dbg_sel.value, d.dbg_sel_ctx.value = 2, 0
+        await Timer(1, unit="ns")
+        seen.append((int(d.dbg_rdata.value), ctx_reg(d.u_core, 0, 2)))
+        await FallingEdge(d.clk)
+    # the port lags the register by at most 4 cycles and catches up
+    for t, (port, reg) in enumerate(seen):
+        assert port in [r for _, r in seen[max(0, t - 4):t + 1]], (t, port, reg)
+    assert seen[-1][0] == seen[-1][1]
+    for ctx in range(4):
+        for sel in range(9):
+            d.dbg_sel.value, d.dbg_sel_ctx.value = sel, ctx
+            for _ in range(5):
+                await FallingEdge(d.clk)
+            assert int(d.dbg_rdata.value) == ctx_reg(d.u_core, ctx, sel), (ctx, sel)
+    d.stop.value = 1
+    await FallingEdge(d.clk)
+    d.stop.value = 0
+    for ctx in range(4):
+        for sel in range(9):
+            d.dbg_sel.value, d.dbg_sel_ctx.value = sel, ctx
+            await FallingEdge(d.clk)
+            await FallingEdge(d.clk)
+            assert int(d.dbg_rdata.value) == ctx_reg(d.u_core, ctx, sel), ("stopped", ctx, sel)
 
 
 # --------------------------------------------------------------------------- sec. 7.1 flags

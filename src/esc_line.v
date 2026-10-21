@@ -286,8 +286,10 @@ module esc_line (
             | (~start & ~kill & op_crc & (op_v[15:8] == 8'd0));
   esc_greg #(32) g_e (.clk(clk), .rst_n(rst_n), .en(start | e_ev),
                       .d(start ? 32'd0 : now), .q(e));
-  esc_greg #(29) g_w0 (.clk(clk), .rst_n(rst_n), .en(cfg_done), .d({buf_q[31:24], buf_q[20:0]}),
-                       .q(w0));
+  // W0 is a latch bank (D-40): the buffer holds still at the CONFIG's last edge, so it is
+  // its own dq
+  esc_lreg #(29) g_w0 (.clk(clk), .rst_n(rst_n), .en(cfg_done), .d({buf_q[31:24], buf_q[20:0]}),
+                       .dq({buf_q[31:24], buf_q[20:0]}), .q(w0));
   esc_greg #(32) g_w1 (.clk(clk), .rst_n(rst_n), .en(cfg_on & ld & (el == 12'd4)),
                        .d(rdata), .q(w1));
   esc_greg #(25) g_w2 (.clk(clk), .rst_n(rst_n), .en(cfg_done), .d(rdata[24:0]), .q(w2));
@@ -487,6 +489,11 @@ module esc_line (
   // during cycle c+1+k it has el = k, so it completes at E_(c+9), never at one of the
   // owner's commit edges (the lemma for esc_core's P8 clause).
   always @(*) if (rst_n && mode == CFG) assert (now[1:0] - el[1:0] == owner);  // lemma-group: commit
+  // D-40, W0's latch contract: the buffer does not change at the edge W0 is written
+  reg f_pv = 1'b0;
+  always @(posedge clk) f_pv <= 1'b1;
+  always @(posedge clk)
+    if (f_pv && rst_n && $past(rst_n) && $past(cfg_done)) assert ($stable(buf_q));
 `endif
 endmodule
 

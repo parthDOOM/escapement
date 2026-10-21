@@ -83,6 +83,7 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
 | C4 | In stream mode a capture drain never writes over a record the host has not acknowledged (v1.3) | Unbounded (PDR) |
 | G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
+| G4–G5 | (v1.4) A latch bank equals an enable flip-flop at every instant whenever its input is the written value registered at the write edge (G4); every latch bank's input is that value (G5), and the host holds a mailbox word for a cycle after its push (M1) | Unbounded: G4 by k-induction with an unconstrained clock; G5 in the core proof (PDR); M1 on the host interface (PDR) |
 | S1 | The configuration the core runs with (enabled contexts, entry points, pin ownership, open-drain pins, pin banks) never changes during a run | Unbounded (PDR), on the host interface |
 
 **Assumptions.** The core proofs assume two things about their environment: reset at
@@ -122,6 +123,15 @@ completes, an edge where another context may commit. P8's commit clause is there
 per context, which is all `formal/esc_ctx_env.v` assumes: the committing context does not
 fault at its own commit edge. L1's phase lemma shows a CONFIG never completes at one of
 its owner's commit edges.
+
+**Latch banks (v1.4, D-40).** The logic proofs see every bank as an enable flip-flop.
+The latch build is tied to that model in two steps: `formal/esc_lreg.sby` proves, with
+an unconstrained clock, that a latch bank equals the flip-flop at every instant provided
+its input is the written value registered at the write edge (G4). The core proof then
+shows that every bank's input is (G5). A bank's input is one of the shared write-data
+registers, or the host's mailbox word, which the host holds for the cycle after a push
+(M1). G4 has teeth: a latch fed straight from the write data, the design rejected in
+v1.1, fails at the first step.
 
 **Vacuity guards.** A cover task reaches the precondition of every property, including
 capture overflow, region full, ring wrap, a drain and a push with two records staged,
@@ -312,7 +322,7 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | WS2812 from a timing table, colours in the tape | `ws2812_gen` | LED chain model with datasheet timing windows |
 | NEC infrared from a timing table | `nec_tx_gen` | NEC receiver model: carrier, pulse counts, every burst position |
 | Seven-segment animation on the demo board's display | `seven_seg` | Every frame on bank B, in order, to the tick |
-| USB 1.1 low-speed HID keyboard on the line unit (v1.4, simulator only until its RTL) | `usb_hid` | Reactive USB host model from the USB 2.0 text that checks every device packet and its turnaround: enumeration, lost and corrupted handshakes, corrupt tokens and data, bus resets at every stage, host clock ±5%, hostile traffic (72 tests); and the Linux kernel itself, which enumerates the simulated chip over USB/IP and receives typed text |
+| USB 1.1 low-speed HID keyboard on the line unit (v1.4) | `usb_hid` | Reactive USB host model from the USB 2.0 text that checks every device packet and its turnaround: enumeration, lost and corrupted handshakes, corrupt tokens and data, bus resets at every stage, host clock ±5%, hostile traffic (72 tests); and the Linux kernel itself, which enumerates the simulated chip over USB/IP and receives typed text |
 
 ## Test suites
 
@@ -321,6 +331,7 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | Software (`make sw-test`): assembler, simulator, certificates, models, tape tools, capture export and SUMP bridge, bring-up script | 293 | Pass (2 need `sigrok-cli`) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
+| Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
 | Co-simulation (`make cosim`) | 7 | Pass |
 | Host interface (`make host-test`) | 16 | Pass |
 | Core unit tests (`make unit-test`) | 28 | Pass |
@@ -370,7 +381,8 @@ these workflows. The formal and equivalence jobs use the OSS CAD Suite release p
 make sw-test cert test cosim-parallel host-test unit-test lint   # simulation and certificates
 make pin-test bringup-test                                       # newer firmware through the pins; bring-up script
 make gl-test gl-pin-test                                         # the same chip-level checks on the gate-level netlist
-make formal-quick                                                # bounded core proof, cover, never-late, clock gate
+CELLS=yes make test cosim-parallel                               # the RTL with the real clock-gate and latch cells
+make formal-quick                                                # bounded core proof, cover, never-late, clock gate, latch bank
 make formal JOBS=8                                               # adds the unbounded core proof (~20 min)
 make equiv                                                       # final netlist equals the RTL (~4 min)
 make mutation JOBS=8                                             # mutation campaign, 8 mutants at a time (~2 h)

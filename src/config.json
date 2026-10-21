@@ -33,6 +33,14 @@
   "RUN_POST_GRT_RESIZER_TIMING": 1,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.2,
 
+  "//": "Setup margins 1 ns after placement, 2 ns after global routing (default 0.025), D-40.",
+  "//": "v14g met timing before detailed routing, but its detours put minimum-size gates on",
+  "//": "long wires: slow-corner slack -2.1 ns on the commit-to-pin path. The margins make the",
+  "//": "resizer upsize such paths ahead of routing. (Latch inputs are left out of the PnR setup",
+  "//": "checks in escapement_pnr.sdc; with them, any positive margin looped without end.)",
+  "PL_RESIZER_SETUP_SLACK_MARGIN": 1.0,
+  "GRT_RESIZER_SETUP_SLACK_MARGIN": 2.0,
+
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",
   "RUN_LINTER": 1,
   "LINTER_INCLUDE_PDK_MODELS": 1,
@@ -130,7 +138,8 @@
 
   "//": "D-28: base.sdc with setup/hold uncertainty split (0.25 setup, 0.05 hold); the",
   "//": "measurement and rationale are in the SDC header. Same file for PnR and signoff.",
-  "PNR_SDC_FILE": "dir::escapement.sdc",
+  "//": "D-40: placement and routing time each latch bank from its gate (escapement_pnr.sdc).",
+  "PNR_SDC_FILE": "dir::escapement_pnr.sdc",
   "SIGNOFF_SDC_FILE": "dir::escapement.sdc",
 
   "//": "D-30 routing. Metal2-4 leave ONE horizontal signal layer (Metal3), and 93% of all",
@@ -154,7 +163,10 @@
   "//": "Row-cut halo: 50 um sideways removes the strip right of the tape (48.5 um to the core",
   "//": "edge); 30 um vertically gives each macro's pin side a cell-free escape channel.",
   "FP_MACRO_HORIZONTAL_HALO": 50,
-  "FP_MACRO_VERTICAL_HALO": 30,
+  "//": "v1.4: 60 um. The line unit sits between the core and the tape, and with 30 um the",
+  "//": "tape's pin channel carried the densest routing of the die (detailed-route shorts over",
+  "//": "the tape in v14a and v14e).",
+  "FP_MACRO_VERTICAL_HALO": 60,
 
   "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 

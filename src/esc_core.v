@@ -183,7 +183,11 @@ module esc_core (
   reg  [2:0]  f_cause, f_sub;
 
   // ------------------------------------------------------------------ commit stage selection
-  wire [1:0]  cctx    = now[1:0] + 2'd1;
+  // The committing context, (now + 1) mod 4 during a run, is a register that counts with
+  // now. While stopped no commit happens, and it holds the context the host's debug reads
+  // of selects 0-8 select instead (v1.4, D-41); `run` stays off this path.
+  reg  [1:0]  cq;
+  wire [1:0]  cctx    = cq;
   wire [31:0] insn    = p3_insn;
   wire [7:0]  op      = insn[31:24];
 
@@ -617,6 +621,25 @@ module esc_core (
     end
   endgenerate
 
+  // ------------------------------------------------------------------ latch write data
+  // v1.4 (D-40): most of the contexts' banks are latches (esc_lreg). Each copies, while
+  // its gated clock is high, what was written at the last edge, from these flip-flops:
+  // one per write port, shared by all four contexts. No commit writes a register and SH
+  // or a TX word together (asserted below), so those three share one; EXPECT's lee is
+  // the timer adder's sum, which is w_tmr then. A start writes zeros.
+  wire [31:0] q_wr, q_tmr, q_ld;
+  wire [57:0] q_entry;
+  reg  [3:0]  q_ldk;                   // the last edge's deferred LDT write, per context
+  esc_greg #(32) g_qwr (.clk(clk), .rst_n(rst_n),
+      .en(start | (commit_valid & (w_rd_we | w_sh_we | w_tx_push))),
+      .d(start ? 32'd0 : w_sh_we ? w_sh : w_tx_push ? opb : w_rd_data), .q(q_wr));
+  esc_greg #(32) g_qtmr (.clk(clk), .rst_n(rst_n),
+      .en(start | (commit_valid & (w_tmr_we | w_exp_admit))),
+      .d(start ? 32'd0 : w_tmr), .q(q_tmr));
+  esc_greg #(58) g_qent (.clk(clk), .rst_n(rst_n), .en(commit_valid & w_push),
+      .d(w_entry), .q(q_entry));
+  esc_greg #(32) g_qld (.clk(clk), .rst_n(rst_n), .en(ld_v), .d(tape_rdata), .q(q_ld));
+
   // ------------------------------------------------------------------ line unit (v1.4)
   wire lu_cm = cm_ok & (op == OP_LINE);
   esc_line u_line (
@@ -681,6 +704,11 @@ module esc_core (
           .ld_we       (ld_v & (ld_ctx == gk[1:0]) & ~start),
           .ld_idx      (ld_rd),
           .ld_data     (tape_rdata),
+          .q_wr        (q_wr),
+          .q_tmr       (q_tmr),
+          .q_entry     (q_entry),
+          .q_ld        (q_ld),
+          .q_ld_we     (q_ldk[gk]),
           .h_rx_push   (mbx_rx_push[gk]),
           .h_rx_data   (mbx_rx_data[32*gk +: 32]),
           .h_tx_pop    (mbx_tx_pop[gk]),
@@ -809,11 +837,12 @@ module esc_core (
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       dg <= 32'hFFFF_FFFF; dg_prev <= 21'd0;
-      ld_v <= 1'b0; ld_ctx <= 2'd0; ld_rd <= 2'd0;
+      ld_v <= 1'b0; ld_ctx <= 2'd0; ld_rd <= 2'd0; q_ldk <= 4'd0;
     end else begin
       ld_v   <= ~start & cm_ok & (op == OP_LDT);
       ld_ctx <= cctx;
       ld_rd  <= f_rd;
+      q_ldk  <= (ld_v & ~start) ? (4'd1 << ld_ctx) : 4'd0;
       if (start) begin
         dg <= 32'hFFFF_FFFF; dg_prev <= 21'd0;
       end else if (run && !stop) begin
@@ -826,7 +855,7 @@ module esc_core (
   // ------------------------------------------------------------------ sequential
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      run <= 1'b0; now <= 32'd0;
+      run <= 1'b0; now <= 32'd0; cq <= 2'd1;
       pin_val <= 13'd0; pin_oe <= 13'd0;
       s1 <= 13'd0; s2 <= 13'd0;
       p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
@@ -856,6 +885,9 @@ module esc_core (
       dbg_commit_insn    <= insn;
       dbg_commit_outcome <= outcome;
 
+      if (start)            cq <= START_NOW[1:0] + 2'd1;
+      else if (run && !stop) cq <= cq + 2'd1;
+      else                  cq <= dbg_sel_ctx;
       if (start) begin
         run <= 1'b1; now <= START_NOW;
         pin_val <= 13'd0; pin_oe <= 13'd0;
@@ -907,19 +939,30 @@ module esc_core (
   assign dbg_post_c   = c_c[pk_];
   assign dbg_post_pc  = c_pc[8*pk_ +: 8];
 
+  // v1.4 (D-41): a context's registers (selects 0-8) are read through the commit stage's
+  // multiplexers, which select that context in its commit slot during a run and in every
+  // cycle while stopped; dbg_cs holds the value from the last such cycle. Selects 9-31
+  // read their sources directly.
   wire [1:0] sk = dbg_sel_ctx;
+  reg  [31:0] dcs;
+  always @* begin
+    case (dbg_sel[3:0])
+      4'd0:    dcs = cs_r0;
+      4'd1:    dcs = cs_r1;
+      4'd2:    dcs = cs_r2;
+      4'd3:    dcs = cs_r3;
+      4'd4:    dcs = cs_sh;
+      4'd5:    dcs = {16'd0, cs_lc};
+      4'd6:    dcs = cs_tmr;
+      4'd7:    dcs = {8'd0, cs_lr, cs_pc, 4'd0, cs_state, cs_z, cs_c};
+      default: dcs = cs_ish;
+    endcase
+  end
+  wire [31:0] dbg_cs;
+  esc_greg #(32) g_dcs (.clk(clk), .rst_n(rst_n), .en(cctx == sk), .d(dcs), .q(dbg_cs));
   always @* begin
     case (dbg_sel)
-      5'd0:  dbg_rdata = c_r0[32*sk +: 32];
-      5'd1:  dbg_rdata = c_r1[32*sk +: 32];
-      5'd2:  dbg_rdata = c_r2[32*sk +: 32];
-      5'd3:  dbg_rdata = c_r3[32*sk +: 32];
-      5'd4:  dbg_rdata = c_sh[32*sk +: 32];
-      5'd5:  dbg_rdata = {16'd0, c_lc[16*sk +: 16]};
-      5'd6:  dbg_rdata = c_tmr[32*sk +: 32];
-      5'd7:  dbg_rdata = {8'd0, c_lr[8*sk +: 8], c_pc[8*sk +: 8], 4'd0,
-                          c_state[2*sk +: 2], c_z[sk], c_c[sk]};
-      5'd8:  dbg_rdata = c_ish[32*sk +: 32];
+      5'd0, 5'd1, 5'd2, 5'd3, 5'd4, 5'd5, 5'd6, 5'd7, 5'd8: dbg_rdata = dbg_cs;
       5'd9:  dbg_rdata = {c_minl[16*sk +: 16], c_wfull[16*sk +: 16]};
       5'd10: dbg_rdata = {c_fail[8*sk +: 8], c_pass[8*sk +: 8], 5'd0, c_maxo[3*sk +: 3],
                           1'b0, c_cnt[3*sk +: 3], 2'd0, c_act[sk], c_failed[sk]};
@@ -974,6 +1017,8 @@ module esc_core (
 `ifndef ESC_CORE_PDR
     assert (c_late == 4'd0);
 `endif
+    // D-41: the committing-context register counts with now during a run
+    if (run) assert (cctx == now[1:0] + 2'd1);
     for (fk = 0; fk < 4; fk = fk + 1)
       // P4 FIFO occupancy bounded (§6).
       assert (c_cnt[3*fk +: 3] <= 3'd4);

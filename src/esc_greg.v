@@ -79,4 +79,62 @@ module esc_greg #(
 `endif
 endmodule
 
+/*
+ * esc_lreg - a gated bank stored in latches (v1.4, D-40: area).
+ *
+ * Function: exactly esc_greg (q <= d at a rising edge where en is high). The caller also
+ * supplies dq, the value d had at the last rising edge, from a flip-flop it shares with
+ * every bank written through the same port. In the standard-cell build each bit is a
+ * latch (sg13cmos5l_dlhrq_1, 27.2 um2 against 49.0 for the flip-flop) that is transparent
+ * while the gated clock is high and copies dq, which is stable then: q changes right
+ * after the edge, as a flip-flop's would, and holds from the falling edge on. RTL
+ * simulation and the logic proofs use esc_greg; formal/esc_lreg.sby proves the latch
+ * build equal to it whenever dq is d registered at each enabled edge, and the core's
+ * proofs show that every bank's dq is (docs/04).
+ */
+module esc_lreg #(
+    parameter W = 32
+) (
+    input  wire         clk,
+    input  wire         rst_n,
+    input  wire         en,
+    input  wire [W-1:0] d,
+    input  wire [W-1:0] dq,
+    output wire [W-1:0] q
+);
+`ifdef SCL_sg13cmos5l_stdcell
+`ifndef ESC_NO_CG
+`define ESC_LREG_LATCH
+`endif
+`endif
+`ifdef ESC_LREG_FORMAL
+`define ESC_LREG_LATCH
+`endif
+`ifdef ESC_LREG_LATCH
+  wire gclk;
+  esc_icg icg (.clk(clk), .en(en), .gclk(gclk));
+`ifdef SCL_sg13cmos5l_stdcell
+  genvar i;
+  for (i = 0; i < W; i = i + 1) begin : g_l
+    sg13cmos5l_dlhrq_1 l (.D(dq[i]), .GATE(gclk), .RESET_B(rst_n), .Q(q[i]));
+  end
+`else
+  reg [W-1:0] l;
+  /* verilator lint_off LATCH */
+  always @(*) if (!rst_n) l = {W{1'b0}}; else if (gclk) l = dq;
+  /* verilator lint_on LATCH */
+  assign q = l;
+`endif
+  /* verilator lint_off UNUSEDSIGNAL */
+  wire unused_d = &{1'b0, d};
+  /* verilator lint_on UNUSEDSIGNAL */
+`else
+  esc_greg #(W) g (.clk(clk), .rst_n(rst_n), .en(en), .d(d), .q(q));
+  /* verilator lint_off UNUSEDSIGNAL */
+  wire unused_dq = &{1'b0, dq};
+  /* verilator lint_on UNUSEDSIGNAL */
+`endif
+`undef ESC_LREG_LATCH
+endmodule
+
 `default_nettype wire

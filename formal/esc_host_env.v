@@ -7,7 +7,7 @@
  * so this harness proves it there: the host's SPI pins and every core-side input are free, and
  * the core's run flag is modelled exactly as esc_core drives it (set the cycle after
  * `start`, cleared after `stop`, start winning). A PASS discharges the core proofs'
- * only environment assumption besides reset. v1.3 adds T1/T2 on the tape port.
+ * only environment assumption besides reset. v1.3 adds T1/T2 on the tape port, v1.4 M1.
  * SPDX-License-Identifier: Apache-2.0
  */
 `default_nettype none
@@ -35,6 +35,8 @@ module esc_host_env (
   wire [3:0]  ctx_bank;
   wire [25:0] pin_owner;
   wire        mem_we, mem_space, tape_req;
+  wire [3:0]  rx_push;
+  wire [127:0] rx_data;
 
   // the core's run flag (esc_core.v: `if (start) run <= 1; else if (stop) run <= 0;`)
   reg run;
@@ -52,7 +54,7 @@ module esc_host_env (
       .fault_valid(fault_valid), .mem_we(mem_we), .mem_addr(), .mem_wdata(), .mem_space(mem_space),
       .mem_re(), .mem_rdata(mem_rdata), .tape_req(tape_req), .tape_gnt(tape_gnt),
       .tape_ack(), .tape_ack_v(), .dbg_ctx(), .dbg_sel(), .dbg_rdata(dbg_rdata),
-      .mbx_rx_push(), .mbx_rx_data(), .mbx_rx_full(mbx_rx_full), .mbx_tx_pop(),
+      .mbx_rx_push(rx_push), .mbx_rx_data(rx_data), .mbx_rx_full(mbx_rx_full), .mbx_tx_pop(),
       .mbx_tx_data(mbx_tx_data), .mbx_tx_empty(mbx_tx_empty));
 
   reg f_past = 1'b0;
@@ -78,12 +80,18 @@ module esc_host_env (
     if (tape_req) assert (mem_space && !mem_we);
   end
 
+  // M1 (v1.4, D-40) a pushed mailbox word stays on mbx_rx_data in the cycle after the push
+  // edge: the context's latch bank copies it then (esc_ctx.v)
+  always @(posedge clk)
+    if (f_past && rst_n && $past(rst_n) && $past(rx_push != 4'd0)) assert ($stable(rx_data));
+
   // reachability: a configuration is written, and a run starts afterwards
   always @(posedge clk) if (f_past && rst_n) begin
     cover ($changed(pin_owned) && !run);
     cover ($rose(run) && pin_owned != 13'd0);
     cover ($rose(run) && ctx_bank != 4'd0 && pin_owned[12:8] != 5'd0);   // bank B configured
     cover (run && tape_req && tape_gnt);                                  // a read in a run
+    cover ($past(rx_push != 4'd0));                                       // a mailbox push
   end
 endmodule
 `default_nettype wire

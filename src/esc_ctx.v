@@ -72,6 +72,13 @@ module esc_ctx (
     input  wire        ld_we,
     input  wire [1:0]  ld_idx,
     input  wire [31:0] ld_data,
+    // ---- v1.4 (D-40) the write data of the last edge, from the core's shared flip-flops:
+    // the latch banks (esc_lreg) copy these while their gated clock is high
+    input  wire [31:0] q_wr,          // w_rd_data, w_sh or w_tx_data, whichever was written
+    input  wire [31:0] q_tmr,         // w_tmr (= w_lee when an EXPECT is admitted)
+    input  wire [57:0] q_entry,       // w_entry
+    input  wire [31:0] q_ld,          // ld_data
+    input  wire        q_ld_we,       // ld_we
 
     // ---- host mailbox side ----
     input  wire        h_rx_push,
@@ -213,23 +220,29 @@ module esc_ctx (
   wire       push = cm_ok & w_push;
 
   // ------------------------------------------------------------------ mailboxes
-  wire [31:0] rx0, rx1, tx0, tx1;       // clock-gated banks, below
+  // Two words each, in a ring: a word stays in its slot from push to pop (v1.4, so each
+  // slot is written from one source only; the head of an empty mailbox is unspecified).
+  wire [31:0] rx0, rx1, tx0, tx1;       // latch banks, below
   reg [1:0]  rx_cnt, tx_cnt;
+  reg        rx_rp, tx_rp;              // the head's slot
   assign o_rx_empty = (rx_cnt == 2'd0);
   assign o_rx_full  = (rx_cnt == 2'd2);
-  assign o_rx_head  = rx0;
+  assign o_rx_head  = rx_rp ? rx1 : rx0;
   assign o_tx_empty = (tx_cnt == 2'd0);
   assign o_tx_full  = (tx_cnt == 2'd2);
-  assign o_tx_head  = tx0;
+  assign o_tx_head  = tx_rp ? tx1 : tx0;
 
-  // RX: host pushes (ignored when full during this cycle), context pops.
+  // RX: host pushes (ignored when full during this cycle), context pops. A push lands
+  // in the slot after the words left once this edge's pop is done.
   wire       rx_popped = cm_ok & w_rx_pop;
   wire       rx_pushed = h_rx_push & ~o_rx_full;
   wire [1:0] rx_cnt_p  = rx_cnt - {1'b0, rx_popped};
+  wire       rx_wi     = rx_rp ^ rx_popped ^ rx_cnt_p[0];
   // TX: context pushes, host pops (ignored when empty during this cycle).
   wire       tx_popped = h_tx_pop & ~o_tx_empty;
   wire       tx_pushed = cm_ok & w_tx_push;
   wire [1:0] tx_cnt_p  = tx_cnt - {1'b0, tx_popped};
+  wire       tx_wi     = tx_rp ^ tx_popped ^ tx_cnt_p[0];
 
   // ------------------------------------------------------------------ registers
   always @(posedge clk or negedge rst_n) begin
@@ -242,7 +255,7 @@ module esc_ctx (
       o_exp_seen <= 1'b0;
       o_min_lead <= 16'hFFFF; o_max_occ <= 3'd0; o_wait_full <= 16'd0;
       o_irq_p <= 1'b0; o_irq_code <= 8'd0;
-      rx_cnt <= 2'd0; tx_cnt <= 2'd0;
+      rx_cnt <= 2'd0; tx_cnt <= 2'd0; rx_rp <= 1'b0; tx_rp <= 1'b0;
     end else if (start_i) begin
       // sec. 9 Start
       o_lc <= 16'd0; o_pc <= cfg_entry_pc; o_lr <= 8'd0;
@@ -253,7 +266,7 @@ module esc_ctx (
       o_exp_seen <= 1'b0;
       o_min_lead <= 16'hFFFF; o_max_occ <= 3'd0; o_wait_full <= 16'd0;
       o_irq_p <= 1'b0; o_irq_code <= 8'd0;
-      rx_cnt <= 2'd0; tx_cnt <= 2'd0;
+      rx_cnt <= 2'd0; tx_cnt <= 2'd0; rx_rp <= 1'b0; tx_rp <= 1'b0;
     end else begin
       // ---- host IRQ clear (overridden below by an IRQ commit at the same edge)
       if (h_irq_clear) o_irq_p <= 1'b0;
@@ -315,8 +328,9 @@ module esc_ctx (
 
       // ---- mailboxes
       rx_cnt <= rx_cnt_p + {1'b0, rx_pushed};
-
+      rx_rp  <= rx_rp ^ rx_popped;
       tx_cnt <= tx_cnt_p + {1'b0, tx_pushed};
+      tx_rp  <= tx_rp ^ tx_popped;
     end
   end
 
@@ -332,24 +346,26 @@ module esc_ctx (
   wire       rdw  = cm_ok & w_rd_we;
   // A deferred LDT write never meets this context's own commit; if it did, LDT wins,
   // as the later assignment did.
-  esc_greg #(32) g_r0 (.clk(clk), .rst_n(rst_n),
-      .en(st | (live & ((rdw & (w_rd_idx == 2'd0)) | ldk0))),
-      .d(st ? 32'd0 : ldk0 ? ld_data : w_rd_data), .q(o_r0));
-  esc_greg #(32) g_r1 (.clk(clk), .rst_n(rst_n),
-      .en(st | (live & ((rdw & (w_rd_idx == 2'd1)) | ldk1))),
-      .d(st ? 32'd0 : ldk1 ? ld_data : w_rd_data), .q(o_r1));
-  esc_greg #(32) g_r2 (.clk(clk), .rst_n(rst_n),
-      .en(st | (live & ((rdw & (w_rd_idx == 2'd2)) | ldk2))),
-      .d(st ? 32'd0 : ldk2 ? ld_data : w_rd_data), .q(o_r2));
-  esc_greg #(32) g_r3 (.clk(clk), .rst_n(rst_n),
-      .en(st | (live & ((rdw & (w_rd_idx == 2'd3)) | ldk3))),
-      .d(st ? 32'd0 : ldk3 ? ld_data : w_rd_data), .q(o_r3));
-  esc_greg #(32) g_sh (.clk(clk), .rst_n(rst_n), .en(st | (live & cm_ok & w_sh_we)),
-      .d(st ? 32'd0 : w_sh), .q(o_sh));
-  esc_greg #(32) g_tmr (.clk(clk), .rst_n(rst_n), .en(st | (live & cm_ok & w_tmr_we)),
-      .d(st ? 32'd0 : w_tmr), .q(o_tmr));
-  esc_greg #(32) g_lee (.clk(clk), .rst_n(rst_n), .en(st | (live & cm_ok & w_exp_admit)),
-      .d(st ? 32'd0 : w_lee), .q(o_lee));
+  // v1.4 (D-40): the banks below except ish and the first-fail record are latches; their
+  // dq is the shared write data of the last edge (zero after a start), or the LDT data
+  // when that edge's write here was a deferred LDT.
+  wire [31:0] d_r  = st ? 32'd0 : ld_we ? ld_data : w_rd_data;
+  wire [31:0] dq_r = q_ld_we ? q_ld : q_wr;
+  wire        en_r0 = st | (live & ((rdw & (w_rd_idx == 2'd0)) | ldk0));
+  wire        en_r1 = st | (live & ((rdw & (w_rd_idx == 2'd1)) | ldk1));
+  wire        en_r2 = st | (live & ((rdw & (w_rd_idx == 2'd2)) | ldk2));
+  wire        en_r3 = st | (live & ((rdw & (w_rd_idx == 2'd3)) | ldk3));
+  wire        en_sh = st | (live & cm_ok & w_sh_we);
+  wire        en_tmr = st | (live & cm_ok & w_tmr_we);
+  wire        en_lee = st | (live & cm_ok & w_exp_admit);
+  wire [31:0] d_sh = st ? 32'd0 : w_sh, d_tmr = st ? 32'd0 : w_tmr, d_lee = st ? 32'd0 : w_lee;
+  esc_lreg #(32) g_r0 (.clk(clk), .rst_n(rst_n), .en(en_r0), .d(d_r), .dq(dq_r), .q(o_r0));
+  esc_lreg #(32) g_r1 (.clk(clk), .rst_n(rst_n), .en(en_r1), .d(d_r), .dq(dq_r), .q(o_r1));
+  esc_lreg #(32) g_r2 (.clk(clk), .rst_n(rst_n), .en(en_r2), .d(d_r), .dq(dq_r), .q(o_r2));
+  esc_lreg #(32) g_r3 (.clk(clk), .rst_n(rst_n), .en(en_r3), .d(d_r), .dq(dq_r), .q(o_r3));
+  esc_lreg #(32) g_sh (.clk(clk), .rst_n(rst_n), .en(en_sh), .d(d_sh), .dq(q_wr), .q(o_sh));
+  esc_lreg #(32) g_tmr (.clk(clk), .rst_n(rst_n), .en(en_tmr), .d(d_tmr), .dq(q_tmr), .q(o_tmr));
+  esc_lreg #(32) g_lee (.clk(clk), .rst_n(rst_n), .en(en_lee), .d(d_lee), .dq(q_tmr), .q(o_lee));
   // ish: the block assigned ish_next every live edge; it differs from o_ish only on a
   // SAMPLE retirement or a GETI clear.
   esc_greg #(32) g_ish (.clk(clk), .rst_n(rst_n),
@@ -362,25 +378,46 @@ module esc_ctx (
 
   // FIFO entries: written only by a push (never by start_i, which only empties the FIFO).
   wire ent_w = live & ~kill & push;
-  esc_greg #(58) g_ent0 (.clk(clk), .rst_n(rst_n), .en(ent_w & (wr_idx == 2'd0)),
-      .d(w_entry), .q(ent0));
-  esc_greg #(58) g_ent1 (.clk(clk), .rst_n(rst_n), .en(ent_w & (wr_idx == 2'd1)),
-      .d(w_entry), .q(ent1));
-  esc_greg #(58) g_ent2 (.clk(clk), .rst_n(rst_n), .en(ent_w & (wr_idx == 2'd2)),
-      .d(w_entry), .q(ent2));
-  esc_greg #(58) g_ent3 (.clk(clk), .rst_n(rst_n), .en(ent_w & (wr_idx == 2'd3)),
-      .d(w_entry), .q(ent3));
+  esc_lreg #(58) g_ent0 (.clk(clk), .rst_n(rst_n), .en(ent_w & (wr_idx == 2'd0)),
+      .d(w_entry), .dq(q_entry), .q(ent0));
+  esc_lreg #(58) g_ent1 (.clk(clk), .rst_n(rst_n), .en(ent_w & (wr_idx == 2'd1)),
+      .d(w_entry), .dq(q_entry), .q(ent1));
+  esc_lreg #(58) g_ent2 (.clk(clk), .rst_n(rst_n), .en(ent_w & (wr_idx == 2'd2)),
+      .d(w_entry), .dq(q_entry), .q(ent2));
+  esc_lreg #(58) g_ent3 (.clk(clk), .rst_n(rst_n), .en(ent_w & (wr_idx == 2'd3)),
+      .d(w_entry), .dq(q_entry), .q(ent3));
 
-  // Mailboxes: start_i resets the counts only; the words hold.
-  wire rx_w0 = rx_pushed & (rx_cnt_p == 2'd0), tx_w0 = tx_pushed & (tx_cnt_p == 2'd0);
-  esc_greg #(32) g_rx0 (.clk(clk), .rst_n(rst_n), .en(live & (rx_popped | rx_w0)),
-      .d(rx_w0 ? h_rx_data : rx1), .q(rx0));
-  esc_greg #(32) g_rx1 (.clk(clk), .rst_n(rst_n), .en(live & rx_pushed & ~(rx_cnt_p == 2'd0)),
-      .d(h_rx_data), .q(rx1));
-  esc_greg #(32) g_tx0 (.clk(clk), .rst_n(rst_n), .en(live & (tx_popped | tx_w0)),
-      .d(tx_w0 ? w_tx_data : tx1), .q(tx0));
-  esc_greg #(32) g_tx1 (.clk(clk), .rst_n(rst_n), .en(live & tx_pushed & ~(tx_cnt_p == 2'd0)),
-      .d(w_tx_data), .q(tx1));
+  // Mailboxes: start_i resets the counts only; the words hold. The host's word does not
+  // change in the cycle after its push (formal/esc_host.sby), so it is its own dq.
+  wire en_rx = live & rx_pushed, en_tx = live & tx_pushed;
+  esc_lreg #(32) g_rx0 (.clk(clk), .rst_n(rst_n), .en(en_rx & ~rx_wi),
+      .d(h_rx_data), .dq(h_rx_data), .q(rx0));
+  esc_lreg #(32) g_rx1 (.clk(clk), .rst_n(rst_n), .en(en_rx & rx_wi),
+      .d(h_rx_data), .dq(h_rx_data), .q(rx1));
+  esc_lreg #(32) g_tx0 (.clk(clk), .rst_n(rst_n), .en(en_tx & ~tx_wi),
+      .d(w_tx_data), .dq(q_wr), .q(tx0));
+  esc_lreg #(32) g_tx1 (.clk(clk), .rst_n(rst_n), .en(en_tx & tx_wi),
+      .d(w_tx_data), .dq(q_wr), .q(tx1));
+
+`ifdef FORMAL
+`ifndef ESC_CTX_ENV
+  // D-40, the latch banks' contract (esc_lreg): after every edge that writes a bank, its
+  // dq is the value d had before that edge. Proved in the core's tasks, where the shared
+  // flip-flops exist (formal/esc_ctx.sby drives them freely and skips this). The host's
+  // side of the RX contract is proved in formal/esc_host.sby.
+  reg f_pv = 1'b0;
+  always @(posedge clk) f_pv <= 1'b1;
+  always @(posedge clk)
+    if (f_pv && rst_n && $past(rst_n)) begin
+      if ($past(en_r0 | en_r1 | en_r2 | en_r3)) assert (dq_r == $past(d_r));
+      if ($past(en_sh))  assert (q_wr == $past(d_sh));
+      if ($past(en_tmr)) assert (q_tmr == $past(d_tmr));
+      if ($past(en_lee)) assert (q_tmr == $past(d_lee));
+      if ($past(ent_w))  assert (q_entry == $past(w_entry));
+      if ($past(en_tx))  assert (q_wr == $past(w_tx_data));
+    end
+`endif
+`endif
 
 `ifdef FORMAL
   // Inductive strengthening for P2 "never late" (esc_core.v), so it can be proved for

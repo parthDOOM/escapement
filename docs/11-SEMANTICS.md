@@ -676,7 +676,7 @@ first-fault register.
 `dbg_post_*` show the committed context's registers (post-commit): `dbg_post_r0..r3`,
 `dbg_post_sh`, `dbg_post_lc[15:0]`, `dbg_post_tmr`, `dbg_post_z`, `dbg_post_c`,
 `dbg_post_pc[7:0]`. A combinational read port `dbg_sel_ctx[1:0]`, `dbg_sel[3:0]` →
-`dbg_rdata[31:0]` exposes current state. The ISS writes the same fields as JSON lines.
+`dbg_rdata[31:0]` exposes the state (selects 0–8 as described below the map). The ISS writes the same fields as JSON lines.
 
 `dbg_sel` map (fields not listed read 0; 14 and 15 ignore `dbg_sel_ctx`):
 
@@ -707,6 +707,11 @@ first-fault register.
 | 27–31 | 0 |
 
 `dbg_sel` is 5 bits wide since v1.1 (16–26 ignore `dbg_sel_ctx`; 22–24 and 27–31 read 0).
+
+Selects 0–8 (v1.4) show the context's registers as they were in its most recent commit
+slot (`now mod 4 = ctx - 1`) during a run, at most four cycles before the read, and as
+they were one cycle before the read while stopped. All other selects show the current
+state.
 
 ### 10.1 Execution digest (v1.1)
 

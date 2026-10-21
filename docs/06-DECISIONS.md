@@ -190,6 +190,39 @@ gate that is closed whenever the unit is idle and nothing reaches it. A program 
 never uses the unit pays for it in area only: about 2,500 cells, 11% of the design before
 place and route (Yosys, same script for both).
 
+**D-40 Registers in latches.** With the line unit the design was 11% larger than v1.3,
+and the first layout at 6×4 failed with routing shorts over the tape. In this library a
+flip-flop is 49.0 µm² and a latch with reset 27.2 µm², and most flip-flops sit in
+clock-gated banks that are written rarely. Those banks are now latches: r0–r3, SH, the
+timer, lee, the FIFO entries and the mailboxes of every context, and the line unit's W0,
+2,365 bits in all. A latch is transparent while its gated clock is high, so its input
+must hold still for that half cycle. Each write port therefore has one flip-flop register,
+shared by the four contexts, that holds what was written at the last edge (158 bits in
+all), and the latches copy it. A read sees the new value right after the edge, as with a
+flip-flop, so neither the semantics nor the timing of any read changes. The design
+shrinks from 379,900 to 331,300 µm² before place and route (Yosys, same script), below
+v1.3, and no feature is removed. The mailboxes became two-slot rings, so each slot is
+written from one source; the head of an empty mailbox, which nothing reads, changed with
+them. `formal/esc_lreg.sby` proves that a latch bank equals an enable flip-flop at every
+instant whenever its input is the written value registered at the write edge, and the
+core proof shows that every bank's input is. The test suites also run on the RTL with
+the real latch cells (`CELLS=yes`). Static timing sees each latch's data arrive just after it
+opens and reports it as time borrowed, with exactly zero slack at all 2,365 inputs. The
+resizer treated those as violations and never finished, so placement and routing time each
+latch from its gate, like the flip-flop it replaces (`src/escapement_pnr.sdc`), while
+sign-off timing keeps the full latch model.
+
+**D-41 Debug reads share the commit stage's multiplexers.** Selects 0 to 8 read a
+context's registers (r0–r3, SH, LC, the timer, PC, LR, state and flags, ish). The commit
+stage already selects exactly those registers of one context in every cycle, so a second
+set of 4-to-1 multiplexers, 260 bits wide, only duplicated it, with its own long wires
+from every context to the middle of the core. Now, while the chip is stopped, the commit
+stage selects the context the host is reading. During a run a 32-bit register takes the
+selected field in that context's commit slot. A read during a run therefore shows the
+registers as they were up to four cycles earlier, finer than any host can time a read,
+and a read while stopped is exact. The design shrinks by about 8,500 µm² and a
+thousand long wires (Yosys, same script).
+
 ## Power and timing margin
 
 **D-29 Measure power, then cut what dominates.** On the first v1.1 netlist, with
@@ -245,11 +278,13 @@ is real. Long wires are buffered at 500 µm, which cut slow-corner slew warnings
 
 ## Measured and rejected
 
-- **Latch-based register banks.** A latch is 29.0 µm² in this library against 49.0 µm²
-  for the flip-flop it would replace, so converting the ~2,600 gated-bank flip-flops
-  saves at most about 52,000 µm², 6% of the die: not a tile at 6×4. The banks are
-  already clock-gated, so the power gain is small, and latches move read-during-write
-  timing by half a cycle in every bank.
+- **Latch-based register banks (v1.1; adopted in v1.4, D-40).** A latch is 29.0 µm² in
+  this library against 49.0 µm² for the flip-flop it would replace, so converting the
+  ~2,600 gated-bank flip-flops saves at most about 52,000 µm², 6% of the die: not a tile
+  at 6×4. The banks are already clock-gated, so the power gain is small, and latches
+  fed straight from the write data move read-during-write timing by half a cycle in
+  every bank. v1.4 needed the area to stay at 6×4; a shared input register per write
+  port, and the reset latch (27.2 µm²), remove the half-cycle shift.
 - **Metal1 routing with the default fill.** Detailed routing was clean, but LVS merged
   about 4,000 nets: decap cells inserted after routing put Metal1 power plates under
   16,701 signal-wire crossings. Detailed-route DRC could not see it; only LVS did.

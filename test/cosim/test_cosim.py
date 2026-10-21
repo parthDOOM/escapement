@@ -196,9 +196,21 @@ async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b, ta
         dut.uio_in.value = board(t, out, oe)
         dut.ib_in.value = board_b(t, ob) & 0x1F
     # Now in cycle n_cycles: state after E_(n_cycles-1).
+    # Selects 0-8 come from the contexts themselves: the debug port shows them as of each
+    # context's last commit slot (D-41), which the core unit tests check.
     final = {}
     for ctx in range(4):
-        for sel in range(14):
+        c = dut.u_core.g_ctx[ctx].u_ctx
+        regs = {k: int(getattr(c, k).value) for k in
+                ("o_r0", "o_r1", "o_r2", "o_r3", "o_sh", "o_lc", "o_tmr", "o_lr", "o_pc",
+                 "o_state", "o_z", "o_c", "o_ish")}
+        for sel in range(4):
+            final[(ctx, sel)] = regs[f"o_r{sel}"]
+        final[(ctx, 4)], final[(ctx, 5)], final[(ctx, 6)] = regs["o_sh"], regs["o_lc"], regs["o_tmr"]
+        final[(ctx, 7)] = ((regs["o_lr"] << 16) | (regs["o_pc"] << 8) | (regs["o_state"] << 2)
+                           | (regs["o_z"] << 1) | regs["o_c"])
+        final[(ctx, 8)] = regs["o_ish"]
+        for sel in range(9, 14):
             dut.dbg_sel_ctx.value = ctx
             dut.dbg_sel.value = sel
             await Timer(1, unit="ps")

@@ -38,7 +38,7 @@ def firmware_cases() -> list[str]:
 
 
 SIM = os.environ.get("SIM", "icarus")
-BUILD = f"sim_build/shared_{SIM}"
+BUILD = f"sim_build/shared_{SIM}" + ("_cells" if os.environ.get("CELLS") == "yes" else "")
 # The simulator's build product in BUILD (cocotb's Makefile.<sim> target): compiled
 # once, then every job runs from it. Verilator's C++ build takes longer than most jobs.
 BUILD_TARGET = {"verilator": "Vtop", "icarus": "sim.vvp"}.get(SIM)
