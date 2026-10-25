@@ -160,7 +160,8 @@ def sites(line: str):
         lhs, rhs = m.group(1), m.group(2).strip()
         if re.fullmatch(r"\d+'[bdh][0-9a-fA-F_]+|\{?\s*\d+\s*\{\s*1'b[01]\s*\}\s*\}?", rhs):
             continue
-        if rhs != lhs and "assign" not in code and lhs not in ("if", "wire"):
+        # (a `<=` in an assign or wire declaration is a comparison, not a register)
+        if rhs != lhs and not re.match(r"\s*(assign|wire)\s", code) and lhs not in ("if", "wire"):
             out.append(("stuck", m.start(2), m.start(2) + len(m.group(2)), lhs, f"{lhs} keeps its value"))
     return out
 

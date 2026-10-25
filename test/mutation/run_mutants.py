@@ -287,6 +287,7 @@ def run_suite(suite: str, src: Path, work: Path, seeds: int) -> str:
         except subprocess.TimeoutExpired:
             return "timeout"
         out = r.stdout + r.stderr
+        (work / f"{suite}.log").write_text(out)
         if ": PASS" in out:
             return "pass"
         return "fail" if " edges" in out or "errors" in out else "compile-error"
@@ -300,6 +301,7 @@ def run_suite(suite: str, src: Path, work: Path, seeds: int) -> str:
         subprocess.run(["pkill", "-f", str(work)], capture_output=True)
         return "timeout"
     out = r.stdout + r.stderr
+    (work / f"{suite}.log").write_text(out)
     if "TESTS=" not in out:
         # no summary: either the mutant did not build (a broken mutant, not a kill) or the
         # simulation crashed or aborted after it started (a kill)
@@ -373,6 +375,20 @@ def run_one(m: Mutant, seeds: int, root: Path, do_equiv: bool) -> dict:
     return res | {"result": result, "killed_by": killed_by, "note": note, "secs": round(time.time() - t0)}
 
 
+def baseline(suites: set[str], seeds: int, root: Path, jobs: int) -> bool:
+    """Every suite the mutants need passes on the unmutated RTL. Without this, a suite that
+    cannot run at all (a tool or model problem) fails for every mutant and reads as kills."""
+    src = root / "baseline" / "src"
+    shutil.copytree(REPO / "src", src)
+    with ThreadPoolExecutor(max(1, min(jobs, len(suites)))) as pool:
+        got = dict(zip(suites, pool.map(lambda s: run_suite(s, src, root / "baseline", seeds), suites)))
+    for s, r in sorted(got.items()):
+        print(f"baseline {s:6s} {r}", flush=True)
+        if r != "pass":
+            print("".join((root / "baseline" / f"{s}.log").read_text().splitlines(True)[-60:]), flush=True)
+    return all(r == "pass" for r in got.values())
+
+
 def recheck_one(m: Mutant, root: Path) -> dict:
     """The equivalence check alone, for a mutant the tests already let through."""
     work = root / m.id
@@ -396,6 +412,8 @@ def main() -> int:
     g.add_argument("--generated", action="store_true")
     ap.add_argument("--shard", help="I/N: run every N-th mutant starting at I (0-based)")
     ap.add_argument("--no-equiv", action="store_true", help="skip the equivalence check of survivors")
+    ap.add_argument("--no-baseline", action="store_true",
+                    help="skip the check that every suite passes on the unmutated RTL")
     ap.add_argument("--json", help="write every result to this file")
     ap.add_argument("--progress", help="append each result to this JSON-lines file as it finishes, and skip "
                                        "mutants it already holds (resume an interrupted run)")
@@ -449,6 +467,9 @@ def main() -> int:
     jobs = max(1, min(args.jobs, len(ms) or 1))
     print(f"{len(ms)} mutants, {jobs} at a time", flush=True)
     with tempfile.TemporaryDirectory(prefix="escmut_") as td, ThreadPoolExecutor(jobs) as pool:
+        if ms and not args.no_baseline and                 not baseline({s for m in ms for s in PIPELINE.get(m.file, CORE_PIPELINE)}, args.seeds, Path(td), jobs):
+            print("the unmutated RTL fails a suite: no mutant is scored")
+            return 2
         futs = [pool.submit(run_one, m, args.seeds, Path(td), not args.no_equiv) for m in ms]
         for f in as_completed(futs):
             r = f.result()

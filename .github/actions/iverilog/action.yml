@@ -1,0 +1,31 @@
+name: Icarus Verilog 13
+description: >
+  Icarus Verilog 13.0 built from its release tag, cached, on the PATH: the version the
+  suites are developed with. The distribution's 12.0 gives X on the PDK's standard-cell
+  models (CELLS=yes) where 13.0 does not.
+
+runs:
+  using: composite
+  steps:
+    - name: Cache
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/iverilog
+        key: iverilog-v13_0-ubuntu-24.04
+
+    - name: Build
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        sudo apt-get update && sudo apt-get install -y autoconf gperf flex bison
+        git clone -q --depth 1 -b v13_0 https://github.com/steveicarus/iverilog /tmp/iverilog
+        cd /tmp/iverilog
+        sh autoconf.sh
+        ./configure -q --prefix="$HOME/iverilog"
+        make -s -j"$(nproc)"
+        make -s install
+
+    - name: PATH
+      shell: bash
+      run: echo "$HOME/iverilog/bin" >> "$GITHUB_PATH"

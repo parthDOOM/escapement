@@ -30,14 +30,13 @@ jobs:
       - name: checkout repo
         uses: actions/checkout@v6
 
-      # yosys and ABC only, for the equivalence check of survivors; the simulator is the
-      # distribution's Icarus Verilog, as in the test workflow
+      # yosys and ABC only, for the equivalence check of survivors; the simulator is
+      # Icarus Verilog 13, as in the test workflow's verification job
       - uses: ./.github/actions/oss-cad-suite
         with:
           tools: yosys yosys-abc
 
-      - name: Install iverilog
-        run: sudo apt-get update && sudo apt-get install -y iverilog
+      - uses: ./.github/actions/iverilog
 
       - name: Setup python
         uses: actions/setup-python@v6
@@ -51,7 +50,8 @@ jobs:
         run: |
           git clone -q --filter=blob:none --no-checkout https://github.com/IHP-GmbH/IHP-Open-PDK pdk
           cd pdk
-          git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/' \n            '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/'
+          git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/' \
+            '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/'
           git checkout -q 2bbec755dc67ca3db0261c3d6163e15735d66710
 
       - name: Mutants
