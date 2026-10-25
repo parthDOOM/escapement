@@ -1,8 +1,10 @@
 name: mutation
 
 # The mutation campaign (test/mutation/run_mutants.py): every curated and generated RTL
-# mutant against the test suites that can see it, in eight shards; a mutant no test kills
-# is checked formally against the original RTL. The result goes to the results page.
+# mutant against the test suites that can see it, in sixteen shards; a mutant no test
+# kills is checked formally against the original RTL. The suites simulate the RTL with the
+# standard-cell clock gates and latch banks (CELLS=yes, D-40), as hardened, so a mutant of
+# a latch bank's input reaches them. The result goes to the results page.
 
 on:
   push:
@@ -19,11 +21,11 @@ on:
 jobs:
   shard:
     runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    timeout-minutes: 330
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     steps:
       - name: checkout repo
         uses: actions/checkout@v6
@@ -45,20 +47,21 @@ jobs:
       - name: Install Python packages
         run: pip install -r test/requirements.txt
 
-      - name: Standard-cell liberty at the pinned PDK commit
+      - name: Standard-cell liberty and models at the pinned PDK commit
         run: |
           git clone -q --filter=blob:none --no-checkout https://github.com/IHP-GmbH/IHP-Open-PDK pdk
           cd pdk
-          git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/'
+          git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/' \n            '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/'
           git checkout -q 2bbec755dc67ca3db0261c3d6163e15735d66710
 
       - name: Mutants
         env:
           PDK_ROOT: ${{ github.workspace }}/pdk
-          EQUIV_LIMIT: '3600'
+          EQUIV_LIMIT: '1800'
+          CELLS: 'yes'
         run: |
           mkdir -p results
-          python test/mutation/run_mutants.py --shard ${{ matrix.shard }}/8 --jobs 4 \
+          python test/mutation/run_mutants.py --shard ${{ matrix.shard }}/16 --jobs 4 \
             --json results/mutation-${{ matrix.shard }}.json
 
       - name: Upload shard result
@@ -119,4 +122,4 @@ jobs:
         run: |
           python3 -c "import json,sys; c=json.load(open('mutation.json'))['counts']; \
             sys.exit(1 if c.get('SURVIVED',0) or c.get('BADPATCH',0) or c.get('COMPILE-ERROR',0) or \
-            json.load(open('mutation.json'))['shards'] != 8 else 0)"
+            json.load(open('mutation.json'))['shards'] != 16 else 0)"

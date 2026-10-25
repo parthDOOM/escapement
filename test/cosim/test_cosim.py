@@ -997,6 +997,85 @@ async def test_v13_streaming_capture(dut):
 
 
 # --------------------------------------------------------------------------- v1.4 line unit
+# --------------------------------------------------------------------------- v1.4 directed
+# Corner cases the random programs rarely reach, ISS against RTL. LU_W: one valid line
+# unit configuration (transmit on pin 0, 8 ticks a bit, sample at 4, an 8-bit header).
+LU_W = ".tape 0xF4, 0x00100800, 0x00400008, 0x00040000"
+LU_CONFIG = """   MOVI r3, 0xF4
+   MOVHI r3, 0x3000
+   LINE r3"""
+
+V14_DIRECTED = {
+    # SEND into a full FIFO waits (and counts in wait_full) until an entry retires
+    "send_fifo_full": (f"""{LU_W}
+.own 0, 0
+.own 1, 0
+.entry 0, s
+s:
+{LU_CONFIG}
+   ADDT 200
+   EMIT 0x02, 0x02, 0x02
+   ADDT 4
+   EMIT 0x02, 0x00, 0x02
+   ADDT 4
+   EMIT 0x02, 0x02, 0x02
+   ADDT 4
+   EMIT 0x02, 0x00, 0x02
+   ADDT 4
+   MOVI r1, 0
+   MOVHI r1, 0x00A5
+   SEND r1
+   GETL r2
+   HALT
+""", None, 400),
+    # SEND at a deadline before the FIFO tail faults ADMIT/ORDER
+    "send_order": (f"""{LU_W}
+.own 0, 0
+.own 1, 0
+.entry 0, s
+s:
+{LU_CONFIG}
+   ADDT 60
+   EMIT 0x02, 0x02, 0x02
+   MOVI r2, 50
+   SETT r2
+   MOVI r1, 0
+   MOVHI r1, 0x00A5
+   SEND r1
+   HALT
+""", None, 200),
+    # mailbox rings: a POP at the edge the host pushes a second word, and a PUSH at the
+    # edge the host pops the first (context 1 commits at 4, 8, 12, ...; the host polls
+    # every 4 ticks)
+    "mailbox_same_edge": ("""
+.entry 1, m
+m: NOP
+   NOP
+   POP r0
+   POP r1
+   PUSH r0
+   PUSH r1
+   HALT
+""", lambda: HostScript([(2, 1, 0x11111111), (12, 1, 0x22222222)], drain=[1], poll=4), 80),
+}
+
+
+async def v14_directed(dut) -> list[str]:
+    failures = []
+    for name, (src, host, ticks) in V14_DIRECTED.items():
+        board, kw = (lambda t, o, oe: 0), {}
+        if host:                      # the ISS steps its host as a device on the board
+            iss_host = host()
+            board, kw = Board(iss_host), {"iss_host": iss_host, "rtl_host": host(),
+                                          "rtl_board": lambda t, o, oe: 0}
+        errs, m = await cosim_one(dut, name, assemble(src), board,
+                                  max_ticks=ticks, stop_when_idle=False, **kw)
+        dut._log.info(f"[{name}] {len(m.commits)} commits: {'MATCH' if not errs else 'MISMATCH'}")
+        if errs:
+            failures.append(name)
+    return failures
+
+
 @cocotb.test()
 async def test_v14_line_unit(dut):
     """Firmware-shaped line unit programs (progen.gen_lu_program): configuration, receives
@@ -1004,6 +1083,8 @@ async def test_v14_line_unit(dut):
     jobs, GETL waits and timeouts, OFF, and owner LDT/STT that meet the unit's tape
     cycles, beside another context's traffic. COSIM_LU_SEEDS programs (default 40)."""
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    directed = await v14_directed(dut)
+    assert not directed, f"mismatching v1.4 directed programs: {directed}"
     seeds = int(os.environ.get("COSIM_LU_SEEDS", "40"))
     seed0 = int(os.environ.get("COSIM_SEED0", "1"))
     out_dir = Path(os.environ.get("COSIM_OUT", "cosim_failures"))

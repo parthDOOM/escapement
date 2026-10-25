@@ -64,7 +64,7 @@ jobs:
   # Everything else that needs no PDK: assembler, ISS, certificate checker, bus models
   # and the bring-up script (sw-test), a timing certificate for every firmware (cert),
   # ISS vs RTL lockstep co-simulation (cosim-parallel) and the newer firmware through
-  # the chip's pins (pin-test).
+  # the chip's pins (pin-test), then cosim and the line unit on the standard cells.
   verification:
     runs-on: ubuntu-24.04
     steps:
@@ -99,6 +99,23 @@ jobs:
         run: |
           make pin-test
           ! grep failure test/results_pins.xml
+
+      # v1.4 (D-40): the clock gates and latch banks exist only in the standard-cell build,
+      # so the lockstep co-simulation and the line unit run once more on the PDK's cell models
+      - name: Standard-cell models at the pinned PDK commit
+        run: |
+          git clone -q --filter=blob:none --no-checkout https://github.com/IHP-GmbH/IHP-Open-PDK pdk
+          cd pdk
+          git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/'
+          git checkout -q 2bbec755dc67ca3db0261c3d6163e15735d66710
+
+      - name: Co-simulation and line unit on the standard cells
+        env:
+          PDK_ROOT: ${{ github.workspace }}/pdk
+          CELLS: 'yes'
+        run: |
+          make cosim-parallel JOBS=4
+          make line-test JOBS=4
 
       - name: Results page summary
         if: always()

@@ -211,6 +211,16 @@ EXCLUDED = {
                                       "every command that sends word loads it first",
     "escapement_host_stuck_44a212d9": "mctx is read only by MBX_PUSH, which sets it in its own first payload "
                                       "byte",
+    # v1.4
+    "esc_core_not_6edf7a77": "dcs_ok only stops dbg_cs reloading while stopped, when the registers hold still: "
+                             "with it never set, dbg_cs reloads the value it holds (power, not function)",
+    "esc_line_const_575cb32a": "stor is read only in RX mode (through rx_smp), and every entry to RX sets it to 1, "
+                               "so its reset value is never read",
+    "esc_line_const_f5ce76cf": "rb is read only while the stuffing run rn is nonzero (push(), and sb through due, "
+                               "which needs rn >= N > 0); SEND sets rn to 0, and the first bit loads rb",
+    "esc_line_const_437dd9b7": "rb is read only while the stuffing run rn is nonzero (push(), and sb through due, "
+                               "which needs rn >= N > 0); the start of a reception sets rn to 0, and the first "
+                               "bit loads rb",
 }
 
 
