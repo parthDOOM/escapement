@@ -10,8 +10,8 @@ be scheduled a fixed number of ticks after the host's packet, exact to the tick.
 The normative definition is [11-SEMANTICS §6.6](11-SEMANTICS.md#66-line-unit-v14-one-global).
 Status: v1.4 specification, simulator, firmware, timing certificates and RTL
 (`src/esc_line.v`, integrated in the core and checked against the simulator cycle by
-cycle). Laid out with the rest of v1.4 at 6×4 (local harden `v14i`), every sign-off check passing
-([physical design](03-PHYSICAL-DESIGN.md)).
+cycle), on `master`. Laid out with the rest of v1.4 at 6×4 (harden `v14i`, reproduced by
+CI's harden), every sign-off check passing ([physical design](03-PHYSICAL-DESIGN.md)).
 
 ```
 python -m escert firmware/usb_hid.asm      # the reply-timing certificate (below)
@@ -169,7 +169,7 @@ boundary: one tick less and the simulator faults.
 | --- | ---: | --- |
 | `sw/tests/test_line.py` | 117 | Every rule of §6.6 on the simulator: configuration timing and faults, waveforms against an independent USB model written from the USB 2.0 text, packets of 0 to 8 bytes, stuffing including after the CRC, fractional bit periods, reception at ±5% clock and with jitter, truncated SYNC, dribble bits, stuffing errors, keep-alives, resets, CAN frames through the CAN bus model, late `SEND`s dropped |
 | `sw/tests/test_usb_hid.py` | 72 | The keyboard against a reactive USB host model that checks every device packet (EOP, stuffing, CRC, turnaround) and flags a device that drives the bus unasked: enumeration with exact descriptors, host clock ±1.5% and ±5%, random host gaps down to 2 bit times, keep-alives, `wLength` from 0 to 65535 around every packet boundary, standard and class requests, lost and corrupted handshakes, corrupted tokens and data, foreign addresses, bus reset at every stage, 10 ms resets with keep-alives every millisecond, long report sequences, glitches, hostile traffic |
-| `sw/tests/test_escert.py` | 10 more | The certificate above, checked against measured leads; exact boundaries for CONFIG, CRC and reception waits; the path after a dropped `SEND`; random programs on the line unit (wherever escert says CHECKED, the simulator never faults and measures no lead below the bound) |
+| `sw/tests/test_escert.py` | 11 more | The certificate above, checked against measured leads; exact boundaries for CONFIG, CRC and reception waits; a CRC job of input-dependent length; the path after a dropped `SEND`; random programs on the line unit (wherever escert says CHECKED, the simulator never faults and measures no lead below the bound) |
 | `sw/tests/test_usbip.py` | 4 | The USB/IP bridge, with the test playing the kernel's side |
 | `make line-test` (`test/line/`) | 8 seeds | The line unit RTL against the simulator's model, every output on every cycle: configurations from USB-like, CAN-like and random profiles, packets at offset clocks with jitter and glitches, noise, the unit's own pins read back, owner faults, stop and start, tape writes from elsewhere. 12 million cycles across 40 seeds with no difference; both builds (clock-gated and plain flip-flops) |
 | `sw/tests/test_firmware.py` | 6 | `can_rx` against a bus model: every frame type, 40 random frames back to back from nodes 0.5% slow or fast, bad CRCs, error flags, DLC over 8, 500 kbit/s |

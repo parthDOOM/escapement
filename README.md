@@ -36,8 +36,8 @@ are firmware. None of them is in the hardware.
    happens exactly at its deadline or is refused at enqueue, never late. A new protocol,
    or a device nobody planned for, is a new program, not a respin.
 2. **Pay only for work.** A register bank that is not written does not see the clock, and
-   a memory that is not read is not selected. Sending UART costs 3.0 mW, and a stopped
-   chip 2.3 mW (typical corner, measured on gate-level workloads; [power](docs/15-POWER.md)).
+   a memory that is not read is not selected. Sending UART costs 3.1 mW, and a stopped
+   chip 2.5 mW (typical corner, measured on gate-level workloads; [power](docs/15-POWER.md)).
    A logic-analyser capture runs with no instruction fetches at all.
 3. **Every claim has a second, mechanical check.** Formal proofs, lockstep co-simulation
    of the RTL against a separate Python model, mutation testing, static timing
@@ -62,6 +62,10 @@ flowchart LR
     Core <--> Tape[Tape SRAM 256x32]
     Cap --> Tape
     Ctl <--> Tape
+    Q --> LU[Line unit<br/>NRZI, stuffing, CRC]
+    LU <--> Tape
+    LU --> Pins
+    Sync --> LU
 ```
 
 - **Four hardware contexts** in a fixed barrel: each runs its own program with its own
@@ -84,10 +88,10 @@ flowchart LR
 - **Execution digest.** A 32-bit signature of every commit, register write and pin
   change in a run, readable over SPI and predicted by the reference model.
 
-**Version 1.4: a line unit** (specified, simulated, in the RTL and laid out at 6×4 with
-every sign-off check passing; not yet released). It does the per-bit work of packet
-protocols, NRZI, bit stuffing, CRCs and clock recovery, for one context, while the
-firmware handles packets. A 187-instruction USB low-speed keyboard runs on it: a real
+**Version 1.4: a line unit** (on `master`: specified, simulated, in the RTL and laid out
+at 6×4 with every sign-off check passing; the last tagged release is v1.3). It does the
+per-bit work of packet protocols, NRZI, bit stuffing, CRCs and clock recovery, for one
+context, while the firmware handles packets. A 187-instruction USB low-speed keyboard runs on it: a real
 Linux kernel enumerates the simulated chip over USB/IP and receives typed text through
 it, and escert proves every reply leaves exactly 72 ticks after the host's packet
 ([line unit](docs/19-LINE-UNIT.md)). A CAN 2.0A and 2.0B receiver uses it too: clock
@@ -99,7 +103,7 @@ recovery, destuffing and a CRC-15 check on every frame of a bus.
 | --- | --- |
 | Process | IHP SG13CMOS5L (130 nm), Tiny Tapeout, **6×4 tiles** (1289.28 × 710.64 µm) |
 | Clock | 25 MHz rated at the slow corner (1.08 V, 125 °C); the layout meets timing up to 28.6 MHz there, 45 MHz at the typical corner (1.20 V, 25 °C) and 70 MHz at the fast one ([frequency headroom](docs/03-PHYSICAL-DESIGN.md#sign-off-results)) |
-| Physical | 27,972 cells and two SRAM macros, 58.2% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
+| Physical | 27,972 cells and two SRAM macros, 58.2% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes; the GitHub Actions harden reproduces the layout with the same netlist |
 | Power | 3.1 mW sending UART, 2.5 mW stopped (typical corner) |
 | Firmware | 31 programs (two, the USB keyboard and the CAN receiver, for v1.4's line unit), five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
 | Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 653 of 710 RTL mutants killed and none surviving (19 proved equivalent, 38 excluded with a written argument), on the standard-cell models; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
@@ -142,6 +146,8 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | `formal/` | SymbiYosys proofs |
 | `scripts/` | Local hardening, precheck, power and routing analysis |
 | `asic/reports/` | Recorded physical measurements |
+| `fpga/` | The FPGA build: block-RAM model of the SRAM, resource estimate |
+| `site/` | The project site, with the in-browser playground that runs `sw/` under Pyodide |
 
 ## Quick start
 

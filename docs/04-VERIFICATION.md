@@ -35,7 +35,7 @@ digest, the capture state and all 256 tape words.
 | Random programs, version 1.0 machine | 1,000 | 67,370 | 0 |
 | Random programs with tape traffic, version 1.1 | 300 | 21,055 | 0 |
 | Random programs with pin bank B, version 1.2 | 1,000 | 66,991 | 0 |
-| Firmware programs with their bus models | 15 | — | 0 |
+| Firmware programs with their bus models (26 cases, on the behavioural and the standard-cell builds) | 26 | — | 0 |
 | Random programs with the host reading the tape during the run, version 1.3 | 60 | 7,598 words read | 0 |
 | Firmware-shaped line unit programs, version 1.4 (`test_v14_line_unit`) | 40 | 260,000 cycles | 0 |
 | The USB keyboard (`usb_hid.asm`) against the USB host model, version 1.4 | 1 | 70,000 cycles | 0 |
@@ -113,8 +113,9 @@ needs a lemma can take far longer split than together. Assertions tagged with th
 both rest on H4, and together with H3 and H4 they prove in two minutes. Alone, P5's did
 not finish in two hours, and P3's ran past the three-hour limit on the CI runner. Since
 version 1.4 the line unit's L1 lemmas join that group (five minutes), and P8's commit
-clause is proved with the CONFIG phase lemma. With 6 jobs all 20 tasks pass in 17
-minutes of wall time; the slowest is a capture-region bound. The single task
+clause is proved with the CONFIG phase lemma. For version 1.4, with 6 jobs, the 27 core
+tasks and the separate proofs (bounded check, covers, context, clock-gate and latch-bank
+banks, host interface) all pass in 58 minutes of wall time. The single task
 (`sby -f esc_core.sby pdr`, all assertions together) passed in 34 minutes on one core
 for version 1.3.
 
@@ -142,8 +143,9 @@ step.
 
 The proofs above are about the RTL; the chip is built from the netlist that synthesis,
 placement and routing produce. `make equiv` proves that the two are the same machine:
-the final netlist of the version 1.3 harden (sha256 `54236b4f…`) is
-sequentially equivalent to the RTL in `src/`, for every input sequence after reset.
+the final netlist of the version 1.4 harden (sha256 `661e5608…`, the netlist CI's harden
+also produced) is sequentially equivalent to the RTL in `src/`, for every input sequence
+after reset.
 
 Both designs are flattened and placed side by side in a miter that feeds them the same
 pins, the same SRAM read data and the same clock, and compares all 24 chip outputs and
@@ -152,8 +154,10 @@ searches 19 steps for a difference, then matches the RTL's registers with the ne
 signal correspondence and closes the proof by induction. Nothing is matched by name, so
 the netlist's renamed registers need no mapping, nor do the registers that reset to one
 in the RTL and that synthesis builds as reset-to-zero flip-flops with inverters. The proof
-takes about 3 minutes. The version 1.1 release netlist (sha256 `1c9004ee…`) passes the
-same proof.
+takes about 4 minutes (245 s for version 1.4). The version 1.1 release netlist (sha256
+`1c9004ee…`) and the version 1.3 netlist (`54236b4f…`) pass the same proof. In version 1.4
+the latch banks are the standard-cell latches in both designs (the RTL is read with the
+standard-cell define, as it is hardened), so the proof covers them as logic too.
 
 **The check has teeth.** Two faults injected into the netlist are both found: a NAND
 in the `uio_oe[0]` path turned into a NOR fails at the first compared step, and the MISO
@@ -210,7 +214,7 @@ data at START, an entry one behind), three the two-slot mailboxes (a ring head t
 moves, a push into the slot the host is popping), and five the shared debug read and its
 slot counter (a stale field, a wrong context, swapped fields, slots one context off).
 
-and the original twenty: inverted comparisons, off-by-one deadlines and pointers, a
+and the original nineteen: inverted comparisons, off-by-one deadlines and pointers, a
 dropped polynomial term in the digest, a missing GETI wait, broken tape forwarding,
 capture rule changes and clock-gate enable errors.
 
@@ -226,16 +230,19 @@ capture rule changes and clock-gate enable errors.
 | Proved equivalent (`formal/equiv.sh`): no chip output can differ | 19 |
 | Excluded, each with its written argument in `run_mutants.py` | 38 |
 
-**v1.4's holes, now closed.** The first v1.4 campaign scored 710 of 711 killed, which was
-false: the CI simulator, Icarus Verilog 12, gives X on the PDK's cell models, so every
-co-simulation failed within seconds of starting. The baseline check above now catches
-that, and CI builds Icarus 13. The real campaign left 23 survivors besides those. Four
-showed holes, closed with directed tests: a SEND into a full FIFO, a SEND before the
-FIFO's tail, a mailbox push and pop at the edges the host uses (co-simulation programs);
-a line unit tape access at a stop edge (`test_line_unit_makes_no_access_at_a_stop_edge`,
-which watches the tape port in a cycle the unit had scheduled an access); and the debug
-port read after a stop within four cycles of a commit, which returned the value before
-that commit (`test_debug_port_after_stop_shows_final_registers`). The rest are excluded
+**v1.4's holes, now closed.** The first v1.4 campaign, on the behavioural build, left 9
+survivors. Three showed holes, closed with directed co-simulation programs: a SEND into a
+full FIFO, a SEND before the FIFO's tail, and a mailbox push and pop at the edges the host
+uses. Four were excluded with an argument, and the rest were latch-bank mutants that only
+the standard-cell models can show, so the campaign moved to them. The next run scored 710
+of 711 killed, which was false: the CI simulator, Icarus Verilog 12, gives X on the PDK's
+cell models, so every co-simulation failed within seconds of starting. The baseline check
+above now catches that, and CI builds Icarus 13. The real campaign then left 19
+survivors. Two holes were closed with core unit tests that kill three of them: a line
+unit tape access at a stop edge (`test_line_unit_makes_no_access_at_a_stop_edge`, which
+watches the tape port in a cycle the unit had scheduled an access), and the debug port
+read after a stop within four cycles of a commit, which returned the value before that
+commit (`test_debug_port_after_stop_shows_final_registers`). The other 16 are excluded
 with an argument (below).
 
 **v1.3's holes, closed then.** With the tests as they were, 57
@@ -306,6 +313,9 @@ replays into the fault, or NOT_PROVEN.
 | `sent_tx` (two contexts; with or without the pause pulse) | CHECKED | 4 / no events |
 | `cec` | CHECKED | 4 |
 | `dali` | CHECKED | 13 |
+| `seven_seg` | CHECKED | 9 |
+| Generated from timing tables: `uart_tx_gen`, `midi_tx`, `dmx512_tx`, `nec_tx_gen` | CHECKED | 9 each |
+| Generated from a timing table: `ws2812_gen` | CHECKED | 5 |
 
 Every certificate is CHECKED for all inputs, without assumptions about bus timing:
 re-anchoring the time base after every wait makes the input-dependent I2C paths provable
@@ -376,7 +386,7 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
-| Co-simulation (`make cosim`) | 7 | Pass |
+| Co-simulation (`make cosim`) | 8 | Pass |
 | Host interface (`make host-test`) | 16 | Pass |
 | Core unit tests (`make unit-test`) | 31 | Pass |
 | Newer firmware (SWD, SPI target, NEC, both pin banks at once) through the chip pins (`make pin-test`, `make gl-pin-test`) | 5 | Pass on the RTL and on the final netlist |
@@ -397,6 +407,9 @@ the commits, register values and pin changes of the model.
 - **The EEPROM** stretches the clock before each acknowledge, which a real 24C02 does
   not; its Fast-mode margin is measured against our controller model only.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
+- **No hardware yet.** Every result on this page comes from simulation, formal proof or
+  static analysis. The FPGA build (`fpga/`) passes the chip tests and the firmware through
+  the pins in simulation; a board run is planned before submission.
 
 ## In CI
 
@@ -406,7 +419,7 @@ on master, with its commit and log, failures included.
 
 | Workflow | Runs on | Checks |
 | --- | --- | --- |
-| `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, firmware through the pins |
+| `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, firmware through the pins; the co-simulation and the line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
 | `formal` | a change to `src/` or `formal/` | `make formal`: formal-quick, then the unbounded core proof as one PDR task per assertion |
 | `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in sixteen shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors |
 | `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
@@ -425,9 +438,9 @@ make pin-test bringup-test                                       # newer firmwar
 make gl-test gl-pin-test                                         # the same chip-level checks on the gate-level netlist
 CELLS=yes make test cosim-parallel                               # the RTL with the real clock-gate and latch cells
 make formal-quick                                                # bounded core proof, cover, never-late, clock gate, latch bank
-make formal JOBS=8                                               # adds the unbounded core proof (~20 min)
+make formal JOBS=8                                               # adds the unbounded core proof (~1 h for v1.4)
 make equiv                                                       # final netlist equals the RTL (~4 min)
-make mutation JOBS=8                                             # mutation campaign, 8 mutants at a time (~2 h)
+CELLS=yes make mutation JOBS=8                                   # mutation campaign, 8 mutants at a time (hours; CI: 16 shards of ~2 h)
 ```
 
 The suites run in parallel where they can: `sw-test` uses every core when pytest-xdist is
@@ -436,7 +449,8 @@ installed, `cosim-parallel` splits the random programs and the firmware runs acr
 tasks, and the mutation campaign runs `JOBS` mutants at once.
 
 Every simulation target also runs on Verilator with `SIM=verilator` (5.036 or later).
-Icarus stays the default and the reference; CI uses it. Measured on one machine, both
+Icarus stays the default and the reference; CI uses it (version 13: the distribution's
+12.0 gives X on the PDK's cell models). Measured on one machine for version 1.3, both
 simulators passing every suite:
 
 | Suite | Icarus | Verilator |

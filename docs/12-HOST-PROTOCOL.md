@@ -1,4 +1,4 @@
-# Host protocol v1.3 (normative)
+# Host protocol (normative)
 
 The SPI command set between a host and Escapement. Protocol version 8. Implemented by
 `src/escapement_host.v`, and driven by `sw/eschost` (PC and cocotb) and the RP2350
@@ -8,6 +8,8 @@ and a 5-bit READ_DBG select that reaches the digest and capture registers (sel 1
 Version 1.2 adds four optional WRITE_CFG bytes for pin bank B
 ([11-SEMANTICS](11-SEMANTICS.md) §5). Version 1.3 lets READ_TAPE run during a run and
 adds TAPE_ACK (0x15), for streaming capture ([11-SEMANTICS](11-SEMANTICS.md) §6.5).
+Version 1.4 changes no command and still reports protocol version 8: its line unit is
+used from firmware, and the host sees it only through READ_DBG selects 21, 25 and 26.
 
 ## Physical layer
 
@@ -48,7 +50,7 @@ is the status byte**:
 | 6 | IRQ pending on any context |
 | 5 | first-fault register valid |
 | 4 | host error (sticky; see CLEAR_ERR) |
-| 3:0 | protocol version: `0x8` (v1.3; v1.2 chips report `0x7`, v1.1 `0x6`, v1.0 `0x5`) |
+| 3:0 | protocol version: `0x8` (v1.3 and v1.4; v1.2 chips report `0x7`, v1.1 `0x6`, v1.0 `0x5`) |
 
 Raising CS_n ends the frame at any point; a partial word is discarded. Bytes after the
 end of a command's payload are ignored (response 0x00). An unknown command sets host
@@ -70,7 +72,7 @@ the chip prepares data; its response is 0x00.
 | 0x15 | TAPE_ACK | rptr | zeros | v1.3: the host has read the capture records before `rptr`; sets the capture unit's `rptr` at the end of the byte ([11-SEMANTICS](11-SEMANTICS.md) §6.5). Allowed while running or stopped |
 | 0x20 | START | — | — | One-cycle core `start` pulse at the end of the command byte; ignored (host error) while running |
 | 0x21 | STOP | — | — | One-cycle core `stop` pulse |
-| 0x30 | READ_DBG | {1'b0, sel[4], ctx[1:0], sel[3:0]}, dummy, 4 dummy | dbg_rdata (4 bytes) | Captured at the end of the select byte; the map is in 11-SEMANTICS §10 (sel 16 digest, 17 capture status, 18 capture config, 19 overflow tick, 20 capture `rptr`) |
+| 0x30 | READ_DBG | {1'b0, sel[4], ctx[1:0], sel[3:0]}, dummy, 4 dummy | dbg_rdata (4 bytes) | Captured at the end of the select byte; the map is in 11-SEMANTICS §10 (sel 16 digest, 17 capture status, 18 capture config, 19 overflow tick, 20 capture `rptr`; v1.4: 21 line unit status, 25 its end tick, 26 its owner and mode). Selects 0–8 read during a run show the context's registers as of its last commit slot, at most four cycles old |
 | 0x40 | MBX_PUSH | ctx, 4-byte word | zeros | Push to that context's RX mailbox; host error if full (word dropped) |
 | 0x41 | MBX_POP | ctx, dummy, 4 dummy | valid (0x01 or 0x00), word (4 bytes) | Pops the TX mailbox head if nonempty |
 | 0x50 | IRQ_CLEAR | ctx mask (bits 3:0) | zeros | Clears irq_pending for the masked contexts |

@@ -47,8 +47,8 @@ flowchart LR
 - **Program store:** IHP `RM_IHPSG13_1P_256x32_c2_bm_bist`, single port, synchronous,
   shared by all contexts. The address is presented in the fetch cycle and the word is
   available the next cycle. The host writes it only while the core is stopped.
-- **Wait-class instructions** (WAITT, WAITP, POP, PUSH, HALT, GETI, and event
-  instructions while their FIFO is full) keep their PC and are re-evaluated at each of
+- **Wait-class instructions** (WAITT, WAITP, POP, PUSH, HALT, GETI, LINE and GETL, and
+  event instructions while their FIFO is full) keep their PC and are re-evaluated at each of
   the context's slots, so their completion is quantised to the 4-tick grid. Exact-tick
   I/O always goes through events.
 
@@ -61,6 +61,7 @@ Each context has a four-entry FIFO. Every entry takes its deadline from `tmr`:
 | DRIVE | EMIT, EMITR, EMITX | Sets value and output enable on the masked pins together |
 | EXPECT | EXPECT | Starts the context's checker: the masked inputs must HOLD a level, or ARRIVE at it, within a window of up to 127 ticks |
 | SAMPLE | SAMPLE | Shifts one synchronised input bit into `ish` |
+| LINE (v1.4) | SEND | The line unit starts the packet (below) |
 
 **Admission** happens at the commit edge, after that edge's retirement. An entry is
 accepted only if the FIFO has space (otherwise the instruction waits), its mask is

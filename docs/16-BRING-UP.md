@@ -54,8 +54,12 @@ chip did exactly what the model did up to `t0` and then repeated the same patter
 it was stopped.
 
 For example, `uart_tx` and `logic_analyzer` halt, and firmware that waits for host
-commands or for a bus peer (`i2c_ctrl`, `spi_ctrl`, `i2c_eeprom`, `uart_rx`, ...) is
-`steady`. `make_bundle.py` prints the kind and the predicted digest for each.
+commands or for a bus peer (`i2c_ctrl`, `spi_ctrl`, `i2c_eeprom`, `uart_rx`, `usb_hid`,
+...) is `steady`. Seven never settle into a short repeating pattern and are `none`: the
+generated transmitters `dmx512_tx` and `ws2812_gen` re-anchor every packet, `seven_seg`
+waits 160 ms between frames, `dshot_tx` and `sent_tx` repeat over more than 8,192 ticks,
+and `cec` and `dali` look at the host every millisecond while the bus is idle.
+`westminster` (a 14 s tune) is not bundled. `make_bundle.py` prints the kind and the predicted digest for each.
 Rebuild the bundles whenever a firmware, the assembler or the ISS changes: a stale
 bundle fails stage 5, as it should.
 
@@ -98,16 +102,22 @@ compare.
 [1] clock and reset ...
 [1] PASS  PWM 25000000 Hz (RP 100000000 Hz), uo = 11111000 in and after reset, uio released
 [2] host link ...
-[2] PASS  STATUS 07 00 0f 00 x 201; one pin write ... ns; SCK half period about ... ns (fast) and ... ns (slow)
+[2] PASS  STATUS 08 00 0f 00 x 201; one pin write ... ns; SCK half period about ... ns (fast) and ... ns (slow)
 [3] memories ...
-[3] PASS  data lines at 2 addresses, 4 patterns x 256 words, in both SRAMs; spaces independent
+[3] PASS  data lines at 2 addresses, 4 patterns x 256 words, in both SRAMs; spaces independent; tape reads during a run while the core uses the port
 [4] pins and clock rate ...
-[4] PASS  uio[7:0] toggle as driven; chip clock 25.0000 MHz from a 25000-tick period; STOP releases pins; all 8 inputs read correctly; bank B: 5 outputs toggle and release high, 5 inputs read correctly
+[4] PASS  uio[7:0] toggle as driven; chip clock 25.0000 MHz from a 25000-tick period; STOP releases pins; all 8 inputs read correctly; bank B: 5 outputs toggle and release high, 5 inputs read correctly; streaming capture: 16 edges through an 8-word ring
 [5] firmware digests ...
+    can_rx.asm             steady ok    digest 0x2c2bc8cb = model at tick 160448
     can_tx.asm             steady ok    digest 0xffaf382b = model at tick 160444
+    cec.asm                none   ok    no digest prediction; state compared
     ...
+    usb_hid.asm            steady ok    digest 0x394c297d = model at tick 160446
     uart_tx.asm            halt   ok    digest 0x63114ed9 model 0x63114ed9
-[5] PASS  17 of 17 firmware match the model
+[5] PASS  30 of 30 firmware match the model
+[6] UART smoke test (optional) ...
+    uart_tx.asm: RP UART received 55 4b 21 0a
+[6] PASS  1 UART smoke test(s) received exactly the model's bytes
 bring-up PASSED
 ```
 

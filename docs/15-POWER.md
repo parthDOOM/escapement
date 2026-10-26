@@ -86,7 +86,7 @@ meets it (docs/04-VERIFICATION.md).
   f_valid` in `esc_core.v`). A slot that is not running is never committed, so its
   instruction is never needed. A one-context program leaves the macro idle three
   cycles in four, and a halted chip leaves it idle.
-- **Tape.** It is read only for an LDT commit (writes are unchanged).
+- **Tape.** It is read only for an LDT commit (writes are unchanged), and from v1.4 for the line unit's own accesses.
 - **Host.** Either macro reads for the host only during READ_IMEM / READ_TAPE (`mem_re`
   in `escapement_host.v`; the first word is sampled a full SPI byte after its address
   is set).

@@ -20,7 +20,12 @@ The same event queues can check inputs (EXPECT: a level must hold, or arrive, wi
 window) and sample them at exact ticks (SAMPLE). A second 256 × 32 SRAM, the tape, holds
 firmware data and timestamped captures of the pins, so the chip can also act as a logic
 analyser and replay what it recorded. UART, SPI (controller and target), I2C, CAN, PS/2,
-WS2812, 1-Wire, JTAG, ARM SWD, NEC infrared and an I2C EEPROM are all firmware.
+WS2812, 1-Wire, JTAG, ARM SWD, NEC infrared, HDMI-CEC, DALI, SENT, DShot600 and an I2C
+EEPROM are all firmware.
+
+A line unit does the per-bit work of packet protocols (NRZI, bit stuffing, CRCs, clock
+recovery) for one context: firmware on it acts as a low-speed USB keyboard (run the chip
+at 24 MHz for USB) and receives every frame of a CAN bus.
 
 A host loads programs and reads results over an SPI port on `ui[2:0]` / `uo[0]`. After a
 run, one register holds a 32-bit digest of everything the run did, which the reference
@@ -51,7 +56,8 @@ every reselect.
 - An SPI host: the demo board's RP2350, or any microcontroller.
 - Protocol peers on `uio[7:0]` through a Pmod, for example a UART adapter, I2C devices
   (with pull-up resistors, since I2C pins are open-drain), WS2812 LEDs, a 1-Wire
-  sensor, an SPI controller, an ARM SWD target, or an IR LED driver and IR receiver
-  module.
+  sensor, an SPI controller, an ARM SWD target, an IR LED driver and IR receiver
+  module, a CAN transceiver, or a low-speed USB connection (D+ and D−, with the device's
+  1.5 kΩ pull-up on D−); HDMI-CEC and DALI through a suitable level interface.
 - More push-pull peers on bank B, through the output and input Pmods: each line is an
   output (`uo[3+i]`) or an input (`ui[3+i]`). A released bank B output is high.

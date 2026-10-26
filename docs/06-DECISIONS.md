@@ -19,10 +19,12 @@ commits three cycles later, so there are no hazards, no forwarding and no intera
 between contexts. The cost is one instruction per context every 4 ticks, which is
 enough: a serial bit loop is three instructions.
 
-**D-4 No protocol hardware.** No serialisers, CRC engines or oscillators. The only
-acceleration is `EMITX` (drive a pin from the bit shifted out of `sh`) and `EMITR`
-(drive pins from a register), which make data-dependent waveforms branch-free. CRC-15
-and bit stuffing for CAN run in firmware at 250 kbit/s.
+**D-4 No protocol hardware (versions 1.0 to 1.3).** No serialisers, CRC engines or
+oscillators. The only acceleration is `EMITX` (drive a pin from the bit shifted out of
+`sh`) and `EMITR` (drive pins from a register), which make data-dependent waveforms
+branch-free. CRC-15 and bit stuffing for CAN run in firmware at 250 kbit/s. Version 1.4
+adds one exception, and keeps it protocol-neutral: a configurable line unit for the bit
+work that four instructions per bit cannot do (D-33).
 
 **D-5 Clock: 25 MHz at the slow corner.** The rated frequency is quoted at the slow
 corner (1.08 V, 125 °C), not the typical one. The v1.4 layout itself meets timing up to
@@ -56,7 +58,8 @@ of waits on a full FIFO. These cross-check the certificates on RTL, gates and si
 **D-16 Protocol coverage.** UART (115,200 baud tested; the rate is one constant), SPI
 modes 0 to 3, I2C controller (Fast mode) and target (Standard and Fast mode), plus protocols the
 hardware was never designed for: WS2812, 1-Wire, CAN 2.0A, PS/2 and JTAG, all in
-firmware.
+firmware. By version 1.4 there are 31 programs, from ARM SWD and NEC infrared to HDMI-CEC,
+DALI, SENT, DShot600 and a USB keyboard ([verification](04-VERIFICATION.md#protocol-coverage)).
 
 **D-18 Reference host.** The RP2350 on the Tiny Tapeout demo board, running MicroPython.
 External parts such as I2C pull-ups go on a Pmod.
@@ -224,6 +227,14 @@ registers as they were up to four cycles earlier, finer than any host can time a
 and a read while stopped is exact. The design shrinks by about 8,500 µm² and a
 thousand long wires (Yosys, same script).
 
+**D-42 A mutation campaign scores nothing until every suite passes unmutated.** The first
+v1.4 campaign on the standard-cell models reported 710 of 711 mutants killed. It was
+false: the CI runner's Icarus Verilog 12 gives X on the PDK's cell models, so every
+co-simulation failed within seconds and each failure read as a kill. `run_mutants.py` now
+runs every suite a shard needs on the unmutated RTL first and stops if one fails, and CI
+builds Icarus 13. A kill that took seconds where a pass takes minutes was the clue; the
+baseline makes the check mechanical.
+
 ## Power and timing margin
 
 **D-29 Measure power, then cut what dominates.** On the first v1.1 netlist, with
@@ -231,9 +242,10 @@ activity from gate-level simulation, a stopped chip used 93% of the power of a b
 one: flip-flop clock pins, the clock tree and two SRAMs reading every cycle. Logic was
 under 7%. Two changes ([power](15-POWER.md)):
 
-- **D-29a Clock-gated register banks.** 68 latch-and-AND gates built from allowed
-  standard cells (the PDK's integrated clock gates are excluded from its LibreLane flow)
-  over about 2,600 rarely written flops. Each enable is exactly the condition under
+- **D-29a Clock-gated register banks.** 68 latch-and-AND gates in v1.1 (80 in v1.4)
+  built from allowed standard cells (the PDK's integrated clock gates are excluded from
+  its LibreLane flow) over about 2,600 rarely written flops (in v1.4 most of them latches,
+  D-40). Each enable is exactly the condition under
   which the bank was assigned before. A formal proof shows, for all time and with an
   unconstrained clock, that each gated bank equals an enable flop and that the gated
   clock cannot glitch.

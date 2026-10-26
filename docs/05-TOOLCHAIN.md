@@ -14,7 +14,7 @@ for bit, in CI or locally.
 | PDK | `IHP-GmbH/IHP-Open-PDK` @ `2bbec755` (SG13CMOS5L) |
 | LibreLane | 3.1.0.dev3, container `ghcr.io/librelane/librelane:3.1.0.dev3` (digest in `versions.txt`) |
 | Python | 3.11 |
-| Simulation and formal | OSS CAD Suite release 2026-10-04 (Yosys and ABC, Icarus Verilog, Verilator, SymbiYosys); cocotb 2.0.1 |
+| Simulation and formal | OSS CAD Suite release 2026-10-04 (Yosys and ABC, Verilator, SymbiYosys); Icarus Verilog 13.0 (built from its `v13_0` tag in CI, `.github/actions/iverilog`); cocotb 2.0.1 |
 
 The workflows reference the action and the tools by commit SHA, not by branch, so an
 upstream change cannot silently alter a harden.
@@ -32,9 +32,16 @@ upstream change cannot silently alter a harden.
 
 | Workflow | Runs |
 | --- | --- |
-| `test.yaml` | The chip-level cocotb tests on the RTL; then, in a second job, `sw-test`, `cert`, `cosim-parallel` and `pin-test` (Icarus Verilog) |
+| `test.yaml` | The chip-level cocotb tests on the RTL; then, in a second job, `sw-test`, `cert`, `cosim-parallel` and `pin-test`, and the co-simulation and line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
+| `formal.yaml` | `make formal`: the quick proofs, then the unbounded core proof as parallel tasks |
+| `mutation.yaml` | The mutation campaign in sixteen shards, after a baseline of every suite on the unmutated RTL |
 | `gds.yaml` | The Tiny Tapeout harden (LibreLane), then the precheck and the gate-level test on the hardened netlist |
+| `equivalence.yaml` | After a successful harden on master: that netlist against the RTL of its commit |
 | `docs.yaml` | The Tiny Tapeout datasheet build from `info.yaml` and `docs/info.md` |
+| `site.yaml` | The project site and its results page, on master: when the site, the software or the firmware change, and after each of the workflows above |
+
+The distribution's Icarus Verilog (12.0 on the Ubuntu runners) gives X on the PDK's
+standard-cell models, so every job that simulates them (`CELLS=yes`) uses Icarus 13.
 
 ## Local environment
 
@@ -75,6 +82,13 @@ CI wall time.
 | `scripts/drc_map.py` | Maps detailed-route violations to regions of the die |
 | `scripts/m1_fill_overlap.py` | Checks fill and decap cell Metal1 against signal wires |
 | `scripts/check-env.sh` | Reports which tools are installed |
+
+## FPGA build
+
+[`fpga/`](../fpga/README.md) builds the same RTL for an FPGA, with plain flip-flops
+(`ESC_NO_CG`) and a block-RAM model of the SRAM macro: about 8,400 LUTs on a Xilinx
+7-series part, so an Artix-7 35T board is enough. `fpga/estimate.sh` gives the size for
+Xilinx, ECP5 and iCE40 with Yosys.
 
 ## Host hardware
 

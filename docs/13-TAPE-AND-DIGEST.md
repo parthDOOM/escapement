@@ -43,10 +43,13 @@ One memory then covers four jobs:
 
 ## Why it stays deterministic
 
-The single port has three users and no stalls that firmware can see:
+The single port has three users (four with v1.4's line unit) and no stalls that firmware
+can see:
 
 - **Firmware owns the port only in its own commit cycle**, and one context commits per
-  cycle, so LDT/STT never conflict with each other and never WAIT. `STT` writes at the
+  cycle, so LDT/STT never conflict with each other and never WAIT. (v1.4: the line unit
+  uses its owner's commit cycles, so only the owner's LDT/STT can wait, and only for the
+  unit's own accesses; every other context is unaffected.) `STT` writes at the
   commit edge. `LDT` reads at the commit edge, and the register is written one edge
   later. That is architecturally invisible, because the same context's next commit is
   four ticks away.
@@ -55,7 +58,9 @@ The single port has three users and no stalls that firmware can see:
   It latches `ovf` and `ovf_tick`, stops generation, and still writes the records
   already staged, so the prefix is complete and the failure is visible. This is the
   reject-not-late rule applied to observation.
-- **The host waits** until the run is stopped and staged records have drained.
+- **The host takes what is left.** It writes the tape only while stopped. Since v1.3 it
+  reads during a run, each word in a cycle the core leaves free, so a host read never
+  delays the core; a word it could not fetch in time is flagged, not wrong.
 
 Whether a record overflows is therefore a pure function of program and inputs, and
 both models predict it. The random co-simulation exercises it on purpose:

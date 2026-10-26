@@ -8,7 +8,8 @@ with the reasoning for each setting in its comments and in
 
 ## Sign-off results
 
-Version 1.4 (line unit, latch banks), local harden `v14i`:
+Version 1.4 (line unit, latch banks), harden `v14i`, reproduced by the GitHub Actions harden
+(run 39623762996) with the same netlist (sha256 `661e5608…`) and the same metrics:
 
 | | |
 | --- | --- |
@@ -17,7 +18,7 @@ Version 1.4 (line unit, latch banks), local harden `v14i`:
 | Macros | 2 × `RM_IHPSG13_1P_256x32_c2_bm_bist` (98,977 µm²) |
 | Utilisation | 58.2% |
 | Clock | 25 MHz (40 ns) |
-| Setup | No violations at any corner. The latch banks' inputs borrow time (D-40) and report 0 slack; every other path has at least +9.11 ns (slow), +10.10 ns (typical), +10.73 ns (fast) |
+| Setup | No violations at any corner. The latch banks' inputs borrow time (D-40) and report 0 slack; the worst flip-flop path has +5.16 ns (slow), +18.10 ns (typical), +18.81 ns (fast) |
 | Hold | No violations. Worst slack: fast +0.138 ns, typical +0.266 ns, slow +0.502 ns |
 | Hold buffers | 1,453 after clock-tree synthesis (margin 0.2 ns); none needed after global routing |
 | Routing | 2.22 m of wire, 243,088 vias; global-route overflow 1,683; detailed-route DRC 0 |
@@ -81,6 +82,12 @@ counts in hand-written programs), so a faster board clock needs only rebuilt fir
 new chip. These figures leave out the Tiny Tapeout multiplexer and pads, whose delays the
 flow does not model (the Tiny Tapeout clock specification gives 66 MHz).
 
+Place and route aimed at a shorter period does not move this much: a trial harden of the
+same RTL with a 32 ns target (`v14j`) ended with that path at −0.42 ns at the slow corner,
+so layout effort alone would give about 30.5 MHz there. The path itself would have to be
+shortened in the RTL (comparing deadlines one cycle early), which would reopen the
+core's proofs; the rating stays at 25 MHz.
+
 ## Floorplan
 
 ```text
@@ -102,8 +109,8 @@ flow does not model (the Tiny Tapeout clock specification gives 66 MHz).
   at the top-left, so the top-right corner is free for the second macro.
 - **No stranded cells.** A placeable strip behind a macro traps cells whose only exits
   cross the macro. Placing the macros flush to the core edge, with a 50 µm horizontal
-  and 30 µm vertical row-cut halo, removes those strips and leaves a cell-free escape
-  channel on each macro's pin side.
+  and 60 µm vertical row-cut halo (30 µm before v1.4), removes those strips and leaves a
+  cell-free escape channel on each macro's pin side.
 - **Power grid aligned to the macros.** The Metal4 stripe pitch (67.44 µm) and offset
   (48.84 µm) are chosen so every stripe crossing a macro lands in one of its same-net
   power columns ([`src/pdn_cfg.tcl`](../src/pdn_cfg.tcl), adapted from the Loom project).
@@ -123,7 +130,7 @@ after detailed routing, and decap cells carry Metal1 power plates that the route
 saw; they shorted signal wires to power. Filler cells carry Metal1 only on their rails,
 and every logic cell's Metal1 is fully described in its LEF (checked against the GDS for
 all 84 cells used, [`scripts/m1_fill_overlap.py`](../scripts/m1_fill_overlap.py)). The
-design has no decap capacitance, which is acceptable at 25 MHz with a 0.13 mV IR drop.
+design has no decap capacitance, which is acceptable at 25 MHz with a 0.12 mV IR drop.
 
 Other routing settings:
 
@@ -133,10 +140,13 @@ Other routing settings:
   slew warnings from 314 to 124 and improved fast-corner hold slack.
 
 **Headroom.** Each SRAM blocks Metal1 to Metal3 over its whole footprint, so congestion
-gathers around the tape SRAM. Version 1.3 ends global routing with an overflow of 4
-(version 1.2: 68). A variant with about 1,000 more cells reached 1,900 to 3,200, and
-detailed routing then left shorts over the tape SRAM in four of five runs. Global-route
-overflow is the number to watch when adding logic.
+gathers around the tape SRAM. Version 1.3 ended global routing with an overflow of 4
+(version 1.2: 68); a version 1.2 variant with about 1,000 more cells reached 1,900 to
+3,200, and detailed routing then left shorts over the tape SRAM in four of five runs. The
+first version 1.4 layout, with the line unit in flip-flops, reached about 10,000 and
+failed the same way. Version 1.4 as built (latch banks, shared debug reads, the 60 µm
+halo) ends at 1,683 with no detailed-routing errors. Global-route overflow is the number
+to watch when adding logic.
 
 ## Timing constraints
 
