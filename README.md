@@ -98,7 +98,7 @@ recovery, destuffing and a CRC-15 check on every frame of a bus.
 | | |
 | --- | --- |
 | Process | IHP SG13CMOS5L (130 nm), Tiny Tapeout, **6×4 tiles** (1289.28 × 710.64 µm) |
-| Clock | 25 MHz rated, timing met at all three corners with at least 9 ns of slack on every flip-flop path |
+| Clock | 25 MHz rated at the slow corner (1.08 V, 125 °C); the layout meets timing up to 28.6 MHz there, 45 MHz at the typical corner (1.20 V, 25 °C) and 70 MHz at the fast one ([frequency headroom](docs/03-PHYSICAL-DESIGN.md#sign-off-results)) |
 | Physical | 27,972 cells and two SRAM macros, 58.2% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
 | Power | 3.1 mW sending UART, 2.5 mW stopped (typical corner) |
 | Firmware | 31 programs (two, the USB keyboard and the CAN receiver, for v1.4's line unit), five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
