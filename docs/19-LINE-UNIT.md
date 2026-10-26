@@ -101,6 +101,30 @@ with an address.
 VID:PID 1209:0001 is the pid.codes test ID. It is not unique and must not be used
 outside test environments.
 
+## A CAN receiver
+
+`firmware/can_rx.asm` (179 instructions) receives every frame on a CAN bus, standard and
+extended identifiers, data and remote frames, and hands each to the host with its CRC
+checked. It listens only: it drives no pin and never acknowledges, like an analyser in
+listen-only mode, so another node on the bus must acknowledge.
+
+- The configuration has no prefix and no NRZI: MSB first, a complement after five equal
+  bits, CRC-15 (`poly` 0x8B32), a resync on every recessive-to-dominant edge (`fall`) and
+  a sample at 75% of each bit. A reception starts on the start-of-frame edge after one
+  idle bit, and ends at the first stuffing violation, which in a good frame is the sixth
+  recessive bit: the ACK delimiter and five end-of-frame bits.
+- The firmware then reads the frame's format and DLC from the stored bits, so it knows
+  how many bits run from SOF to the end of the CRC (19 + 8n + 15 standard, 39 + 8n + 15
+  extended), and has the CRC engine run over exactly those: a good frame leaves 0.
+- It re-arms the receiver into the other of two buffers before it parses and pushes the
+  frame, so a host that drains slowly costs frames, never corrupts them. Frames back to
+  back (three bits of intermission) are all caught at 250 kbit/s; at 500 kbit/s the bus
+  must leave two more idle bits.
+
+The certificate needed escert to learn one thing: the CRC job's length comes from the
+frame, so its operand is known only down to bits 31:16 (`MOVHI`). escert now takes that as
+a CRC job of 0 to 255 ticks that writes no tape word ([verification](04-VERIFICATION.md#timing-certificates)).
+
 ## Reply timing, certified
 
 `escert` proves the firmware free of admission faults for any input, and reports when
@@ -148,7 +172,8 @@ boundary: one tick less and the simulator faults.
 | `sw/tests/test_escert.py` | 10 more | The certificate above, checked against measured leads; exact boundaries for CONFIG, CRC and reception waits; the path after a dropped `SEND`; random programs on the line unit (wherever escert says CHECKED, the simulator never faults and measures no lead below the bound) |
 | `sw/tests/test_usbip.py` | 4 | The USB/IP bridge, with the test playing the kernel's side |
 | `make line-test` (`test/line/`) | 8 seeds | The line unit RTL against the simulator's model, every output on every cycle: configurations from USB-like, CAN-like and random profiles, packets at offset clocks with jitter and glitches, noise, the unit's own pins read back, owner faults, stop and start, tape writes from elsewhere. 12 million cycles across 40 seeds with no difference; both builds (clock-gated and plain flip-flops) |
-| `make cosim` | 3 jobs more | The whole chip, RTL against simulator, tick for tick and the final state of every debug register: `usb_hid.asm` enumerating and sending key reports to the USB host model, 40 firmware-shaped line unit programs (receives, packets at end-tick deadlines, CRC jobs, GETL timeouts, owner LDT/STT in the unit's tape cycles, another context's traffic), and random programs with line unit instructions from any context |
+| `sw/tests/test_firmware.py` | 6 | `can_rx` against a bus model: every frame type, 40 random frames back to back from nodes 0.5% slow or fast, bad CRCs, error flags, DLC over 8, 500 kbit/s |
+| `make cosim` | 4 jobs more | The whole chip, RTL against simulator, tick for tick and the final state of every debug register: `usb_hid.asm` enumerating and sending key reports to the USB host model, `can_rx.asm` receiving standard, extended and remote frames back to back, 40 firmware-shaped line unit programs (receives, packets at end-tick deadlines, CRC jobs, GETL timeouts, owner LDT/STT in the unit's tape cycles, another context's traffic), and random programs with line unit instructions from any context |
 
 Planted bugs check that these tests can fail: 18 in the line unit model, 28 in the
 firmware and 9 in escert's line unit analysis, all caught. The tests and the

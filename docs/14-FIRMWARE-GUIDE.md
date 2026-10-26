@@ -114,6 +114,29 @@ next: ADDT  FAR
       SEND  r0                ; exactly TURN after the host's packet
 ```
 
+**11. Keep the host out of the timed context.** escert cannot know that a `POP` after
+`RXREADY` never waits, so a timed loop that reads the mailbox cannot be certified, and a
+frame built while values arrive can mix two of them. Give the host its own context: it
+takes words from the mailbox and stores them in the tape; the timed context reads the tape
+once per frame and waits on nothing but its own events. One `STT` is atomic, so a frame
+that fits in a word cannot mix values (`sent_tx`). For more, build the next frame in a
+second buffer, switch a pointer word, then wait one frame period before rebuilding the old
+buffer, so that no frame still reads it (`dshot_tx`, four motors from one context).
+
+**12. Time a data-dependent length by its bits.** `ADDTR` with a computed value has no
+certificate. Test each bit of the value and `ADDT` its weight instead (`TSTI r1, 1`,
+`JZ`, `ADDT UT`, then 2, 4, 8): every path adds a constant, and escert stays exact
+(`sent_tx`'s nibble pulses and its pause pulse).
+
+**13. Leave on failure; do not return a flag.** A subroutine that checks a timing window
+and returns Z for success merges both outcomes at its return site, and escert loses which
+one left the edge register fresh. Jump to the abort path from inside it instead (`cec`'s
+`edge`).
+
+**14. Start a far-off reply close to its deadline.** A reply 7.5 ms ahead queued at once
+leaves its events far ahead of the clock, and a loop of them loses escert's upper bound on
+the lead. Anchor, compute the reply, `WAITT` until shortly before it, then queue it (`dali`).
+
 ## Budgeting a protocol
 
 - One instruction takes 4 ticks: a 3-instruction bit loop (`EMITX`, `ADDT`, `DJNZ`)
@@ -123,5 +146,7 @@ next: ADDT  FAR
   rates it at 416 kHz. Where the bus allows stretching, use idiom 8 instead.
 - `LDT`/`STT` take a register as base address; keep one register at 0 while working
   with fixed scratch words (`can_tx`).
+- The program store is 256 words for all four contexts: `can_tx` (157 words) and
+  `can_rx` (179) do not fit in one image.
 - Four contexts run independently. A slow protocol in one context never changes another
   context's timing, so concurrent images certify per context.

@@ -25,9 +25,10 @@ acceleration is `EMITX` (drive a pin from the bit shifted out of `sh`) and `EMIT
 and bit stuffing for CAN run in firmware at 250 kbit/s.
 
 **D-5 Clock: 25 MHz at the slow corner.** The rated frequency is quoted at the slow
-corner (1.08 V, 125 °C), not the typical one. The v1.3 layout itself meets timing up to
-35 MHz at the slow corner and 55 MHz at the typical one
-([physical design](03-PHYSICAL-DESIGN.md#sign-off-results)); the rating keeps that margin.
+corner (1.08 V, 125 °C), not the typical one. The v1.4 layout itself meets timing up to
+28.6 MHz at the slow corner and 45 MHz at the typical one (v1.3: 35 and 55 MHz)
+([physical design](03-PHYSICAL-DESIGN.md#sign-off-results));
+the rating keeps that margin, and the USB firmware runs at 24 MHz (D-37).
 
 **D-9 Event model.** Per-context FIFOs of DRIVE, EXPECT and SAMPLE entries with absolute
 deadlines, strict ordering within half the counter range, and visible rejection. An

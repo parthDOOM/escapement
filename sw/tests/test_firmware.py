@@ -907,3 +907,510 @@ def test_seven_seg_animation():
     assert [ob for _, ob in frames] == (want * 3)[:len(frames)] and len(frames) >= 14
     assert all(b[0] - a[0] == 4000 for a, b in zip(frames, frames[1:]))
     assert not m.ff.valid
+
+
+# --------------------------------------------------------------------------- DShot600
+def dshot_run(pushes, ticks, src='.include "dshot_tx.asm"\n', tick_ns=40.0, bidir=False):
+    """dshot_tx on four ESC models; `pushes` = [(tick, word)] for the FEED context,
+    each pushed at its tick or when the mailbox next has room."""
+    from escasm import assemble
+    from esciss import Machine
+    from escmodels import DshotEsc
+    escs = [DshotEsc(i, tick_ns=tick_ns, bidir=bidir) for i in range(4)]
+    board = Board(*escs)
+    m = Machine(assemble(src, base_dir=FW), board=board)
+    for at, w in sorted(pushes):
+        m.run(max(0, at - m.now), stop_when_idle=False)
+        while len(m.ctx[1].rx) >= 2:                  # the host waits for mailbox room
+            m.run(1, stop_when_idle=False)
+        m.host_rx_push(1, w)
+        m.run(1, stop_when_idle=False)
+    m.run(ticks - m.now, stop_when_idle=False)
+    for e in escs:
+        e.flush()
+    return m, board, escs
+
+
+def dshot_check_timing(board, escs, frame, tri, t0h, t1h):
+    """Every frame starts exactly `frame` ticks after the last; bit k starts exactly
+    ceil(k * tri / 3) ticks into it; every pulse is high exactly t0h or t1h ticks."""
+    for e in escs:
+        starts = [f[3] for f in e.frames]
+        assert {b - a for a, b in zip(starts, starts[1:])} == {frame}
+        assert all([s - st[0] for s in st] == [-(-k * tri // 3) for k in range(16)] for st in e.bit_starts)
+        lv = [x ^ e.bidir for x in board.level(e.pin)]
+        for st in e.bit_starts:
+            for s in st:                                  # (a model sees cycle t - 1)
+                width = next(i for i in range(s, len(lv)) if not lv[i]) - (s - 1)
+                assert width in (t0h, t1h), (e.pin, s, width)
+
+
+def test_dshot_four_escs_exact_frames():
+    """Four ESC models decode DShot600 from the first frame: disarmed (0) until the host
+    arms them, then each motor's own value and telemetry bit, CRCs correct; 600 kbit/s
+    exactly (42, 42, 41 ticks per bit), 8 kHz frames to the tick."""
+    vals = [(1000, 0), (1500, 1), (2047, 0), (47, 1)]
+    words = [(5000, (1 << 14) | (48 << 1))]
+    words += [(26000 + 40 * i, (i << 12) | (v << 1) | tl) for i, (v, tl) in enumerate(vals)]
+    m, board, escs = dshot_run(words, 50_000)
+    assert not board.errors(), board.errors()
+    dshot_check_timing(board, escs, 3125, 125, 16, 31)
+    for e, want in zip(escs, vals):
+        seq = [f[:2] for f in e.frames]
+        assert seq[0] == (0, 0) and seq[-1] == want
+        assert set(seq) == {(0, 0), (48, 0), want}
+        assert e.frames[0][3] < 100                   # frames from the start of the run
+    assert not m.ff.valid and m.ctx[0].min_lead == 8
+
+
+def test_dshot_burst_of_four_lands_in_one_frame():
+    """Four values pushed back to back reach all four motors in the same frame, and an
+    update never moves a frame: the period stays exactly 3125 ticks through it."""
+    words = [(9000 + 3 * i, (i << 12) | ((100 + i) << 1)) for i in range(4)]
+    m, board, escs = dshot_run(words, 30_000)
+    assert not board.errors(), board.errors()
+    first = {next(k for k, f in enumerate(e.frames) if f[0] == 100 + e.pin) for e in escs}
+    assert len(first) == 1
+    dshot_check_timing(board, escs, 3125, 125, 16, 31)
+
+
+def test_dshot_bidirectional_inverted_and_released():
+    """Bidirectional DShot: line inverted, CRC inverted, and released between frames
+    (the pull-up holds it high) so that an ESC can answer; driven during each frame."""
+    src = '.equ dshot_tx.BIDIR, 1\n.include "dshot_tx.asm"\n'
+    m, board, escs = dshot_run([(4000, (1 << 14) | (777 << 1) | 1)], 20_000, src=src, bidir=True)
+    assert not board.errors(), board.errors()
+    assert all(e.frames[-1][:3] == (777, 1, True) for e in escs)
+    dshot_check_timing(board, escs, 3125, 125, 16, 31)
+    s = escs[0].frames[-1][3]
+    oe = [p["uio_oe"] & 0xF for p in m.pins]
+    assert set(oe[s - 1:s + 655]) == {0xF} and set(oe[s + 655:s + 3123]) == {0}
+
+
+def test_dshot_at_24_mhz():
+    """Every timing derives from CLK_KHZ: at 24 MHz a bit is exactly 40 ticks, high
+    times 15 and 30 ticks."""
+    src = '.equ dshot_tx.CLK_KHZ, 24000\n.include "dshot_tx.asm"\n'
+    m, board, escs = dshot_run([(3000, (1 << 14) | (1234 << 1))], 15_000, src=src, tick_ns=1e6 / 24000)
+    assert not board.errors(), board.errors()
+    assert all(e.frames[-1][:3] == (1234, 0, True) for e in escs)
+    dshot_check_timing(board, escs, 3000, 120, 15, 30)
+
+
+# --------------------------------------------------------------------------- SENT
+def sent_run(pushes, ticks, frame_ut=0, clk_khz=25000):
+    """sent_tx with the receiver model; `pushes` = [(tick, word)] for the FEED context."""
+    from escasm import assemble
+    from esciss import Machine
+    from escmodels import SentReceiver
+    src = f'.equ sent_tx.FRAME_UT, {frame_ut}\n.equ sent_tx.CLK_KHZ, {clk_khz}\n.include "sent_tx.asm"\n'
+    rx = SentReceiver(0, tick_ns=1e6 / clk_khz, pause=bool(frame_ut))
+    board = Board(rx)
+    m = Machine(assemble(src, base_dir=FW), board=board)
+    for at, w in sorted(pushes):
+        m.run(max(0, at - m.now), stop_when_idle=False)
+        while len(m.ctx[1].rx) >= 2:
+            m.run(1, stop_when_idle=False)
+        m.host_rx_push(1, w)
+        m.run(1, stop_when_idle=False)
+    m.run(ticks - m.now, stop_when_idle=False)
+    return m, board, rx
+
+
+def sent_crc_poly(nibbles):
+    """The CRC by polynomial long division, independent of the table: seed 0101, the
+    data nibbles and one zero nibble, modulo x^4 + x^3 + x^2 + 1."""
+    v = 5
+    for n in list(nibbles) + [0]:
+        v = (v << 4) | n
+    for bit in range(v.bit_length() - 1, 3, -1):
+        if v >> bit & 1:
+            v ^= 0b11101 << (bit - 4)
+    return v
+
+
+def sent_edges(board, ut):
+    """(falling edge ticks, low times) on pin 0, in ticks."""
+    lv = board.level(0)
+    falls = [t for t in range(1, len(lv)) if lv[t - 1] and not lv[t]]
+    lows = [next(t for t in range(f, len(lv)) if lv[t]) - f for f in falls[:-1]]
+    return falls, lows
+
+
+def word_nibbles(w):
+    return (w >> 24) & 0xF, [(w >> (20 - 4 * i)) & 0xF for i in range(6)]
+
+
+def test_sent_frames_exact_and_back_to_back():
+    """Frames follow each other with no gap; every pulse is low exactly 5 units and every
+    interval between falling edges a whole number of 75-tick units; the CRC matches the
+    polynomial division."""
+    words = [0x0000000, 0x3ABCDEF, 0xF123456, 0x5FFFFFF]
+    m, board, rx = sent_run([(20000 + 40000 * i, w) for i, w in enumerate(words)], 200_000)
+    assert not board.errors(), board.errors()
+    falls, lows = sent_edges(board, 75)
+    assert set(lows) == {375}
+    assert all((b - a) % 75 == 0 for a, b in zip(falls, falls[1:]))
+    seen = []
+    for f in rx.frames:
+        assert f["unit"] == 75 and f["pause"] is None
+        w = (f["status"], f["data"])
+        if not seen or seen[-1] != w:
+            seen.append(w)
+    assert seen == [word_nibbles(w) for w in words]
+    for st, d in seen:
+        f = next(x for x in rx.frames if x["data"] == d)
+        assert f["crc_ok"]
+    assert [sent_crc_poly(word_nibbles(w)[1]) for w in words] == \
+        [__import__("escmodels").sent_crc(word_nibbles(w)[1]) for w in words]
+    syncs = [f["sync"] for f in rx.frames]
+    for f, nxt in zip(rx.frames, syncs[1:]):           # no gap: the next sync follows
+        assert nxt - f["sync"] == 75 * (56 + 8 * 12 + f["status"] + sum(f["data"])
+                                        + sent_crc_poly(f["data"]))
+    assert not m.ff.valid
+
+
+def test_sent_pause_pulse_constant_frames():
+    """With FRAME_UT = 300 a pause pulse makes every frame exactly 300 units (22,500
+    ticks), whatever the nibbles, from all zeros to all fifteens."""
+    words = [0x0000000, 0xFFFFFFF, 0x0F0F0F0, 0x7123ABC]
+    m, board, rx = sent_run([(10000 + 25000 * i, w) for i, w in enumerate(words)], 140_000, frame_ut=300)
+    assert not board.errors(), board.errors()
+    syncs = [f["sync"] for f in rx.frames]
+    assert {b - a for a, b in zip(syncs, syncs[1:])} == {22500}
+    got = []
+    for f in rx.frames:
+        if not got or got[-1] != (f["status"], f["data"]):
+            got.append((f["status"], f["data"]))
+        assert 56 + 8 * 12 + f["status"] + sum(f["data"]) + sent_crc_poly(f["data"]) + f["pause"] == 300
+    assert got == [word_nibbles(w) for w in words]
+
+
+def test_sent_new_values_never_mix_frames():
+    """Words arriving at random moments: every frame carries exactly one of them, in
+    order, with its own CRC, and the line never pauses."""
+    import random
+    rng = random.Random(7)
+    words = [rng.getrandbits(28) for _ in range(12)]
+    m, board, rx = sent_run([(5000 + 9000 * i + rng.randrange(3000), w) for i, w in enumerate(words)], 130_000)
+    assert not board.errors(), board.errors()
+    allowed = [word_nibbles(0)] + [word_nibbles(w) for w in words]
+    pos = 0
+    for f in rx.frames:
+        w = (f["status"], f["data"])
+        while allowed[pos] != w:
+            pos += 1                                   # a word may be overtaken by the next
+        assert f["crc_ok"]
+    falls, _ = sent_edges(board, 75)
+    assert max(b - a for a, b in zip(falls, falls[1:])) <= 56 * 75
+
+
+def test_sent_at_24_mhz():
+    """At 24 MHz a unit is exactly 72 ticks."""
+    m, board, rx = sent_run([(3000, 0x2468ACE)], 40_000, clk_khz=24000)
+    assert not board.errors(), board.errors()
+    assert rx.frames[-1]["unit"] == 72 and (rx.frames[-1]["status"], rx.frames[-1]["data"]) == word_nibbles(0x2468ACE)
+
+
+# --------------------------------------------------------------------------- CAN receive
+def can_rx_run(frames, period=100.0, gap_bits=3, t0=2000, src='.include "can_rx.asm"\n', tail=3000):
+    """can_rx against other nodes playing `frames` [(levels)] back to back on RXD (pin
+    1), `gap_bits` recessive bits apart after each end of frame; the host drains the TX
+    mailbox as words come. Returns (machine, words)."""
+    from escasm import assemble
+    from esciss import Machine
+    from escmodels import CanSource
+    plays, t = [], t0
+    for lv in frames:
+        plays.append((int(t), lv))
+        t += (len(lv) + gap_bits) * period
+    m = Machine(assemble(src, base_dir=FW), board=Board(CanSource(1, plays, period)))
+    words = []
+    while m.now < t + tail:
+        m.run(40, stop_when_idle=False)
+        v = m.host_tx_pop(1)
+        m.run(1, stop_when_idle=False)
+        if v is not None:
+            words.append(v)
+    return m, words
+
+
+def can_rx_parse(words):
+    """The host's view: [(ext, rtr, id, dlc, data)] and the number of CRC errors."""
+    out, errs, i = [], 0, 0
+    while i < len(words):
+        w0 = words[i]
+        if w0 == 0x20000000:
+            errs, i = errs + 1, i + 1
+            continue
+        ext, rtr, ident, dlc = w0 >> 31, (w0 >> 30) & 1, w0 & 0x1FFFFFFF, words[i + 1]
+        n = 0 if rtr else min(dlc, 8)
+        data = b"".join(words[i + 2 + k].to_bytes(4, "big") for k in range((n + 3) // 4))
+        assert data[n:] == bytes(len(data) - n)        # bytes past the DLC are cleared
+        out.append((bool(ext), rtr, ident, dlc, data[:n]))
+        i += 2 + (n + 3) // 4
+    return out, errs
+
+
+CAN_RX_FRAMES = [(0x123, b"\x11\x22", 0, False, None), (0x1ABCDE12, bytes(range(1, 9)), 0, True, None),
+                 (0x7FF, b"", 1, False, 3), (0x555, bytes(8), 0, False, None), (0x0, b"\xff", 0, True, None),
+                 (0x3FFFF, b"", 1, True, 8), (0x000, b"", 0, False, None), (0x2A5, b"\x80\x7f\x01\xfe", 0, False, None)]
+
+
+def can_rx_want(ident, data, rtr, ext, dlc):
+    return (ext, rtr, ident, len(data) if dlc is None else dlc, b"" if rtr else data)
+
+
+def test_can_rx_standard_extended_and_remote_frames():
+    """Standard and extended identifiers, data and remote frames, DLC 0 to 8, back to
+    back with three bits of intermission: every frame reaches the host intact."""
+    from escmodels import encode_frame
+    lv = [encode_frame(i, d, rtr=r, ext=e, dlc=n) for i, d, r, e, n in CAN_RX_FRAMES]
+    m, words = can_rx_run(lv)
+    got, errs = can_rx_parse(words)
+    assert errs == 0 and got == [can_rx_want(*f) for f in CAN_RX_FRAMES]
+    assert not m.ff.valid
+
+
+@pytest.mark.parametrize("period", [99.5, 100.0, 100.5])
+def test_can_rx_random_frames_back_to_back_offset_clock(period):
+    """40 random frames back to back from nodes running 0.5% slow or fast: the line
+    unit's resync on every falling edge keeps the sample point; nothing is missed."""
+    import random
+    from escmodels import encode_frame
+    rng = random.Random(int(period * 10))
+    fr = []
+    for _ in range(40):
+        ext, rtr = rng.random() < 0.5, int(rng.random() < 0.15)
+        n = rng.randrange(9)
+        fr.append((rng.getrandbits(29 if ext else 11), bytes(rng.getrandbits(8) for _ in range(n)), rtr, ext,
+                   rng.randrange(16) if rtr else None))
+    m, words = can_rx_run([encode_frame(i, d, rtr=r, ext=e, dlc=n) for i, d, r, e, n in fr], period=period)
+    got, errs = can_rx_parse(words)
+    assert errs == 0 and got == [can_rx_want(*f) for f in fr]
+
+
+def test_can_rx_bad_crc_error_frame_and_dlc_over_8():
+    """A frame with a bad CRC is reported as one error word; a frame cut short by an
+    error flag (six dominant bits) is dropped; DLC 9-15 carries 8 bytes and is reported
+    as sent; the receiver goes on with the next frame each time."""
+    from escmodels import encode_frame, frame_bits
+    from escmodels.can import stuff_can
+    good = encode_frame(0x321, b"\x01\x02\x03")
+    bad = encode_frame(0x321, b"\x01\x02\x03", bad_crc=True)
+    cut = stuff_can(frame_bits(0x456, b"\xaa" * 6))[:40] + [0] * 6 + [1] * 8   # error flag + delimiter
+    over = encode_frame(0x100, bytes(range(8)), dlc=12)
+    m, words = can_rx_run([good, bad, good, cut, over, good])
+    got, errs = can_rx_parse(words)
+    g = (False, 0, 0x321, 3, b"\x01\x02\x03")
+    assert errs == 1 and got == [g, g, (False, 0, 0x100, 12, bytes(range(8))), g]
+
+
+def test_can_rx_500_kbit():
+    """KBPS = 500 (50-tick bits) with a bus that leaves a few idle bits between frames."""
+    from escmodels import encode_frame
+    lv = [encode_frame(i, d, rtr=r, ext=e, dlc=n) for i, d, r, e, n in CAN_RX_FRAMES]
+    src = '.equ can_rx.KBPS, 500\n.include "can_rx.asm"\n'
+    m, words = can_rx_run(lv, period=50.0, gap_bits=8, src=src)
+    got, errs = can_rx_parse(words)
+    assert errs == 0 and got == [can_rx_want(*f) for f in CAN_RX_FRAMES]
+
+
+# --------------------------------------------------------------------------- HDMI-CEC
+# At a tenth of the clock (2.5 MHz, 400 ns ticks): every CEC timing derives from CLK_KHZ,
+# and a CEC frame is tens of milliseconds.
+CEC_SRC = '.equ cec.CLK_KHZ, 2500\n.include "cec.asm"\n'
+MS_T = 2500
+
+
+def cec_run(devices, host_words, ticks, src=CEC_SRC, chunk=200):
+    """cec.asm on pin 0 with CEC device models; host words go to context 0 as its RX
+    mailbox has room; returns (machine, board, words pushed by the chip)."""
+    from escasm import assemble
+    from esciss import Machine
+    board = Board(*devices)
+    m = Machine(assemble(src, base_dir=FW), board=board)
+    q, out = list(host_words), []
+    while m.now < ticks:
+        if q and len(m.ctx[0].rx) < 2:
+            m.host_rx_push(0, q.pop(0))
+        m.run(chunk, stop_when_idle=False)
+        v = m.host_tx_pop(0)
+        m.run(1, stop_when_idle=False)
+        if v is not None:
+            out.append(v)
+        m.pins.clear()
+        m.commits.clear()
+        board.history.clear()
+    return m, board, out
+
+
+def cec_dev(la, **kw):
+    from escmodels import CecDevice
+    return CecDevice(0, la, tick_ns=400.0, **kw)
+
+
+def cec_frame(*data):
+    return [len(data)] + list(data)
+
+
+def cec_blocks(words):
+    """The chip's words: received frames [(bytes, ACK bits)] and send results."""
+    frames, res = [], []
+    for w in words:
+        if w >> 30 == 1:
+            res.append(w & 3)
+            continue
+        if w & 0x400:
+            frames.append(([], []))
+        frames[-1][0].append((w >> 2) & 0xFF)
+        frames[-1][1].append(w & 1)
+    return frames, res
+
+
+def test_cec_follower_acknowledges_its_address():
+    """A TV model (logical address 0) sends Give Physical Address to the chip (4): the
+    chip acknowledges both blocks; a broadcast (Standby) is never driven; a frame to
+    address 5, which nobody holds, is refused after its header, and retried once. The
+    chip reports every block it saw."""
+    tv = cec_dev(0, send=[(20 * MS_T, [0x04, 0x83]), (21 * MS_T, [0x0F, 0x36]), (22 * MS_T, [0x05, 0x8F])],
+                 retries=1)
+    m, board, out = cec_run([tv], [], 250 * MS_T)
+    assert not board.errors(), board.errors()
+    assert [r for r, _ in tv.results] == ["ack", "ack", "nack"]
+    frames, res = cec_blocks(out)
+    assert frames == [([0x04, 0x83], [0, 0]), ([0x0F, 0x36], [1, 1]), ([0x05], [1]), ([0x05], [1])]
+    assert res == [] and not m.ff.valid
+
+
+def test_cec_initiator_frames_timed_and_acknowledged():
+    """The chip sends Report Physical Address (a broadcast) and CEC Version to the TV:
+    the TV model decodes both with every bit inside the receive windows and
+    acknowledges the direct one; the chip reports both as sent. The second waited at
+    least 7 bit periods after the first (its own previous frame); it is loaded from the
+    host only then, and the bus is watched for 5 more."""
+    tv = cec_dev(0)
+    words = cec_frame(0x4F, 0x84, 0x10, 0x00, 0x04) + cec_frame(0x40, 0x9E, 0x05)
+    m, board, out = cec_run([tv], words, 320 * MS_T)
+    assert not board.errors(), board.errors()
+    assert [f["bytes"] for f in tv.frames] == [[0x4F, 0x84, 0x10, 0x00, 0x04], [0x40, 0x9E, 0x05]]
+    assert tv.frames[0]["acks"] == [1] * 5 and tv.frames[1]["acks"] == [0, 0, 0]
+    assert cec_blocks(out) == ([], [0, 0])
+    gap = tv.frames[1]["start"] - tv.frames[0]["start"] - (4.5 + 50 * 2.4) * MS_T
+    assert 12 * 2.4 * MS_T <= gap <= 13 * 2.4 * MS_T
+
+
+def test_cec_not_acknowledged_retries_then_gives_up():
+    """A frame to an absent device (8): the header is refused, the chip stops, retries
+    4 times after 3 free bit periods each, then reports it not acknowledged."""
+    tv = cec_dev(0)
+    m, board, out = cec_run([tv], cec_frame(0x48, 0x8F), 200 * MS_T)
+    assert not board.errors(), board.errors()
+    assert [f["bytes"] for f in tv.frames] == [[0x48]] * 5
+    starts = [f["start"] for f in tv.frames]
+    assert all(b - a <= (4.5 + 10 * 2.4 + 4 * 2.4) * MS_T for a, b in zip(starts, starts[1:]))
+    assert cec_blocks(out) == ([], [1])
+
+
+def test_cec_arbitration_lost_then_retried():
+    """The TV starts a frame within a few ticks of the chip: the TV's initiator address
+    0 wins over the chip's 4 at the second bit; the chip lets go at once, receives the
+    rest of the TV's frame as a follower would not (it is not decoding), waits for a
+    free bus and sends its own frame, which the TV acknowledges."""
+    probe = cec_dev(0)
+    cec_run([probe], cec_frame(0x40, 0x9E, 0x05), 100 * MS_T)
+    t0 = probe.frames[0]["start"]                      # when the chip starts, undisturbed
+    tv = cec_dev(0, send=[(0, [0x05, 0x8F])], force_start=t0 + 3, retries=0)
+    m, board, out = cec_run([tv], cec_frame(0x40, 0x9E, 0x05), 300 * MS_T)
+    assert tv.results[0][0] == "nack"                  # 5 is absent; but the TV won the bus
+    assert [f["bytes"] for f in tv.frames][-1] == [0x40, 0x9E, 0x05] and tv.frames[-1]["acks"] == [0, 0, 0]
+    assert cec_blocks(out)[1] == [0]
+    assert tv.frames[-1]["start"] > tv.results[0][1]   # the chip's frame came after the TV's
+
+
+def test_cec_host_sets_logical_address():
+    """After the host sets logical address 5, frames to 5 are acknowledged, not to 4."""
+    tv = cec_dev(0, send=[(30 * MS_T, [0x05, 0x8F]), (31 * MS_T, [0x04, 0x8F])], retries=0)
+    m, board, out = cec_run([tv], [0x80000005], 200 * MS_T)
+    assert not board.errors(), board.errors()
+    assert [r for r, _ in tv.results] == ["ack", "nack"]
+
+
+# --------------------------------------------------------------------------- DALI
+def dali_run(frames, ticks, scale=1.0, host=(), src='.equ dali.CLK_KHZ, 2500\n.include "dali.asm"\n'):
+    """dali.asm (control gear, short address 0) with a controller model, at a tenth of
+    the clock (2.5 MHz, 400 ns ticks; every timing derives from CLK_KHZ); returns the
+    machine, board, controller and the words the chip pushed."""
+    from escasm import assemble
+    from esciss import Machine
+    from escmodels import DaliController
+    ctl = DaliController(0, frames, tick_ns=400.0, scale=scale)
+    board = Board(ctl)
+    m = Machine(assemble(src, base_dir=FW), board=board)
+    q, out = list(host), []
+    while m.now < ticks:
+        if q and len(m.ctx[0].rx) < 2:
+            m.host_rx_push(0, q.pop(0))
+        m.run(2000, stop_when_idle=False)
+        v = m.host_tx_pop(0)
+        m.run(1, stop_when_idle=False)
+        if v is not None:
+            out.append(v)
+        m.pins.clear()
+        m.commits.clear()
+        board.history.clear()
+    return m, board, ctl, out
+
+
+DALI_MS = 2_500
+# (forward frame, the answer expected). Short address 0: 0x00 direct arc power, 0x01
+# commands; 0x03 is short address 1, 0x81 group 0, 0xFF broadcast commands.
+DALI_SCRIPT = [(0x0191, 0xFF),       # QUERY CONTROL GEAR PRESENT
+               (0x0105, None),       # RECALL MAX LEVEL
+               (0x01A0, 0xFE),       # QUERY ACTUAL LEVEL
+               (0x0190, 0x04),       # QUERY STATUS: lamp on
+               (0x0080, None),       # direct arc power 0x80
+               (0x01A0, 0x80),
+               (0x00FF, None),       # direct arc power 255: no change
+               (0x01A0, 0x80),
+               (0xFF00, None),       # broadcast OFF
+               (0x01A0, 0x00),
+               (0x0190, 0x00),       # lamp off
+               (0x0391, None),       # short address 1
+               (0x8191, None),       # group 0
+               (0xFF05, None),       # broadcast RECALL MAX LEVEL
+               (0x01A0, 0xFE)]
+
+
+def dali_frames(script, t0=5 * DALI_MS, every=40 * DALI_MS):
+    return [(t0 + i * every, f) for i, (f, _) in enumerate(script)]
+
+
+@pytest.mark.parametrize("scale", [1.0, 0.9, 1.1])
+def test_dali_gear_levels_and_queries(scale):
+    """A controller (bit timing exact, 10% fast or slow) talks to short address 0:
+    QUERY CONTROL GEAR PRESENT, RECALL MAX, QUERY ACTUAL LEVEL, QUERY STATUS, direct arc
+    power 0x80 and 0xFF (no change), broadcast OFF, then frames for another address, a
+    group and broadcast RECALL MAX. Every query to the gear is answered 7.5 ms after the
+    forward frame with the right byte, on the half-bit grid; every frame is reported.
+    (At a tenth of the clock: 2.5 MHz.)"""
+    script = DALI_SCRIPT
+    m, board, ctl, out = dali_run(dali_frames(script), (5 + 40 * len(script)) * DALI_MS, scale=scale)
+    assert not board.errors(), board.errors()
+    assert [a[0] if a else None for a in ctl.answers] == [want for _, want in script]
+    # 7.5 ms after the last bit as the gear timed it (its last mid-bit edge + one Te);
+    # the model also checks every answer against the 5.5-10.5 ms window
+    assert all(abs(a[1] - 7.5) < (0.01 if scale == 1.0 else 0.06) for a in ctl.answers if a)
+    assert [w & 0xFFFF for w in out] == [f for f, _ in script]
+    addressed = [bool(w & 0x10000) for w in out]
+    assert addressed == [True] * 11 + [False, False, True, True]
+    assert [bool(w & 0x20000) for w in out] == [want is not None for _, want in script]
+    assert not m.ff.valid
+
+
+def test_dali_short_address_from_host():
+    """The host moves the gear to short address 5: queries to 5 are answered, to 0 not."""
+    script = [(0x0BA0, 0x00), (0x01A0, None)]      # QUERY ACTUAL LEVEL to 5, then to 0
+    m, board, ctl, out = dali_run(dali_frames(script, t0=10 * DALI_MS), 100 * DALI_MS, host=[0x80000005])
+    assert not board.errors(), board.errors()
+    assert [a[0] if a else None for a in ctl.answers] == [0x00, None]

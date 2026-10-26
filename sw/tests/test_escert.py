@@ -321,6 +321,32 @@ def test_config_and_crc_jobs_are_timed_exactly():
     assert m.ff.subcode == 3                                    # PAST: the bound is tight
 
 
+
+def test_a_crc_job_of_input_dependent_length_is_bounded():
+    """A CRC job whose length comes from an input (operand known down to bits 31:16, by
+    MOVHI) takes up to 255 ticks: an EMIT timed from before it must leave room for that.
+    escert's bound is sound (the ISS, with the inputs giving the longest job it can, meets
+    every deadline escert proves) and close (within the 7 ticks the inputs cannot reach,
+    plus a slot)."""
+    body = (" ADDT 0xFFFFFF\n GETL r1\n GETP r2\n SHL r2, 8\n MOVI r1, 0xD0\n OR r2, r1\n"
+            " MOVHI r2, 0x2000\n ADDT {k}\n LINE r2\n LDT r0, r3, 0xE3\n LINE r0\n EMIT 4, 4, 4\n HALT\n")
+
+    def iss_faults(k):
+        m = Machine(assemble(lu_src(body.format(k=k))), board=lambda t, o, oe: 0xF8)
+        m.run(800)
+        return bool(m.ff.valid)
+
+    def proved(k):
+        return certify(assemble(lu_src(body.format(k=k))))[0].status == "CHECKED"
+
+    k_iss = next(k for k in range(200, 400) if not iss_faults(k))
+    k_cert = next(k for k in range(200, 400) if proved(k))
+    assert iss_faults(k_iss - 1)
+    assert k_iss <= k_cert <= k_iss + 12, (k_iss, k_cert)
+    c = certify(assemble(lu_src(body.format(k=k_cert - 1))))[0]
+    assert c.status == "POSSIBLE" and c.findings[0].kind == "PAST", str(c)
+
+
 def lu_program(seed):
     """A random program on the line unit: CONFIG, receptions, CRC jobs and packets, GETL
     with random timeouts, branches on its flag, and EMITs timed from what GETL returns

@@ -17,9 +17,9 @@ from escasm import AsmError, assemble, load_isa
 from escasm.disasm import disassemble
 from escert import certify
 from esciss import Machine
-from escmodels import (Board, CanBus, HostScript, I2cTarget, JtagTap, OneWireDevice, Ps2Host,
-                       SpiTarget, SplitBoard, SwdTarget, UartRx, UartTx, Ws2812Decoder,
-                       crc8_maxim)
+from escmodels import (Board, CanBus, CanSource, DshotEsc, HostScript, I2cTarget, JtagTap,
+                       OneWireDevice, Ps2Host, SentReceiver, SpiTarget, SplitBoard, SwdTarget,
+                       UartRx, UartTx, Ws2812Decoder, crc8_maxim, encode_frame)
 from escmodels import usb
 
 TICK_NS = 40.0
@@ -301,6 +301,69 @@ def sc_combo(p):
     return w
 
 
+def sc_dshot(p):
+    vals = []
+    for k in range(4):
+        vals.append(_int(p.get("m%d" % k, (1000, 1200, 1400, 1600)[k]), "Motor %d" % (k + 1), 0, 2047))
+    escs = [DshotEsc(k, tick_ns=TICK_NS) for k in range(4)]
+    script = HostScript([(200 + 30 * k, 1, (k << 12) | (v << 1)) for k, v in enumerate(vals)])
+    w = World(Board(*escs, script), script=script, ticks=9_300)        # ends between frames
+
+    def result(m):
+        for e in escs:
+            e.flush()
+        got = ["%d" % e.frames[-1][0] if e.frames else "nothing" for e in escs]
+        return "ESC models decoded throttle %s (frames every 125 us, CRC %s)" % (
+            ", ".join(got), "good" if all(f[2] for e in escs for f in e.frames) else "BAD")
+    w.result = result
+    return w
+
+
+def sc_sent(p):
+    status = _hex(p.get("status", "3"), "Status", 4)
+    data = _hex(p.get("data", "ABCDEF"), "Data nibbles", 24)
+    rx = SentReceiver(0, tick_ns=TICK_NS)
+    script = HostScript([(100, 1, (status << 24) | data)])
+    w = World(Board(rx, script), script=script, ticks=42_000)
+
+    def result(m):
+        fr = [f for f in rx.frames if (f["status"], f["data"]) != (0, [0] * 6)]
+        if not fr:
+            return "Receiver model saw no frame with the value"
+        f = fr[-1]
+        return "Receiver model: status %X, data %s, CRC %s; unit time %.1f ticks (3 us)" % (
+            f["status"], "".join("%X" % n for n in f["data"]), "good" if f["crc_ok"] else "bad", f["unit"])
+    w.result = result
+    return w
+
+
+def sc_can_rx(p):
+    ident = _hex(p.get("id", "1ABCDE12"), "Identifier", 29)
+    ext = p.get("format", "extended") == "extended"
+    if not ext and ident >= 1 << 11:
+        raise ParamError("Identifier: a standard identifier has 11 bits")
+    data = bytes(_hexbytes(p.get("data", "01 02 03"), "Data", 8))
+    frames = [encode_frame(0x123, bytes((0x42,))), encode_frame(ident, data, ext=ext)]
+    plays, t0 = [], 300
+    for lv in frames:
+        plays.append((t0, lv))
+        t0 += (len(lv) + 3) * 100
+    script = HostScript([], drain=[1], poll=500)
+    w = World(Board(CanSource(1, plays, 100), script), script=script, ticks=t0 + 3000)
+
+    def result(m):
+        ws = script.received[1]
+        out, i = [], 0
+        while i + 1 < len(ws):
+            n = 0 if ws[i] >> 30 & 1 else min(ws[i + 1], 8)
+            kind = "ext" if ws[i] >> 31 else "std"
+            out.append("%s 0x%X [%d]" % (kind, ws[i] & 0x1FFFFFFF, ws[i + 1]))
+            i += 2 + (n + 3) // 4
+        return "Pushed to the host: " + ("; ".join(out) or "nothing")
+    w.result = result
+    return w
+
+
 class UsbPins:
     """The USB host model as a board: records the bus per cycle for the plot."""
 
@@ -462,6 +525,29 @@ SCENARIOS = [
      "params": [],
      "blurb": "PS/2 and JTAG on bank A, SPI and UART on bank B, one context each. Every "
               "context has its own fixed issue slot, so none can move another's edges."},
+    {"id": "dshot", "title": "DShot600, four motors", "firmware": "dshot_tx.asm", "fn": sc_dshot,
+     "signals": [_sig("M1", 0), _sig("M2", 1), _sig("M3", 2), _sig("M4", 3)],
+     "params": [{"key": "m%d" % k, "label": "Motor %d throttle" % (k + 1), "type": "int",
+                 "default": str((1000, 1200, 1400, 1600)[k])} for k in range(4)],
+     "blurb": "The digital throttle of drone ESCs, to four motors at once from one context: "
+              "each pulse is 16 or 31 ticks high, each bit exactly 42, 42 or 41 ticks, so the "
+              "bit rate is exactly 600 kbit/s. A second context takes the throttle values."},
+    {"id": "sent", "title": "SENT sensor", "firmware": "sent_tx.asm", "fn": sc_sent,
+     "signals": [_sig("SENT", 0)],
+     "params": [{"key": "status", "label": "Status (hex)", "type": "hex", "default": "3"},
+                {"key": "data", "label": "Six data nibbles (hex)", "type": "hex", "default": "ABCDEF"}],
+     "blurb": "SAE J2716, the automotive sensor line: each nibble is the time between two "
+              "falling edges, 12 to 27 units of 3 us. Frames follow each other without a gap; "
+              "the CRC-4 is computed during the sync pulse."},
+    {"id": "can_rx", "title": "CAN receiver (v1.4)", "firmware": "can_rx.asm", "fn": sc_can_rx,
+     "signals": [_sig("RX", 1)],
+     "params": [{"key": "id", "label": "Identifier (hex)", "type": "hex", "default": "1ABCDE12"},
+                {"key": "format", "label": "Format", "type": "select", "default": "extended",
+                 "options": ["extended", "standard"]},
+                {"key": "data", "label": "Data (hex, up to 8)", "type": "text", "default": "01 02 03"}],
+     "blurb": "Another node sends two frames back to back at 250 kbit/s. The line unit "
+              "recovers the clock, removes stuff bits and checks CRC-15; the firmware reads "
+              "the DLC, re-arms and pushes each frame to the host."},
     {"id": "usb", "title": "USB keyboard (v1.4)", "firmware": "usb_hid.asm", "fn": sc_usb,
      "signals": [_sig("D+", 0), _sig("D−", 1)],
      "params": [{"key": "text", "label": "Type", "type": "text", "default": "Hi!"}],

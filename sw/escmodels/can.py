@@ -24,12 +24,18 @@ def crc15(bits: list[int]) -> int:
     return crc
 
 
-def frame_bits(ident: int, data: bytes, rtr: int = 0) -> list[int]:
-    """A classic 2.0A data frame from SOF through the CRC sequence, unstuffed."""
-    dlc = len(data)
-    bits = [0] + [(ident >> (10 - i)) & 1 for i in range(11)] + [rtr, 0, 0]
+def frame_bits(ident: int, data: bytes, rtr: int = 0, ext: bool = False, dlc: int | None = None) -> list[int]:
+    """A classic data or remote frame from SOF through the CRC sequence, unstuffed: 2.0A
+    (11-bit identifier), or 2.0B with ext (29-bit: base identifier, SRR, IDE, extension,
+    RTR, r1, r0). A remote frame carries no data; its DLC is `dlc`, or len(data)."""
+    dlc = len(data) if dlc is None else dlc
+    if ext:
+        bits = [0] + [(ident >> (28 - i)) & 1 for i in range(11)] + [1, 1]
+        bits += [(ident >> (17 - i)) & 1 for i in range(18)] + [rtr, 0, 0]
+    else:
+        bits = [0] + [(ident >> (10 - i)) & 1 for i in range(11)] + [rtr, 0, 0]
     bits += [(dlc >> (3 - i)) & 1 for i in range(4)]
-    for byte in data:
+    for byte in (b"" if rtr else data):
         bits += [(byte >> (7 - i)) & 1 for i in range(8)]
     crc = crc15(bits)
     return bits + [(crc >> (14 - i)) & 1 for i in range(15)]
@@ -49,10 +55,34 @@ def stuff_can(bits: list[int]) -> list[int]:
     return out
 
 
-def encode_frame(ident: int, data: bytes, ack: bool = True) -> list[int]:
+def encode_frame(ident: int, data: bytes, ack: bool = True, rtr: int = 0, ext: bool = False,
+                 dlc: int | None = None, bad_crc: bool = False) -> list[int]:
     """Bus levels of a whole frame: stuffed SOF..CRC, CRC delimiter, ACK slot (dominant if
-    a receiver acknowledged), ACK delimiter, seven recessive bits of end of frame."""
-    return stuff_can(frame_bits(ident, data)) + [1, 0 if ack else 1, 1] + [1] * 7
+    a receiver acknowledged), ACK delimiter, seven recessive bits of end of frame.
+    bad_crc flips the last CRC bit before stuffing."""
+    bits = frame_bits(ident, data, rtr, ext, dlc)
+    if bad_crc:
+        bits[-1] ^= 1
+    return stuff_can(bits) + [1, 0 if ack else 1, 1] + [1] * 7
+
+
+class CanSource(Device):
+    """Other nodes on the bus: plays `frames`, a list of (start tick, levels), one level
+    per bit of `period` ticks (fractional for an offset clock), on `pin` as an
+    open-drain bus (dominant 0 pulls it low, recessive leaves the pull-up)."""
+
+    def __init__(self, pin: int, frames: list[tuple[int, list[int]]], period: float):
+        self.pin, self.period = pin, period
+        self.frames = sorted(frames)
+
+    def step(self, t, bus):
+        for t0, lv in self.frames:
+            if t < t0:
+                break
+            k = int((t - t0) / self.period)
+            if k < len(lv):
+                return ((1 << self.pin) if lv[k] == 0 else 0), 0
+        return 0, 0
 
 
 class CanBus(Device):

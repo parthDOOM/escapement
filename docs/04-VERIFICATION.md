@@ -171,11 +171,17 @@ afterwards, as is every other input.
 
 `test/mutation/run_mutants.py` plants one fault at a time in a copy of `src/` and runs
 the test suites that can see the mutated file, cheapest first, until one fails: the
-lockstep co-simulation, the core unit tests, the host interface tests, the chip tests and
-the firmware-through-the-pins tests. A suite that hangs counts as a kill.
+line unit lockstep (for `esc_line.v`), the lockstep co-simulation, the core unit tests, the
+host interface tests, the chip tests and the firmware-through-the-pins tests. A suite that
+hangs counts as a kill. The suites simulate the RTL with the standard-cell clock gates and
+latch banks (`CELLS=yes`), as it is hardened, so that a mutant of a latch bank's input is
+visible. Before any mutant is scored, every suite it needs must pass on the unmutated
+RTL: a suite that cannot run (a tool or model problem) would otherwise fail for every
+mutant and read as kills.
 
-The campaign has 431 mutants across the whole RTL. Thirty-five are written by hand, each
-aimed at one feature (below). The other 396 are generated (`test/mutation/generate.py`):
+The campaign has 710 mutants across the whole RTL, the line unit included. Fifty-two are
+written by hand, each aimed at one feature (below). The other 658 are generated
+(`test/mutation/generate.py`):
 every synthesisable line outside the formal blocks is scanned for classic fault sites
 (a comparison or logic operator swapped, an inversion dropped, an arithmetic operator
 swapped, a constant changed, an `if` condition negated, a register that keeps its value
@@ -199,23 +205,40 @@ point one record late, TAPE_ACK ignored, arming that keeps the old read pointer,
 stream that stops at the limit instead of wrapping, a drain that loses the port to the
 host, and debug select 20 not showing the read pointer.
 
+Eighteen target v1.4: ten the latch banks (a bank latching another port's data, stale
+data at START, an entry one behind), three the two-slot mailboxes (a ring head that never
+moves, a push into the slot the host is popping), and five the shared debug read and its
+slot counter (a stale field, a wrong context, swapped fields, slots one context off).
+
 and the original twenty: inverted comparisons, off-by-one deadlines and pointers, a
 dropped polynomial term in the digest, a missing GETI wait, broken tape forwarding,
 capture rule changes and clock-gate enable errors.
 
-**Result: 403 of 431 mutants killed, none surviving.**
+**Result (v1.4): 653 of 653 scored mutants killed, none surviving.**
 
 | Outcome | Mutants |
 | --- | ---: |
-| Killed by the lockstep co-simulation | 294 |
-| Killed by the host interface tests | 80 |
-| Killed by the core unit tests | 24 |
-| Killed by the chip tests | 4 |
-| Killed by the firmware-through-the-pins tests | 1 |
-| Proved equivalent (`formal/equiv.sh`): no chip output can differ | 10 |
-| Excluded, each with its written argument in `run_mutants.py` | 18 |
+| Killed by the lockstep co-simulation | 342 |
+| Killed by the line unit lockstep | 185 |
+| Killed by the host interface tests | 81 |
+| Killed by the core unit tests | 42 |
+| Killed by the chip tests | 3 |
+| Proved equivalent (`formal/equiv.sh`): no chip output can differ | 19 |
+| Excluded, each with its written argument in `run_mutants.py` | 38 |
 
-**The campaign found test holes, now closed.** With the tests as they were, 57
+**v1.4's holes, now closed.** The first v1.4 campaign scored 710 of 711 killed, which was
+false: the CI simulator, Icarus Verilog 12, gives X on the PDK's cell models, so every
+co-simulation failed within seconds of starting. The baseline check above now catches
+that, and CI builds Icarus 13. The real campaign left 23 survivors besides those. Four
+showed holes, closed with directed tests: a SEND into a full FIFO, a SEND before the
+FIFO's tail, a mailbox push and pop at the edges the host uses (co-simulation programs);
+a line unit tape access at a stop edge (`test_line_unit_makes_no_access_at_a_stop_edge`,
+which watches the tape port in a cycle the unit had scheduled an access); and the debug
+port read after a stop within four cycles of a commit, which returned the value before
+that commit (`test_debug_port_after_stop_shows_final_registers`). The rest are excluded
+with an argument (below).
+
+**v1.3's holes, closed then.** With the tests as they were, 57
 mutants survived. Each was read against the RTL; the holes they showed were closed with
 nine new tests, which kill 29 of them:
 
@@ -237,12 +260,18 @@ Writing the reset test also showed that the unit testbench never gave reset a fa
 edge, so the behavioural model of a clock-gated register could stay unknown after reset
 in simulation; silicon flip-flops reset on the level. The testbench now does.
 
-**The 18 exclusions** are mutants that the equivalence check did not decide within its
-time limit and that change no behaviour by argument: three act only when a FIFO head is
-past its deadline, which P2 proves never happens; two change tie-offs of the SRAM macro's
-configuration pins that have no function in any model; thirteen change the reset or idle
-value of state that is always loaded before anything reads it (the capture unit's
-snapshot flag and staging word, the host engine's data, address and context registers).
+**The 38 exclusions** are mutants that the equivalence check did not decide within its
+time limit (30 minutes each) and that change no behaviour by argument: three act only when
+a FIFO head is past its deadline, which P2 proves never happens; two change tie-offs of
+the SRAM macro's configuration pins that have no function in any model; four add a tape
+read whose data nothing takes (every consumer takes read data only in the cycle after a
+read of its own, and a write wins over a read); four change when the debug port's cached
+field reloads while the chip is stopped, so that it reloads the value it already holds;
+one changes a first-fault priority between two events that cannot meet (a line unit
+CONFIG fault is never at an owner commit edge); and 24 change the reset or idle value of
+state that is always loaded before anything reads it (the capture unit's snapshot flag
+and staging word, the host engine's data, address and context registers, and line unit
+fields read only in the transmit or receive mode, whose entry sets them).
 
 ## Timing certificates
 
@@ -272,6 +301,11 @@ replays into the fault, or NOT_PROVEN.
 | `logic_analyzer` | CHECKED | no events |
 | `westminster` | CHECKED | 57 |
 | `usb_hid` (v1.4 line unit) | CHECKED | 1; replies 4 (below) |
+| `can_rx` (v1.4 line unit) | CHECKED | no events |
+| `dshot_tx` (two contexts) | CHECKED | 8 / no events |
+| `sent_tx` (two contexts; with or without the pause pulse) | CHECKED | 4 / no events |
+| `cec` | CHECKED | 4 |
+| `dali` | CHECKED | 13 |
 
 Every certificate is CHECKED for all inputs, without assumptions about bus timing:
 re-anchoring the time base after every wait makes the input-dependent I2C paths provable
@@ -288,6 +322,11 @@ which released the bus with a lead of −4, and a PS/2 frame that started under 
 previous frame's queued events when scancodes arrived back to back. No test had reached
 either. In both cases the chip would have refused the edge with an ADMIT fault rather
 than emitting it late. Both are fixed, and the old versions are regression tests.
+
+**Register intervals.** A `MOVHI` on a register whose value is unknown gives an interval
+with its high half known; a `LINE` whose operand is known down to bits 31:16 to be a CRC
+job is a job of 0 to 255 ticks that writes no tape word. `can_rx` needs this: its CRC job
+covers exactly the frame's length, which the frame's own DLC gives.
 
 **The checker is tested, not trusted.** On random co-simulation programs, every CHECKED
 context runs on the simulator without an admission fault and with telemetry at or above
@@ -322,19 +361,24 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | WS2812 from a timing table, colours in the tape | `ws2812_gen` | LED chain model with datasheet timing windows |
 | NEC infrared from a timing table | `nec_tx_gen` | NEC receiver model: carrier, pulse counts, every burst position |
 | Seven-segment animation on the demo board's display | `seven_seg` | Every frame on bank B, in order, to the tick |
+| CAN 2.0A and 2.0B receiver on the line unit (v1.4): standard, extended and remote frames, CRC-15 checked by the line unit's CRC engine | `can_rx` | Bus model playing frames back to back from nodes 0.5% slow or fast; bad CRCs, frames cut by an error flag, DLC over 8, 500 kbit/s |
+| DShot600 for four ESCs from one context, 600 kbit/s exactly (42, 42, 41 ticks per bit), and bidirectional DShot | `dshot_tx` | ESC models that check every pulse width, bit period and CRC; frame period to the tick through host updates; at 24 MHz |
+| SENT (SAE J2716) sensor, with or without a pause pulse | `sent_tx` | Receiver model that calibrates from the sync pulse and checks the recommended CRC-4 (and the CRC against polynomial division); frames back to back to the tick, values changing mid-run never mixing frames |
+| HDMI-CEC adapter: follower and initiator | `cec` | CEC device model with the Linux cec-pin timing windows: acknowledgement of its own address only, broadcast never driven, sending with arbitration (lost to a simultaneous start, then retried), retries after a refusal, a host-set logical address |
+| DALI control gear (IEC 62386-102 commands and queries) | `dali` | Controller model at nominal and ±10% bit timing: levels, OFF, RECALL, queries answered 7.5 ms after the forward frame on the half-bit grid; other addresses, groups, broadcast |
 | USB 1.1 low-speed HID keyboard on the line unit (v1.4) | `usb_hid` | Reactive USB host model from the USB 2.0 text that checks every device packet and its turnaround: enumeration, lost and corrupted handshakes, corrupt tokens and data, bus resets at every stage, host clock ±5%, hostile traffic (72 tests); and the Linux kernel itself, which enumerates the simulated chip over USB/IP and receives typed text |
 
 ## Test suites
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, tape tools, capture export and SUMP bridge, bring-up script | 293 | Pass (2 need `sigrok-cli`) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script | 520 | Pass (2 need `sigrok-cli`) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
 | Co-simulation (`make cosim`) | 7 | Pass |
 | Host interface (`make host-test`) | 16 | Pass |
-| Core unit tests (`make unit-test`) | 28 | Pass |
+| Core unit tests (`make unit-test`) | 31 | Pass |
 | Newer firmware (SWD, SPI target, NEC, both pin banks at once) through the chip pins (`make pin-test`, `make gl-pin-test`) | 5 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
@@ -353,8 +397,6 @@ the commits, register values and pin changes of the model.
 - **The EEPROM** stretches the clock before each acknowledge, which a real 24C02 does
   not; its Fast-mode margin is measured against our controller model only.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
-- **The line unit** (v1.4) is specified, simulated, and used by certified firmware, but
-  has no RTL yet: everything about it on this page is checked on the simulator.
 
 ## In CI
 
@@ -366,7 +408,7 @@ on master, with its commit and log, failures included.
 | --- | --- | --- |
 | `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, firmware through the pins |
 | `formal` | a change to `src/` or `formal/` | `make formal`: formal-quick, then the unbounded core proof as one PDR task per assertion |
-| `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in eight shards, with the equivalence check of survivors |
+| `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in sixteen shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors |
 | `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
 | `equivalence` | each successful `gds` run on master | that run's netlist against the RTL of its commit (`formal/equiv.sh`) |
 

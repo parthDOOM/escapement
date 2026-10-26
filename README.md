@@ -24,8 +24,9 @@ These proofs run in CI on every change; the [results page](https://parthdoom.git
 shows their last runs.
 
 UART, SPI (controller and target), I2C, CAN, PS/2, WS2812, 1-Wire, JTAG, ARM SWD, NEC
-infrared and whole devices such as a 24C02 EEPROM or a 25xx SPI memory are firmware.
-None of them is in the hardware.
+infrared, HDMI-CEC, DALI lighting control, SENT automotive sensors, DShot600 for four
+motor controllers at once, and whole devices such as a 24C02 EEPROM or a 25xx SPI memory
+are firmware. None of them is in the hardware.
 
 > Escapement either meets the deadline it accepted, or tells you why it refused.
 
@@ -89,7 +90,8 @@ protocols, NRZI, bit stuffing, CRCs and clock recovery, for one context, while t
 firmware handles packets. A 187-instruction USB low-speed keyboard runs on it: a real
 Linux kernel enumerates the simulated chip over USB/IP and receives typed text through
 it, and escert proves every reply leaves exactly 72 ticks after the host's packet
-([line unit](docs/19-LINE-UNIT.md)).
+([line unit](docs/19-LINE-UNIT.md)). A CAN 2.0A and 2.0B receiver uses it too: clock
+recovery, destuffing and a CRC-15 check on every frame of a bus.
 
 ## Results
 
@@ -99,8 +101,8 @@ it, and escert proves every reply leaves exactly 72 ticks after the host's packe
 | Clock | 25 MHz rated, timing met at all three corners with at least 9 ns of slack on every flip-flop path |
 | Physical | 27,972 cells and two SRAM macros, 58.2% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes |
 | Power | 3.1 mW sending UART, 2.5 mW stopped (typical corner) |
-| Firmware | 26 programs (one, the USB keyboard, for v1.4), five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
-| Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 403 of 431 RTL mutants killed and none surviving (10 proved equivalent, 18 excluded with a written argument); the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
+| Firmware | 31 programs (two, the USB keyboard and the CAN receiver, for v1.4's line unit), five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
+| Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 653 of 710 RTL mutants killed and none surviving (19 proved equivalent, 38 excluded with a written argument), on the standard-cell models; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 
 Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),
 [power](docs/15-POWER.md), [measurements](asic/reports/area.csv).

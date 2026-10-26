@@ -214,6 +214,42 @@ EXCLUDED = {
     # v1.4
     "esc_core_not_6edf7a77": "dcs_ok only stops dbg_cs reloading while stopped, when the registers hold still: "
                              "with it never set, dbg_cs reloads the value it holds (power, not function)",
+    # an extra tape read: the SRAM holds its read data until the next read, and every consumer
+    # takes it only in the cycle after a read of its own (an LDT's result through ld_v, the line
+    # unit's words through ld and cfg_done); a write wins over a read in the same cycle
+    "esc_core_bit_51bc08b7": "an extra tape read in the commit cycle of a SEND or LINE that reads nothing "
+                             "(OFF, RECV, an empty CRC job): read data is taken only after a read of its own",
+    "esc_core_bit_8fe3751e": "an extra tape read in STT cycles (the write wins) and in cycles that decode an "
+                             "LDT without committing it: read data is taken only after a read of its own",
+    "esc_core_bit_ebbc1fa1": "an extra tape read in SEND and LINE commit cycles that do not complete (WAIT): read "
+                             "data is taken only after a read of its own",
+    "esc_core_const_3b43f805": "ld_ctx is read only with ld_v (the LDT write-back and q_ldk), and every cycle that "
+                               "sets ld_v loads ld_ctx: its reset value is never read",
+    "esc_core_const_ab23e9a0": "with dcs_ok set at reset the first read of select 0 of context 0 returns the "
+                               "cached 0 (dbg_cs and its tag reset to 0) instead of reloading r0, which is 0 from "
+                               "reset until the first START; a run clears dcs_ok",
+    "esc_line_const_1cc7dbd4": "buf_q is loaded before every read: from the tape when a CONFIG, a CRC job or a "
+                               "packet with data starts, and cleared when a reception starts",
+    "esc_line_const_fdd2c4ea": "req is read only in TX (tx_rd) and RX (rx_wr); TX is entered only through PEND, "
+                               "whose SEND clears req, and a reception start clears it: START's value is unread",
+    "esc_line_const_2b577159": "req after OFF: read only in TX and RX, both entered through a SEND or a reception "
+                               "start, which clear it",
+    "esc_core_const_e2fc5716": "cq reloads from dbg_sel_ctx at every edge while stopped, so its reset value lives "
+                               "one cycle; a debug cache load in it loads only the selected context (cctx == sk), "
+                               "whose fields are all 0 after reset, as the next cycle's load is",
+    "esc_core_rel_ff822406": "a line unit CONFIG fault is at E_(c+9), one cycle after an owner commit slot: the "
+                             "committing context is never the owner then, so < and <= never differ",
+    "esc_core_stuck_6acae8c8": "dcs_ok never set: dbg_cs reloads at every stopped cycle instead of on a new "
+                               "select, loading the value it holds (power, not function)",
+    "esc_line_const_fccc419c": "req at reset: read only in TX and RX, entered through a SEND or a reception start, "
+                               "which clear it",
+    "esc_line_const_81d1cd0b": "req after a packet ends: read only in TX and RX, entered through a SEND or a "
+                               "reception start, which clear it",
+    "esc_line_const_a94c624a": "seg is read only in TX (eseg), and the SEND that enters PEND sets it to 0",
+    "esc_line_const_ddcb06f4": "mon is read only in TX (tx_mon), and the SEND that enters PEND clears it",
+    "esc_line_const_c59b623f": "mon left set after a monitor sample: el reaches the sample point once per bit, and "
+                               "the next boundary sets mon again (a line bit) or clears it (the end); EOP symbols, "
+                               "which keep it, exist only with diff, where the monitor is off",
     "esc_line_const_575cb32a": "stor is read only in RX mode (through rx_smp), and every entry to RX sets it to 1, "
                                "so its reset value is never read",
     "esc_line_const_f5ce76cf": "rb is read only while the stuffing run rn is nonzero (push(), and sb through due, "

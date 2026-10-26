@@ -59,25 +59,27 @@ slow corner (v1.3: 123 and 29). They cause no timing violations. The worst are n
 detours around the congested horizontal layer: one 375 µm connection is routed as 1.8 mm.
 
 **Frequency headroom.** 25 MHz is the rating at the slow corner with margin to spare (D-5),
-not the limit of the layout. Static timing analysis of the final v13b (v1.3) netlist with its
-extracted parasitics (OpenSTA, the sign-off constraints with the period shortened and the
-20% I/O delays scaled with it) finds the shortest period at which setup still holds:
+not the limit of the layout. Static timing analysis of the final v14i (v1.4) netlist with
+its extracted parasitics (OpenSTA, the sign-off constraints with the latches modelled, the
+period shortened and the 20% I/O delays scaled with it) finds the shortest period at which
+setup still holds, latch inputs included (a latch input that borrows time reports 0 slack;
+past its limit, negative):
 
-| Corner | Shortest passing period | Clock | Fails at |
-| --- | ---: | ---: | ---: |
-| Slow, 1.08 V, 125 °C | 28.5 ns | 35 MHz | 28 ns |
-| Typical, 1.20 V, 25 °C | 18 ns | 55 MHz | 17.5 ns |
-| Fast, 1.32 V, −40 °C | 12 ns | 83 MHz | 11 ns |
+| Corner | Shortest passing period | Clock | Fails at | v1.3 (v13b) |
+| --- | ---: | ---: | ---: | ---: |
+| Slow, 1.08 V, 125 °C | 35 ns | 28.6 MHz | 34.5 ns | 35 MHz |
+| Typical, 1.20 V, 25 °C | 22 ns | 45 MHz | 21.5 ns | 55 MHz |
+| Fast, 1.32 V, −40 °C | 14.3 ns | 70 MHz | 14 ns | 83 MHz |
 
-Hold slack does not depend on the period. At every corner the limiting path is the
-enable of a clock-gated register bank (D-29a): it starts at one flip-flop, passes the
-gate's latch while the clock is low (see below) and must reach the gate's AND cell before
-the next rising edge. At the fast corner flip-flop paths from the same source fail at
-nearly the same period. Firmware takes the tick length as a
-constant (`CLK_KHZ` in the timing tables, and the tick counts in hand-written programs), so
-a faster board clock needs only rebuilt firmware, not a new chip. These figures leave out
-the Tiny Tapeout multiplexer and pads, whose delays the flow does not model (the Tiny
-Tapeout clock specification gives 66 MHz).
+The rating keeps 14% at the slow corner. v1.3's limit was the enable of a clock-gated
+register bank; v1.4's is a single-cycle path from a context's tick counter through the
+deadline comparison and the retire and fault logic to a pin's output register (`now` to
+`pin_val`, about fifty gates, 34.4 ns at the slow corner), in which two minimum-size cells
+on long wires take 3.8 and 1.8 ns. Hold slack does not depend on the period.
+Firmware takes the tick length as a constant (`CLK_KHZ` in the timing tables, and the tick
+counts in hand-written programs), so a faster board clock needs only rebuilt firmware, not a
+new chip. These figures leave out the Tiny Tapeout multiplexer and pads, whose delays the
+flow does not model (the Tiny Tapeout clock specification gives 66 MHz).
 
 ## Floorplan
 

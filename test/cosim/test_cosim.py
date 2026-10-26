@@ -685,6 +685,85 @@ def case_nec_gen():
     return Board(rx, host), host, check
 
 
+def case_dshot():
+    """DShot600 to four ESC models from one context; throttle values from the host in
+    the other (all four, then motor 1 with telemetry), both in the same frame. The run
+    ends between frames."""
+    from escmodels import DshotEsc
+    escs = [DshotEsc(i) for i in range(4)]
+    host = HostScript([(2000, 1, (1 << 14) | (48 << 1)), (2004, 1, (1 << 12) | (1000 << 1) | 1)])
+
+    def check(board, h):
+        for e in escs:
+            e.flush()
+        got = [e.frames[-1][:3] if e.frames else None for e in escs]
+        ok = got == [(48, 0, True), (1000, 1, True), (48, 0, True), (48, 0, True)]
+        return ([] if ok else [f"dshot {got}"]) + board.errors()
+    return Board(*escs, host), host, check
+
+
+def case_sent():
+    """SENT sensor frames back to back; a new value from the host mid-run."""
+    from escmodels import SentReceiver
+    rx = SentReceiver(0)
+    host = HostScript([(2000, 1, 0x3ABCDEF)])
+
+    def check(board, h):
+        got = [(f["status"], f["data"], f["crc_ok"]) for f in rx.frames]
+        ok = (0, [0] * 6, True) in got and got[-1] == (3, [10, 11, 12, 13, 14, 15], True)
+        return ([] if ok else [f"sent {got}"]) + board.errors()
+    return Board(rx, host), host, check
+
+
+def case_can_rx():
+    """CAN receiver on the line unit: standard, extended and remote frames back to back
+    from other nodes, CRC-15 checked by the line unit's CRC engine."""
+    from escmodels import CanSource, encode_frame
+    frames = [encode_frame(0x123, bytes((0x11, 0x22))), encode_frame(0x1ABCDE12, bytes(range(1, 9)), ext=True),
+              encode_frame(0x7FF, b"", rtr=1, dlc=3)]
+    plays, t0 = [], 1000
+    for lv in frames:
+        plays.append((t0, lv))
+        t0 += (len(lv) + 3) * 100
+    host = HostScript([], drain=[1], poll=1000)
+
+    def check(board, h):
+        want = [0x123, 2, 0x11220000, 0x9ABCDE12, 8, 0x01020304, 0x05060708, 0x400007FF, 3]
+        ok = h.received[1] == want
+        return ([] if ok else [f"can_rx {[hex(w) for w in h.received[1]]}"]) + board.errors()
+    return Board(CanSource(1, plays, 100), host), host, check
+
+
+def case_cec():
+    """HDMI-CEC at a 250 kHz timebase: the chip sends CEC Version to a TV model, which
+    acknowledges it; then the TV sends Give Physical Address to the chip, which
+    acknowledges it and reports both blocks."""
+    from escmodels import CecDevice
+    tv = CecDevice(0, 0, tick_ns=4000.0, send=[(7500, [0x04, 0x83])])
+    host = HostScript([(100, 0, 3), (200, 0, 0x40), (4000, 0, 0x9E), (4100, 0, 0x05)], drain=[0], poll=500)
+
+    def check(board, h):
+        ok = ([f["bytes"] for f in tv.frames] == [[0x40, 0x9E, 0x05], [0x04, 0x83]]
+              and tv.frames[0]["acks"] == [0, 0, 0] and [r for r, _ in tv.results] == ["ack"]
+              and h.received[0] == [0x40000000, 0x400 | (0x04 << 2), (0x83 << 2) | 2])
+        return ([] if ok else [f"cec {tv.frames} {tv.results} {h.received}"]) + board.errors()
+    return Board(tv, host), host, check
+
+
+def case_dali():
+    """DALI control gear at a 250 kHz timebase: QUERY CONTROL GEAR PRESENT, direct arc
+    power, QUERY ACTUAL LEVEL; the answers come 7.5 ms after each query."""
+    from escmodels import DaliController
+    ctl = DaliController(0, [(1000, 0x0191), (11000, 0x0042), (21000, 0x01A0)], tick_ns=4000.0)
+    host = HostScript([], drain=[0], poll=500)
+
+    def check(board, h):
+        ans = [a[0] if a else None for a in ctl.answers]
+        ok = ans == [0xFF, None, 0x42] and h.received[0] == [0x30191, 0x10042, 0x301A0]
+        return ([] if ok else [f"dali {ctl.answers} {h.received}"]) + board.errors()
+    return Board(ctl, host), host, check
+
+
 FIRMWARE_CASES = {
     "uart_rx": ("uart_rx.asm", 13500, case_uart_rx),
     "i2c_ctrl": ("i2c_ctrl.asm", 9000, case_i2c),
@@ -709,6 +788,12 @@ FIRMWARE_CASES = {
     "nec_tx_gen": ("../test/cosim/nec_gen_cosim.asm", 300000, case_nec_gen),
     # v1.4 line unit
     "usb_hid": ("usb_hid.asm", 70000, case_usb_hid),
+    "can_rx": ("can_rx.asm", 36000, case_can_rx),
+    # motor, sensor, consumer and lighting buses (firmware only)
+    "dshot": ("dshot_tx.asm", 12500, case_dshot),
+    "sent": ("sent_tx.asm", 36000, case_sent),
+    "cec": ("../test/cosim/cec_cosim.asm", 46000, case_cec),
+    "dali": ("../test/cosim/dali_cosim.asm", 33000, case_dali),
 }
 TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape

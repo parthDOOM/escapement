@@ -4,7 +4,7 @@ from .board import Board, Device, SplitBoard  # noqa: F401
 from .uart import UartRx, UartTx  # noqa: F401
 from .i2c import I2cTarget  # noqa: F401
 from .i2c_ctrl import I2cController  # noqa: F401
-from .can import CanBus, crc15, encode_frame, frame_bits  # noqa: F401
+from .can import CanBus, CanSource, crc15, encode_frame, frame_bits  # noqa: F401
 from .ps2 import Ps2Host  # noqa: F401
 from .jtag import JtagTap  # noqa: F401
 from .spi import SpiTarget  # noqa: F401
@@ -15,3 +15,7 @@ from .host import HostScript  # noqa: F401
 from .swd import SwdTarget  # noqa: F401
 from .nec import NecReceiver, NecSource, Tsop, nec_raw  # noqa: F401
 from .usb import UsbBus  # noqa: F401
+from .dshot import DshotEsc, dshot_crc  # noqa: F401
+from .sent import SentReceiver, sent_crc  # noqa: F401
+from .cec import CecDevice  # noqa: F401
+from .dali import DaliController  # noqa: F401

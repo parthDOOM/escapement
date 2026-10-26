@@ -743,8 +743,8 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                 v = (f["imm"] << 16) | (int(r[1]) & 0xFFFF)
                 setreg(f["rd"], ("const", v, v))
                 setz_const(v)
-            else:
-                setreg(f["rd"], ("top",))
+            else:                                    # the high half is now known
+                setreg(f["rd"], ("const", f["imm"] << 16, (f["imm"] << 16) | 0xFFFF))
                 s.zf = None
         elif name == "MOV":
             src = s.reg[f["rs"]]
@@ -906,6 +906,12 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             r = s.reg[f["rs"]]
             v = int(r[1]) if r[0] == "const" and r[1] == r[2] else None
             op = None if v is None else (v >> 28) & 0xF
+            # a CRC job of unknown length (operand known down to [31:16]: MOVHI): it ends
+            # nb ticks after the commit, nb = [15:8] within the operand's range, and
+            # writes no tape word
+            crc_nb = None
+            if v is None and r[0] == "const" and int(r[1]) >> 16 == int(r[2]) >> 16                     and (int(r[1]) >> 28) & 0xF == 2:
+                crc_nb = ((int(r[1]) >> 8) & 0xFF, (int(r[2]) >> 8) & 0xFF)
             if op is not None and op > 3:
                 flag(pc, "ILLEGAL", f"LINE operation {op}")
                 continue
@@ -922,6 +928,11 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                 elif op == 2 and (v >> 8) & 0xFF:        # CRC: the last bit at E_(c+nb)
                     t.lu = "own"
                     t.z.assign(LUE, NOW, (v >> 8) & 0xFF)
+                elif crc_nb is not None:
+                    t.lu = "own"
+                    t.z.free(LUE)
+                    t.z.constrain(LUE, NOW, crc_nb[1])
+                    t.z.constrain(NOW, LUE, -crc_nb[0])
                 elif op == 3:                            # CONFIG: complete at E_(c+9)
                     t.lu = "own"
                     t.z.assign(LUE, NOW, 9)

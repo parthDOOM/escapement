@@ -48,9 +48,13 @@ MAX_PERIOD = 8192           # longest repeating pattern searched for, in ticks
 CHUNK = 4096
 # Firmware with no periodic prediction. The seven-segment animation waits 160 ms between
 # frames, so a short repeating wait looks steady until the next frame; the tape-driven
-# generated transmitters re-anchor on RDTIME every packet, so the digest never repeats.
+# generated transmitters re-anchor on RDTIME every packet, so the digest never repeats;
+# DShot (frames every 3125 ticks beside a context polling its mailbox: 12,500) and SENT
+# (an all-zero frame is 11,775 ticks) repeat over more than MAX_PERIOD; CEC and DALI look
+# at the host every millisecond while the bus is idle (25,000 ticks).
 # Bundled with kind "none": loaded, run and checked for faults only.
-NO_PREDICT = {"seven_seg.asm", "ws2812_gen.asm", "dmx512_tx.asm"}
+NO_PREDICT = {"seven_seg.asm", "ws2812_gen.asm", "dmx512_tx.asm", "dshot_tx.asm", "sent_tx.asm",
+              "cec.asm", "dali.asm"}
 # Variants: name -> (firmware, .equ overrides). v1.3: the logic analyser streaming a
 # 64-word ring to the host during the run (escapement_demo.stream).
 VARIANTS = {"logic_analyzer_stream": ("logic_analyzer.asm",

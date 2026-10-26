@@ -878,6 +878,71 @@ async def test_stop(dut):
     assert tr[49]["imem"] is not None
 
 
+LU_STOP_SRC = """
+.entry 0, s
+.tape 0xF0, 0, 0x00800010, 0
+.tape 0xE0, 0x300000F0
+s: LDT r0, r3, 0xE0
+   LINE r0                  ; CONFIG: the unit reads T[F0], T[F1], T[F2] in its own cycles
+l: JMP l
+"""
+
+
+async def lu_stop_run(dut, stop_at=None, n=60):
+    """LU_STOP_SRC from a fresh reset, tape loaded while stopped; per cycle, the line unit's
+    port request and the tape strobes. Stop is asserted in cycle `stop_at`."""
+    env = await new_env(dut)
+    img = assemble(LU_STOP_SRC)
+    for a, w in enumerate(img.tape):
+        if w:
+            dut.tl_addr.value, dut.tl_data.value, dut.tl_we.value = a, w, 1
+            await FallingEdge(dut.clk)
+    dut.tl_we.value = 0
+    await env.load_and_start(LU_STOP_SRC)
+    rows = []
+    for t in range(n):
+        dut.stop.value = 1 if t == stop_at else 0
+        await Timer(1, unit="ns")
+        rows.append((iv(dut.u_core.lu_port), iv(dut.tape_re), iv(dut.tape_we)))
+        await FallingEdge(dut.clk)
+    dut.stop.value = 0
+    return rows
+
+
+@cocotb.test()
+async def test_line_unit_makes_no_access_at_a_stop_edge(dut):
+    """11-SEMANTICS 6.6: at a start or stop edge the line unit makes no tape access, even in
+    a cycle it scheduled one (here a CONFIG's second word). Found by mutation: an access
+    allowed at the stop edge changed nothing any other test looked at."""
+    rows = await lu_stop_run(dut)
+    sched = [t for t, (port, re, we) in enumerate(rows) if port]
+    assert sched and all(rows[t][1] == 1 for t in sched), rows   # the reads happen
+    rows = await lu_stop_run(dut, stop_at=sched[0])
+    assert rows[sched[0]][0] == 1 and rows[sched[0]][1:] == (0, 0), rows[sched[0]]
+
+
+@cocotb.test()
+async def test_debug_port_after_stop_shows_final_registers(dut):
+    """After a stop, selects 0-8 through the debug port read the registers as the run left
+    them, whichever of the context's four slot phases the stop fell in: the port reloads
+    its cached field once when the run stops (D-41). Found by mutation: a cache that kept
+    its last in-run value passed every other test."""
+    src = ".entry 0, a\na:\n" + "".join(f"   MOVI r0, {k}\n" for k in range(1, 21)) + "l: JMP l\n"
+    for stop_at in range(40, 44):
+        env = await new_env(dut)
+        await env.load_and_start(src)
+
+        def stim(t):
+            dut.stop.value = 1 if t == stop_at else 0
+
+        await env.run(stop_at + 12, stim=stim, full=False)
+        dut.dbg_sel.value = 0
+        dut.dbg_sel_ctx.value = 0
+        await Timer(1, unit="ns")
+        final = ctx_reg(dut.u_core, 0, 0)
+        assert 1 < final < 20 and int(dut.dbg_rdata.value) == final, (stop_at, final, int(dut.dbg_rdata.value))
+
+
 @cocotb.test()
 async def test_start_reinitialises_context(dut):
     """sec. 9 Start: a second START clears r0-r3, sh and tmr even when the previous run
