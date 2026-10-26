@@ -343,6 +343,68 @@ context runs on the simulator without an admission fault and with telemetry at o
 the bound. That test found two checker bugs before release, and the chip's telemetry
 caught a third on the first run.
 
+### Certificates against measurements
+
+`test/cosim/proof_table.py` (`make proof-table`) sets every certified bound beside the
+leads the implementations measure, so each certificate is tested on every run instead of
+trusted. A measured lead below its bound is a bug in escert or in whatever measured it,
+and fails the table.
+
+Result on 2026-10-26, the 26 co-simulation cases with their bus models and host traffic
+(36 contexts):
+
+| | Contexts |
+| --- | ---: |
+| Queued events, so a lead was measured | 31 |
+| Measured lead equal to the certified bound, to the tick | 28 |
+| Measured lead above the bound (`ws2812` 8 against 5, `ws2812_gen` 6 against 5, `usb_hid` 12 against 1) | 3 |
+| Measured lead below the bound | 0 |
+| RTL lead or digest different from the ISS's | 0 |
+
+The RTL columns come from the co-simulation itself: with `COSIM_PROOF_OUT=file`,
+`test_cosim.py` records the RTL's telemetry and digest for each firmware, and `--rtl file`
+adds them. The table also runs every shipped firmware at its real clock in the demo
+board's environment, where bring-up stage 5 checks the same bounds on the chip and writes
+`proof.json` for `--board` ([bring-up](16-BRING-UP.md#stage-5-firmware-digests)). Most
+bounds are exact, which makes the check sharp: a chip that queued one event a tick closer
+to its deadline than escert's worst case would fail it.
+
+Certificates compose. Each context issues in fixed barrel slots and nothing another
+context does changes its timing, so firmware certified one context at a time stays
+certified when the contexts run together; the two combined images in the table certify
+and measure context by context.
+
+Building the table found one imprecision in escert. Its completeness check sent a RET to
+the return address of every CALL in the image, so in `nec_ir_cosim.asm` (`nec_tx` and
+`nec_rx` together) the receiver's RET reached the transmitter's burst routine, and the
+receiver could not be certified. A RET now returns only to the CALLs its own context
+reaches (`test_a_ret_reaches_only_its_own_contexts_calls`).
+
+### Planted timing bugs
+
+`test/mutation/fw_mutants.py` (`make fw-mutants`) plants the timing bugs firmware authors
+make, one per mutant, in the source of each shipped program: a WAITT deleted, an ADDT
+deleted, an ADDT's delay cut to a quarter, or a conditional branch inverted. Each mutant
+is certified, and a certified mutant is then attacked with escert's randomised input
+search on the ISS: a fault there would mean escert certified a program that can fault.
+
+Result on 2026-10-26, 229 mutants in 27 programs, 12 input searches each:
+
+| escert's answer | Mutants |
+| --- | ---: |
+| REFUTED: a fault, reproduced on the ISS with concrete inputs | 50 |
+| NOT_PROVEN: a fault not excluded, and none found by the search | 13 |
+| CHECKED: no admission fault for any input | 166 |
+| CHECKED, yet the search made it fault | **0** |
+
+A CHECKED mutant is a change that keeps every deadline admissible, which escert is right
+to accept: it proves timing, not protocol correctness. All 53 inverted branches are of
+this kind, since every path re-anchors its time base, and so are 63 of the 76 shortened
+delays. Six of the 13 NOT_PROVEN mutants violate a rule in every state escert found on
+the flagged path, for example a lead of exactly −24 ticks in `cec` without one of its
+ADDTs. Reaching them needs inputs the random search did not produce, which is the gap a
+proof covers and testing does not.
+
 ## Protocol coverage
 
 Each firmware runs against an independent bus model in `sw/escmodels` on the simulator
@@ -382,7 +444,7 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script | 520 | Pass (2 need `sigrok-cli`) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script | 525 | Pass (2 need `sigrok-cli`) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
@@ -419,7 +481,7 @@ on master, with its commit and log, failures included.
 
 | Workflow | Runs on | Checks |
 | --- | --- | --- |
-| `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, firmware through the pins; the co-simulation and the line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
+| `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, the certificates against the RTL's measured leads (`proof_table.py`), firmware through the pins; the co-simulation and the line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
 | `formal` | a change to `src/` or `formal/` | `make formal`: formal-quick, then the unbounded core proof as one PDR task per assertion |
 | `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in sixteen shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors |
 | `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
@@ -434,6 +496,7 @@ these workflows. The formal and equivalence jobs use the OSS CAD Suite release p
 
 ```sh
 make sw-test cert test cosim-parallel host-test unit-test lint   # simulation and certificates
+make proof-table fw-mutants                                      # certificates against measurements; planted timing bugs
 make pin-test bringup-test                                       # newer firmware through the pins; bring-up script
 make gl-test gl-pin-test                                         # the same chip-level checks on the gate-level netlist
 CELLS=yes make test cosim-parallel                               # the RTL with the real clock-gate and latch cells

@@ -30,8 +30,9 @@ RANDOM = "test_random_programs"
 
 
 def firmware_cases() -> list[str]:
-    """Names in test_cosim.FIRMWARE_CASES (read from the source: importing it needs cocotb)."""
-    src = (HERE / "test_cosim.py").read_text()
+    """Names in fw_cases.FIRMWARE_CASES (read from the source: this runs without sw/ on
+    the path)."""
+    src = (HERE / "fw_cases.py").read_text()
     block = src[src.index("FIRMWARE_CASES = {"):]
     block = block[:block.index("\n}\n")]
     return re.findall(r'^\s+"(\w+)":', block, re.M)

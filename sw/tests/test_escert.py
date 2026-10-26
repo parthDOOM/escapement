@@ -98,6 +98,13 @@ def test_concurrent_image_certifies_every_context():
     assert [c.status for c in certs] == ["CHECKED"] * 3
 
 
+def test_a_ret_reaches_only_its_own_contexts_calls():
+    """nec_rx beside nec_tx: the completeness check once sent nec_rx's RET to the return
+    address of nec_tx's CALL burst and reported the burst's events as never analysed."""
+    certs = certify(assemble_file(REPO / "test" / "cosim" / "nec_ir_cosim.asm"))
+    assert [c.status for c in certs] == ["CHECKED"] * 2, [str(c) for c in certs]
+
+
 def test_historic_i2c_timeout_bug_is_refuted_with_a_witness():
     """The stuck-bus handler once used ADDI r1, 8 before its release EMIT (lead -4):
     escert proved the violation and the ISS reproduced it as ADMIT/PAST."""

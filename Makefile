@@ -5,11 +5,13 @@ PYTHON ?= python3
 # from data, so it is checked by the replay tests instead of by escert.
 FIRMWARE := $(filter-out firmware/replay.asm,$(wildcard firmware/*.asm))
 
-.PHONY: help env sw-test cert test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test lint formal formal-quick equiv mutation harden precheck clean
+.PHONY: help env sw-test cert proof-table fw-mutants test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test lint formal formal-quick equiv mutation harden precheck clean
 
 help:
 	@echo "sw-test    assembler, ISS, certificate checker and bus-model tests (pytest)"
 	@echo "cert       static timing certificate for every firmware (escert)"
+	@echo "proof-table  every certified lead beside the lead the ISS measures (RTL=file adds the RTL's)"
+	@echo "fw-mutants timing bugs planted in the firmware: escert must reject every one that can fault"
 	@echo "test       chip-level tests on the RTL (test/, as in CI)"
 	@echo "gl-test    chip-level tests on a gate-level netlist (test/gate_level_netlist.v)"
 	@echo "pin-test   SWD, SPI target and NEC firmware through the chip pins (gl-pin-test: on the netlist)"
@@ -38,6 +40,13 @@ sw-test:
 
 cert:
 	@cd sw && for f in $(FIRMWARE); do echo "== $$f"; $(PYTHON) -m escert ../$$f || exit 1; done
+
+# RTL=file: the telemetry test/cosim/test_cosim.py records with COSIM_PROOF_OUT=file
+proof-table:
+	$(PYTHON) test/cosim/proof_table.py $(if $(RTL),--rtl $(RTL))
+
+fw-mutants:
+	$(PYTHON) test/mutation/fw_mutants.py --jobs $(JOBS)
 
 test:
 	cd test && $(MAKE) -B

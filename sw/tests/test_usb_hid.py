@@ -9,6 +9,7 @@ device sends leaves exactly TURN ticks after the end of the host's packet.
 from __future__ import annotations
 
 import os
+import sys
 import random
 from pathlib import Path
 
@@ -684,3 +685,75 @@ def test_host_errors_are_reported(image):
         yield from control(h, 7, get_desc(1, length=18))
     with pytest.raises(UsbError):
         Run(image, addressed(script))
+
+
+# HID Usage Tables 1.5, section 10, written out again here for the decoder: the reports
+# escapement_demo.key_reports builds must type the text back on a US layout.
+US_KEYS = {**{0x04 + i: c for i, c in enumerate("abcdefghijklmnopqrstuvwxyz")},
+           **{0x1E + i: c for i, c in enumerate("1234567890")},
+           0x28: "\n", 0x2C: " ", 0x2D: "-", 0x2E: "=", 0x33: ";", 0x36: ",", 0x37: ".",
+           0x38: "/"}
+US_SHIFT = {"1": "!", "9": "(", "0": ")", "-": "_", "=": "+", ";": ":", ",": "<", ".": ">",
+            "/": "?"}
+
+
+def typed(reports: list[bytes]) -> str:
+    """What a host types from a report sequence: a key counts when it goes down."""
+    out, down = [], set()
+    for r in reports:
+        keys = {k for k in r[2:] if k}
+        for k in keys - down:
+            c = US_KEYS[k]
+            if r[0] & 0x22:                               # either shift
+                c = US_SHIFT.get(c, c.upper())
+            out.append(c)
+        down = keys
+    return "".join(out)
+
+
+def test_the_demo_types_text_through_the_keyboard(image):
+    """escapement_demo.prove() types its result through this firmware: the reports reach
+    a USB host and type the text back, repeated characters included."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sw" / "rp2350"))
+    import escapement_demo
+    text = "Esc uart_tx: 0x09af, min lead 0:9 (cert 9), ok>\n"
+    reports = escapement_demo.key_reports(text)
+    got: list[bytes] = []
+
+    def script(h, r):
+        yield from enumerate_device(h, r.out)
+        yield from poll_reports(h, len(reports), random.Random(7), got)
+    run(image, script, reports=reports, limit=12_000_000)
+    assert got == reports and typed(got) == text
+
+
+def test_type_text_waits_for_mailbox_room():
+    """type_text pushes each report as two little-endian words, only into a mailbox with
+    room (STATUS rx_full), as the board's firmware context drains it."""
+    import escapement_demo
+
+    class Host:
+        def __init__(self):
+            self.box, self.pushed = [], []
+
+        def status(self):
+            if len(self.box) == 2:
+                self.pushed.append(self.box.pop(0))       # the firmware takes one word
+                return {"rx_full": 0b10}
+            return {"rx_full": 0}
+
+        def mbx_push(self, ctx, w):
+            assert ctx == 1 and len(self.box) < 2
+            self.box.append(w)
+
+    class Io:
+        def sleep_ms(self, n):
+            pass
+
+    class B:
+        host, io = Host(), Io()
+
+    b = B()
+    escapement_demo.type_text(b, "Ab")
+    words = b.host.pushed + b.host.box
+    assert words == [0x00040002, 0, 0, 0, 0x00050000, 0, 0, 0]

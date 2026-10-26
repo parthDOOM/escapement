@@ -90,7 +90,10 @@ mpremote repl
 | `bringup.run(bundles="dir")` | Bundles from another directory |
 
 `bringup.LAST.results` keeps the last run's results. `escapement_demo.run("bundles/uart_tx.json")`
-runs a single bundle with telemetry.
+runs a single bundle with telemetry. `escapement_demo.prove()` checks `uart_tx` the same
+way, then reloads the chip as the USB keyboard (24 MHz, the wiring in
+`firmware/usb_hid.asm`) and types the result into the computer it is plugged into, for
+example `Escapement uart_tx: digest 0x63114ed9 matches the model, min lead 0:9 (cert 9)`.
 
 A passing run on the simulated board looks like this. Times, the RP system clock and the
 measured clock rate will differ on hardware; the stage lines and verdicts are what to
@@ -108,13 +111,13 @@ compare.
 [4] pins and clock rate ...
 [4] PASS  uio[7:0] toggle as driven; chip clock 25.0000 MHz from a 25000-tick period; STOP releases pins; all 8 inputs read correctly; bank B: 5 outputs toggle and release high, 5 inputs read correctly; streaming capture: 16 edges through an 8-word ring
 [5] firmware digests ...
-    can_rx.asm             steady ok    digest 0x2c2bc8cb = model at tick 160448
-    can_tx.asm             steady ok    digest 0xffaf382b = model at tick 160444
-    cec.asm                none   ok    no digest prediction; state compared
+    can_rx.asm             steady ok    digest 0xe50858a7 = model at tick 183088
+    can_tx.asm             steady ok    digest 0x37f7d58e = model at tick 183084; min lead 0:3 (cert 3)
+    cec.asm                none   ok    no digest prediction; state compared; min lead 0:13 (cert 4)
     ...
-    usb_hid.asm            steady ok    digest 0x394c297d = model at tick 160446
-    uart_tx.asm            halt   ok    digest 0x63114ed9 model 0x63114ed9
-[5] PASS  30 of 30 firmware match the model
+    uart_tx.asm            halt   ok    digest 0x63114ed9 model 0x63114ed9; min lead 0:9 (cert 9)
+    usb_hid.asm            steady ok    digest 0x1bce2a0d = model at tick 183086; min lead 0:none (cert 1)
+[5] PASS  30 of 30 firmware match the model and their certificates
 [6] UART smoke test (optional) ...
     uart_tx.asm: RP UART received 55 4b 21 0a
 [6] PASS  1 UART smoke test(s) received exactly the model's bytes
@@ -267,6 +270,16 @@ START. Then, by kind:
 
 Each firmware prints one line; the stage fails if any firmware differs.
 
+Every bundle also carries escert's certificate for each context: a lower bound on the
+chip's own `min_lead` telemetry (`READ_DBG` sel 9 [31:16], the least time between
+queuing an event and its deadline). After the run the board reads the telemetry, prints
+`min lead k:measured (cert bound)` per context ("none" when the context queued no
+event), and fails the firmware if a measured lead is below its bound: escert proved the
+bound for every input, so such a reading is a bug in escert or in the chip's admission
+path. The stage writes the telemetry of every firmware to `proof.json`, which
+`python test/cosim/proof_table.py --board proof.json` sets beside the certificates and the
+simulators' measurements ([verification](04-VERIFICATION.md#certificates-against-measurements)).
+
 | Result | Meaning | Next |
 | --- | --- | --- |
 | LOAD FAILED | Readback differs | Stage 3 should have failed; rerun it with `quick=False` |
@@ -274,6 +287,7 @@ Each firmware prints one line; the stage fails if any firmware differs.
 | same end state, different history | A commit, register value or pin change differed during the run but the end state agrees, or the digest path itself is faulty | Same capture; if the pins agree everywhere, suspect the digest logic |
 | not on the model orbit | A steady firmware's digest never matched within the measured run length | As above; also check the clock rate from stage 4, since the search window depends on it |
 | uio levels ..., model ... | The chip's registers agree but a pad does not | Stage 4's pin results; a load on the pin |
+| ctx k min_lead m below the certified b | The chip queued an event closer to its deadline than escert proved possible | Report it with the firmware name and the bundle: the certificate or the admission logic is wrong |
 
 ### Stage 6 (optional): UART smoke test
 
@@ -312,7 +326,7 @@ The same script runs under CPython against two simulated chips:
 
 | Command | Chip | What it shows |
 | --- | --- | --- |
-| `make sw-test` (`sw/tests/test_bringup.py`) | `sw/tests/demoboard_mock.py`: the host interface modelled cycle by cycle after `escapement_host.v`, the ISS as the core, both SRAMs, and faults | A correct chip passes stages 0–6 with every firmware, without the RP and the chip ever driving the same pin and with every SCK phase at least 4 clocks. 22 injected board and chip faults (selection, DIP switch, clock, reset state, MISO/MOSI stuck, a v1.0 or v1.1 chip, a too-fast host, SRAM address and data lines stuck or shorted, a dead output, a stuck input, a half-rate clock, a bank B output stuck low or high, a bank B input stuck) each fail the stage meant to catch them with the expected diagnosis; so do a stuck register bit, a fault in the digest path only, and stale bundles (stage 5) |
+| `make sw-test` (`sw/tests/test_bringup.py`) | `sw/tests/demoboard_mock.py`: the host interface modelled cycle by cycle after `escapement_host.v`, the ISS as the core, both SRAMs, and faults | A correct chip passes stages 0–6 with every firmware, without the RP and the chip ever driving the same pin and with every SCK phase at least 4 clocks. 22 injected board and chip faults (selection, DIP switch, clock, reset state, MISO/MOSI stuck, a v1.0 or v1.1 chip, a too-fast host, SRAM address and data lines stuck or shorted, a dead output, a stuck input, a half-rate clock, a bank B output stuck low or high, a bank B input stuck) each fail the stage meant to catch them with the expected diagnosis; so do a stuck register bit, a fault in the digest path only, stale bundles and a certificate the chip's telemetry contradicts (stage 5) |
 | `make bringup-test` (`test/bringup/`, about 15 minutes) | The RTL of the whole chip under cocotb, with the board's uio wiring in `tb_bringup.v` | Stages 0–6 pass on the RTL with four firmware (`BRINGUP_FIRMWARE=all` for every one); a stale bundle fails stage 5 |
 
 The simulated board imitates the parts of tt-micropython-firmware the script uses,

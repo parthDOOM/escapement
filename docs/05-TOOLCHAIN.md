@@ -32,7 +32,7 @@ upstream change cannot silently alter a harden.
 
 | Workflow | Runs |
 | --- | --- |
-| `test.yaml` | The chip-level cocotb tests on the RTL; then, in a second job, `sw-test`, `cert`, `cosim-parallel` and `pin-test`, and the co-simulation and line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
+| `test.yaml` | The chip-level cocotb tests on the RTL; then, in a second job, `sw-test`, `cert`, `cosim-parallel`, `proof-table` (on the co-simulation's RTL telemetry) and `pin-test`, and the co-simulation and line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
 | `formal.yaml` | `make formal`: the quick proofs, then the unbounded core proof as parallel tasks |
 | `mutation.yaml` | The mutation campaign in sixteen shards, after a baseline of every suite on the unmutated RTL |
 | `gds.yaml` | The Tiny Tapeout harden (LibreLane), then the precheck and the gate-level test on the hardened netlist |

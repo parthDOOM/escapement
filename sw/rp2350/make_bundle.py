@@ -19,6 +19,10 @@ model predicts the chip will show (`expect`):
   none    neither within the tick budget: only loading, running and the fault state are
           checked.
 
+`cert` lists escert's certificate per enabled context, [ctx, status, bound]: bringup.py
+reads the chip's `min_lead` (READ_DBG sel 9) after the run and fails the firmware if it
+is below the bound (null: no event site, nothing to bound).
+
 Variants (VARIANTS) are a firmware assembled with `.equ` overrides under their own
 name; `logic_analyzer_stream` is the streaming capture escapement_demo.stream() runs.
 
@@ -37,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "sw"))
 
 from escasm import assemble, assemble_file  # noqa: E402
+from escert import certify  # noqa: E402
 from escmodels import Board, UartRx  # noqa: E402
 from esciss import Machine  # noqa: E402
 from esciss.machine import DG_POLY, M32, RUNNING, default_board  # noqa: E402
@@ -203,6 +208,8 @@ def bundle(fw: Path, name: str | None = None, overrides: dict | None = None) -> 
         "cfg": [image.ctx_enable_mask, image.entry_pcs_packed, image.pin_owned_mask,
                 image.pin_owner_packed, image.pin_od_mask, image.ctx_bank_mask],
         "expect": predict(image) if fw.name not in NO_PREDICT else no_prediction(image),
+        "cert": [[c.ctx, c.status, None if c.min_lead == float("inf") else int(c.min_lead)]
+                 for c in certify(image)],
     }
     e = out["expect"]
     if e["kind"] == "halt":                     # read by escapement_demo.py

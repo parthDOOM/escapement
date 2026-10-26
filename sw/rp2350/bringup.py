@@ -11,7 +11,8 @@
 #     bringup.run(stages=(0, 1, 2))       # only some stages
 #
 # Stages: 0 board and project, 1 clock and reset, 2 host link, 3 memories, 4 pins and
-# clock rate, 5 firmware digests against the model, 6 (optional) UART smoke test. Each
+# clock rate, 5 firmware digests and timing certificates against the model, 6 (optional)
+# UART smoke test. Each
 # stage prints PASS or FAIL with a diagnosis. The same code runs under CPython against a
 # simulated demo board (sw/tests/test_bringup.py and test/test_bringup_rtl.py).
 #
@@ -303,11 +304,13 @@ class Link:
 # ------------------------------------------------------------------------ stages
 
 class Bringup:
-    def __init__(self, io, bundles="bundles", quick=False, out=print):
+    def __init__(self, io, bundles="bundles", quick=False, out=print, proof=None):
         self.io, self.bundles, self.quick, self.say = io, bundles, quick, out
+        self.proof_file = proof
         self.link = self.host = None
         self.f_clk = F_CLK                    # replaced by the stage 4 measurement
         self.results = []
+        self.proof = {}                       # stage 5: bundle name -> chip telemetry
 
     # -- helpers
     def connect(self):
@@ -785,10 +788,16 @@ class Bringup:
             if not ok:
                 bad.append(b["name"])
                 self.say("      " + diag)
+        if self.proof_file:                   # for test/cosim/proof_table.py --board
+            try:
+                with open(self.proof_file, "w") as f:
+                    json.dump(self.proof, f)
+            except OSError:
+                pass
         if bad:
             raise Fail("%d of %d firmware differ from the model: %s (details above)."
                        % (len(bad), len(files), ", ".join(bad)))
-        return "%d of %d firmware match the model" % (len(files), len(files))
+        return "%d of %d firmware match the model and their certificates" % (len(files), len(files))
 
     def run_bundle(self, b):
         io, host, link = self.io, self.host, self.link
@@ -846,11 +855,17 @@ class Bringup:
             dg_ok = True
             result = "no digest prediction; state compared"
         diffs = self.compare_sig(sig, e)
-        ok = dg_ok and not diffs
-        line = "%s %s  %s%s" % (name, "ok  " if ok else "FAIL", note, result)
+        leads, cert_bad = self.check_cert(b, sig)
+        self.proof[b["name"]] = {"kind": e["kind"], "digest_ok": dg_ok, "tele": sig["tele"]}
+        ok = dg_ok and not diffs and not cert_bad
+        line = "%s %s  %s%s%s" % (name, "ok  " if ok else "FAIL", note, result, leads)
         if ok:
             return True, line, ""
-        if diffs:
+        if cert_bad:
+            diag = ("%s. escert proved this bound for every input, so the chip measured a "
+                    "lead the certificate excludes: a bug in escert or in the chip's "
+                    "admission path. Report it with the firmware name." % "; ".join(cert_bad))
+        elif diffs:
             diag = ("chip and model differ at the end: %s. Compare a logic analyser capture "
                     "of uio[7:0] from START with `make_bundle.py --trace` (%s.pins.csv)."
                     % ("; ".join(diffs[:4]), b["name"].rsplit(".", 1)[0]))
@@ -867,7 +882,21 @@ class Bringup:
             v7 = h.read_dbg(k, 7)
             ctx.append([(v7 >> 2) & 3, (v7 >> 8) & 0xFF] + [h.read_dbg(k, r) for r in range(4)])
         return {"ctx": ctx, "first_fault": h.read_dbg(0, 14), "fault_tick": h.read_dbg(0, 15),
-                "uio": self.io.read_uio()}
+                "uio": self.io.read_uio(), "tele": [h.read_dbg(k, 9) for k in range(4)]}
+
+    def check_cert(self, b, sig):
+        """The chip's min_lead (sel 9 [31:16]) against each context's certificate: a
+        summary for the result line and the violations."""
+        leads, bad = [], []
+        for k, status, lb in b.get("cert", []):
+            ml = sig["tele"][k] >> 16
+            if status != "CHECKED":
+                bad.append("ctx %d certificate %s" % (k, status))
+            elif lb is not None and ml != 0xFFFF and ml < lb:
+                bad.append("ctx %d min_lead %d below the certified %d" % (k, ml, lb))
+            if lb is not None:
+                leads.append("%d:%s (cert %d)" % (k, "none" if ml == 0xFFFF else ml, lb))
+        return ("; min lead " + ", ".join(leads)) if leads else "", bad
 
     def compare_sig(self, sig, e):
         diffs = []
@@ -939,12 +968,13 @@ LAST = None                               # the last run's Bringup object (resul
 
 
 def run(bundles="bundles", stages=None, keep_going=False, optional=False, quick=False,
-        io=None, out=print):
+        io=None, out=print, proof="proof.json"):
     """Run the bring-up stages; returns True if every stage run passed. Stages 0-2 always
     run (they select, clock and connect the chip). quick=True uses fewer repetitions and
-    patterns (a fast re-check, and the RTL simulation of this script)."""
+    patterns (a fast re-check, and the RTL simulation of this script). Stage 5 writes the
+    chip's telemetry per firmware to `proof` (None: no file)."""
     global LAST
-    b = LAST = Bringup(io or DemoBoardIO.open(), bundles, quick, out)
+    b = LAST = Bringup(io or DemoBoardIO.open(), bundles, quick, out, proof)
     want = set(stages if stages is not None else (0, 1, 2, 3, 4, 5))
     if optional:
         want.add(6)

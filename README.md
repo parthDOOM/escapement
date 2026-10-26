@@ -84,7 +84,10 @@ flowchart LR
   overwritten before the host has read it.
 - **Self-measurement.** Per context, the chip records its minimum scheduling lead and
   maximum queue occupancy, so a static timing certificate can be checked against the
-  hardware.
+  hardware. Bring-up checks every firmware's certificate on the chip; in simulation the
+  measured lead equals the certified bound to the tick in 28 of 31 contexts and is never
+  below it. Contexts never change one another's timing, so certificates compose:
+  firmware certified one context at a time stays certified running together.
 - **Execution digest.** A 32-bit signature of every commit, register write and pin
   change in a run, readable over SPI and predicted by the reference model.
 
@@ -105,7 +108,7 @@ recovery, destuffing and a CRC-15 check on every frame of a bus.
 | Clock | 25 MHz rated at the slow corner (1.08 V, 125 °C); the layout meets timing up to 28.6 MHz there, 45 MHz at the typical corner (1.20 V, 25 °C) and 70 MHz at the fast one ([frequency headroom](docs/03-PHYSICAL-DESIGN.md#sign-off-results)) |
 | Physical | 27,972 cells and two SRAM macros, 58.2% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes; the GitHub Actions harden reproduces the layout with the same netlist |
 | Power | 3.1 mW sending UART, 2.5 mW stopped (typical corner) |
-| Firmware | 31 programs (two, the USB keyboard and the CAN receiver, for v1.4's line unit), five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs) |
+| Firmware | 31 programs (two, the USB keyboard and the CAN receiver, for v1.4's line unit), five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs); of 229 timing bugs planted in them, escert rejects 63, and none of the 166 it certifies faults under a randomised input search ([certificates](docs/04-VERIFICATION.md#planted-timing-bugs)) |
 | Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 653 of 710 RTL mutants killed and none surviving (19 proved equivalent, 38 excluded with a written argument), on the standard-cell models; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 
 Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),
@@ -155,6 +158,7 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 pip install -r test/requirements.txt          # cocotb, pytest, pyyaml; Icarus Verilog for RTL
 make sw-test                                  # assembler, ISS, certificates, models
 make cert                                     # timing certificate for every firmware
+make proof-table                              # each certificate beside the measured leads
 make test                                     # chip-level RTL tests
 make cosim                                    # ISS vs RTL lockstep
 ```

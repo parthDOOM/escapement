@@ -68,11 +68,12 @@ def subset(src, tmp_path, names, edit=None):
 
 
 def run_on(chip, bundle_dir, *, stages=None, optional=False, quick=True, keep_going=False,
-           **board_kw):
+           proof=None, **board_kw):
     board = MockBoard(chip, **board_kw)
     lines = []
     ok = bringup.run(bundles=str(bundle_dir), stages=stages, optional=optional, quick=quick,
-                     keep_going=keep_going, io=board.io(bringup), out=lines.append)
+                     keep_going=keep_going, io=board.io(bringup), out=lines.append,
+                     proof=proof)
     return ok, bringup.LAST.results, "\n".join(lines)
 
 
@@ -215,6 +216,25 @@ def test_stale_bundles_are_caught(bundles, tmp_path):
     assert results[-1][:2] == (5, False), log
     assert "2 of 2 firmware differ" in results[-1][2], log
     assert "not on the model orbit" in log, log
+
+
+def test_chip_telemetry_is_checked_against_the_certificates(bundles, tmp_path):
+    small = subset(bundles, tmp_path, ["uart_tx.json"])
+    proof = tmp_path / "proof.json"
+    ok, results, log = run_on(SimChip(), small, stages=(5,), proof=str(proof))
+    assert ok, log
+    assert "min lead 0:9 (cert 9)" in log, log     # uart_tx: the bound is met exactly
+    tele = json.loads(proof.read_text())["uart_tx.asm"]
+    assert tele["digest_ok"] and tele["tele"][0] >> 16 == 9, tele
+
+
+def test_a_lead_below_the_certificate_fails(bundles, tmp_path):
+    def tighten(b):
+        b["cert"] = [[0, "CHECKED", 10]]            # a bound the chip cannot meet: 9 < 10
+    small = subset(bundles, tmp_path, ["uart_tx.json"], tighten)
+    ok, results, log = run_on(SimChip(), small, stages=(5,))
+    assert results[-1][:2] == (5, False), log
+    assert "ctx 0 min_lead 9 below the certified 10" in log and "bug in escert" in log, log
 
 
 def test_keep_going_reports_later_stages(bundles, tmp_path):

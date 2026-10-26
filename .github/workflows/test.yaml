@@ -92,7 +92,12 @@ jobs:
           make cert | tee results/cert.log
 
       - name: Co-simulation
-        run: make cosim-parallel JOBS=4
+        run: COSIM_PROOF_OUT=$PWD/results/proof_rtl.jsonl make cosim-parallel JOBS=4
+
+      - name: Certificates against measurements
+        run: |
+          set -o pipefail
+          make proof-table RTL=$PWD/results/proof_rtl.jsonl | tee results/proof.md
 
       - name: Firmware through the chip pins
         run: |

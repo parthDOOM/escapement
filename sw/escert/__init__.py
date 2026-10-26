@@ -1121,12 +1121,9 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
 
 def _cfg_events(image: Image, ctx: int) -> set:
     """Event instructions reachable in the control-flow graph (every branch both ways,
-    RET to every CALL's return address)."""
-    rets = set()
-    for pc, w in enumerate(image.words):
-        name, f = _decode(w)
-        if name == "CALL":
-            rets.add(pc + 1)
+    RET to the return address of every CALL this context reaches: another context's
+    subroutines are not reachable through a RET)."""
+    rets, ret_reached = set(), False
     seen, todo, ev = set(), [image.entry_pcs[ctx]], set()
     while todo:
         pc = todo.pop()
@@ -1140,9 +1137,13 @@ def _cfg_events(image: Image, ctx: int) -> set:
             ev.add(pc)
         if name == "JMP":
             todo.append(f["target"])
-        elif name in ("JZ", "JNZ", "JC", "JNC", "DJNZ", "CALL"):
-            todo += [f["target"], pc + 1] if name != "CALL" else [f["target"]]
+        elif name == "CALL":
+            rets.add(pc + 1)
+            todo += [f["target"], pc + 1] if ret_reached else [f["target"]]
+        elif name in ("JZ", "JNZ", "JC", "JNC", "DJNZ"):
+            todo += [f["target"], pc + 1]
         elif name == "RET":
+            ret_reached = True
             todo += list(rets)
         else:
             todo.append(pc + 1)
