@@ -93,8 +93,8 @@ flowchart LR
 - **Execution digest.** A 32-bit signature of every commit, register write and pin
   change in a run, readable over SPI and predicted by the reference model.
 
-**Version 1.4: a line unit** (on `master`: specified, simulated, in the RTL and laid out
-at 6×4 with every sign-off check passing; the last tagged release is v1.3). It does the
+**Version 1.4: a line unit** ([release v1.4](https://github.com/parthDOOM/escapement/releases/tag/v1.4):
+specified, simulated, in the RTL and laid out at 6×4 with every sign-off check passing). It does the
 per-bit work of packet protocols, NRZI, bit stuffing, CRCs and clock recovery, for one
 context, while the firmware handles packets. A 187-instruction USB low-speed keyboard runs on it: a real
 Linux kernel enumerates the simulated chip over USB/IP and receives typed text through
