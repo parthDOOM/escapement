@@ -467,7 +467,7 @@ SCENARIOS = [
                 {"key": "data", "label": "Data (hex)", "type": "hex", "default": "A5"},
                 {"key": "target", "label": "Target answers at (hex)", "type": "hex",
                  "default": "42"}],
-     "blurb": "Fast mode (400 kHz), open-drain: the chip only ever pulls low. The target "
+     "blurb": "Fast mode, about 390 kHz, open-drain: the chip only ever pulls low. The target "
               "stretches SCL after each byte and the controller waits for it. Give the "
               "target another address to see a NACK."},
     {"id": "spi", "title": "SPI controller", "firmware": "spi_ctrl.asm", "fn": sc_spi,

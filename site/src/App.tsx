@@ -173,8 +173,8 @@ export default function App() {
               <div className="prose">
                 <h3>A USB keyboard in 187 instructions</h3>
                 <p>The keyboard firmware enumerates on a real Linux kernel, through USB/IP, with the simulated chip
-                  on the other end. The timing checker proves that every reply leaves exactly 75 ticks after the end
-                  of the host's packet, 4.69 bit times, inside USB's 2 to 6.5.</p>
+                  on the other end. The timing checker proves that every reply is scheduled exactly 72 ticks after the
+                  end of the host's packet; at the pins that is 75 ticks, 4.69 bit times, inside USB's 2 to 6.5.</p>
                 <p><button type="button" className="link" onClick={() => tryInPlayground("usb")}>
                   Type through it in the playground</button>.</p>
               </div>
@@ -240,10 +240,11 @@ export default function App() {
                 <p>A 32-bit <strong>execution digest</strong> folds every commit, register write and pin change of a
                   run into one word. After a run on silicon, one SPI read compares the chip with the model's
                   prediction.</p>
-                <p>To check the tests themselves, 431 faults are planted in the RTL one at a time, across every
-                  module. The tests catch 403. Of the rest, 10 are proved to change no output of the chip, and 18
-                  are excluded with a written reason, such as logic the never-late proof shows can never run. None
-                  survives. The 57 that first slipped through led to nine new tests.</p>
+                <p>To check the tests themselves, 710 faults are planted in the RTL one at a time, across every
+                  module, the line unit included, and simulated on the PDK's standard-cell models. The tests catch 653. Of
+                  the rest, 19 are proved to change no output of the chip, and 38 are excluded with a written reason,
+                  such as logic a proof shows can never run. None survives. Every fault that slipped through an
+                  earlier run was read against the RTL, and each hole it showed was closed with a new test.</p>
               </div>
               <ProofTable />
             </div>

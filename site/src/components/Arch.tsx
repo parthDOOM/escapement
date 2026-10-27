@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 // 5 columns x 4 rows; every wire runs in the channels between blocks
 const BW = 160, BH = 60, C = [10, 220, 430, 640, 850], R = [20, 165, 310, 455];
@@ -69,12 +69,30 @@ const W: [string, string, number[][], string, number, number, boolean?][] = [
 ];
 const MID = new Set(["SPI", "push", "drive", "edges", "inputs", "packets", "line in"]);
 
+// each block's neighbours, read off the wires: [block, "in" | "out" | "both", wire label]
+const NB: Record<string, [string, string, string][]> = {};
+W.forEach(([a, z, , lab, , , both]) => {
+  (NB[a] ||= []).push([z, both ? "both" : "out", lab]);
+  (NB[z] ||= []).push([a, both ? "both" : "in", lab]);
+});
+const ARROW: Record<string, string> = { in: "←", out: "→", both: "↔" };
+
 export default function Arch() {
   const [sel, setSel] = useState("fifo");
   const b = B[sel];
+  const svgBox = useRef<HTMLDivElement>(null);
+  // pick a block from the detail panel; on a narrow screen, bring it into the cropped diagram
+  const go = (k: string) => {
+    setSel(k);
+    const el = svgBox.current;
+    if (el && el.scrollWidth > el.clientWidth) {
+      const cx = (C[B[k].c] + BW / 2) / 1020 * el.scrollWidth;
+      el.scrollTo({ left: cx - el.clientWidth / 2, behavior: "smooth" });
+    }
+  };
   return (
     <div className="arch">
-      <div className="arch-svg panel">
+      <div className="arch-svg panel" ref={svgBox}>
         <svg viewBox="0 0 1020 530" role="group" aria-label="Block diagram">
           <defs>
             <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -85,7 +103,7 @@ export default function Arch() {
             const hot = a === sel || z === sel;
             return (
               <g key={i}>
-                <polyline points={pts.map((q) => q.join(",")).join(" ")} className={"wire" + (hot ? " hot" : "")}
+                <polyline points={pts.map((q) => q.join(",")).join(" ")} className={"wire" + (hot ? (both ? " hot both" : " hot") : "")}
                   markerEnd="url(#ah)" markerStart={both ? "url(#ah)" : undefined} />
                 {lab && (
                   <text x={lx} y={ly} className={"wlab" + (hot ? " hot" : "")} textAnchor={MID.has(lab) ? "middle" : undefined}>
@@ -115,17 +133,33 @@ export default function Arch() {
           ))}
         </div>
       </div>
-      <div className="arch-detail panel" aria-live="polite">
-        <h3>{b.t}</h3>
-        <div className="prose"><p>{b.d}</p></div>
-        <dl>
-          {b.f.map(([a, v]) => (
-            <div key={a} style={{ display: "contents" }}>
-              <dt>{a}</dt>
-              <dd>{v}</dd>
+      {/* every block's page sits in the same grid cell, so the panel keeps the height of the
+          tallest and the page below never moves when the selection changes */}
+      <div className="arch-detail panel">
+        <span className="visually-hidden" aria-live="polite">{b.t}</span>
+        {Object.entries(B).map(([k, v]) => (
+          <div key={k} className={"arch-page" + (k === sel ? " on" : "")} aria-hidden={k !== sel}>
+            <h3>{v.t}</h3>
+            <div className="prose"><p>{v.d}</p></div>
+            <dl>
+              {v.f.map(([a, x]) => (
+                <div key={a} style={{ display: "contents" }}>
+                  <dt>{a}</dt>
+                  <dd>{x}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="arch-nb">
+              <span className="dim">Connects to</span>
+              {(NB[k] || []).map(([n, dir, lab], i) => (
+                <button key={i} type="button" className="chip" tabIndex={k === sel ? 0 : -1} onClick={() => go(n)}
+                  title={lab ? lab + " (" + ARROW[dir] + ")" : undefined}>
+                  {ARROW[dir]} {B[n].t}{lab && <span className="dim"> · {lab}</span>}
+                </button>
+              ))}
             </div>
-          ))}
-        </dl>
+          </div>
+        ))}
       </div>
     </div>
   );

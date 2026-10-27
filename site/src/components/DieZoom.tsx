@@ -1,7 +1,7 @@
 // Pan and zoom the die from a tile pyramid rendered from the GDS; overlay the block map
 // and read off which block is under the pointer.
 import { useEffect, useRef, useState } from "react";
-import { asset, css, DPR, fit, useJson } from "../lib/util";
+import { asset, css, DPR, fit, useJson, useWheelGuard, ZOOM_KEY } from "../lib/util";
 import { Block, blockAt, Floorplan, floorplan, paint } from "../lib/floorplan";
 import type { DieInfo } from "./Die3D";
 
@@ -17,6 +17,7 @@ export default function DieZoom() {
   const [overlay, setOverlay] = useState<string | null>(null); // null off, "all", or a block key
   const [under, setUnder] = useState<Block | null>(null);
   const [scale, setScale] = useState("");
+  const wheelHint = useWheelGuard(box);
   const state = useRef({ labels: true, overlay: null as string | null, schedule: () => {}, reset: () => {} });
   state.current.labels = labels;
   state.current.overlay = overlay;
@@ -170,6 +171,7 @@ export default function DieZoom() {
           <button className="icon-btn" type="button" onClick={() => state.current.reset()}>fit</button>
         </div>
         {overlay && under && <span className="cell-tag">{under.label} · {under.about}</span>}
+        <span className="wheel-hint" data-on={wheelHint || undefined}>{ZOOM_KEY} + scroll to zoom</span>
         <span className="scale"><i style={{ width: bar.current }} />{scale}</span>
       </div>
       {fp && overlay && (
@@ -187,7 +189,7 @@ export default function DieZoom() {
         </div>
       )}
       <figcaption>
-        Drag to pan, scroll or pinch to zoom. Program memory bottom left, tape top right, Tiny Tapeout's pins
+        Drag to pan; pinch, double-click, or hold {ZOOM_KEY} and scroll to zoom. Program memory bottom left, tape top right, Tiny Tapeout's pins
         along the top left. <b>Blocks</b> colours each 5 µm square by the part of the design with the most cell
         area in it; pick one block to see where its cells went. Synthesis flattens the design, so the map is
         reconstructed from the net names the cells drive: a close approximation, not a placement constraint.

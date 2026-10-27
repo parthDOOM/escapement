@@ -131,6 +131,32 @@ export function useResize(cb: () => void, deps: unknown[] = []) {
   }, deps);
 }
 
+/** A figure that zooms on the wheel must not catch the page as it scrolls past: a plain
+ *  wheel over it scrolls the page, and Ctrl (⌘ on a Mac) plus the wheel, or a trackpad
+ *  pinch, which browsers send as a Ctrl wheel, zooms. Listens in the capture phase on the
+ *  figure's box, so it stops the event before the canvas's own handler sees it. Returns
+ *  true for a moment after a blocked wheel, to show a hint. */
+export function useWheelGuard(ref: React.RefObject<HTMLElement>, deps: unknown[] = []) {
+  const [hint, setHint] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let t = 0;
+    const f = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) return;
+      e.stopPropagation();
+      setHint(true);
+      clearTimeout(t);
+      t = window.setTimeout(() => setHint(false), 1400);
+    };
+    el.addEventListener("wheel", f, { capture: true });
+    return () => { el.removeEventListener("wheel", f, { capture: true }); clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return hint;
+}
+export const ZOOM_KEY = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+
 export function niceStep(span: number, n = 8) {
   const raw = span / n,
     p = Math.pow(10, Math.floor(Math.log10(raw)));

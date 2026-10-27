@@ -143,17 +143,26 @@ kbd { font: 500 0.68rem var(--font-mono); padding: 0.05rem 0.3rem; border-radius
 .decoded { font-size: var(--step-0); color: var(--fg); padding-bottom: 0.35rem; overflow-wrap: anywhere; }
 
 /* ---- history ---- */
-/* every bar sits in a track of the same height at the top of its column, so the bars
-   share one baseline whatever the length of the text below them */
-.hist { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.2rem; align-items: start; }
-@media (max-width: 900px) { .hist { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.hist-col { display: grid; gap: 0.3rem; align-content: start; min-width: 0; }
-.hist-col > b { font: 600 var(--step-2) var(--font-display); }
+/* the chart's points sit over the centres of the five columns below them */
+.hist-chart { width: 100%; height: 170px; }
+.hist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; align-items: start; }
+.hist-col { display: grid; gap: 0.35rem; align-content: start; min-width: 0; padding: 0.7rem 0.7rem 0.4rem; border-top: 2px solid var(--line); outline: none; transition: border-color 0.2s, background 0.2s; }
+.hist-col.on, .hist-col:focus-visible { border-top-color: var(--brass); background: color-mix(in srgb, var(--brass) 6%, transparent); }
+.hist-head { display: flex; align-items: baseline; gap: 0.6rem; }
+.hist-head b { font: 600 var(--step-2)/1 var(--font-display); }
+.hist-nums { display: flex; flex-wrap: wrap; gap: 0.15rem 0.6rem; font-size: 0.76rem; color: var(--fg-2); }
+.hist-nums .delta { font-weight: 600; }
+.hist-nums .delta.down { color: var(--ok); }
+.hist-nums .delta.up { color: var(--fg-2); }
 .hist-col p { color: var(--fg-2); }
-.hist-track { height: 190px; display: flex; align-items: flex-end; border-bottom: 1px solid var(--line); }
-.hist-bar { width: 100%; min-height: 2rem; background: linear-gradient(var(--brass), color-mix(in srgb, var(--brass) 45%, var(--bg))); border-radius: 6px 6px 2px 2px; display: flex; align-items: flex-start; padding: 0.45rem 0.6rem; }
-.hist-bar span { color: #16110a; font-weight: 600; font-size: 0.8rem; }
-@media (max-width: 700px) { .hist { grid-template-columns: minmax(0, 1fr); } .hist-track { height: auto; } .hist-bar { height: 2.2rem !important; } }
+/* a phone: a vertical timeline, a dot per version on a rail */
+@media (max-width: 760px) {
+  .hist { grid-template-columns: minmax(0, 1fr); gap: 0; padding-left: 1.1rem; border-left: 2px solid var(--line); margin-left: 0.4rem; }
+  .hist-col { border-top: 0; padding: 0.2rem 0 1.1rem 0.4rem; position: relative; }
+  .hist-col::before { content: ""; position: absolute; left: -1.62rem; top: 0.45rem; width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--bg); border: 2px solid var(--brass); }
+  .hist-col.on::before { background: var(--brass); }
+  .hist-col.on { background: none; }
+}
 
 /* ---- pinout ---- */
 .pin-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
@@ -174,3 +183,28 @@ kbd { font: 500 0.68rem var(--font-mono); padding: 0.05rem 0.3rem; border-radius
 .wave-key .k-dot { background: var(--brass); border-radius: 50%; }
 .wave-key .k-ring { border-radius: 50%; }
 .wave-key .k-box { border-style: dashed; }
+
+/* ---- zoomable figures: a plain wheel scrolls the page; the hint says how to zoom ---- */
+.wheel-hint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 0.5rem 0.9rem; border-radius: 8px; background: color-mix(in srgb, var(--bg) 86%, transparent); border: 1px solid var(--line); color: var(--fg); font: 500 0.8rem var(--font-mono); pointer-events: none; opacity: 0; transition: opacity 0.2s; white-space: nowrap; z-index: 2; }
+.wheel-hint[data-on] { opacity: 1; }
+/* the 3D views turn on a sideways drag and let a vertical swipe scroll the page */
+.stage canvas { touch-action: pan-y; }
+
+/* ---- barrel controls ---- */
+.barrel-controls { display: grid; grid-template-columns: auto auto minmax(0, 1fr); flex-wrap: nowrap; }
+.barrel-controls .icon-btn { min-width: 6.2rem; justify-content: center; }
+.barrel-controls .readout { min-width: 0; font-variant-numeric: tabular-nums; line-height: 1.45; min-height: 2.9em; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; align-self: center; }
+@media (max-width: 600px) { .barrel-controls { display: flex; flex-wrap: wrap; } .barrel-controls .readout { flex: 1 0 100%; } }
+
+/* ---- deadline: both verdicts in one cell; the hidden one keeps its height ---- */
+.verdict-stack { display: grid; }
+.verdict-stack > .verdict { grid-area: 1 / 1; align-content: flex-start; align-self: start; }
+.verdict-stack > .verdict[hidden] { display: flex !important; visibility: hidden; }
+
+/* ---- SmoothHeight: the box follows its content's height with a short slide ---- */
+.smooth-h { transition: height 0.32s ease; overflow: clip; overflow-clip-margin: 8px; min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .smooth-h { transition: none; } }
+.pg-body { display: grid; gap: 1rem; }
+@media (max-width: 640px) { .pin-about { min-height: 6.2rem; } }
+.arch-nb { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin-top: 0.4rem; font-size: var(--step--1); }
+.arch-nb > span { margin-right: 0.3rem; font: 500 0.72rem var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }

@@ -7,6 +7,7 @@ import Editor from "./Editor";
 import WaveView, { View } from "./WaveView";
 import type { Commit, Ev, Run, RunError, Scenario } from "./types";
 import { EVENT_KIND } from "./types";
+import SmoothHeight from "../lib/SmoothHeight";
 
 const FAULTS: Record<string, string> = {
   ILLEGAL: "The word at this address is not an instruction, or has reserved bits set.",
@@ -194,6 +195,8 @@ export default function Playground() {
         ))}
       </div>
 
+      {/* a different firmware has a different height: the page below slides, not jumps */}
+      <SmoothHeight innerClassName="pg-body">
       <div className="pg-main">
         <div className="panel pg-editor">
           <div className="pg-bar">
@@ -392,6 +395,7 @@ export default function Playground() {
           </div>
         </div>
       )}
+      </SmoothHeight>
     </div>
   );
 }

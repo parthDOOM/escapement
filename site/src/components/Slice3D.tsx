@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { css, DPR, useJson, webgl } from "../lib/util";
+import { css, DPR, useJson, useWheelGuard, webgl, ZOOM_KEY } from "../lib/util";
 
 type Poly = { o: [number, number][]; h: [number, number][][] };
 type Slice = { size_um: [number, number]; layers: { key: string; z: number; t: number; polys: Poly[] }[];
@@ -31,6 +31,7 @@ export default function Slice3D() {
   const [groups, setGroups] = useState<{ name: string; color: string; on: boolean }[]>([]);
   const toggle = useRef<(name: string) => void>(() => {});
   const ok = webgl();
+  const wheelHint = useWheelGuard(stage);
 
   useEffect(() => {
     if (!S || !ok || !stage.current) return;
@@ -45,6 +46,7 @@ export default function Slice3D() {
     const cam = new THREE.PerspectiveCamera(35, 1.6, 0.1, 500);
     cam.up.set(0, 0, 1); cam.position.set(-4, -38, 26);
     const ctl = new OrbitControls(cam, renderer.domElement);
+    renderer.domElement.style.touchAction = "pan-y"; // a vertical swipe scrolls the page
     ctl.enableDamping = true; ctl.target.set(0, 0, 1.5); ctl.minDistance = 8; ctl.maxDistance = 120;
     const COL: Record<string, string> = { activ: css("--activ"), poly: css("--poly"), metal1: css("--m1"), metal2: css("--m2"),
       metal3: css("--m3"), metal4: css("--m4"), topmetal1: css("--tm1") };
@@ -138,7 +140,8 @@ export default function Slice3D() {
   return (
     <figure>
       <div className="stage" ref={stage}>
-        {ok ? <span className="hint">drag to turn · scroll to zoom · hover a cell</span>
+        {ok && <span className="wheel-hint" data-on={wheelHint || undefined}>{ZOOM_KEY} + scroll to zoom</span>}
+        {ok ? <span className="hint">drag to turn · {ZOOM_KEY} + scroll to zoom · hover a cell</span>
           : <span className="hint">The 3D view needs WebGL</span>}
         <span className="cell-tag" aria-live="polite" hidden={!tag}>{tag}</span>
         <div className="stage-ui">

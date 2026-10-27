@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { asset, DPR, reduced, useJson, webgl } from "../lib/util";
+import { asset, DPR, reduced, useJson, useWheelGuard, webgl, ZOOM_KEY } from "../lib/util";
 import { floorplan, paint } from "../lib/floorplan";
 
 type Layer = { key: string; label: string; color: string; z: number; t: number };
@@ -18,6 +18,7 @@ export default function Die3D() {
   const [hint, setHint] = useState(true);
   const api = useRef<{ place: (k: number) => void; show: (key: string, v: boolean) => void } | null>(null);
   const ok = webgl();
+  const wheelHint = useWheelGuard(stage);
 
   useEffect(() => {
     if (!info || !ok || !stage.current) return;
@@ -31,6 +32,7 @@ export default function Die3D() {
     cam.up.set(0, 0, 1);
     cam.position.set(3.2, -13.2, 5.6);
     const ctl = new OrbitControls(cam, renderer.domElement);
+    renderer.domElement.style.touchAction = "pan-y"; // a vertical swipe scrolls the page
     ctl.enableDamping = true; ctl.target.set(0, 0.4, 1.3);
     ctl.minDistance = 4; ctl.maxDistance = 40; ctl.enablePan = false;
     ctl.autoRotate = !reduced(); ctl.autoRotateSpeed = 0.35;
@@ -118,10 +120,11 @@ export default function Die3D() {
       <div className="stage" ref={stage}>
         {fallback && !err && (
           <img className="fallback" src={asset("die/die_0_0_0.jpg")}
-            alt="The Escapement die: two SRAM macros at opposite corners and about 26,000 standard cells between them" />
+            alt="The Escapement die: two SRAM macros at opposite corners and about 28,000 standard cells between them" />
         )}
         {err && <span className="stage-msg">The die images are rendered from the GDS when the site is built.</span>}
-        {!fallback && hint && <span className="hint">drag to turn · scroll to zoom</span>}
+        {!fallback && hint && <span className="hint">drag to turn · {ZOOM_KEY} + scroll to zoom</span>}
+        {!fallback && <span className="wheel-hint" data-on={wheelHint || undefined}>{ZOOM_KEY} + scroll to zoom</span>}
         {!fallback && info && (
           <div className="stage-ui">
             <label>Separate layers

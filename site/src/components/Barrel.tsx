@@ -92,7 +92,8 @@ export default function Barrel() {
           }}
           onPointerLeave={() => setHover(null)} />
       </div>
-      <div className="controls">
+      {/* fixed widths and a reserved readout: nothing below moves while it plays */}
+      <div className="controls barrel-controls">
         <button className="icon-btn" type="button" onClick={() => {
           if (playing) { setPlaying(false); return; }
           setAt((a) => (a == null || a >= N - 1 ? 0 : a));
@@ -100,10 +101,8 @@ export default function Barrel() {
         }}>
           {playing ? "pause" : at != null && at >= N - 1 ? "replay" : "play"}
         </button>
-        {at != null && !playing && (
-          <button className="icon-btn" type="button" onClick={() => setAt(null)}>show all</button>
-        )}
-        <span className="mono" aria-live="polite">{run ? readout : "loading…"}</span>
+        <button className="icon-btn" type="button" disabled={at == null || playing} onClick={() => setAt(null)}>show all</button>
+        <span className="mono readout" aria-live="polite">{run ? readout : "loading…"}</span>
       </div>
       <figcaption>
         From the instruction-set simulator running <code>combo_two_banks.asm</code>. A filled cell is an

@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { hex, useJson } from "../lib/util";
 import { loadPython, py, usePyStatus } from "../lib/py";
+import SmoothHeight from "../lib/SmoothHeight";
 
 type Op = { name: string; op: number; format: string; wait: boolean; fields: Record<string, [number, number]>;
   group: string; syntax: string; operands: string[]; effect: string; flags: string };
@@ -108,6 +109,7 @@ export default function Isa() {
         <p className="dim small">Underlined: wait-class. The instruction keeps its PC and is tried again in the
           context's next slot until it completes.</p>
       </div>
+      <SmoothHeight>
       <div className="isa-detail panel">
         <div className="isa-head">
           <h3 className="mono">{shown.syntax}</h3>
@@ -164,6 +166,7 @@ export default function Isa() {
           <span className={"small " + (msg ? "bad" : "dim")}>{msg || "with sw/escasm, running in your browser"}</span>
         </form>
       </div>
+      </SmoothHeight>
     </div>
   );
 }
