@@ -84,10 +84,12 @@ flowchart LR
   overwritten before the host has read it.
 - **Self-measurement.** Per context, the chip records its minimum scheduling lead and
   maximum queue occupancy, so a static timing certificate can be checked against the
-  hardware. Bring-up checks every firmware's certificate on the chip; in simulation the
-  measured lead equals the certified bound to the tick in 28 of 31 contexts and is never
-  below it. Contexts never change one another's timing, so certificates compose:
-  firmware certified one context at a time stays certified running together.
+  hardware. The bring-up script checks every firmware's certificate against the chip's
+  telemetry. In the lockstep co-simulation with bus models, the measured lead equals the
+  certified bound to the tick in 28 of 31 contexts and is never below it. Contexts reach
+  one another only through pins, tape and mailbox data, which escert treats as unknown
+  inputs, so certificates compose: firmware certified one context at a time stays
+  certified running together, on disjoint pins.
 - **Execution digest.** A 32-bit signature of every commit, register write and pin
   change in a run, readable over SPI and predicted by the reference model.
 

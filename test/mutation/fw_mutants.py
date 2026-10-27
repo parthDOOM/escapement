@@ -19,8 +19,9 @@ escert certified a program that can fault (UNSOUND), and fails the run.
 
 A mutant may also be harmless to timing (a shorter delay that still leaves the next
 deadline in the future, a branch whose two paths have the same timing): escert then
-certifies it, correctly. Mutants are picked by a hash of the firmware, operator and line,
-so the set is stable when other lines change (as generate.py does for the RTL).
+certifies it, correctly. Mutants are picked by a hash of the firmware, operator and line
+number, and the input search is seeded, so a run on the same sources gives the same table;
+editing a firmware changes its set.
 """
 
 from __future__ import annotations

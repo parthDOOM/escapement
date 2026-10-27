@@ -363,16 +363,23 @@ Result on 2026-10-26, the 26 co-simulation cases with their bus models and host 
 
 The RTL columns come from the co-simulation itself: with `COSIM_PROOF_OUT=file`,
 `test_cosim.py` records the RTL's telemetry and digest for each firmware, and `--rtl file`
-adds them. The table also runs every shipped firmware at its real clock in the demo
-board's environment, where bring-up stage 5 checks the same bounds on the chip and writes
-`proof.json` for `--board` ([bring-up](16-BRING-UP.md#stage-5-firmware-digests)). Most
-bounds are exact, which makes the check sharp: a chip that queued one event a tick closer
-to its deadline than escert's worst case would fail it.
+adds them. Most bounds are exact, which makes the check sharp: a chip that queued one
+event a tick closer to its deadline than escert's worst case would fail it.
 
-Certificates compose. Each context issues in fixed barrel slots and nothing another
-context does changes its timing, so firmware certified one context at a time stays
-certified when the contexts run together; the two combined images in the table certify
-and measure context by context.
+The table also runs every shipped firmware on the ISS in the demo board's environment,
+with nothing on the Pmods: the environment in which bring-up stage 5 checks the same
+bounds on the chip and writes `proof.json` for `--board`
+([bring-up](16-BRING-UP.md#stage-5-firmware-digests)). There, 28 contexts queue events,
+19 measure exactly their bound and none is below it. The other nine are looser (`i2c_ctrl`
+33 against 2, for example) because the inputs that produce the worst case, such as a
+device on the bus, are absent.
+
+Certificates compose. Each context issues in fixed barrel slots, so another context can
+reach it only through data: pins, tape and mailboxes, which escert already treats as
+unknown inputs. Firmware certified one context at a time therefore stays certified when
+the contexts run together, as long as they own disjoint pins and none writes tape words
+that another reads as constants. The two combined images in the table certify and
+measure context by context.
 
 Building the table found one imprecision in escert. Its completeness check sent a RET to
 the return address of every CALL in the image, so in `nec_ir_cosim.asm` (`nec_tx` and
@@ -388,7 +395,9 @@ deleted, an ADDT's delay cut to a quarter, or a conditional branch inverted. Eac
 is certified, and a certified mutant is then attacked with escert's randomised input
 search on the ISS: a fault there would mean escert certified a program that can fault.
 
-Result on 2026-10-26, 229 mutants in 27 programs, 12 input searches each:
+Result on 2026-10-26, 229 mutants in 27 programs, 12 input searches each. Mutants are
+chosen by hash and the searches are seeded, so `make fw-mutants` on the same firmware
+prints this table exactly (rerun 2026-10-27: identical, mutant by mutant):
 
 | escert's answer | Mutants |
 | --- | ---: |
@@ -399,11 +408,12 @@ Result on 2026-10-26, 229 mutants in 27 programs, 12 input searches each:
 
 A CHECKED mutant is a change that keeps every deadline admissible, which escert is right
 to accept: it proves timing, not protocol correctness. All 53 inverted branches are of
-this kind, since every path re-anchors its time base, and so are 63 of the 76 shortened
-delays. Six of the 13 NOT_PROVEN mutants violate a rule in every state escert found on
-the flagged path, for example a lead of exactly −24 ticks in `cec` without one of its
-ADDTs. Reaching them needs inputs the random search did not produce, which is the gap a
-proof covers and testing does not.
+this kind (escert already follows both directions of a branch whose flag depends on
+inputs, so inverting one leaves the same timed paths), and so are 63 of the 76 shortened
+delays. Six of the 13 NOT_PROVEN mutants violate a rule in every state escert holds at
+the flagged instruction, for example a lead of exactly −24 ticks in `cec` without one of
+its ADDTs: they fault if that instruction is reachable, and the random search did not
+reach it. NOT_PROVEN is never counted as safe; such firmware carries no certificate.
 
 ## Protocol coverage
 

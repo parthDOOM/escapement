@@ -84,9 +84,15 @@ flow does not model (the Tiny Tapeout clock specification gives 66 MHz).
 
 Place and route aimed at a shorter period does not move this much: a trial harden of the
 same RTL with a 32 ns target (`v14j`) ended with that path at −0.42 ns at the slow corner,
-so layout effort alone would give about 30.5 MHz there. The path itself would have to be
-shortened in the RTL (comparing deadlines one cycle early), which would reopen the
-core's proofs; the rating stays at 25 MHz.
+so layout effort alone would give about 30.5 MHz there. Shortening it takes an RTL change,
+and not a single one: the admission check of the committing instruction reaches the same
+fault logic as late as the deadline comparison does, so comparing deadlines one cycle
+early alone leaves the limit where it is (an OpenSTA run with the comparison's paths cut
+reports the same arrival at the pin register). Both would have to move, which would
+reopen the core's proofs; the rating stays at 25 MHz.
+
+`scripts/frequency-headroom.sh RUN_DIR` reruns the sweep behind the table on a harden run
+of `scripts/local-harden.sh` ([toolchain](05-TOOLCHAIN.md#local-hardening)).
 
 ## Floorplan
 

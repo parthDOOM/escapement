@@ -9,7 +9,7 @@ and its deadline. Each table puts that bound next to measurements, so a certific
 tested, not trusted: a measured lead below the certified one is a bug in escert or in
 the implementation that measured it.
 
-Table 1, every shipped firmware at its real clock, run on the ISS in the demo board's
+Table 1, every shipped firmware, run on the ISS in the demo board's
 environment (nothing on the Pmods, pull-ups on uio; the environment of the bring-up
 bundles), for --ticks ticks. A context that queued no event reads 0xFFFF, shown as "-".
 With --board (the proof.json bringup.py stage 5 writes on the demo board), the chip's

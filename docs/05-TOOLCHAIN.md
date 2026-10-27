@@ -74,6 +74,7 @@ CI wall time.
 
 | Script | Purpose |
 | --- | --- |
+| `scripts/frequency-headroom.sh` | Shortest passing clock period per corner: OpenSTA on a run's final netlist and parasitics with the sign-off constraints |
 | `scripts/power-workload.sh` | Workload power: gate-level simulation of three workloads, activity into OpenSTA |
 | `scripts/sram_energy.py` | SRAM energy counted edge by edge from a VCD, using the macro liberty's per-state energies |
 | `scripts/power_vcd.tcl` | OpenSTA power report from a VCD |
