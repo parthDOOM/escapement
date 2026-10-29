@@ -151,7 +151,7 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | `formal/` | SymbiYosys proofs |
 | `scripts/` | Local hardening, precheck, power and routing analysis |
 | `asic/reports/` | Recorded physical measurements |
-| `fpga/` | The FPGA build: block-RAM model of the SRAM, resource estimate |
+| `fpga/` | The FPGA build: block-RAM model of the SRAM, resource estimate, bitstreams for the Tang Nano 20K and ULX3S |
 | `site/` | The project site, with the in-browser playground that runs `sw/` under Pyodide |
 
 ## Quick start

@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 mkdir -p fpga/build
 SRC="src/project.v src/escapement_host.v src/esc_core.v src/esc_ctx.v src/esc_cap.v src/esc_line.v
      src/esc_greg.v src/escapement_art.v fpga/escapement_sram_fpga.v"
+SRC=$(echo $SRC)   # one line: a newline ends a yosys -p command
 for fam in xilinx ecp5 ice40; do
   yosys -q -l "fpga/build/synth_$fam.log" \
     -p "read_verilog -DESC_NO_CG $SRC; synth_$fam -top tt_um_escapement; tee -o fpga/build/stat_$fam.txt stat"

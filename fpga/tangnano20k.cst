@@ -1,0 +1,63 @@
+// Sipeed Tang Nano 20K (GW2AR-LV18QN88C8/I7): escapement_board's pins on the two headers.
+// Pin numbers from Sipeed's pin-label figure (wiki.sipeed.com, Tang Nano 20K). All banks 3.3 V.
+// Left header: clk, bank A (uio), bank B inputs 3, 4, 6, 7 and outputs (LED0-LED4).
+// Right header: rst_n, host SPI, MISO, IRQ, RUN, bank B input 5.
+// Unused: 80 (TF slot), 56, 54, 51, 55 (audio amplifier), 79 (WS2812), 53, 52 (HDMI EDID).
+// Pin 85 is also on the TF slot: leave it empty.
+
+IO_LOC "clk" 77;           // GCLKT_1
+IO_LOC "rst_n" 76;
+
+IO_LOC "ui_in[0]" 42;      // CS_n
+IO_LOC "ui_in[1]" 41;      // SCK
+IO_LOC "ui_in[2]" 48;      // MOSI
+IO_LOC "ui_in[3]" 30;      // bank B in
+IO_LOC "ui_in[4]" 31;
+IO_LOC "ui_in[5]" 71;
+IO_LOC "ui_in[6]" 85;
+IO_LOC "ui_in[7]" 20;      // LED5: lit while the host drives it low
+
+IO_LOC "uo_out[0]" 49;     // MISO
+IO_LOC "uo_out[1]" 86;     // IRQ
+IO_LOC "uo_out[2]" 72;     // RUN
+IO_LOC "uo_out[3]" 15;     // bank B out, on LED0-LED4 (lit when low)
+IO_LOC "uo_out[4]" 16;
+IO_LOC "uo_out[5]" 17;
+IO_LOC "uo_out[6]" 18;
+IO_LOC "uo_out[7]" 19;
+
+IO_LOC "uio[0]" 73;        // bank A
+IO_LOC "uio[1]" 74;
+IO_LOC "uio[2]" 75;
+IO_LOC "uio[3]" 27;
+IO_LOC "uio[4]" 28;
+IO_LOC "uio[5]" 25;
+IO_LOC "uio[6]" 26;
+IO_LOC "uio[7]" 29;
+
+IO_PORT "clk" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "rst_n" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[6]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[7]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "uo_out[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[6]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[7]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[6]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[7]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;

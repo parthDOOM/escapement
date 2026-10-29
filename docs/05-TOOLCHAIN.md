@@ -87,9 +87,10 @@ CI wall time.
 ## FPGA build
 
 [`fpga/`](../fpga/README.md) builds the same RTL for an FPGA, with plain flip-flops
-(`ESC_NO_CG`) and a block-RAM model of the SRAM macro: about 8,400 LUTs on a Xilinx
+(`ESC_NO_CG`) and a block-RAM model of the SRAM macro: about 7,900 LUTs on a Xilinx
 7-series part, so an Artix-7 35T board is enough. `fpga/estimate.sh` gives the size for
-Xilinx, ECP5 and iCE40 with Yosys.
+Xilinx, ECP5 and iCE40 with Yosys. `fpga/build.sh` places and routes it for the Sipeed
+Tang Nano 20K and the ULX3S with yosys and nextpnr; both meet 25 MHz.
 
 ## Host hardware
 

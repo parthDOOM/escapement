@@ -38,3 +38,4 @@ test/results_*.xml
 # demo-board bundles and model traces (sw/rp2350/make_bundle.py)
 /bundles/
 /traces/
+fpga/build/
