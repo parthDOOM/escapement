@@ -28,7 +28,7 @@ from .pulse import PulseCode, learn_pulse
 from .serial import Serial, learn_serial
 
 __all__ = ["CLOCK_HZ", "Carrier", "Check", "Cluster", "LearnError", "Manchester", "PulseCode",
-           "Serial", "check", "clusters", "learn"]
+           "Serial", "check", "clusters", "learn", "regenerate"]
 
 LEARNERS = (("Manchester", learn_manchester), ("pulse code", learn_pulse),
             ("serial", learn_serial))
@@ -98,46 +98,53 @@ class Check:
         return not self.failures
 
 
-def check(model, records, pin=0, clk_khz=25000, max_frames=3) -> Check:
-    """Run the table on the ISS once per recorded frame (model.replay: that frame's words
-    as constants or on the tape; at clk_khz, rescaled to 25 MHz ticks) and compare the
-    first frame it sends with the recording. The
-    firmware sends each symbol's typical length and a real transmitter varies, so a
-    generated duration passes if it lies within the lengths the recording shows for that
-    symbol (serial: the bit time within the recorded bit times), give or take two ticks
-    of the run clock or two samples of the recording."""
+def regenerate(model, words, length, clk_khz=25000, gap=True):
+    """Records [(tick, levels)], one per tick, of the model's table sending `words` once
+    (model.replay: as constants or on the tape), run on the ISS for a frame of `length`
+    ticks and (if gap) the gap after it; at clk_khz, rescaled to 25 MHz ticks."""
     import escgen
     from esciss import Machine
     from escmodels import Board
 
+    scale = 25000 / clk_khz
+    table, tape = model.replay(words)
+    _, image = escgen.build(table, check=False, CLK_KHZ=clk_khz)
+    for i, w in enumerate(tape or []):
+        image.tape[i] = w
+    board = Board(pullups=0xFF if model.idle else 0)
+    Machine(image, board=board).run(int((length + gap * model.gap) / scale) + 2_000,
+                                    stop_when_idle=False)
+    return [(round(t * scale), lv) for t, lv in enumerate(board.history)]
+
+
+def check(model, records, pin=0, clk_khz=25000, max_frames=3) -> Check:
+    """Run the table on the ISS once per recorded frame (model.replay: that frame's words
+    as constants or on the tape; at clk_khz, rescaled to 25 MHz ticks) and compare the
+    first frame it sends (on pin 0, wherever the recording's pin was) with the recording.
+    The firmware sends each symbol's typical length and a real transmitter varies, so a
+    generated duration passes if it lies within the lengths the recording shows for that
+    symbol (serial: the bit time within the recorded bit times), give or take two ticks
+    of the run clock or two samples of the recording."""
     recorded = [(w, fr) for fr in model.frame_list(records, pin)
                 if (w := model.words(fr)) is not None]
     scale = 25000 / clk_khz
     slack = 2 * max(scale, model.quant)
     worst_rel, worst_t, failures, decoded, car_ok = 0.0, 0, [], True, True
     for k, (words, fr) in enumerate(recorded[:max_frames]):
-        table, tape = model.replay(words)
-        _, image = escgen.build(table, check=False, CLK_KHZ=clk_khz)
-        for i, w in enumerate(tape or []):
-            image.tape[i] = w
-        board = Board(pullups=0xFF if model.idle else 0)
-        m = Machine(image, board=board)
-        length = sum(a + (b or 0) for a, b in fr) + model.gap
-        m.run(int(length / scale) + 2_000, stop_when_idle=False)
-        gen = [(round(t * scale), lv) for t, lv in enumerate(board.history)]
-        gen_frames = model.frame_list(gen, pin)
+        gen = regenerate(model, words, sum(a + (b or 0) for a, b in fr), clk_khz)
+        gen_frames = model.frame_list(gen, 0)
         if not gen_frames:
             failures.append(f"frame {k}: the program sent no complete frame")
             continue
         fails, rel, worst = model.compare(gen_frames[0], fr, slack)
         failures += [f"frame {k}: {f}" for f in fails]
         worst_rel, worst_t = max(worst_rel, rel), max(worst_t, worst)
-        dec = model.decode(gen, pin)[:1]         # a tape replay repeats the frame
+        dec = model.decode(gen, 0)[:1]           # a tape replay repeats the frame
         if dec != [words]:
             decoded = False
             failures.append(f"frame {k}: decoded {dec}, sent {words}")
         if model.carrier:
-            got = find_carrier(runs_of(edges(gen, pin)), model.idle)
+            got = find_carrier(runs_of(edges(gen, 0)), model.idle)
             if got is None or abs(got.period - model.carrier.period) > slack:
                 car_ok = False
                 failures.append(f"frame {k}: carrier {got} for {model.carrier}")

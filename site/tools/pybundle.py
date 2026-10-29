@@ -3,9 +3,9 @@
     python site/tools/pybundle.py
 
 Writes, under site/public/ (all generated, git-ignored):
-  py/bundle.json  sw/ packages, the playground module, firmware sources and the ISA
-                  table, as {path: text} laid out as in the repository, for the worker
-                  to write into Pyodide's file system
+  py/bundle.json  sw/ packages, the playground modules, firmware sources, the ISA
+                  table and the sample recordings (base64), as {path: text} laid out as
+                  in the repository, for the worker to write into Pyodide's file system
   pyodide/        the Pyodide runtime, copied from node_modules (self-hosted)
   data/isa.json   the instruction table for the explorer: isa/isa.yaml (encodings)
                   joined with the tables in docs/02-ISA.md (what each one does)
@@ -13,6 +13,7 @@ Writes, under site/public/ (all generated, git-ignored):
 Pyodide has no PyYAML without a download, so the bundle carries isa.yaml as JSON (JSON
 is YAML) and a two-line yaml module that parses it.
 """
+import base64
 import json
 import re
 import shutil
@@ -24,7 +25,7 @@ import yaml
 SITE = Path(__file__).resolve().parents[1]
 ROOT = SITE.parent
 PUB = SITE / "public"
-PACKAGES = ["escasm", "esciss", "escert", "escmodels"]
+PACKAGES = ["escasm", "esciss", "escert", "escmodels", "escgen", "esclearn", "esctape"]
 SKIP_FW = {"westminster.asm", "seven_seg.asm"}
 RUNTIME = ["pyodide.mjs", "pyodide.asm.js", "pyodide.asm.wasm", "python_stdlib.zip",
            "pyodide-lock.json"]
@@ -36,7 +37,13 @@ def bundle():
     for pkg in PACKAGES:
         for f in sorted((ROOT / "sw" / pkg).glob("*.py")):
             files[f"sw/{pkg}/{f.name}"] = f.read_text(encoding="utf-8")
-    files["site/py/escplay.py"] = (SITE / "py" / "escplay.py").read_text(encoding="utf-8")
+    for f in sorted((SITE / "py").glob("*.py")):
+        files[f"site/py/{f.name}"] = f.read_text(encoding="utf-8")
+    sys.path[:0] = [str(ROOT / "sw"), str(SITE / "py")]
+    import learnplay
+    for s in learnplay.SAMPLES:
+        data = (learnplay.DATA / s["file"]).read_bytes()
+        files[f"sw/tests/data/sigrok/{s['file']}.b64"] = base64.b64encode(data).decode()
     for f in sorted((ROOT / "firmware").glob("*.asm")):
         if f.name not in SKIP_FW:
             files[f"firmware/{f.name}"] = f.read_text(encoding="utf-8")

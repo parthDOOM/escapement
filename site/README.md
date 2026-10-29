@@ -16,10 +16,12 @@ Both commands first run `npm run data`, which needs Python 3 with PyYAML:
   `firmware/` and the ISA table for the browser, copies the Pyodide runtime next to it, and
   builds the instruction table from `isa/isa.yaml` and `docs/02-ISA.md`.
 - `tools/runs.py` runs every stock firmware once, so the page has its waveforms before
-  Python has loaded.
+  Python has loaded, and learns each sample recording of "record it, speak it".
 
-The playground (`py/escplay.py`) runs in a web worker under Pyodide. It wires the project's
-own tools together and adds nothing to them, so what the page shows is what the tests check.
+The playground (`py/escplay.py`) and "record it, speak it" (`py/learnplay.py`: esclearn,
+escgen and escert on a recording) run in a web worker under Pyodide. They wire the
+project's own tools together and add nothing to them, so what the page shows is what the
+tests check.
 
 ## Generated from the layout
 

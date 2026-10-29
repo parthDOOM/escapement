@@ -14,7 +14,7 @@ help:
 	@echo "fw-mutants timing bugs planted in the firmware: escert must reject every one that can fault"
 	@echo "test       chip-level tests on the RTL (test/, as in CI)"
 	@echo "gl-test    chip-level tests on a gate-level netlist (test/gate_level_netlist.v)"
-	@echo "pin-test   SWD, SPI target and NEC firmware through the chip pins (gl-pin-test: on the netlist)"
+	@echo "pin-test   SWD, SPI target, NEC and a learned protocol through the chip pins (gl-pin-test: on the netlist)"
 	@echo "cosim      ISS vs RTL lockstep co-simulation (COSIM_SEEDS random programs, default 200)"
 	@echo "cosim-parallel  the same, split over JOBS cores (default 8)"
 	@echo "host-test  host SPI interface tests"

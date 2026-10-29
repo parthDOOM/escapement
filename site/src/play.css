@@ -208,3 +208,35 @@ kbd { font: 500 0.68rem var(--font-mono); padding: 0.05rem 0.3rem; border-radius
 @media (max-width: 640px) { .pin-about { min-height: 6.2rem; } }
 .arch-nb { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin-top: 0.4rem; font-size: var(--step--1); }
 .arch-nb > span { margin-right: 0.3rem; font: 500 0.72rem var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* record it, speak it */
+.learn { display: grid; gap: 1rem; }
+.learn .tabs { margin-bottom: 0; }
+.learn-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; align-items: start; }
+@media (max-width: 980px) { .learn-grid { grid-template-columns: minmax(0, 1fr); } }
+.learn-side { display: grid; gap: 0.8rem; padding-bottom: 0; overflow: hidden; }
+.learn-side h3 { font-family: var(--font-display); font-size: var(--step-2); font-weight: 600; }
+.learn-side h4, .learn-head h4 { font: 500 0.72rem var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-3); }
+.learn-side .pg-status { margin: 0 calc(-1 * clamp(0.9rem, 2.4vw, 1.4rem)); }
+.found { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; font-size: 0.76rem; color: var(--fg-2); overflow-wrap: anywhere; }
+.send { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.6rem; align-items: end; }
+.send label, .chan { display: grid; gap: 0.25rem; font-size: 0.74rem; color: var(--fg-3); font-family: var(--font-mono); }
+.send input, .chan select { background: var(--bg-3); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 0.4rem 0.55rem; font: 500 0.82rem var(--font-mono); min-width: 0; width: 100%; }
+.send input:focus, .chan select:focus { outline: 2px solid var(--brass); outline-offset: 0; }
+@media (max-width: 420px) { .send { grid-template-columns: minmax(0, 1fr); } }
+.drop { display: block; position: relative; border: 1px dashed var(--line); border-radius: 8px; padding: 0.9rem; text-align: center; color: var(--fg-2); font-size: var(--step--1); cursor: pointer; }
+.drop:hover, .drop:focus-within { border-color: var(--brass); }
+.drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.learn-table { display: grid; gap: 0.7rem; }
+.learn-head { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; justify-content: space-between; }
+pre.yaml { margin: 0; max-height: 26rem; overflow: auto; font-size: 0.72rem; line-height: 1.5; color: var(--fg-2); background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 0.6rem 0.75rem; white-space: pre; }
+.learn-table details summary { cursor: pointer; color: var(--fg-2); margin-bottom: 0.5rem; }
+.learn-wave { display: grid; gap: 0.5rem; }
+.lane { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); align-items: center; gap: 0.6rem; }
+.lane-label { font-size: 0.74rem; color: var(--fg-3); }
+.lane svg { width: 100%; height: 34px; display: block; }
+.lane .trace { fill: none; stroke: var(--wave); stroke-width: 1.4; }
+.lane .burst { fill: color-mix(in srgb, var(--wave) 14%, transparent); }
+.lane .burst.carrier { fill: color-mix(in srgb, var(--brass) 26%, transparent); }
+@media (max-width: 520px) { .lane { grid-template-columns: minmax(0, 1fr); gap: 0.2rem; } }
+.learn-intro { margin-bottom: 1.2rem; }

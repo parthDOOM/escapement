@@ -52,6 +52,8 @@ export const py = {
     call<string>("run", source, scenario, JSON.stringify(params)).then((s) => JSON.parse(s)),
   regsAt: (i: number) => call<string>("regs_at", i).then((s) => JSON.parse(s)),
   encode: (line: string) => call<string>("encode", line).then((s) => JSON.parse(s)),
+  learn: (source: string, pin: number, send: string, data = "") =>
+    call<string>("learnplay.learn", source, pin, send, data).then((s) => JSON.parse(s)),
 };
 
 export function usePyStatus(): string {

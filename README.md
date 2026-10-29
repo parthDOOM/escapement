@@ -28,6 +28,13 @@ infrared, HDMI-CEC, DALI lighting control, SENT automotive sensors, DShot600 for
 motor controllers at once, and whole devices such as a 24C02 EEPROM or a 25xx SPI memory
 are firmware. None of them is in the hardware.
 
+**Record it, speak it.** Point the chip at a transmitter it has never seen, such as an
+IR remote: it records the waveform, the host works out the protocol's timing table from
+the recording and generates firmware with a timing certificate, and the chip sends new
+messages in that protocol, such as a command the remote never sent. It is tested on
+twelve real recordings against sigrok's own decoders, and run end to end on the RTL
+([record it, speak it](docs/20-LEARN.md)).
+
 > Escapement either meets the deadline it accepted, or tells you why it refused.
 
 ## Design principles
@@ -129,6 +136,7 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | [Instrument](docs/17-INSTRUMENT.md) | Capture, streaming, PulseView, file export and replay, with their limits |
 | [Protocols as data](docs/18-PROTOCOLS-AS-DATA.md) | Transmitter firmware generated from timing tables, and certified |
 | [Line unit](docs/19-LINE-UNIT.md) | Version 1.4: packet line coding in hardware, a USB keyboard on it, certified reply timing, and Linux over USB/IP |
+| [Record it, speak it](docs/20-LEARN.md) | A protocol's timing table learned from a recording, then certified firmware that sends new messages in it |
 | [Firmware guide](docs/14-FIRMWARE-GUIDE.md) | Idioms for writing new protocols |
 | [Verification](docs/04-VERIFICATION.md) | Methods, results and how to rerun them |
 | [Physical design](docs/03-PHYSICAL-DESIGN.md) | Floorplan, routing, timing and sign-off |
@@ -147,7 +155,7 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | `firmware/` | Protocol and device firmware in Escapement assembly |
 | `protocols/` | Timing tables that `escgen` turns into transmitter firmware |
 | `isa/isa.yaml` | The single source of instruction encodings |
-| `sw/` | Assembler (`escasm`), instruction-set simulator (`esciss`), certificate checker (`escert`), firmware generator (`escgen`), host library (`eschost`), tape tools (`esctape`), bus models (`escmodels`), USB/IP bridge to a Linux kernel (`escusbip`), RP2350 demo host (`rp2350`) |
+| `sw/` | Assembler (`escasm`), instruction-set simulator (`esciss`), certificate checker (`escert`), firmware generator (`escgen`), protocol learner (`esclearn`), host library (`eschost`), tape tools (`esctape`), bus models (`escmodels`), USB/IP bridge to a Linux kernel (`escusbip`), RP2350 demo host (`rp2350`) |
 | `test/` | Chip-level, co-simulation, host, unit and mutation tests |
 | `formal/` | SymbiYosys proofs |
 | `scripts/` | Local hardening, precheck, power and routing analysis |

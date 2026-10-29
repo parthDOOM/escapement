@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
-// Runs the real toolchain (sw/escasm, esciss, escert, escmodels) in Pyodide, off the main
-// thread. The runtime and the bundle are served from the site itself.
+// Runs the real toolchain (sw/escasm, esciss, escert, escmodels, escgen, esclearn) in
+// Pyodide, off the main thread. The runtime and the bundle are served from the site itself.
 
 type Req = { id: number; fn: string; args: unknown[] };
 
@@ -23,8 +23,9 @@ async function boot(): Promise<void> {
   py.runPython(`
 import sys
 sys.path[:0] = ["/esc/shim", "/esc/sw", "/esc/site/py"]
-import escplay
+import escplay, learnplay
 escplay.set_firmware_dir("/esc/firmware")
+learnplay.set_data_dir("/esc/sw/tests/data/sigrok")
 `);
   post({ status: "ready" });
 }
@@ -49,7 +50,8 @@ self.onmessage = async (e: MessageEvent) => {
   }
   try {
     await (booting || (booting = boot()));
-    const fn = py.pyimport("escplay")[msg.fn];
+    const [mod, name] = msg.fn.includes(".") ? msg.fn.split(".") : ["escplay", msg.fn];
+    const fn = py.pyimport(mod)[name];
     const t0 = performance.now();
     const out = fn(...msg.args);
     post({ id: msg.id, ok: true, value: out, ms: performance.now() - t0 });

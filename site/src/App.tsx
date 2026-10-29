@@ -16,6 +16,7 @@ const Die3D = lazy(() => import("./components/Die3D"));
 const DieZoom = lazy(() => import("./components/DieZoom"));
 const Slice3D = lazy(() => import("./components/Slice3D"));
 const Playground = lazy(() => import("./playground/Playground"));
+const Learn = lazy(() => import("./playground/Learn"));
 
 // one figure failing must not take the page down with it
 class Guard extends Component<{ children: React.ReactNode }, { err: string | null }> {
@@ -195,6 +196,16 @@ export default function App() {
                 browser.</p>
             </div>
             <Later h={900}><Playground /></Later>
+
+            <div className="sub-head learn-intro" id="learn">
+              <p className="eyebrow">Record it, speak it</p>
+              <h3>A protocol from a recording</h3>
+              <p>Point the chip at a transmitter it has never seen. It records the waveform, the
+                host works out the protocol's timing table, and generates firmware that escert certifies. The chip
+                then sends new messages in that protocol, such as a command the remote never sent. The recordings below
+                are real remotes, from sigrok-dumps; the same loop runs on the chip's RTL in CI.</p>
+            </div>
+            <Later h={700}><Learn /></Later>
           </div>
         </section>
 

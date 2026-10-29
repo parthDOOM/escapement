@@ -652,9 +652,11 @@ def test_real_rc5_bogus_packet():
 
 @pytest.mark.parametrize("name, pin, max_frames", [("nec_all.sr", 0, 2), ("sirc1.sr", 0, 2),
                                                    ("pt2262_three_a.sr", 0, 2),
-                                                   ("rc5_button1.sr", 0, 1)])
+                                                   ("rc5_button1.sr", 0, 1),
+                                                   ("nec_matsui.sr", 6, 1)])
 def test_real_recordings_regenerated(name, pin, max_frames):
-    """The learned firmware, run on the ISS, sends what the transmitter sent."""
+    """The learned firmware, run on the ISS, sends what the transmitter sent (on pin 0,
+    whichever probe the recording was on)."""
     records, _, m = dump(name, pin)
     c = check(m, records, pin=pin, clk_khz=2500, max_frames=max_frames)
     assert c.ok and c.decoded, c.failures

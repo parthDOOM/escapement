@@ -454,14 +454,14 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script | 525 | Pass (2 need `sigrok-cli`) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from synthetic and real recordings | 594 | Pass (7 need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
 | Co-simulation (`make cosim`) | 8 | Pass |
 | Host interface (`make host-test`) | 16 | Pass |
 | Core unit tests (`make unit-test`) | 31 | Pass |
-| Newer firmware (SWD, SPI target, NEC, both pin banks at once) through the chip pins (`make pin-test`, `make gl-pin-test`) | 5 | Pass on the RTL and on the final netlist |
+| Newer firmware (SWD, SPI target, NEC, both pin banks at once) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 6 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 

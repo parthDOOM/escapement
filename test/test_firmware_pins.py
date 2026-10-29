@@ -1,17 +1,22 @@
 # SPDX-FileCopyrightText: © 2026 Escapement contributors
 # SPDX-License-Identifier: Apache-2.0
-"""SWD, SPI target, NEC infrared and the two-bank image through the chip's real pins, on
-RTL and on the gate-level netlist (make pin-test / make gl-pin-test): each program is
-loaded over SPI and run against the bus models of sw/escmodels; the protocol outcome and
-the host replies must be right, with no fault and no contention."""
+"""SWD, SPI target, NEC infrared, the two-bank image and a protocol learned from a
+recording, through the chip's real pins, on RTL and on the gate-level netlist (make
+pin-test / make gl-pin-test): each program is loaded over SPI and run against the bus
+models of sw/escmodels; the protocol outcome and the host replies must be right, with no
+fault and no contention."""
 
 from cocotb.triggers import ClockCycles
 
+import escgen
+import esclearn
 import test as chip                    # test/test.py: bring_up, FW
 from escasm import assemble, assemble_file
 from escmodels import (Board, JtagTap, NecReceiver, Ps2Host, SpiTarget, SplitBoard, SwdTarget,
                        Tsop, UartRx)
+from escmodels.nec import NecSource, nec_raw
 from escmodels.spi import SpiController
+from esctape import decode_capture
 
 FW = chip.FW
 REPO = FW.parent
@@ -141,4 +146,49 @@ async def test_two_banks_on_chip(dut):
     assert idcode == [0x4BA00477] and ps2.bytes == [0x1C] and ack == [1]
     assert uart.bytes == [0x55, 0x4B, 0x21, 0x0A], uart.bytes
     assert not board.errors() and not board_b.errors(), board.errors() + board_b.errors()
+    await no_fault(host)
+
+
+@chip.cocotb.test()
+async def test_learned_nec_on_chip(dut):
+    """Record it, speak it, on the RTL (sw/esclearn): a remote built from the NEC
+    specification presses three buttons on uio[1], as an IR receiver's output (low
+    during a burst). The chip records them (logic_analyzer.asm), the host reads the tape,
+    esclearn learns the protocol and escgen builds firmware that escert certifies. The
+    host keeps the address, changes the command to one the remote never sent (esclearn
+    recomputes its complement), and the chip sends it on uio[0], where the
+    specification's receiver decodes it and checks every mark and space. Timebase 20x
+    (tick_ns=800) to keep the simulation short: the learned table is in chip ticks."""
+    tick, slot = 800.0, int(108e6 / 800)
+    cmds = (0x08, 0x10, 0x15)
+    remote = NecSource(1, [(20_000 + slot * i, nec_raw(0x04, c)) for i, c in enumerate(cmds)],
+                       tick_ns=tick)
+    rx = NecReceiver(0, tick_ns=tick, modulated=False, active_low=True)
+    board = Board(remote, rx)
+    host = await chip.bring_up(dut, board)
+    await host.load(assemble('.equ logic_analyzer.MASK, 0x02\n.include "logic_analyzer.asm"\n',
+                             base_dir=FW))
+    await host.start()
+    await ClockCycles(dut.clk, 20_000 + slot * len(cmds))
+    await host.stop()
+    status, cfg = await host.read_dbg(0, 17), await host.read_dbg(0, 18)
+    assert not (status >> 30) & 1, hex(status)                 # no overflow
+    n = status & 0xFF
+    tape = [0] * 256
+    tape[:n] = await host.read_tape(0, n)
+    model = esclearn.learn(decode_capture(tape, status, cfg), pin=1, name="learned_remote")
+    dut._log.info(f"{n} records: " + "; ".join(model.summary()[:4]))
+    assert model.coding == "pulse distance" and model.idle == 1
+    assert model.frames == [[nec_raw(0x04, c)] for c in cmds]
+
+    word = model.complete([model.frames[0][0] & 0x0000FFFF | 0x42 << 16])
+    assert word == [nec_raw(0x04, 0x42)]
+    _, image = escgen.build(model.table("mailbox", pin=0))     # CHECKED, or TableError
+    await host.load(image)
+    await host.start()
+    await host.mbx_push(0, word[0])
+    ack = await pop_n(dut, host, 0, 1, 2 * slot, step=5_000)
+    dut._log.info(f"sent 0x{word[0]:08x}: receiver {rx.frames()} ack {ack}")
+    assert rx.frames() == [(0x04, 0x42)] and ack == [1], rx.events
+    assert not board.errors(), board.errors()
     await no_fault(host)
