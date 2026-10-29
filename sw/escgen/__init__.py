@@ -15,14 +15,15 @@ Table keys:
     constants   NAME: expression in assembler syntax; CLK_KHZ (default 25000) is defined,
                 so timings can be written in clock-independent form
     carrier     {period: expr, high: expr}: the carrier for `carrier` phases, a pulse of
-                `high` ticks every `period` (one carrier per table)
+                `high` ticks every `period` (one carrier per table), away from the pin's
+                idle level: high pulses on an idle-low pin, low pulses on an idle-high one
     symbols     NAME: [[levels, duration], ...], a list of phases. `levels` maps pin
                 names to 0, 1, `data` or `carrier`; a phase sets its pins at the current
                 deadline and lasts `duration` ticks (an expression).
                   data     the pins take the next bit of the unit (EMITX); the phase may
                            set no other pin
                   carrier  one pin sends carrier pulses for the whole phase,
-                           which must be a whole number of periods, and is low after it
+                           which must be a whole number of periods, and is idle after it
     frame       the items of one data unit, in order: a symbol name, or a field:
                   {bits: n, order: lsb|msb, symbol: NAME}   each bit sent as the symbol,
                            which has exactly one data phase
@@ -128,16 +129,16 @@ def _mask(t, names):
     return " | ".join(f"P_{n}" for n in names) or "0"
 
 
-def _apply(known, phases):
+def _apply(known, phases, idle=None):
     """Pin levels known after `phases`, from `known` (a data phase makes its pins
-    unknown; a burst ends low)."""
+    unknown; a burst ends at the pin's `idle` level, default low)."""
     k = dict(known)
     for levels, _, kind in phases:
         for p, v in levels.items():
             if kind == "data":
                 k.pop(p, None)
             elif kind == "carrier":
-                k[p] = 0
+                k[p] = (idle or {}).get(p, 0)
             else:
                 k[p] = v
     return k
@@ -153,6 +154,10 @@ class _Gen:
         self.pins = list(t["pins"])
         self.known = {}                # pin levels known at this point of the program
         self.burst_pin = None
+        self.idle = {n: int(p.get("idle", 0)) for n, p in t["pins"].items()}
+
+    def _apply(self, known, phases):
+        return _apply(known, phases, self.idle)
 
     def emit(self, s="", note=""):
         code = s.ljust(34) if len(s) < 34 else s + " "
@@ -195,7 +200,7 @@ class _Gen:
             v = _mask(self.t, [p for p, lv in levels.items() if lv == 1])
             self.emit(f"EMIT  {m}, {v}, {m}", note)
             self.emit(f"ADDT  {dur}")
-        self.known = _apply(self.known, [(levels, dur, kind)])
+        self.known = self._apply(self.known, [(levels, dur, kind)])
 
     def symbol(self, name, note=None):
         for i, (levels, dur, kind) in enumerate(_phases(self.t, name)):
@@ -222,8 +227,8 @@ class _Gen:
         self.emit("LDSH  r0", note)
         self.emit(f"LDLC  {bits}")
         entry = self.known                       # levels known at the loop head: those
-        head = _meet(entry, _apply(entry, ph))   # that every iteration leaves unchanged
-        head = _meet(head, _apply(head, ph))
+        head = _meet(entry, self._apply(entry, ph))   # that every iteration leaves unchanged
+        head = _meet(head, self._apply(head, ph))
         lbl = self.fresh("bit")
         self.label(lbl, head)
         for levels, dur, kind in ph:
@@ -241,9 +246,9 @@ class _Gen:
             raise TableError("choose symbols have no data phase: the bit picks the symbol")
         self.emit(f"MOVI  r3, {bits}", f"{bits} bits, LSB first, each {s0} or {s1}")
         entry = self.known
-        body = _meet(_apply(entry, p0), _apply(entry, p1))
+        body = _meet(self._apply(entry, p0), self._apply(entry, p1))
         head = _meet(entry, body)
-        head = _meet(head, _meet(_apply(head, p0), _apply(head, p1)))
+        head = _meet(head, _meet(self._apply(head, p0), self._apply(head, p1)))
         lbl, one, nxt = self.fresh("bit"), self.fresh("one"), self.fresh("next")
         self.label(lbl, head)
         self.emit("SHR   r1, 1", "C = the next bit")
@@ -394,12 +399,13 @@ def generate(t: dict) -> str:
         raise TableError("source kind: mailbox, tape or constant")
     if g.burst_pin:
         p = f"P_{g.burst_pin}"
+        on, off = ("0", p) if g.idle[g.burst_pin] else (p, "0")    # pulses away from idle
         g.lines.append("")
         g.lines.append("; ---- burst: lc carrier pulses from tmr; returns with tmr = start + lc * C_PERIOD")
         g.label("burst")
-        g.emit(f"EMIT  {p}, {p}, {p}")
+        g.emit(f"EMIT  {p}, {on}, {p}")
         g.emit("ADDT  C_HIGH")
-        g.emit(f"EMIT  {p}, 0, {p}")
+        g.emit(f"EMIT  {p}, {off}, {p}")
         g.emit("ADDT  C_PERIOD - C_HIGH")
         g.emit("DJNZ  burst")
         g.emit("RET")

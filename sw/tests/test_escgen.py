@@ -85,6 +85,37 @@ def test_ws2812_frames():
     assert not m.ff.valid
 
 
+def test_carrier_on_an_idle_high_pin():
+    """On an idle-high pin the carrier pulses go low and every burst ends high: the
+    leader is 342 low pulses of C_HIGH ticks, and the pin is high between bursts."""
+    t = table("nec_tx_gen")
+    t["pins"]["IR"]["idle"] = 1
+    for phases in t["symbols"].values():                   # the spaces are idle: now high
+        for levels, _ in phases:
+            levels.update({p: 1 for p, v in levels.items() if v == 0})
+    t["source"] = {"kind": "constant", "words": [0x00FF00FF]}
+    t["packet"] = {}
+    _, image = escgen.build(t, CLK_KHZ=2500)                 # CHECKED, or TableError
+    board = Board(pullups=0xFF)
+    m = Machine(image, board=board)
+    m.run(2500 * 70, stop_when_idle=False)                  # one 68 ms frame
+    lv = board.level(0)
+    lows, k = [], 0
+    while k < len(lv):
+        if lv[k] == 0:
+            j = k
+            while j < len(lv) and lv[j] == 0:
+                j += 1
+            lows.append((k, j - k))
+            k = j
+        else:
+            k += 1
+    period, high = (2500 * 10 + 190) // 380, ((2500 * 10 + 190) // 380 + 1) // 3
+    assert all(n == high for _, n in lows)                  # every pulse low for C_HIGH
+    assert [s for s, _ in lows[1:342]] == [lows[0][0] + i * period for i in range(1, 342)]
+    assert len(lows) == 342 + 33 * 22 and lv[-1] == 1 and not m.ff.valid
+
+
 def test_nec_frames_from_a_table():
     """Carrier bursts and pulse-distance bits from a table, at a 2.5 MHz timebase (the
     receiver model's tick is 400 ns): two frames decoded, 342 + 33 x 22 carrier pulses

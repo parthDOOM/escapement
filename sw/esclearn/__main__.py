@@ -1,9 +1,12 @@
-"""python -m esclearn CAPTURE [--pin N | --signal NAME] [-o TABLE.yaml] [--source S] [--check]
+"""python -m esclearn CAPTURE [--pin N | --signal NAME] [-o TABLE.yaml] [--source S]
+                    [--send W,W,...] [--check]
 
 Learns the protocol on one pin of a recording (a chip capture .json, a VCD or a sigrok
 .sr) and prints what it found: the coding, the carrier, the symbol timings and the words
 of every frame. -o writes the timing table (escgen's format; python -m escgen TABLE
-turns it into firmware with a timing certificate). --check builds it, runs it on the ISS
+turns it into firmware with a timing certificate). --send gives the words of a new frame
+(hex; serial: bytes): check bytes the recording shows (a complement, an XOR, a sum) are
+recomputed, and the table sends that frame. --check builds it, runs it on the ISS
 for the recorded frames and compares every mark and space with the recording; --clk-khz
 runs that check at a lower clock, rescaled (long signals such as IR take a while on the
 ISS at 25 MHz). Exit status 1 if nothing fits or the check fails.
@@ -42,6 +45,7 @@ def main(argv=None) -> int:
     ap.add_argument("--source", default=None, choices=["mailbox", "constant", "tape"],
                     help="where the generated firmware takes its words (default: mailbox "
                          "for one word per frame, else constant: the first frame)")
+    ap.add_argument("--send", help="a new frame's words, comma-separated (hex)")
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--clk-khz", type=int, default=25000)
     args = ap.parse_args(argv)
@@ -62,11 +66,18 @@ def main(argv=None) -> int:
         print("raw replay re-sends a recording unchanged: esctape.build_replay")
         return 1
     print("\n".join(model.summary()))
-    source = args.source or ("mailbox" if model.nbits == model.unit else "constant")
+    source = args.source or model.default_source
+    words = None
+    if args.send:
+        given = [int(w, 16) for w in args.send.split(",")]
+        words = model.complete(given)
+        filled = "" if words == given else " (check bytes recomputed)"
+        print("send " + " ".join(f"0x{w:x}" for w in words) + filled)
+        source = "constant"
     status = 0
     if args.out:
         try:
-            Path(args.out).write_text(model.table_yaml(source), newline="\n")
+            Path(args.out).write_text(model.table_yaml(source, words), newline="\n")
         except LearnError as e:
             print(f"no table: {e}")
             return 1
