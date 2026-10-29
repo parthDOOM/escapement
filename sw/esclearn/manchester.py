@@ -16,11 +16,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from statistics import median
 
-from .core import (MIN_BITS, Carrier, Cluster, LearnError, Learned, Recording,
-                   carrier_consts, clusters, nearest, ticks, us, word_size)
-
-
-MIN_SAMPLES = 4                    # samples per half-bit, at least
+from .core import (MIN_BITS, MIN_SAMPLES, RAW_BITS, Carrier, Cluster, LearnError, Learned,
+                   Recording, carrier_consts, clusters, nearest, ticks, us, word_size)
 
 
 def _bits(halves, lead, mark_last):
@@ -108,6 +105,13 @@ class Manchester(Learned):
         if r is None:
             return None
         return self.pack(r[0])
+
+    def timings(self):
+        _, on, off = self.on_off()
+        return [on, off, self.gap]
+
+    def run_bits(self, d) -> float:
+        return math.log2(3) if nearest(self.runs, d) is not None else RAW_BITS
 
     def compare(self, gen, rec, slack):
         def bounds(is_mark, v):
@@ -237,4 +241,5 @@ def learn_manchester(rec: Recording, name, source) -> Manchester:
             model.other += 1
         else:
             model.frames.append(w)
+    model.check_bits()
     return model

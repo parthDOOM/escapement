@@ -5,11 +5,12 @@ other pair; an optional carrier, leader and trailer around the bits."""
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass, field
 from statistics import median
 
-from .core import (MIN_BITS, Carrier, Cluster, LearnError, Learned, Recording,
+from .core import (MIN_BITS, RAW_BITS, SPLIT, Carrier, Cluster, LearnError, Learned, Recording,
                    carrier_consts, clusters, nearest, ticks, us, word_size)
 
 
@@ -49,6 +50,28 @@ class PulseCode(Learned):
             if mi is None or (s is not None and si is None):
                 return None
             out.append((mi, si))
+        return out
+
+    def timings(self):
+        return [c.center for c in self.marks + self.spaces] + [self.gap]
+
+    def run_bits(self, d) -> float:
+        k = len(self.marks) + len(self.spaces)
+        hit = nearest(self.marks, d) is not None or nearest(self.spaces, d) is not None
+        return math.log2(1 + k) if hit else RAW_BITS
+
+    def unread_bits(self, fr) -> float:
+        """A pair that is one of the model's symbols (a bit, a leader or trailer pair)
+        costs the choice of symbol; any other pair, its runs."""
+        syms = {self.zero, self.one, *map(tuple, self.leader), *map(tuple, self.trailer)}
+        out = 0.0
+        for m, s in fr:
+            mi = nearest(self.marks, m)
+            si = None if s is None else nearest(self.spaces, s)
+            if mi is not None and (si is not None or s is None) and (mi, si) in syms:
+                out += math.log2(1 + len(syms))
+            else:
+                out += self.run_bits(m) + (self.run_bits(s) if s is not None else 0)
         return out
 
     def _bits(self, pairs):
@@ -227,6 +250,15 @@ def learn_pulse(rec: Recording, name, source) -> PulseCode:
     (a, na), (b, nb) = count.most_common(2)
     if na + nb < 0.6 * sum(count.values()):
         raise LearnError("no pair of symbols dominates: not a two-symbol code")
+    def apart(cl, i, j):
+        """Two clusters with a gap between them (not a range of lengths that clusters()
+        cut in two because it spans more than SPREAD)."""
+        if i is None or j is None or i == j:
+            return False
+        lo, hi = sorted((cl[i], cl[j]), key=lambda c: c.center)
+        return hi.lo > lo.hi * SPLIT and hi.lo - lo.hi > rec.quant
+    if not (apart(marks, a[0], b[0]) or apart(spaces, a[1], b[1])):
+        raise LearnError("the two commonest symbols are one range of lengths, not two symbols")
     mc = lambda i: marks[i].center     # noqa: E731
     sc = lambda i: spaces[i].center    # noqa: E731
     if a[0] == b[0]:
@@ -284,4 +316,5 @@ def learn_pulse(rec: Recording, name, source) -> PulseCode:
             model.frames.append(model.pack(model._bits(fr)))
         else:
             model.other += 1
+    model.check_bits()
     return model

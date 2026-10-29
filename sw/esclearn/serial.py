@@ -14,8 +14,8 @@ import bisect
 import math
 from dataclasses import dataclass, field
 
-from .core import (GAP_RATIO, LearnError, Learned, Recording, frames, gap_threshold, ticks,
-                   us)
+from .core import (GAP_RATIO, MIN_SAMPLES, RAW_BITS, LearnError, Learned, Recording, frames,
+                   gap_threshold, ticks, us)
 
 FORMATS = [(8, "N"), (8, "E"), (8, "O"), (7, "E"), (7, "O"), (7, "N"), (9, "N"), (6, "N"),
            (5, "N")]
@@ -44,9 +44,11 @@ def _timeline(fr):
     return out, t
 
 
-def _chars(fr, bit, nd, par, stop_len=1):
+def _chars(fr, bit, nd, par, slack):
     """[(value, start tick, idle bits after it or None)] of a frame (a message), and the
-    breaks in it, or None at a framing or parity error."""
+    breaks in it, or None at a framing or parity error, or if an edge inside a character
+    is more than `slack` ticks off a bit boundary (a UART changes the line only there, so
+    a pulse at an arbitrary time is not a data bit)."""
     tl, end = _timeline(fr)
     times = [t for t, _ in tl]
 
@@ -68,10 +70,16 @@ def _chars(fr, bit, nd, par, stop_len=1):
         vals = [1 - level(t0 + (k + 1.5) * bit) for k in range(nb)]   # data: idle = 1
         if level(t0 + (nb + 1.5) * bit) != 0:
             return None                     # no stop bit
+        stop_at = t0 + (nb + 1) * bit
+        j = i + 1
+        while j < len(tl) and tl[j][0] <= stop_at + slack:
+            off = (tl[j][0] - t0) % bit
+            if min(off, bit - off) > slack:
+                return None
+            j += 1
         v = sum(b << k for k, b in enumerate(vals[:nd]))
         if par != "N" and vals[nd] != _parity(v, par):
             return None
-        stop_at = t0 + (nb + 1) * bit
         j = bisect.bisect_right(times, stop_at + 0.5 * bit)
         while j < len(tl) and tl[j][1] != 1:
             j += 1
@@ -108,6 +116,11 @@ class Serial(Learned):
     def unit(self):
         return self.nd
 
+    @property
+    def slack(self):
+        """How far off a bit boundary an edge may lie (as when learning)."""
+        return TOL * self.bit + self.quant
+
     def regroup(self, unit=None, msb=False):
         raise LearnError("serial: a character is a word (LSB first, as UARTs send)")
 
@@ -129,13 +142,29 @@ class Serial(Learned):
                       self.brk is not None)
 
     def words(self, fr):
-        r = _chars(fr, self.bit, self.nd, self.parity)
+        r = _chars(fr, self.bit, self.nd, self.parity, self.slack)
         if r is None or not r[0]:
             return None
         chars, breaks = r
         if (self.brk is not None) != bool(breaks):
             return None
         return [v for v, _, _ in chars]
+
+    def timings(self):
+        return [self.bit, self.brk, self.mab, self.gap]
+
+    def run_bits(self, d) -> float:
+        k = round(d / self.bit)
+        whole = 1 <= k <= 12 and abs(d - k * self.bit) <= TOL * self.bit + self.quant
+        return math.log2(13) if whole else RAW_BITS
+
+    def frame_bits(self, fr) -> float:
+        """Each character's data bits, and where the next one starts: the idle bits after
+        it (log2: one bit for back to back) and the length of each break."""
+        chars, breaks = _chars(fr, self.bit, self.nd, self.parity, self.slack)
+        return (self.nd * len(chars)
+                + sum(math.log2(2 + a) for _, _, a in chars if a is not None)
+                + sum(math.log2(2 + b / self.bit) for b in breaks))
 
     def compare(self, gen, rec, slack):
         """The bit time of the generated message (from its runs) within the recording's
@@ -264,14 +293,14 @@ def _split(env, thr, bit, nb, by_break):
     return [fr for fr in out if fr and fr[0][0] > (nb + 1.5) * bit]
 
 
-def _attempt(env, bit, nd, par):
+def _attempt(env, bit, nd, par, slack):
     """(messages, decoded messages, gap threshold, breaks?) if the format (nd, par)
     decodes at least 80% of the messages and MIN_CHARS characters, else None."""
     nb = nd + (par != "N")
     by_break = any(m and d != math.inf and d > (nb + 1.5) * bit for m, d, _ in env)
     thr = None if by_break else gap_threshold_serial(env, bit, nb)
     msgs = _split(env, thr, bit, nb, by_break)
-    good = [(fr, r) for fr in msgs if (r := _chars(fr, bit, nd, par)) is not None and r[0]]
+    good = [(fr, r) for fr in msgs if (r := _chars(fr, bit, nd, par, slack)) is not None and r[0]]
     if not msgs or len(good) < max(1, 0.8 * len(msgs)) or sum(len(r[0]) for _, r in good) < MIN_CHARS:
         return None
     return msgs, good, thr, by_break
@@ -290,11 +319,15 @@ def learn_serial(rec: Recording, name, source) -> Serial:
     inner = [d for d in durs if d < 12 * shortest]
     ks = [max(1, round(d / shortest)) for d in inner]
     bit = sum(inner) / sum(ks)
-    off = sum(abs(d - k * bit) > TOL * bit + rec.quant for d, k in zip(inner, ks))
+    if bit < MIN_SAMPLES * rec.quant:
+        raise LearnError(f"a bit time of {bit / rec.quant:.1f} samples: the recording does not "
+                         "resolve it")
+    slack = TOL * bit + rec.quant
+    off = sum(abs(d - k * bit) > slack for d, k in zip(inner, ks))
     if off > 0.05 * len(inner):
         raise LearnError("marks are not whole numbers of one bit time")
     for nd, par in FORMATS:
-        got = _attempt(env, bit, nd, par)
+        got = _attempt(env, bit, nd, par, slack)
         if got:
             break
     else:
@@ -305,10 +338,10 @@ def learn_serial(rec: Recording, name, source) -> Serial:
         for p7 in ("E", "O"):
             if top == {0, 1} and all(v >> 7 == _parity(v & 0x7F, p7) for v in vals):
                 nd, par = 7, p7
-        if top == {1} and (alt := _attempt(env, bit, 7, "N")):
+        if top == {1} and (alt := _attempt(env, bit, 7, "N", slack)):
             nd, par, got = 7, "N", alt
         if nd == 7 and par != "N":
-            got = _attempt(env, bit, nd, par) or got
+            got = _attempt(env, bit, nd, par, slack) or got
     msgs, good, thr, by_break = got
     afters = [a for _, r in good for _, _, a in r[0][:-1] if a is not None]
     stops = 2 if afters and 1.75 <= min(afters) < 2.5 else 1

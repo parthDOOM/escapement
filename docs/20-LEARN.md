@@ -83,8 +83,10 @@ packet: {before: [leader], after: [stop, gap]}
    long are a carrier. Each burst becomes one mark of whole carrier periods (what
    `escgen` sends), and the period and duty are kept. A raw IR channel at 38 kHz and the
    demodulated channel of the same recording give the same frames.
-3. **Frames.** Frames end at gaps: the first large jump among the sorted spaces.
-4. **Models.** Three learners try the frames, and the most plausible fit wins:
+3. **Frames.** Frames end at gaps. Every jump of 4× or more among the sorted spaces is
+   a candidate gap; a leader's long space can make the first one, so which one ends
+   frames is decided with the models, in the next step.
+4. **Models.** Three learners try the frames at each candidate gap:
    - *Manchester* (RC-5, DALI): every run is one or two half-bits and every bit has
      opposite halves. The half-bit is the one most runs fit, so a ragged receiver
      output or one bogus packet leaves that frame unread, not the recording.
@@ -95,8 +97,22 @@ packet: {before: [leader], after: [stop, gap]}
      pulse length, or any two symbols; leaders and trailers are the outliers at the
      ends.
 
-   Plausibility matters because some signals fit two models: a WS2812 stream also reads
-   as 7N1 serial at 2.42 Mbaud (three of its bits are one character).
+   Some signals fit more than one model. A WS2812 stream also reads as 7N1 serial at
+   2.42 Mbaud (three of its bits are one character), and NEC's runs are all whole
+   multiples of 562.5 µs, so it reads as serial too, with its leader as a line break.
+   The choice is by minimum description length: of every model at every framing, the
+   one that writes the recording down in the fewest bits. A NEC frame costs 32 bits as a
+   pulse code and about 100 as serial characters. A frame no model reads is written in
+   the model's own symbols, so one glitch costs little more than the glitch. Repeat
+   codes, and the gaps between frames, cost each distinct shape once. Times that are
+   whole multiples of the shortest one cost the multiple. Nothing in the rule names a
+   protocol.
+
+   Each learner also has to show that its reading is real. A serial character's edges
+   must fall on bit boundaries, and a bit must span at least 4 samples. A pulse code's
+   two symbols must be separated by a gap in length, not a cut through a continuous
+   range. Some frame must mix both symbols. And a signal whose marks are all one length
+   and whose spaces are all one length carries no data at all.
 5. **Words.** Bits are numbered as sent: the first bit sent is bit 0, a frame of up to
    32 bits is one word, a longer one words of its largest divisor from 32 down to 8.
    `--unit` and `--msb` number the same bits another way: `--unit 24 --msb` gives an LED
@@ -131,6 +147,45 @@ frame. That is a separate implementation reading the same samples. CI installs s
 Four of them, NEC, SIRC, PT2262 and RC-5 on its carrier, are regenerated on the
 simulator and pass the check.
 
+## Protocols nobody designed
+
+A tool tested only on the protocols its author knows can be tuned to them without
+anyone noticing. So the tests also draw protocols at random
+([`sw/tests/protogen.py`](../sw/tests/protogen.py)):
+- **Coding:** pulse distance, pulse width, pulse length or Manchester.
+- **Timing:** a time unit from 2 µs to 2 ms, and a long symbol 2 to 4 times the short.
+- **Frames:** 8 to 64 bits, with or without a leader, random words.
+- **Line:** either idle level, a carrier or none.
+- **Damage:** jitter and coarse sampling.
+
+A protocol must be decoded word for word, or refused. A wrong word fails the test.
+
+| Test | Result |
+| --- | --- |
+| 200 random protocols (1,000 more in development runs) | every word of every frame, and the coding named |
+| 40 with the transmitter's clock drifting 10% across the recording | every word |
+| 120 under abuse: 8 to 12% jitter on every run, 5 to 8 samples a time unit | no wrong word; more than half still decode exactly, the rest are refused |
+| 50 random serial streams: any rate, standard or not, 5 formats, either idle level, gaps | every byte |
+| 50 recordings with two random protocols interleaved at different speeds | one of them read, or nothing; never a frame that is neither |
+| 120 signals with structure but no data: square waves, servo pulses of any width, tone bursts, equal pulses at random times | all refused |
+
+These tests were written after esclearn's first version, and it failed them:
+
+| On the same 200 random protocols | Exact | Partial | Wrong |
+| --- | --- | --- | --- |
+| First version | 169 | 27 | 4 |
+| Now | 200 | 0 | 0 |
+
+It also read square waves as serial, 30 of 30, servo pulses as a pulse-width code, 30
+of 30, and tone bursts and random pulse trains as data, 38 of 60. The causes:
+- A hand-made ranking of models.
+- A leader's long space taken for the gap between frames.
+- Serial characters whose edges were never checked against bit boundaries; on coarse
+  recordings, the sample grid itself was read as a bit clock.
+- Symbols cut out of a continuous range of lengths.
+
+Each is fixed by one of the principles above, not by a special case.
+
 ## On the chip
 
 `make pin-test` runs the whole loop on the RTL, and `make gl-pin-test` on the final
@@ -153,15 +208,17 @@ simulation short, as the other infrared tests on the RTL scale theirs. It takes 
 
 - **Guess.** Random edges, a recording that is too short, and frames with no repeating
   shape are refused: none of the 90 noise recordings in the tests (300 random edges
-  each, three distributions of spacing) yields a model.
+  each, three distributions of spacing) yields a model. Neither does a signal with
+  structure but no data (above), nor a data signal that never changes: an LED strip
+  with every LED off is, on the wire, a clock.
 - **Tell apart what the waveform does not.** 7N1 with one idle bit between characters
   is the same waveform as 7N2, and esclearn reports 7N2; the replay is identical. An
   idle-high pin with no carrier can be a DALI line (a 1 rises mid-bit) or an IR
   receiver's output (low while the carrier is on, so an RC-5 1 falls). esclearn uses
   the first convention and prints the other reading as well.
-- **Resolve what was not sampled.** A Manchester half-bit must span at least four
-  samples: at 6 MHz, a WS2812 stream's runs fit some half-bit, so it stays a pulse-width
-  code. A raw carrier needs a few samples per pulse.
+- **Resolve what was not sampled.** A Manchester half-bit and a serial bit must span at
+  least 4 samples. At 6 MHz, a WS2812 stream's runs fit some half-bit, so it stays a
+  pulse-width code. A raw carrier needs a few samples per pulse.
 - **Receive, or drive several wires.** It generates transmitters for single-wire,
   self-timed codes. Clocked buses (SPI, I2C) already have firmware, and checksums beyond
   the simple check bytes above (CRCs) are not inferred: such a frame can be replayed but

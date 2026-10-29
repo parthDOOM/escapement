@@ -704,3 +704,126 @@ def test_cli_on_a_sigrok_session(capsys):
     assert cli([str(DUMPS / "rc5_button1.sr"), "--signal", "IR Toy IRDETECT"]) == 0
     out = capsys.readouterr().out
     assert "Manchester, 14 bits per frame" in out and "frame 0x20a7" in out
+
+
+# --------------------------------------------------------------------------- nobody designed
+# The protocols above are ones people named. These are drawn at random (protogen.py), so
+# nothing in esclearn can be fitted to them: a protocol must be decoded exactly, word for
+# word, or refused, and a wrong word fails. Signals that carry no data must be refused.
+
+import protogen  # noqa: E402
+
+
+def outcome(rec, sent, quant=1, also=()):
+    """("exact" | "part" | "wrong" | "refused", model): part = every frame read is a
+    frame sent (or in `also`), some are not read."""
+    try:
+        m = learn(rec, quant=quant)
+    except LearnError:
+        return "refused", None
+    if not m.frames or any(fr not in sent and fr not in also for fr in m.frames):
+        return "wrong", m
+    return ("exact" if m.frames == sent and m.other == 0 else "part"), m
+
+
+@pytest.mark.parametrize("block", range(4))
+def test_random_protocols(block):
+    """50 random protocols a block: every word of every frame, and the coding named."""
+    bad = []
+    for seed in range(50 * block, 50 * block + 50):
+        rng = random.Random(seed)
+        p = protogen.draw(rng)
+        sent, frs = protogen.frames(p, rng)
+        v, m = outcome(protogen.records(p, frs, rng), sent, p["q"])
+        if v != "exact" or m.coding != protogen.CODINGS[p["coding"]]:
+            bad.append((seed, v, p))
+    assert not bad, bad[:3]
+
+
+def test_random_protocols_with_drift():
+    """The transmitter's clock drifts 10% across the recording."""
+    bad = []
+    for seed in range(40):
+        rng = random.Random(20_000 + seed)
+        p = protogen.draw(rng)
+        n = p["frames"]
+        sent, frs = protogen.frames(p, rng, scale=lambda i: 0.95 + 0.10 * i / (n - 1))
+        v, _ = outcome(protogen.records(p, frs, rng), sent, p["q"])
+        if v != "exact":
+            bad.append((seed, v, p))
+    assert not bad, bad[:3]
+
+
+def test_random_protocols_under_abuse():
+    """8 to 12% jitter on every run and 5 to 8 samples a time unit: refusing is allowed,
+    a wrong word is not."""
+    tally, bad = {}, []
+    for seed in range(120):
+        rng = random.Random(10_000 + seed)
+        p = protogen.draw(rng)
+        p["jitter"], p["q"] = rng.uniform(0.08, 0.12), max(1, p["u"] / rng.uniform(5, 8))
+        sent, frs = protogen.frames(p, rng)
+        v, m = outcome(protogen.records(p, frs, rng), sent, p["q"])
+        tally[v] = tally.get(v, 0) + 1
+        if v == "wrong":
+            bad.append((seed, m.coding, m.frames[:2], sent[:2]))
+    assert not bad, bad[:3]
+    assert tally.get("exact", 0) > 60, tally                   # and most still decode
+
+
+def test_random_serial():
+    """Any rate (standard or not), format, idle level and gaps; messages of 3 to 12."""
+    bad = []
+    for seed in range(50):
+        rng = random.Random(30_000 + seed)
+        baud = rng.choice([1200, 9600, 31250, 57600, 115200, 250000])
+        baud *= 1 if rng.random() < 0.6 else rng.uniform(0.7, 1.4)
+        nd, par = rng.choice([(8, "N"), (8, "E"), (8, "O"), (7, "E"), (7, "N")])
+        stops, idle = rng.choice([1, 2]), rng.randint(0, 1)
+        msgs = [[rng.getrandbits(nd) for _ in range(rng.randint(3, 12))]
+                for _ in range(rng.randint(4, 8))]
+        rec, t = [(0, idle)], 1000
+        for msg in msgs:
+            rec += uart_records(msg, baud, nd, par, stops, idle,
+                                gap_bits=rng.choice([0, 0, 0.5, 2.3]), start=t)[1:]
+            t = rec[-1][0] + int(rng.uniform(40, 200) * 25e6 / baud)
+        rec.append((t, idle))
+        v, _ = outcome(rec, msgs)
+        if v != "exact":
+            bad.append((seed, v, round(baud), nd, par, stops, idle))
+    assert not bad, bad[:3]
+
+
+def test_two_protocols_on_one_pin():
+    """Frames of two random protocols, alternately, at different speeds: one of them is
+    read, or nothing is; a frame that is neither is not."""
+    bad, read = [], 0
+    for seed in range(50):
+        rng = random.Random(40_000 + seed)
+        pa, pb = protogen.draw(rng), protogen.draw(rng)
+        pb["u"] = pa["u"] * rng.choice([0.37, 2.7])
+        pa["carrier"] = pb["carrier"] = None
+        pb["idle"] = pa["idle"]
+        sa, fa = protogen.frames(pa, rng, n=4)
+        sb, fb = protogen.frames(pb, rng, n=4)
+        rec = protogen.records(dict(pa, q=1, jitter=0.02), [f for ab in zip(fa, fb) for f in ab], rng)
+        v, m = outcome(rec, sa, also=sb)
+        read += v == "part"
+        if v == "wrong":
+            bad.append((seed, m.coding, m.frames[:2]))
+    assert not bad, bad[:3]
+    assert read > 15, read
+
+
+@pytest.mark.parametrize("kind", ["square", "servo", "bursts", "poisson"])
+def test_signals_without_data_are_refused(kind):
+    """A square wave, servo pulses of any width, tone bursts, equal pulses at random
+    times: each has structure, and none carries data."""
+    took = []
+    for seed in range(30):
+        try:
+            m = learn(protogen.nonprotocol(random.Random(50_000 + seed), kind))
+            took.append((seed, m.coding, m.frames[:1]))
+        except LearnError:
+            pass
+    assert not took, took[:3]

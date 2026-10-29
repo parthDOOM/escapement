@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from statistics import median
 
 CLOCK_HZ = 25_000_000
@@ -17,6 +17,9 @@ MIN_BITS = 4         # a frame carries at least this many bits
 MIN_PULSES = 16      # carrier: at least this many pulses in the recording...
 MIN_BURST = 8        # ...a median burst of at least this many, and bursts apart by at least
 BURST_SPACE = 2.5    # this many periods (IR: NEC bits 22 pulses, 21 periods apart)
+MAX_SPLITS = 4       # candidate frame gaps tried
+MIN_SAMPLES = 4      # a time unit (a bit, a half-bit) spans at least this many samples
+RAW_BITS = 16        # description length of a run no model explains (a raw duration)
 
 
 class LearnError(ValueError):
@@ -173,19 +176,24 @@ def envelope(runs, idle, carrier: Carrier | None):
 
 # --------------------------------------------------------------------------- frames
 
-def gap_threshold(env) -> float | None:
-    """The space length that ends a frame: the middle of the first jump of at least
-    GAP_RATIO between sorted space lengths (longer pauses, between button presses say,
-    are gaps too). Without such a jump (noise between frames fills every length),
-    GAP_RATIO times the 90th percentile space, if some space reaches it; else None."""
+def gap_candidates(env) -> list[float]:
+    """Space lengths that could end a frame: the middle of every jump of at least
+    GAP_RATIO between sorted space lengths, shortest first (a leader's long space can make
+    the first jump, so which one ends frames is for the models to say). Without such a
+    jump (noise between frames fills every length), GAP_RATIO times the 90th percentile
+    space, if some space reaches it."""
     sp = sorted(d for k, (m, d, _) in enumerate(env)       # not the lead-in: its length
                 if not m and d != math.inf and k > 0)      # is only when recording began
-    for a, b in zip(sp, sp[1:]):
-        if b >= GAP_RATIO * a:
-            return math.sqrt(a * b)
-    if len(sp) >= 10 and sp[-1] >= GAP_RATIO * sp[int(0.9 * (len(sp) - 1))]:
-        return GAP_RATIO * sp[int(0.9 * (len(sp) - 1))]
-    return None
+    out = [math.sqrt(a * b) for a, b in zip(sp, sp[1:]) if b >= GAP_RATIO * a]
+    if not out and len(sp) >= 10 and sp[-1] >= GAP_RATIO * sp[int(0.9 * (len(sp) - 1))]:
+        out.append(GAP_RATIO * sp[int(0.9 * (len(sp) - 1))])
+    return out[:MAX_SPLITS]
+
+
+def gap_threshold(env) -> float | None:
+    """The shortest candidate gap (gap_candidates), or None."""
+    c = gap_candidates(env)
+    return c[0] if c else None
 
 
 def frames(env, thr):
@@ -246,6 +254,11 @@ class Recording:
         thr = gap_threshold(env)
         return cls(ed, runs, idle, car, env, thr, frames(env, thr), quant)
 
+    def splits(self) -> list[Recording]:
+        """This recording framed at each candidate gap (the shortest first)."""
+        return [self] + [replace(self, thr=t, frames=frames(self.env, t))
+                         for t in gap_candidates(self.env)[1:]]
+
     def gap(self, notes, longest):
         """The typical gap between frames, or a guess (noted) if none was recorded."""
         g = gaps_of(self.env, self.thr)
@@ -283,6 +296,20 @@ class Learned:
         """A word as the firmware takes it (default: as decoded)."""
         return w
 
+    def frame_bits(self, fr) -> float:
+        """The data bits a frame the model reads carries (for the description length)."""
+        return self.nbits
+
+    def unread_bits(self, fr) -> float:
+        """The bits to write down a frame the model does not read, with the model's
+        symbols as the codebook: run_bits for each run (models with symbol pairs do
+        better), so a frame spoilt by one glitch costs little more than the glitch."""
+        return sum(self.run_bits(d) for p in fr for d in p if d is not None)
+
+    def run_bits(self, d) -> float:
+        """A run's description: which of the model's lengths it is, or a raw length."""
+        return RAW_BITS
+
     def replay(self, words):
         """(table, tape) that sends one recorded frame: here its words as constants."""
         return self.table("constant", words), None
@@ -299,6 +326,14 @@ class Learned:
     def unpack(self, words):
         u, msb = self.unit, self.order == "msb"
         return [w >> (u - 1 - i if msb else i) & 1 for w in words for i in range(u)]
+
+    def check_bits(self):
+        """Refuse a model none of whose frames uses both of its symbols: a frame of one
+        symbol over and over carries no bits (a tone, or a repeating stretch of something
+        else), however regular, and frames of one symbol and frames of the other are two
+        tones, not data."""
+        if not any(len(set(self.unpack(fr))) == 2 for fr in self.frames):
+            raise LearnError("no frame it reads mixes its two symbols: no bits")
 
     def regroup(self, unit=None, msb=False):
         """The same bits numbered another way: words of `unit` bits (it must divide a
