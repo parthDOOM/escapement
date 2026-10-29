@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .core import (CLOCK_HZ, Carrier, Cluster, LearnError, Recording, clusters, edges,
-                   find_carrier, runs_of)
+                   find_carrier, runs_of, us)
 from .manchester import Manchester, learn_manchester
 from .pulse import PulseCode, learn_pulse
 from .serial import Serial, learn_serial
@@ -60,7 +60,28 @@ def learn(records, pin=0, name="learned", source="capture", quant=1):
             why.append(f"{kind}: {e}")
     if not found:
         raise LearnError("; ".join(why))
-    return max(found, key=plausibility)
+    model = max(found, key=plausibility)
+    _alike(model, model.frame_list(records, pin))
+    return model
+
+
+def _alike(model, frs):
+    """A note when the frames the model does not read are all one shape, with its timing
+    (a held key's repeat code, say): run by run within 20% of each other."""
+    odd = [fr for fr in frs if model.words(fr) is None]
+    if len(odd) < 2 or len(odd) != model.other or len({len(fr) for fr in odd}) != 1:
+        return
+    runs = []
+    for i in range(len(odd[0])):
+        for j, what in enumerate(("mark", "space")):
+            ds = [fr[i][j] for fr in odd]
+            if None in ds:
+                continue
+            if max(ds) > 1.2 * min(ds):
+                return
+            runs.append(f"{what} {us(sorted(ds)[len(ds) // 2])}")
+    model.notes.append(f"the {len(odd)} frames of another shape are all alike: "
+                       + ", ".join(runs))
 
 
 @dataclass

@@ -73,14 +73,10 @@ class PulseCode(Learned):
             bits.append(b)
         return bits
 
-    def words_of(self, bits):
-        return [sum(b << i for i, b in enumerate(bits[k:k + self.unit]))
-                for k in range(0, len(bits), self.unit)]
-
     def words(self, fr):
         pairs = self._pairs(fr)
         bits = pairs and self._bits(pairs)
-        return self.words_of(bits) if bits else None
+        return self.pack(bits) if bits else None
 
     def compare(self, gen, rec, slack):
         def bounds(is_mark, v):
@@ -161,11 +157,11 @@ class PulseCode(Learned):
             notes["T"] = f"bit period {us(self.period)}"
             sym["bit"] = [[{"OUT": mk}, "H0"], [{"OUT": "data"}, "H1 - H0"],
                           [{"OUT": self.idle}, "T - H1"]]
-            fieldspec = {"bits": self.unit, "order": "lsb", "symbol": "bit"}
+            fieldspec = {"bits": self.unit, "order": self.order, "symbol": "bit"}
         else:
             sym["zero"] = [mark(self.zero[0]), space(self.zero[1])]
             sym["one"] = [mark(self.one[0]), space(self.one[1])]
-            fieldspec = {"bits": self.unit, "order": "lsb", "choose": ["zero", "one"]}
+            fieldspec = {"bits": self.unit, "order": self.order, "choose": ["zero", "one"]}
         if self.trailer:
             ph = []
             for a, b in self.trailer:
@@ -285,7 +281,7 @@ def learn_pulse(rec: Recording, name, source) -> PulseCode:
                       source=source, notes=notes, quant=rec.quant)
     for fr, shp in zip(ids, shapes):
         if shp == shape:
-            model.frames.append(model.words_of(model._bits(fr)))
+            model.frames.append(model.pack(model._bits(fr)))
         else:
             model.other += 1
     return model

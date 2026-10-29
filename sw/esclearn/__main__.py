@@ -1,13 +1,16 @@
-"""python -m esclearn CAPTURE [--pin N | --signal NAME] [-o TABLE.yaml] [--source S]
-                    [--send W,W,...] [--check]
+"""python -m esclearn CAPTURE [--pin N | --signal NAME] [--unit BITS] [--msb]
+                    [-o TABLE.yaml] [--source S] [--send W,W,...] [--check]
 
 Learns the protocol on one pin of a recording (a chip capture .json, a VCD or a sigrok
 .sr) and prints what it found: the coding, the carrier, the symbol timings and the words
-of every frame. -o writes the timing table (escgen's format; python -m escgen TABLE
-turns it into firmware with a timing certificate). --send gives the words of a new frame
-(hex; serial: bytes): check bytes the recording shows (a complement, an XOR, a sum) are
-recomputed, and the table sends that frame. --check builds it, runs it on the ISS
-for the recorded frames and compares every mark and space with the recording; --clk-khz
+of every frame. The first bit sent is bit 0, and a frame of up to 32 bits is one word,
+a longer one words of its largest divisor from 32 down to 8 bits; --unit and --msb
+number the same bits another way (an LED strip: --unit 24 --msb gives each LED's
+colour). -o writes the timing table (escgen's format; python -m escgen TABLE turns it
+into firmware with a timing certificate). --send gives the words of a new frame (hex;
+serial: bytes): check bytes the recording shows (a complement, an XOR, a sum) are
+recomputed, and the table sends that frame. --check builds it, runs it on the ISS for
+the recorded frames and compares every mark and space with the recording; --clk-khz
 runs that check at a lower clock, rescaled (long signals such as IR take a while on the
 ISS at 25 MHz). Exit status 1 if nothing fits or the check fails.
 """
@@ -40,6 +43,8 @@ def main(argv=None) -> int:
     ap.add_argument("capture")
     ap.add_argument("--pin", type=int, default=None, help="channel (bit) to learn, default 0")
     ap.add_argument("--signal", help="channel by name (a VCD signal or a sigrok probe)")
+    ap.add_argument("--unit", type=int, help="bits per word (must divide a frame's bits)")
+    ap.add_argument("--msb", action="store_true", help="the first bit sent is a word's top bit")
     ap.add_argument("-o", "--out", help="write the timing table here")
     ap.add_argument("--name", help="table name (default learned_<capture>)")
     ap.add_argument("--source", default=None, choices=["mailbox", "constant", "tape"],
@@ -65,6 +70,12 @@ def main(argv=None) -> int:
         print(f"{path.name}: no model: {e}")
         print("raw replay re-sends a recording unchanged: esctape.build_replay")
         return 1
+    if args.unit or args.msb:
+        try:
+            model.regroup(args.unit, args.msb)
+        except LearnError as e:
+            print(f"--unit/--msb: {e}")
+            return 1
     print("\n".join(model.summary()))
     source = args.source or model.default_source
     words = None

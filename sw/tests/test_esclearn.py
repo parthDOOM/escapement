@@ -4,13 +4,18 @@ regenerated from it on the ISS and compared mark by mark with the recording.
 Recordings come from our own firmware on the ISS (escgen's NEC and WS2812 tables) and
 from a remote built from the NEC specification (escmodels.nec.NecSource: TSOP-style
 demodulated output with repeat codes, or the raw 38 kHz carrier), with oscillator
-error, jitter, coarse sampling, glitches and cut frames. Noise must be refused, never
-modelled.
+error, jitter, coarse sampling, glitches and cut frames, and from real transmitters
+(logic analyser recordings from sigrok-dumps), checked against sigrok's own decoders.
+Noise must be refused, never modelled.
 """
 
 from __future__ import annotations
 
 import random
+import re
+import shutil
+import subprocess
+from pathlib import Path
 
 import pytest
 import yaml
@@ -19,10 +24,10 @@ import escgen
 import esclearn
 from esciss import Machine
 from esclearn import LearnError, check, learn
-from esclearn.__main__ import main as cli
+from esclearn.__main__ import main as cli, resolution
 from escmodels import Board, HostScript
 from escmodels.nec import NecSource, nec_raw
-from esctape.export import write_vcd
+from esctape.export import read_trace, write_vcd
 
 NEC = [nec_raw(0x04, 0x08), nec_raw(0x10, 0xA5)]
 SLOT = 108_000 * 25                        # 108 ms in ticks
@@ -138,6 +143,43 @@ def test_ws2812_tape_table_sends_new_colours(ws_iss):
     new = [rev(c, 24) for c in (0xFF0000, 0x0000FF, 0x5A5A5A)]
     rec = iss(t, 25_000, tape=[3] + [m.stored(w) for w in new])
     assert new in m.decode(rec)
+
+
+def test_words_regrouped_msb_first(ws_iss, tmp_path, capsys):
+    """--unit 24 --msb: each LED's colour as the strip's datasheet writes it, and the
+    table sends MSB first."""
+    m = learn(ws_iss)
+    m.regroup(24, msb=True)
+    assert all(f == COLOURS for f in m.frames)
+    assert check(m, ws_iss).ok
+    new = [0xFF0000, 0x0000FF, 0x5A5A5A]
+    t = m.table("tape")
+    assert t["frame"][0]["order"] == "msb"
+    assert new in m.decode(iss(t, 25_000, tape=[3] + [m.stored(w) for w in new]))
+    with pytest.raises(LearnError):
+        m.regroup(7)
+    vcd = tmp_path / "strip.vcd"
+    write_vcd(ws_iss, vcd, pins=1)
+    assert cli([str(vcd), "--unit", "24", "--msb"]) == 0
+    assert "frame 0x00ff00 0x123456 0xabcdef" in capsys.readouterr().out
+
+
+def test_coarse_ws2812_is_not_manchester(ws_iss):
+    """At 6 MHz a half-bit window of T/3 is under two samples, and the strip's runs of
+    one, two and three 400 ns thirds all fit some T: Manchester needs four samples a
+    half-bit, and the strip stays a pulse-width code."""
+    q = 25 / 6
+    m = learn([(round(t), v) for t, v in quantise(ws_iss, q)], quant=q)
+    assert m.coding == "pulse width" and m.frames[0] == [rev(c, 24) for c in COLOURS]
+
+
+def test_check_bytes_msb_first():
+    """The same NEC frames numbered MSB first: the bytes keep their order, the
+    complements still hold, and a new frame is completed in that numbering."""
+    m = learn(tsop([(1000 + SLOT * i, w) for i, w in enumerate(BUTTONS)]))
+    m.regroup(8, msb=True)
+    assert m.checks == [(1, ("not", 0)), (3, ("not", 2))]
+    assert m.complete([0x12, 0, 0x34, 0]) == [0x12, 0xED, 0x34, 0xCB]
 
 
 def test_spec_remote_with_repeat_codes():
@@ -519,3 +561,144 @@ def test_cli_send(tmp_path, capsys):
     t = escgen.load(out)
     assert t["source"] == {"kind": "constant", "words": [nec_raw(0x12, 0x34)]}
     escgen.build(t)
+
+
+# --------------------------------------------------------------------------- real recordings
+# Logic analyser recordings of real transmitters from sigrok-dumps (tests/data/sigrok,
+# public domain). Where sigrok-cli has a decoder that reads the file, its decode is the
+# reference: a separate implementation reading the same samples.
+
+DUMPS = Path(__file__).parent / "data" / "sigrok"
+
+
+def dump(name, pin=0):
+    records, names = read_trace(DUMPS / name)
+    return records, names, learn(records, pin=pin, quant=resolution(DUMPS / name))
+
+
+def nec_bytes(w):
+    return [w >> 8 * i & 0xFF for i in range(4)]
+
+
+def rc5_fields(w):
+    """(address, command, toggle) of a 14-bit RC-5 word as esclearn numbers it (bit 0
+    sent first: two start bits, the toggle, 5 address bits and 6 command bits, MSB first)."""
+    bits = "".join(str(w >> i & 1) for i in range(14))
+    return int(bits[3:8], 2), int(bits[8:], 2), int(bits[2])
+
+
+def test_real_nec_remote():
+    """The demodulated and the raw (38 kHz carrier) probe of one recording agree."""
+    for pin in (0, 1):
+        _, _, m = dump("nec_enter.sr", pin)
+        assert m.coding == "pulse distance" and m.idle == 1 and m.nbits == 32
+        assert m.frames == [[0xEA15FF00]] * 5 and m.other == 0
+        assert bool(m.carrier) == (pin == 1)
+    assert abs(m.carrier.khz - 38.5) < 0.2
+
+
+def test_real_nec_every_button():
+    """21 buttons: address 0x00 then 0xFF in every frame, and the complement of the
+    command found from the data (the address never varies, so its rule is not claimed).
+    The 30 repeat codes of held keys are left unread, and reported as one shape."""
+    _, _, m = dump("nec_all.sr")
+    assert len({w for (w,) in m.frames}) == 21 and m.other == 30
+    assert all(nec_bytes(w)[:2] == [0x00, 0xFF] for (w,) in m.frames)
+    assert m.checks == [(3, ("not", 2))]
+    assert m.notes[-1].startswith("the 30 frames of another shape are all alike: mark 9")
+
+
+def test_real_extended_nec():
+    """A 16-bit address (0xEA41, not an address and its complement): only the command's
+    complement is found."""
+    _, _, m = dump("nec_extended.sr")
+    assert {w & 0xFFFF for (w,) in m.frames} == {0xEA41} and len(m.frames) == 7
+    assert m.checks == [(3, ("not", 2))] and m.other == 4
+
+
+def test_real_sirc_and_pt2262():
+    _, _, m = dump("sirc1.sr")
+    assert m.coding == "pulse length" and m.nbits == 20 and m.frames == [[0x0882C]] * 4
+    _, _, m = dump("sirc2.sr")
+    assert m.coding == "pulse length" and m.frames == [[0xE2D01]] and m.other == 1
+    _, _, m = dump("pt2262_three_a.sr")
+    assert m.coding == "pulse width" and m.idle == 0 and m.nbits == 25
+    assert m.frames == [[0x02A8888]] * 3
+    _, _, m = dump("pt2262_abcd.sr")                  # buttons A to D, ragged packet ends
+    assert {w for (w,) in m.frames} == {0x02A8888, 0x02A2888, 0x022A888, 0x028A888}
+
+
+@pytest.mark.parametrize("name, cmd", [("rc5_button1.sr", 1), ("rc5_button2.sr", 2),
+                                       ("rc5_standby.sr", 12)])
+def test_real_rc5_remote(name, cmd):
+    """Philips VCR (address 5) from the raw probe, on its 37 kHz carrier; the receiver's
+    probe reads every bit inverted (idle high, no carrier: it could be DALI)."""
+    _, _, m = dump(name, 0)
+    assert isinstance(m, esclearn.Manchester) and abs(m.carrier.khz - 37.0) < 0.3
+    assert len(m.frames) == 17 and len({w for (w,) in m.frames}) == 1
+    assert rc5_fields(m.frames[0][0])[:2] == (5, cmd)
+    _, _, d = dump(name, 1)
+    assert not d.carrier and d.frames == [[w ^ 0x3FFF] for (w,) in m.frames]
+    assert "every bit inverts" in "\n".join(d.summary())
+
+
+def test_real_rc5_bogus_packet():
+    """One bad packet on the receiver's probe: its frame is left unread, not the
+    recording (its runs fit neither one nor two half-bits)."""
+    _, names, m = dump("rc5_bogus.sr", 0)
+    assert names[0] == "IRToy IRRX" and len(m.frames) == 4 and m.other == 1
+    assert {rc5_fields(w ^ 0x3FFF)[:2] for (w,) in m.frames} == {(5, 1)}
+
+
+@pytest.mark.parametrize("name, pin, max_frames", [("nec_all.sr", 0, 2), ("sirc1.sr", 0, 2),
+                                                   ("pt2262_three_a.sr", 0, 2),
+                                                   ("rc5_button1.sr", 0, 1)])
+def test_real_recordings_regenerated(name, pin, max_frames):
+    """The learned firmware, run on the ISS, sends what the transmitter sent."""
+    records, _, m = dump(name, pin)
+    c = check(m, records, pin=pin, clk_khz=2500, max_frames=max_frames)
+    assert c.ok and c.decoded, c.failures
+
+
+def sigrok(name, channel, decoder):
+    """sigrok-cli's annotations for one probe, as (label, value) pairs in order."""
+    out = subprocess.run(["sigrok-cli", "-i", str(DUMPS / name), "-C", f"{channel}=IR",
+                          "-P", f"{decoder}:ir=IR"], capture_output=True, text=True,
+                         check=True).stdout
+    return re.findall(r"^\S+: (Address|Command): (\w+)", out, re.M)
+
+
+needs_sigrok = pytest.mark.skipif(shutil.which("sigrok-cli") is None,
+                                  reason="sigrok-cli is not installed")
+
+
+@needs_sigrok
+@pytest.mark.parametrize("name", ["rc5_button1.sr", "rc5_button2.sr", "rc5_standby.sr",
+                                  "rc5_bogus.sr"])
+def test_rc5_against_sigrok(name):
+    """sigrok's ir_rc5 on the receiver's probe, esclearn on the same probe (inverted),
+    frame by frame."""
+    records, names = read_trace(DUMPS / name)
+    pin = next(i for i, n in enumerate(names) if n.endswith("IRRX"))
+    m = learn(records, pin=pin, quant=resolution(DUMPS / name))
+    ann = sigrok(name, names[pin], "ir_rc5")
+    ref = [(int(a[1]), int(c[1])) for a, c in zip(ann[::2], ann[1::2])]
+    assert ref and [rc5_fields(w ^ 0x3FFF)[:2] for (w,) in m.frames] == ref
+
+
+@needs_sigrok
+def test_nec_against_sigrok():
+    """sigrok's ir_nec on the Matsui TV remote (it misreads the Joy-IT remote, whose
+    timing is outside its 5% tolerance; and it does not know extended addresses)."""
+    for pin in (6, 7):                                 # receiver, raw carrier
+        _, names, m = dump("nec_matsui.sr", pin)
+        assert m.frames == [[0xED12BF40]] * 3 and m.other == 13
+    ann = sigrok("nec_matsui.sr", names[6], "ir_nec")
+    ref = [(int(a[1], 16), int(c[1], 16)) for a, c in zip(ann[::2], ann[1::2])]
+    assert ref == [(b[0], b[2]) for b in (nec_bytes(w) for (w,) in m.frames)]
+
+
+def test_cli_on_a_sigrok_session(capsys):
+    assert cli([str(DUMPS / "rc5_button1.sr"), "--signal", "IR Toy IRDETECT"]) == 0
+    out = capsys.readouterr().out
+    assert "Manchester, 14 bits per frame" in out and "frame 0x20a7" in out

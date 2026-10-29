@@ -11,11 +11,16 @@ reading in which every pair has opposite halves is the frame."""
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass, field
+from statistics import median
 
 from .core import (MIN_BITS, Carrier, Cluster, LearnError, Learned, Recording,
                    carrier_consts, clusters, nearest, ticks, us, word_size)
+
+
+MIN_SAMPLES = 4                    # samples per half-bit, at least
 
 
 def _bits(halves, lead, mark_last):
@@ -52,6 +57,25 @@ class Manchester(Learned):
     notes: list[str] = field(default_factory=list)
     quant: float = 1
     coding: str = "Manchester"
+    on: float = 0                    # mean ticks of a half-bit away from idle (with a
+                                     # carrier, whole periods, as the envelope counts)
+
+    def on_off(self):
+        """(pulses or 0, ticks on, ticks off) of the half-bits to send. A burst is whole
+        carrier periods, and a transmitter whose bit timer is not locked to its carrier
+        sends n or n + 1 of them: n is the one (nearest the mean first) whose bursts of one
+        and two half-bits both lie within the recorded runs. The idle half-bit takes what
+        the bit time leaves, so the bits keep the recorded rate."""
+        n, on = 0, self.on
+        if self.carrier:
+            p, f = self.carrier.period, self.on / self.carrier.period
+            q = 2 * self.quant
+            fits = [k for k in sorted({math.floor(f), math.ceil(f)}, key=lambda k: abs(k - f))
+                    if k >= 1 and all(c.lo - q <= j * k * p <= c.hi + q
+                                      for j, c in zip((1, 2), self.runs))]
+            n = fits[0] if fits else max(1, round(f))
+            on = n * p
+        return n, on, 2 * self.half - on
 
     @property
     def mark_last(self) -> bool:
@@ -83,9 +107,7 @@ class Manchester(Learned):
         r = self._read(fr)
         if r is None:
             return None
-        bits = r[0]
-        return [sum(b << i for i, b in enumerate(bits[k:k + self.unit]))
-                for k in range(0, len(bits), self.unit)]
+        return self.pack(r[0])
 
     def compare(self, gen, rec, slack):
         def bounds(is_mark, v):
@@ -102,29 +124,37 @@ class Manchester(Learned):
         one = "the carrier comes on mid-bit" if self.carrier else "the pin rises mid-bit"
         lines = [f"{self.describe()}, idle {idle}; a 1: {one}",
                  f"gap {us(self.gap)}"]
+        if not self.carrier and self.idle and self.frames:
+            # DALI's line and an IR receiver's output look alike: idle high, no carrier.
+            # The receiver is low while the carrier is on, so RC-5's 1 falls mid-bit.
+            w = ' '.join(f"0x{~v & ((1 << self.unit) - 1):0{(self.unit + 3) // 4}x}"
+                         for v in self.frames[0])
+            lines.append(f"(from an IR receiver, which is low while the carrier is on, "
+                         f"every bit inverts: the first frame reads {w})")
         return lines + self.check_lines() + self.frame_lines() + self.notes
 
     def table(self, source="mailbox", words=None, context=0, pin=0, notes=None) -> dict:
         consts = {}
         notes = {} if notes is None else notes
         carrier_consts(self.carrier, consts, notes)
-        if self.carrier:
-            n = max(1, round(self.half / self.carrier.period))
-            consts["HALF"] = f"{n} * PERIOD"
-            notes["HALF"] = f"half-bit: {n} carrier periods, {us(n * self.carrier.period)}"
+        n, on, off = self.on_off()
+        if n:
+            consts["ON"] = f"{n} * PERIOD"
+            notes["ON"] = f"a half-bit of carrier: {n} pulses, {us(on)}"
         else:
-            consts["HALF"] = ticks(self.half)
-            notes["HALF"] = f"half-bit {us(self.half)}; runs {', '.join(c.seen() for c in self.runs)}"
-        gap = self.gap - (self.half if self.tail_idle else 0)
+            consts["ON"] = ticks(on)
+            notes["ON"] = f"a half-bit away from idle: {us(on)}"
+        consts["OFF"] = ticks(off)
+        notes["OFF"] = (f"an idle half-bit: {us(off)} (the bit is {us(2 * self.half)}); runs "
+                        + ", ".join(c.seen() for c in self.runs))
+        gap = self.gap - (off if self.tail_idle else 0)
         consts["GAP"] = ticks(max(1, gap))
         notes["GAP"] = f"{us(max(1, gap))} of quiet after a frame" + (
             "; the last idle half-bit comes first" if self.tail_idle else "")
-        active = {"OUT": "carrier"} if self.carrier else {"OUT": 1 - self.idle}
-        quiet = {"OUT": self.idle}
+        active = [{"OUT": "carrier"} if self.carrier else {"OUT": 1 - self.idle}, "ON"]
+        quiet = [{"OUT": self.idle}, "OFF"]
         first, last = (quiet, active) if self.mark_last else (active, quiet)
-        sym = {"zero": [[last, "HALF"], [first, "HALF"]],
-               "one": [[first, "HALF"], [last, "HALF"]],
-               "gap": [[quiet, "GAP"]]}
+        sym = {"zero": [last, first], "one": [first, last], "gap": [[{"OUT": self.idle}, "GAP"]]}
         packet = {"after": ["gap"]}
         per = self.nbits // self.unit
         if source == "mailbox":
@@ -136,8 +166,32 @@ class Manchester(Learned):
             src = {"kind": "constant", "words": list(words if words is not None else self.frames[0])}
         else:
             raise LearnError(f"source {source!r}: a Manchester table takes mailbox or constant")
-        spec = [{"bits": self.unit, "order": "lsb", "choose": ["zero", "one"]}]
+        spec = [{"bits": self.unit, "order": self.order, "choose": ["zero", "one"]}]
         return self.header(consts, sym, spec, src, packet, pin, context)
+
+
+def _half_runs(durs, q):
+    """(one, two): the runs one and two half-bits long, for the half-bit T that most runs
+    fit (within T/3 of T, within T/2 of 2T, split at 1.5 T; each cluster's center is tried
+    as T), or None. A ragged receiver output spreads the runs into more clusters than two,
+    and a bogus frame adds its own; the runs that fit neither leave their frames unread.
+    T must span MIN_SAMPLES samples: coarser, any run-length code fits (WS2812 at 6 MHz)."""
+    def fit(t):
+        return ([d for d in durs if d < 1.5 * t and abs(d - t) <= t / 3 + q],
+                [d for d in durs if d >= 1.5 * t and abs(d - 2 * t) <= t / 2 + q])
+
+    best = None
+    for c in clusters(durs, q):
+        one, two = fit(c.center)
+        if not (one and two):
+            continue
+        t = (sum(one) + sum(two)) / (len(one) + 2 * len(two))              # the mean T
+        if t < MIN_SAMPLES * q:
+            continue
+        one, two = fit(t)
+        if one and two and (best is None or len(one) + len(two) > sum(map(len, best))):
+            best = one, two
+    return best
 
 
 def learn_manchester(rec: Recording, name, source) -> Manchester:
@@ -145,11 +199,11 @@ def learn_manchester(rec: Recording, name, source) -> Manchester:
     if not frs:
         raise LearnError("no complete frame")
     durs = [d for fr in frs for m, s in fr for d in (m, s) if d is not None]
-    runs = clusters(durs, rec.quant)
-    if len(runs) != 2 or not 1.6 <= runs[1].center / runs[0].center <= 2.4:
+    fit = _half_runs(durs, rec.quant)
+    if fit is None or sum(map(len, fit)) < 0.9 * len(durs):
         raise LearnError("runs are not one and two half-bits")
-    k = lambda d: 1 if nearest(runs, d) == 0 else 2      # noqa: E731
-    half = round(sum(durs) / sum(k(d) for d in durs))
+    runs = [Cluster(min(g), max(g), round(median(g)), len(g), rec.quant) for g in fit]
+    half = round((sum(fit[0]) + sum(fit[1])) / (len(fit[0]) + 2 * len(fit[1])))
     model = Manchester(name=name, idle=rec.idle, carrier=rec.carrier, half=half, runs=runs,
                        nbits=0, unit=0, lead=0, tail_idle=False, gap=0, gap_thr=rec.thr,
                        frames=[], other=0, source=source, quant=rec.quant)
@@ -173,6 +227,10 @@ def learn_manchester(rec: Recording, name, source) -> Manchester:
     tails = Counter((model.lead + len(h)) % 2 == 1 for h in halves if h is not None)
     model.tail_idle = tails[True] >= tails[False]
     model.gap = rec.gap(model.notes, runs[1].hi)
+    # The marks apart from the spaces: a receiver stretches its marks
+    ms = [(m, round(runs[i].center / half)) for fr in frs for m, _ in fr
+          if (i := nearest(runs, m)) is not None]
+    model.on = sum(m for m, _ in ms) / sum(k for _, k in ms) if ms else half
     for fr in frs:
         w = model.words(fr)
         if w is None:

@@ -264,6 +264,7 @@ class Learned:
     implements words(frame) (a frame's words, or None if it does not fit), summary(),
     table() and compare()."""
 
+    order = "lsb"            # the first bit sent is bit 0 of its word; regroup() changes it
 
     @property
     def default_source(self) -> str:
@@ -286,17 +287,43 @@ class Learned:
         """(table, tape) that sends one recorded frame: here its words as constants."""
         return self.table("constant", words), None
 
+    # ---- words of a frame's bits
+
+    def pack(self, bits):
+        """Words of `unit` bits from bits as sent: the first sent is bit 0 (order lsb) or
+        the top bit (msb)."""
+        u, msb = self.unit, self.order == "msb"
+        return [sum(b << (u - 1 - i if msb else i) for i, b in enumerate(bits[k:k + u]))
+                for k in range(0, len(bits), u)]
+
+    def unpack(self, words):
+        u, msb = self.unit, self.order == "msb"
+        return [w >> (u - 1 - i if msb else i) & 1 for w in words for i in range(u)]
+
+    def regroup(self, unit=None, msb=False):
+        """The same bits numbered another way: words of `unit` bits (it must divide a
+        frame's), MSB first if msb (an LED strip's colours, most protocols' bytes)."""
+        unit = unit or self.unit
+        if not 1 <= unit <= 32 or self.nbits % unit:
+            raise LearnError(f"{unit}-bit words: a frame is {self.nbits} bits")
+        bits = [self.unpack(fr) for fr in self.frames]
+        self.unit, self.order = unit, "msb" if msb else "lsb"
+        self.frames = [self.pack(b) for b in bits]
+
     # ---- check bytes (checks.py)
 
     def to_bytes(self, words):
         """A frame's bytes in the order sent (words of whole bytes only), or None."""
         if self.unit % 8:
             return None
-        return [(w >> (8 * k)) & 0xFF for w in words for k in range(self.unit // 8)]
+        per = self.unit // 8
+        at = (lambda k: 8 * (per - 1 - k)) if self.order == "msb" else (lambda k: 8 * k)
+        return [(w >> at(k)) & 0xFF for w in words for k in range(per)]
 
     def from_bytes(self, data):
         per = self.unit // 8
-        return [sum(b << (8 * k) for k, b in enumerate(data[i:i + per]))
+        at = (lambda k: 8 * (per - 1 - k)) if self.order == "msb" else (lambda k: 8 * k)
+        return [sum(b << at(k) for k, b in enumerate(data[i:i + per]))
                 for i in range(0, len(data), per)]
 
     @property

@@ -3,3 +3,4 @@
 *.oas binary
 *.png binary
 macro/** -text
+*.sr binary

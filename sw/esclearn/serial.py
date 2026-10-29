@@ -108,6 +108,9 @@ class Serial(Learned):
     def unit(self):
         return self.nd
 
+    def regroup(self, unit=None, msb=False):
+        raise LearnError("serial: a character is a word (LSB first, as UARTs send)")
+
     def to_bytes(self, words):
         return list(words) if self.nd == 8 else None
 
