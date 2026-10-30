@@ -6,6 +6,7 @@ public/pyodide/
 public/data/isa.json
 public/data/runs/
 public/data/learn/
+public/data/late/
 node_modules/
 dist/
 public/data/ci.json

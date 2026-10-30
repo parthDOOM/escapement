@@ -17,6 +17,7 @@ const DieZoom = lazy(() => import("./components/DieZoom"));
 const Slice3D = lazy(() => import("./components/Slice3D"));
 const Playground = lazy(() => import("./playground/Playground"));
 const Learn = lazy(() => import("./playground/Learn"));
+const Late = lazy(() => import("./playground/Late"));
 
 // one figure failing must not take the page down with it
 class Guard extends Component<{ children: React.ReactNode }, { err: string | null }> {
@@ -206,6 +207,17 @@ export default function App() {
                 are real remotes, from sigrok-dumps; the same loop runs on the chip's RTL in CI.</p>
             </div>
             <Later h={700}><Learn /></Later>
+
+            <div className="sub-head learn-intro" id="late">
+              <p className="eyebrow">Make it late</p>
+              <h3>A dare: make one edge late</h3>
+              <p>Write any program that makes a pin change later than the tick it asked for. Each run is assembled,
+                certified and simulated here, then audited: from the events the program queued and the faults it took,
+                the page works out what every pin must show on every tick, and compares that with the pins. A program
+                that cannot keep its schedule is refused when it queues the edge, never served late. The tricks below
+                are the obvious ones; there are 53 instructions and four contexts to try others.</p>
+            </div>
+            <Later h={700}><Late /></Later>
           </div>
         </section>
 

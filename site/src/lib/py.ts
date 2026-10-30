@@ -54,6 +54,7 @@ export const py = {
   encode: (line: string) => call<string>("encode", line).then((s) => JSON.parse(s)),
   learn: (source: string, pin: number, send: string, data = "") =>
     call<string>("learnplay.learn", source, pin, send, data).then((s) => JSON.parse(s)),
+  late: (source: string) => call<string>("lateplay.attempt", source).then((s) => JSON.parse(s)),
 };
 
 export function usePyStatus(): string {

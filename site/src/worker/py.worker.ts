@@ -23,7 +23,7 @@ async function boot(): Promise<void> {
   py.runPython(`
 import sys
 sys.path[:0] = ["/esc/shim", "/esc/sw", "/esc/site/py"]
-import escplay, learnplay
+import escplay, learnplay, lateplay
 escplay.set_firmware_dir("/esc/firmware")
 learnplay.set_data_dir("/esc/sw/tests/data/sigrok")
 `);

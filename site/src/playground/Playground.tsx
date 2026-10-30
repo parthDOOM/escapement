@@ -9,7 +9,7 @@ import type { Commit, Ev, Run, RunError, Scenario } from "./types";
 import { EVENT_KIND } from "./types";
 import SmoothHeight from "../lib/SmoothHeight";
 
-const FAULTS: Record<string, string> = {
+export const FAULTS: Record<string, string> = {
   ILLEGAL: "The word at this address is not an instruction, or has reserved bits set.",
   PC_RANGE: "The program ran past the last word of program memory.",
   "ADMIT MASK": "An event names no pins.",
@@ -20,7 +20,7 @@ const FAULTS: Record<string, string> = {
   LATE_HEAD: "A queue head passed its deadline. This is proved impossible.",
 };
 
-function autoView(run: Run): View {
+export function autoView(run: Run): View {
   let a = Infinity, b = 0;
   for (const s of run.signals) {
     if (s.w.length > 1) { a = Math.min(a, s.w[1][0]); b = Math.max(b, s.w[s.w.length - 1][0]); }
