@@ -72,7 +72,7 @@ async def run_board_b(dut, board_b):
     t = 0
     while True:
         await FallingEdge(dut.clk)
-        ib = board_b(t, (int(dut.uo_out.value) >> 3) & 0x1F) & 0x1F
+        ib = board_b(t, int(dut.uo_out.value[7:3])) & 0x1F   # not the host link, uo_out[2:0]
         cur = (UiBit.shadow[id(dut)] & 0x07) | (ib << 3)
         UiBit.shadow[id(dut)] = cur
         dut.ui_in.value = cur

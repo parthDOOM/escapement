@@ -1,10 +1,12 @@
 # SPDX-FileCopyrightText: © 2026 Escapement contributors
 # SPDX-License-Identifier: Apache-2.0
-"""SWD, SPI target, NEC infrared, the two-bank image and a protocol learned from a
-recording, through the chip's real pins, on RTL and on the gate-level netlist (make
+"""SWD, SPI target, NEC infrared, the two-bank image, a protocol learned from a
+recording and VGA Pong, through the chip's real pins, on RTL and on the gate-level netlist (make
 pin-test / make gl-pin-test): each program is loaded over SPI and run against the bus
 models of sw/escmodels; the protocol outcome and the host replies must be right, with no
 fault and no contention."""
+
+import sys
 
 from cocotb.triggers import ClockCycles
 
@@ -20,6 +22,8 @@ from esctape import decode_capture
 
 FW = chip.FW
 REPO = FW.parent
+sys.path.insert(0, str(REPO / "sw" / "tests"))
+from pong_model import Pong              # noqa: E402
 
 
 async def pop_n(dut, host, ctx, n, max_cycles, step=400):
@@ -191,4 +195,58 @@ async def test_learned_nec_on_chip(dut):
     dut._log.info(f"sent 0x{word[0]:08x}: receiver {rx.frames()} ack {ack}")
     assert rx.frames() == [(0x04, 0x42)] and ack == [1], rx.events
     assert not board.errors(), board.errors()
+    await no_fault(host)
+
+
+class Monitor:
+    """A VGA monitor on bank B: uo_out[7:3] once per cycle. No buttons are pressed."""
+
+    def __init__(self):
+        self.ob = bytearray()
+
+    def __call__(self, t, ob):
+        self.ob.append(ob)
+        return 0
+
+
+@chip.cocotb.test()
+async def test_vga_pong_on_chip(dut):
+    """VGA Pong (firmware/vga_pong.asm) on the chip's pins: the first frame and the first
+    VSYNC pulse, as a monitor would see them. HSYNC every 800 cycles for 96, VSYNC for two
+    lines starting with an HSYNC, every visible pixel equal to the framebuffer that
+    sw/tests/pong_model.py draws after the first game step, the blanking black, and the
+    hardware's min_lead telemetry equal to escert's bounds (1597 and 8 ticks)."""
+    mon = Monitor()
+    host = await chip.bring_up(dut, Board(), mon)
+    await host.load(assemble_file(FW / "vga_pong.asm"))
+    await host.start()
+    await ClockCycles(dut.clk, 45 * 800 + 493 * 800)
+    lv = bytes(mon.ob)
+    hf = [t for t in range(1, len(lv)) if lv[t - 1] & 16 and not lv[t] & 16]
+    hr = [t for t in range(1, len(lv)) if not lv[t - 1] & 16 and lv[t] & 16]
+    vf = [t for t in range(1, len(lv)) if lv[t - 1] & 1 and not lv[t] & 1]
+    vr = [t for t in range(1, len(lv)) if not lv[t - 1] & 1 and lv[t] & 1]
+    dut._log.info(f"{len(hf)} lines, VSYNC {vf} to {vr}")
+    assert {b - a for a, b in zip(hf, hf[1:])} == {800}
+    assert {r - f for f, r in zip(hf, hr)} == {96}
+    assert len(vf) == len(vr) == 1 and vr[0] - vf[0] == 1600 and vf[0] in hf
+    top = hf[0] - 656                         # the first line's first pixel
+    assert vf[0] == top + 490 * 800 + 656
+    md = Pong()
+    md.step()
+    fb = md.framebuffer()
+    for y in range(480):
+        row = fb[2 * (y // 10)] | fb[2 * (y // 10) + 1] << 32
+        want = bytes(0b01110 if row >> (x // 10) & 1 else 0 for x in range(640))
+        line = lv[top + y * 800: top + (y + 1) * 800]
+        assert bytes(v & 0b01110 for v in line[:640]) == want, y
+        assert not any(v & 0b01110 for v in line[640:]), y
+    assert not any(v & 0b01110 for v in lv[top + 480 * 800:])
+    leads = [(await host.read_dbg(k, 9)) >> 16 for k in (0, 1)]
+    dut._log.info(f"min_lead {leads}")
+    assert leads == [1597, 8]
+    # uo_out[2:0] are the Tiny VGA's R1, G1 and B1 (docs/21-VGA-PONG.md): RUN, the IRQ
+    # line and MISO, which holds the status byte's top bit (RUN) between SPI frames
+    await ClockCycles(dut.clk, 20)
+    assert int(dut.uo_out.value) & 0b111 == 0b101
     await no_fault(host)

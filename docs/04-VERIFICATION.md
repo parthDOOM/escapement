@@ -314,6 +314,7 @@ replays into the fault, or NOT_PROVEN.
 | `cec` | CHECKED | 4 |
 | `dali` | CHECKED | 13 |
 | `seven_seg` | CHECKED | 9 |
+| `vga_pong` (two contexts) | CHECKED | 1597 / 8 |
 | Generated from timing tables: `uart_tx_gen`, `midi_tx`, `dmx512_tx`, `nec_tx_gen` | CHECKED | 9 each |
 | Generated from a timing table: `ws2812_gen` | CHECKED | 5 |
 
@@ -443,6 +444,7 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | WS2812 from a timing table, colours in the tape | `ws2812_gen` | LED chain model with datasheet timing windows |
 | NEC infrared from a timing table | `nec_tx_gen` | NEC receiver model: carrier, pulse counts, every burst position |
 | Seven-segment animation on the demo board's display | `seven_seg` | Every frame on bank B, in order, to the tick |
+| VGA Pong, 640x480 at 60 Hz, on bank B ([VGA Pong](21-VGA-PONG.md)) | `vga_pong` | A monitor's view of the pins: VESA sync timing, every pixel of two frames against a model of the game, black blanking, 14 game steps against the model and stated outcomes; the first frame through the chip's pins on the RTL and the final netlist, with the telemetry equal to the certificate |
 | CAN 2.0A and 2.0B receiver on the line unit (v1.4): standard, extended and remote frames, CRC-15 checked by the line unit's CRC engine | `can_rx` | Bus model playing frames back to back from nodes 0.5% slow or fast; bad CRCs, frames cut by an error flag, DLC over 8, 500 kbit/s |
 | DShot600 for four ESCs from one context, 600 kbit/s exactly (42, 42, 41 ticks per bit), and bidirectional DShot | `dshot_tx` | ESC models that check every pulse width, bit period and CRC; frame period to the tick through host updates; at 24 MHz |
 | SENT (SAE J2716) sensor, with or without a pause pulse | `sent_tx` | Receiver model that calibrates from the sync pulse and checks the recommended CRC-4 (and the CRC against polynomial division); frames back to back to the tick, values changing mid-run never mixing frames |
@@ -454,14 +456,14 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings | 606 | Pass (7 need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong | 623 | Pass (7 need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
 | Co-simulation (`make cosim`) | 8 | Pass |
 | Host interface (`make host-test`) | 16 | Pass |
 | Core unit tests (`make unit-test`) | 31 | Pass |
-| Newer firmware (SWD, SPI target, NEC, both pin banks at once) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 6 | Pass on the RTL and on the final netlist |
+| Newer firmware (SWD, SPI target, NEC, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 7 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 

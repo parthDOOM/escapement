@@ -56,10 +56,11 @@ CHUNK = 4096
 # generated transmitters re-anchor on RDTIME every packet, so the digest never repeats;
 # DShot (frames every 3125 ticks beside a context polling its mailbox: 12,500) and SENT
 # (an all-zero frame is 11,775 ticks) repeat over more than MAX_PERIOD; CEC and DALI look
-# at the host every millisecond while the bus is idle (25,000 ticks).
+# at the host every millisecond while the bus is idle (25,000 ticks). VGA Pong's lines
+# repeat every 800 ticks, but its game changes the picture every frame (420,000 ticks).
 # Bundled with kind "none": loaded, run and checked for faults only.
 NO_PREDICT = {"seven_seg.asm", "ws2812_gen.asm", "dmx512_tx.asm", "dshot_tx.asm", "sent_tx.asm",
-              "cec.asm", "dali.asm"}
+              "cec.asm", "dali.asm", "vga_pong.asm"}
 # Variants: name -> (firmware, .equ overrides). v1.3: the logic analyser streaming a
 # 64-word ring to the host during the run (escapement_demo.stream).
 VARIANTS = {"logic_analyzer_stream": ("logic_analyzer.asm",

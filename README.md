@@ -35,6 +35,13 @@ messages in that protocol, such as a command the remote never sent. It is tested
 twelve real recordings against sigrok's own decoders, and run end to end on the RTL
 ([record it, speak it](docs/20-LEARN.md)).
 
+**VGA Pong.** The same five bank B pins drive a VGA monitor at 640x480 and 60 Hz, and
+two contexts play Pong on it: one makes the syncs, the other draws a framebuffer from the
+tape and runs the game in the vertical blank. Every edge of the picture has a deadline
+fixed in advance and only the colours come from data, so escert proves that no edge is
+ever late, and the chip's own telemetry meets the bound exactly
+([VGA Pong](docs/21-VGA-PONG.md)).
+
 > Escapement either meets the deadline it accepted, or tells you why it refused.
 
 ## Design principles
@@ -117,7 +124,7 @@ recovery, destuffing and a CRC-15 check on every frame of a bus.
 | Clock | 25 MHz rated at the slow corner (1.08 V, 125 °C); the layout meets timing up to 28.6 MHz there, 45 MHz at the typical corner (1.20 V, 25 °C) and 70 MHz at the fast one ([frequency headroom](docs/03-PHYSICAL-DESIGN.md#sign-off-results)) |
 | Physical | 27,972 cells and two SRAM macros, 58.2% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes; the GitHub Actions harden reproduces the layout with the same netlist |
 | Power | 3.1 mW sending UART, 2.5 mW stopped (typical corner) |
-| Firmware | 31 programs (two, the USB keyboard and the CAN receiver, for v1.4's line unit), five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs); of 229 timing bugs planted in them, escert rejects 63, and none of the 166 it certifies faults under a randomised input search ([certificates](docs/04-VERIFICATION.md#planted-timing-bugs)) |
+| Firmware | 32 programs (two, the USB keyboard and the CAN receiver, for v1.4's line unit), five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs); of 229 timing bugs planted in them, escert rejects 63, and none of the 166 it certifies faults under a randomised input search ([certificates](docs/04-VERIFICATION.md#planted-timing-bugs)) |
 | Verification | ISS and RTL agree tick for tick on every firmware and on random programs; "never late" proved for all time; 653 of 710 RTL mutants killed and none surviving (19 proved equivalent, 38 excluded with a written argument), on the standard-cell models; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 | Hardware | Not yet run on hardware: the first hardware would be the Tiny Tapeout chip, if the design is selected for fabrication. The bring-up script is rehearsed against a simulated demo board with 22 injected faults ([bring-up](docs/16-BRING-UP.md)), and FPGA bitstreams for the Tang Nano 20K and ULX3S are built and meet 25 MHz after routing ([FPGA build](fpga/README.md)) |
 
@@ -137,6 +144,7 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | [Protocols as data](docs/18-PROTOCOLS-AS-DATA.md) | Transmitter firmware generated from timing tables, and certified |
 | [Line unit](docs/19-LINE-UNIT.md) | Version 1.4: packet line coding in hardware, a USB keyboard on it, certified reply timing, and Linux over USB/IP |
 | [Record it, speak it](docs/20-LEARN.md) | A protocol's timing table learned from a recording, then certified firmware that sends new messages in it |
+| [VGA Pong](docs/21-VGA-PONG.md) | Pong on a VGA monitor from bank B, with every edge of the picture certified |
 | [Firmware guide](docs/14-FIRMWARE-GUIDE.md) | Idioms for writing new protocols |
 | [Verification](docs/04-VERIFICATION.md) | Methods, results and how to rerun them |
 | [Physical design](docs/03-PHYSICAL-DESIGN.md) | Floorplan, routing, timing and sign-off |
