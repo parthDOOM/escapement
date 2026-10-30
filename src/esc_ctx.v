@@ -17,6 +17,9 @@
  *   late  : reached(now, head) && != now   -> LATE_HEAD (reported to esc_core)
  * Retirement and checker evaluation are suppressed by `fault` or `stop_i`
  * at the same edge (sec. 6.3, 8, 9).
+ * v1.5: due and late are flip-flops, decided one edge early for the entry that will be
+ * the head, against now + 1 (asserted equal to the definitions above, below), so the
+ * deadline compare is off the cycle that retires, faults and drives the pins.
  *
  * FIFO entry layout (58 bits): [57:56] kind (0 LINE, 1 DRIVE, 2 EXPECT, 3 SAMPLE),
  * [55:24] deadline, [23:0] payload = instruction bits [23:0] of the queued
@@ -32,6 +35,7 @@ module esc_ctx (
     input  wire        stop_i,        // stop at this edge (already masked by start)
     input  wire        run,           // run flag during this cycle
     input  wire [31:0] now,
+    input  wire [31:0] now_n,         // v1.5: now + 1 (the core's counter incrementer)
     input  wire [7:0]  sync,          // synchronised input vector during this cycle
     input  wire        cfg_enable,
     input  wire [7:0]  cfg_entry_pc,
@@ -144,13 +148,13 @@ module esc_ctx (
   wire [57:0] ent0, ent1, ent2, ent3;   // clock-gated banks, below
   reg [1:0]  head;
 
-  reg [57:0] h;
-  always @* begin
+  reg [25:0] h;                         // the head's kind and payload (v1.5: its deadline
+  always @* begin                       // is tested a cycle early, below)
     case (head)
-      2'd0:    h = ent0;
-      2'd1:    h = ent1;
-      2'd2:    h = ent2;
-      default: h = ent3;
+      2'd0:    h = {ent0[57:56], ent0[23:0]};
+      2'd1:    h = {ent1[57:56], ent1[23:0]};
+      2'd2:    h = {ent2[57:56], ent2[23:0]};
+      default: h = {ent3[57:56], ent3[23:0]};
     endcase
   end
 
@@ -172,18 +176,36 @@ module esc_ctx (
                      ((ent2[57:56] == K_SAMPLE) & ({1'b0, rel2} < o_cnt)) |
                      ((ent3[57:56] == K_SAMPLE) & ({1'b0, rel3} < o_cnt));
 
-  wire [1:0]  h_kind = h[57:56];
-  wire [31:0] h_dl   = h[55:24];
+  wire [1:0]  h_kind = h[25:24];
   wire [23:0] h_pl   = h[23:0];
 
-  wire        nonempty  = (o_cnt != 3'd0);
-  wire [31:0] late_diff = now - h_dl;
-  // sec. 6.3: retire when head deadline == now; LATE_HEAD when reached and !=.
-  wire        due       = run & nonempty & (h_dl == now);
-  assign      o_late    = run & nonempty & (late_diff != 32'd0) & ~late_diff[31];
+  // sec. 6.3: retire when head deadline == now; LATE_HEAD when reached and !=. Both are
+  // registers (v1.5): due_q and late_q hold, during this cycle, exactly those two tests.
+  reg         due_q, late_q;
+  wire        due       = due_q;
+  assign      o_late    = late_q;
   assign      o_cnt_after = o_cnt - {2'b0, due};
 
-  wire kill = fault | stop_i;
+  wire        kill      = fault | stop_i;
+  wire        push      = cm_ok & w_push;
+
+  // The head after this edge: the entry behind the head if the head retires now, else the
+  // head; or, if the FIFO empties, the entry pushed at this edge, if any. Its tests for
+  // the next cycle run against now + 1. A pushed entry was admitted ahead of now, so it is
+  // never late then, and it is due then exactly when its lead is 1.
+  reg [31:0] n_dl;
+  always @* begin
+    case (head + {1'b0, due})
+      2'd0:    n_dl = ent0[55:24];
+      2'd1:    n_dl = ent1[55:24];
+      2'd2:    n_dl = ent2[55:24];
+      default: n_dl = ent3[55:24];
+    endcase
+  end
+  wire [31:0] n_diff  = now_n - n_dl;
+  wire        n_keep  = (o_cnt_after != 3'd0);
+  wire        due_n   = run & (n_keep ? (n_diff == 32'd0) : (push & (w_lead16 == 16'd1)));
+  wire        late_n  = run & n_keep & (n_diff != 32'd0) & ~n_diff[31];
 
   // ------------------------------------------------------------------ checker
   reg [7:0] ck_mask, ck_level;
@@ -217,8 +239,6 @@ module esc_ctx (
                           h_pl[15] ? {ish_base[30:0], s_bit}    // MSB-first
                                    : {s_bit, ish_base[31:1]};   // LSB-first
 
-  wire       push = cm_ok & w_push;
-
   // ------------------------------------------------------------------ mailboxes
   // Two words each, in a ring: a word stays in its slot from push to pop (v1.4, so each
   // slot is written from one source only; the head of an empty mailbox is unspecified).
@@ -249,7 +269,7 @@ module esc_ctx (
     if (!rst_n) begin
       o_lc <= 16'd0; o_pc <= 8'd0; o_lr <= 8'd0;
       o_z <= 1'b0; o_c <= 1'b0; o_state <= ST_IDLE;
-      head <= 2'd0; o_cnt <= 3'd0;
+      head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0;
       o_act <= 1'b0; ck_mask <= 8'd0; ck_level <= 8'd0; ck_mode <= 1'b0; ck_rem <= 7'd0;
       o_pass <= 8'd0; o_fail <= 8'd0; o_failed <= 1'b0;
       o_exp_seen <= 1'b0;
@@ -260,7 +280,7 @@ module esc_ctx (
       // sec. 9 Start
       o_lc <= 16'd0; o_pc <= cfg_entry_pc; o_lr <= 8'd0;
       o_z <= 1'b0; o_c <= 1'b0; o_state <= cfg_enable ? ST_RUN : ST_IDLE;
-      head <= 2'd0; o_cnt <= 3'd0;
+      head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0;
       o_act <= 1'b0; ck_rem <= 7'd0;
       o_pass <= 8'd0; o_fail <= 8'd0; o_failed <= 1'b0;
       o_exp_seen <= 1'b0;
@@ -301,9 +321,11 @@ module esc_ctx (
       // ---- FIFO
       if (kill) begin
         o_cnt <= 3'd0;
+        due_q <= 1'b0; late_q <= 1'b0;
       end else begin
         o_cnt <= o_cnt - {2'b0, due} + {2'b0, push};
         if (due) head <= head + 2'd1;
+        due_q <= due_n; late_q <= late_n;
       end
 
       // ---- checker
@@ -453,6 +475,17 @@ module esc_ctx (
   end
 `ifndef ESC_CORE_PDR
   always @(*) if (rst_n) assert (o_cnt <= 3'd4);
+`endif
+  // v1.5 D1, D2: the precomputed tests are the definitions of sec. 6.3. Proved here (from
+  // the core's guarantees about a push, B5 among them); the core's PDR task skips them.
+  wire [31:0] h_dl        = f_ent[head][55:24];
+  wire        nonempty    = (o_cnt != 3'd0);
+  wire [31:0] f_late_diff = now - h_dl;
+`ifndef ESC_CORE_PDR
+  always @(*) if (rst_n) begin
+    assert (due_q  == (run & nonempty & (h_dl == now)));                              // D1
+    assert (late_q == (run & nonempty & (f_late_diff != 32'd0) & ~f_late_diff[31]));  // D2
+  end
 `endif
 `endif
 

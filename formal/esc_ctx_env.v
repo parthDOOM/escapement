@@ -6,7 +6,8 @@
  *   - a push happens only on a COMPLETE commit of a RUNNING context, with room in the
  *     FIFO, and its deadline is strictly after the commit tick (`now`) and after the
  *     FIFO tail, within the half range (the admission rules, sec. 6.2);
- *   - `now` starts anywhere at start and advances by exactly 1 per cycle of a run.
+ *   - `now` starts anywhere at start and advances by exactly 1 per cycle of a run;
+ *   - a push's w_lead16 is min(d - now, 0xFFFF) (v1.5: the core's B5).
  * Everything else (instruction stream, register writes, host strobes, pins, faults,
  * stop) is unconstrained. Together with P6 on the core this gives P2 on the chip.
  * SPDX-License-Identifier: Apache-2.0
@@ -60,7 +61,7 @@ module esc_ctx_env (
 
   esc_ctx u (
       .clk(clk), .rst_n(rst_n), .start_i(start), .stop_i(stop & ~start), .run(run),
-      .now(now), .sync(sync), .cfg_enable(cfg_enable), .cfg_entry_pc(cfg_entry_pc),
+      .now(now), .now_n(now + 32'd1), .sync(sync), .cfg_enable(cfg_enable), .cfg_entry_pc(cfg_entry_pc),
       .cm_ok(cm_ok), .cm_waitfull(cm_waitfull), .fault(fault),
       .w_rd_we(w_rd_we), .w_rd_idx(w_rd_idx), .w_rd_data(w_rd_data), .w_z_we(w_z_we),
       .w_z(w_z), .w_c_we(w_c_we), .w_c(w_c), .w_sh_we(w_sh_we), .w_sh(w_sh),
@@ -103,6 +104,7 @@ module esc_ctx_env (
     if (cm_ok && w_push) begin
       assume (cnt_after != 3'd4);
       assume (d_now != 32'd0 && !d_now[31]);                        // ahead(d, c)
+      assume (w_lead16 == ((d_now[31:16] != 16'd0) ? 16'hFFFF : d_now[15:0]));  // lead (B5)
       if (cnt_after != 3'd0) assume (d_tail != 32'd0 && !d_tail[31]); // ahead(d, tail)
       if (w_entry[57:56] == 2'd1) assume ((w_entry[23:16] & ~owned) == 8'd0); // OWNER
     end

@@ -139,6 +139,7 @@ module esc_core (
   // ------------------------------------------------------------------ global state
   reg        run;
   reg [31:0] now;
+  wire [31:0] now_n = now + 32'd1;     // the counter's next value during a run
 `ifdef FORMAL_ANYNOW
   // Formal only: the run starts at an arbitrary tick, so 2^32 wrap is within BMC reach.
   // Every property below is modular, so it must hold for any origin.
@@ -198,8 +199,6 @@ module esc_core (
   wire [31:0] cs_sh   = c_sh[32*cctx +: 32];
   wire [31:0] cs_tmr  = c_tmr[32*cctx +: 32];
   wire [31:0] cs_ish  = c_ish[32*cctx +: 32];
-  wire [31:0] cs_tail = c_tail[32*cctx +: 32];
-  wire [31:0] cs_lee  = c_lee[32*cctx +: 32];
   wire [31:0] cs_rxh  = c_rxh[32*cctx +: 32];
   wire [15:0] cs_lc   = c_lc[16*cctx +: 16];
   wire [7:0]  cs_pc   = c_pc[8*cctx +: 8];
@@ -326,15 +325,30 @@ module esc_core (
                        (op == OP_ADDTR) ? opb : {25'd0, f_win};
   wire [31:0] t_sum  = cs_tmr + t_add;
 
-  // Deadline arithmetic. d = tmr during the commit cycle; c = now.
-  wire [31:0] d_now   = cs_tmr - now;                          // lead
-  wire        ahd_now = (d_now != 32'd0) & ~d_now[31];         // ahead(d, c)
-  wire        rch_tmr = (d_now == 32'd0) | (d_now[31] & (d_now[30:0] != 31'd0)); // reached(c, tmr)
-  wire [31:0] d_tail  = cs_tmr - cs_tail;
-  wire        ahd_tail = (d_tail != 32'd0) & ~d_tail[31];
-  wire [31:0] d_lee   = cs_tmr - cs_lee;
-  wire        ahd_lee = (d_lee != 32'd0) & ~d_lee[31];
-  wire [15:0] lead16  = (d_now[31:16] != 16'd0) ? 16'hFFFF : d_now[15:0];
+  // Deadline arithmetic. d = tmr during the commit cycle; c = now. v1.5: computed in the
+  // cycle before, for the context that commits next, (cq + 1) mod 4: its timer, its FIFO
+  // tail and its EXPECT window end change only at its own commit, four edges back, so they
+  // are the same in the commit cycle, and c is then now + 1 (a commit needs a run and no
+  // start or stop at the edge between). Registered here; asserted equal to the definitions
+  // in every commit cycle (formal, below).
+  wire [1:0]  nq      = cq + 2'd1;
+  wire [31:0] n_tmr   = c_tmr[32*nq +: 32];
+  wire [31:0] nd_now  = n_tmr - now_n;
+  wire [31:0] nd_tail = n_tmr - c_tail[32*nq +: 32];
+  wire [31:0] nd_lee  = n_tmr - c_lee[32*nq +: 32];
+  reg         ahd_now, rch_tmr, ahd_tail, ahd_lee;
+  reg  [15:0] lead16;
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      ahd_now <= 1'b0; rch_tmr <= 1'b0; ahd_tail <= 1'b0; ahd_lee <= 1'b0; lead16 <= 16'd0;
+    end else begin
+      ahd_now  <= (nd_now != 32'd0) & ~nd_now[31];                                 // ahead(d, c)
+      rch_tmr  <= (nd_now == 32'd0) | (nd_now[31] & (nd_now[30:0] != 31'd0));      // reached(c, tmr)
+      ahd_tail <= (nd_tail != 32'd0) & ~nd_tail[31];
+      ahd_lee  <= (nd_lee != 32'd0) & ~nd_lee[31];
+      lead16   <= (nd_now[31:16] != 16'd0) ? 16'hFFFF : nd_now[15:0];             // min(lead, 0xFFFF)
+    end
+  end
 
   wire        x_bit   = f_dir ? cs_sh[31] : cs_sh[0];          // EMITX bit
   wire [7:0]  ev_val  = (op == OP_EMITR) ? opb[7:0] :
@@ -667,6 +681,7 @@ module esc_core (
           .stop_i      (stop_q),
           .run         (run),
           .now         (now),
+          .now_n       (now_n),
           .sync        (vsync[8*gk +: 8]),
           .cfg_enable  (ctx_enable[gk]),
           .cfg_entry_pc(entry_pcs[8*gk +: 8]),
@@ -897,7 +912,7 @@ module esc_core (
         run    <= 1'b0;          // now holds
         pin_oe <= 13'd0;
       end else begin
-        if (run) now <= now + 32'd1;
+        if (run) now <= now_n;
         pin_val <= val_n;
         pin_oe  <= oe_n;
         if (!ff_valid) begin
@@ -1001,7 +1016,7 @@ module esc_core (
   reg f_past_valid = 1'b0;
   always @(posedge clk) f_past_valid <= 1'b1;
   always @(*) if (!f_past_valid) assume (!rst_n);
-  // Configuration is static during a run (docs/11-SEMANTICS.md §10).
+  // Configuration is static during a run (docs/11-SEMANTICS.md Ãƒâ€šÃ‚Â§10).
   always @(posedge clk)
     if (f_past_valid && run) begin
       assume ($stable(ctx_enable));
@@ -1012,14 +1027,31 @@ module esc_core (
       assume ($stable(ctx_bank));
     end
 
+  // v1.5 B1-B5: the deadline tests registered in the cycle before a commit are their
+  // definitions (sec. 6.2) on the state of the commit cycle.
+  wire [31:0] cs_tail    = c_tail[32*cctx +: 32];
+  wire [31:0] cs_lee     = c_lee[32*cctx +: 32];
+  wire [31:0] f_d_now    = cs_tmr - now;
+  wire [31:0] f_d_tail   = cs_tmr - cs_tail;
+  wire [31:0] f_d_lee    = cs_tmr - cs_lee;
+  wire        f_ahd_now  = (f_d_now != 32'd0) & ~f_d_now[31];
+  wire        f_ahd_tail = (f_d_tail != 32'd0) & ~f_d_tail[31];
+  always @(*) if (rst_n && commit_valid) begin
+    assert (ahd_now == f_ahd_now);                                                   // B1
+    assert (rch_tmr == ((f_d_now == 32'd0) | (f_d_now[31] & (f_d_now[30:0] != 31'd0))));  // B2
+    assert (ahd_tail == f_ahd_tail);                                                 // B3
+    assert (ahd_lee == ((f_d_lee != 32'd0) & ~f_d_lee[31]));                         // B4
+    assert (lead16 == ((f_d_now[31:16] != 16'd0) ? 16'hFFFF : f_d_now[15:0]));       // B5
+  end
+
   // driven(p): physical pin p is away from its released level (bank A: output enabled;
   // bank B: low, since a released split pin is high)
   wire [12:0] f_driven = {~ob_out, uio_oe};
   integer fk;
   always @(*) if (rst_n) begin
-    // P1 electrical: an open-drain pin never drives high (§5).
+    // P1 electrical: an open-drain pin never drives high (Ãƒâ€šÃ‚Â§5).
     assert ((pin_od & uio_oe & uio_out) == 8'd0);
-    // P2 NEVER LATE: no FIFO head is ever past its deadline (§6.3 LATE_HEAD invariant):
+    // P2 NEVER LATE: no FIFO head is ever past its deadline (Ãƒâ€šÃ‚Â§6.3 LATE_HEAD invariant):
     // every admitted event retires exactly at its deadline or is cancelled. Proved for
     // all time compositionally: formal/esc_ctx.sby proves it per context from P6 + P8,
     // which the esc_core.sby `pdr` task proves here (ESC_CORE_PDR leaves P2 to that).
@@ -1029,10 +1061,10 @@ module esc_core (
     // D-41: the committing-context register counts with now during a run
     if (run) assert (cctx == now[1:0] + 2'd1);
     for (fk = 0; fk < 4; fk = fk + 1)
-      // P4 FIFO occupancy bounded (§6).
+      // P4 FIFO occupancy bounded (Ãƒâ€šÃ‚Â§6).
       assert (c_cnt[3*fk +: 3] <= 3'd4);
-    // P3 an unowned pin is never driven (§6.2 OWNER), and P5 a FAULTED context drives
-    // none of its pins (§8 release), in either bank. Each is proved in two parts, every
+    // P3 an unowned pin is never driven (Ãƒâ€šÃ‚Â§6.2 OWNER), and P5 a FAULTED context drives
+    // none of its pins (Ãƒâ€šÃ‚Â§8 release), in either bank. Each is proved in two parts, every
     // part for all time: a pin away from its released level has its OE register set
     // (here), and the OE register never covers an unowned pin (P3) or a faulted
     // context's pin (P5) (the strengthenings below). Split into one task per assertion,
@@ -1040,7 +1072,7 @@ module esc_core (
     // rediscover the second part, and their run times swung from 6 min to over an hour.
     assert ((f_driven & ~pin_oe) == 13'd0);
     // P6 admission: an accepted event is strictly ahead of its commit tick and of the
-    // FIFO tail, within the half-range horizon (§6.2 steps 4-5).
+    // FIFO tail, within the half-range horizon (Ãƒâ€šÃ‚Â§6.2 steps 4-5).
     // Register-level strengthening (makes P3/P5 inductive): nothing is enabled while
     // stopped; the OE register never covers an unowned pin; a faulted context's pins
     // stay released (its FIFO is empty, H3, and other contexts drive only their own
@@ -1059,8 +1091,8 @@ module esc_core (
     if (!run) assert (lu_mode == 3'd0 && !lu_conf);                             // lemma-group: faulted
     if (lu_owned && c_state[2*lu_owner +: 2] == 2'd3) assert (lu_mode == 3'd0 && !lu_conf);  // lemma-group: faulted
     if (cm_ok && w_push) begin
-      assert (ahd_now);
-      if (cs_cnta != 3'd0) assert (ahd_tail);
+      assert (f_ahd_now);
+      if (cs_cnta != 3'd0) assert (f_ahd_tail);
       // P8 the rest of what formal/esc_ctx_env.v assumes about a push
       assert (cs_cnta != 3'd4);
       if (ev_kind == K_DRIVE) assert ((f_mask & ~owned_c) == 8'd0);
@@ -1084,7 +1116,7 @@ module esc_core (
   end
 
   // P7 fixed slot timing: a commit observed during cycle c+1 belongs to ctx (c+1) mod 4,
-  // and only enabled contexts ever commit (§3).
+  // and only enabled contexts ever commit (Ãƒâ€šÃ‚Â§3).
   always @(posedge clk)
     if (f_past_valid && rst_n && $past(rst_n) && dbg_commit_valid && run && $past(run)) begin
       assert (dbg_commit_ctx == now[1:0]);
