@@ -168,10 +168,21 @@ MUTANTS = {
     "cq_stop_keeps": ("esc_core.v", "else                  cq <= dbg_sel_ctx;", "else                  cq <= cq;",
                       "while stopped selects 0-8 read a fixed context"),
     # ---- v1.0 core (regression of the original campaign)
-    "admit_past_off_by_one": ("esc_core.v", "wire        ahd_now = (d_now != 32'd0) & ~d_now[31];",
-                              "wire        ahd_now = ~d_now[31];", "deadline == commit tick admitted"),
+    "admit_past_off_by_one": ("esc_core.v", "ahd_now  <= (nd_now != 32'd0) & ~nd_now[31];",
+                              "ahd_now  <= ~nd_now[31];", "deadline == commit tick admitted"),
     "retire_not_suppressed": ("esc_ctx.v", "wire       ret_ok     = due & ~kill;",
                               "wire       ret_ok     = due;", "retirement at a fault edge"),
+    # ---- v1.5 tests decided one cycle early
+    "due_one_late": ("esc_ctx.v", "wire [31:0] n_diff  = now_n - n_dl;", "wire [31:0] n_diff  = now - n_dl;",
+                     "every event retires one tick after its deadline"),
+    "due_wrong_head": ("esc_ctx.v", "case (head + {1'b0, due})", "case (head)",
+                       "the entry behind a retiring head is never tested"),
+    "due_pushed_lead": ("esc_ctx.v", "(push & (w_lead16 == 16'd1))", "(push & (w_lead16 == 16'd0))",
+                        "an event pushed into an empty FIFO with lead 1 never retires"),
+    "pre_wrong_ctx": ("esc_core.v", "wire [1:0]  nq      = cq + 2'd1;", "wire [1:0]  nq      = cq;",
+                      "admission tests computed for the context committing now, not next"),
+    "pre_lead_now": ("esc_core.v", "wire [31:0] nd_now  = n_tmr - now_n;", "wire [31:0] nd_now  = n_tmr - now;",
+                     "admission tests one tick stale"),
 }
 
 
