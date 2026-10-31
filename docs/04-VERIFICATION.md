@@ -80,6 +80,8 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start or stop edge or one where it faults | Unbounded (PDR, with P2 for the lateness part of the last clause, below) |
 | L1 | The line unit (v1.4) claims only pins its owner owns; it is idle and unconfigured while stopped and once its owner has faulted; a CONFIG never completes at one of its owner's commit edges | Unbounded (PDR), as lemmas for P3, P5 and P8 |
 | H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction); H3 and H4 also by PDR in the core proof, as lemmas for P5 |
+| D1–D2 | (v1.5) Per context: the retire and late flags, registered in the cycle before, equal the deadline tests on the current head and the current tick | Unbounded (k-induction), in the per-context proof |
+| B1–B5 | (v1.5) The tests registered in the cycle before a commit (deadline ahead of the tick, timer reached, ahead of the FIFO tail, ahead of the open EXPECT window's end, and the lead saturated to 16 bits) equal their definitions on the commit cycle's state | Unbounded (k-induction, `esc_core.sby ahead`); assumed by the PDR tasks |
 | C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
 | C4 | In stream mode a capture drain never writes over a record the host has not acknowledged (v1.3) | Unbounded (PDR) |
 | G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
@@ -118,6 +120,24 @@ tasks and the separate proofs (bounded check, covers, context, clock-gate and la
 banks, host interface) all pass in 58 minutes of wall time. The single task
 (`sby -f esc_core.sby pdr`, all assertions together) passed in 34 minutes on one core
 for version 1.3.
+
+**Tests decided a cycle early (v1.5, D-43).** Since version 1.5 the deadline tests are
+registers, computed in the cycle before they are used: the retire and late flags of each
+context's FIFO head (D1, D2), and the admission and timer tests of the context that
+commits next (B1–B5). Each is stated as an equality with its definition on the state of
+the cycle that uses it, so every other property reads exactly as before. B1–B5 are
+proved by k-induction in their own task (`sby -f esc_core.sby ahead`, in formal-quick),
+which keeps only those five labelled assertions: a commit follows at least three edges of
+an uninterrupted run, because the pipeline's valid bits clear on start and stop, and over
+those edges the registers are a delayed copy of their definitions. The task passes in
+seconds, and it has teeth: measuring the lead from the current tick instead of the next
+one fails with a trace, and computing the tests for the context committing now instead
+of next fails the induction step. The PDR tasks assume B1–B5 instead of proving them.
+Bit-level PDR cannot use them otherwise: its invariant is a set of clauses over the
+flip-flops, and "this register equals a 32-bit comparison of those registers" has no
+compact clause form, even when it holds one edge after any state. Proved as PDR tasks,
+alone or grouped with helper lemmas, they had not converged after an hour. The assumption
+is sound because the `ahead` task proves them under the same environment.
 
 **Faults from the line unit.** A CONFIG that turns out invalid faults its owner when it
 completes, an edge where another context may commit. P8's commit clause is therefore

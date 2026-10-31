@@ -74,6 +74,16 @@ range. A rejected entry changes nothing: the context faults with ADMIT and a sub
 head observed past due would fault with LATE_HEAD; admission makes this unreachable,
 and that is proved formally ("never late", [verification](04-VERIFICATION.md)).
 
+**Tests a cycle ahead (v1.5).** The comparisons behind retirement and admission are made
+in the cycle before they are used and held in registers. Each FIFO compares the head it
+will have in the next cycle with the next tick (due, or past due); the core compares, for
+the context that commits next, its `tmr` with the next tick, with its FIFO tail and with
+its open EXPECT window's end. That context's `tmr`, tail and window end change only at its
+own commit, four edges earlier, so the registered results equal the comparisons made in
+the commit cycle, which the proofs check in every commit cycle. No program can tell the
+difference; the comparisons simply leave the path from the tick counter to the pins
+(D-43).
+
 At 25 MHz the counter wraps after 171.8 s, and the admission horizon is 85.9 s.
 
 ## Telemetry and faults
