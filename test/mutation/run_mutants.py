@@ -183,6 +183,47 @@ MUTANTS = {
                       "admission tests computed for the context committing now, not next"),
     "pre_lead_now": ("esc_core.v", "wire [31:0] nd_now  = n_tmr - now_n;", "wire [31:0] nd_now  = n_tmr - now;",
                      "admission tests one tick stale"),
+    # v1.5 boundaries: the half-range horizon, the 2^32 wrap, lead saturation, equal
+    # deadlines, the context whose state is read, a FIFO emptied or killed at a retirement.
+    "rch_half_point": ("esc_core.v", "rch_tmr  <= (nd_now == 32'd0) | (nd_now[31] & (nd_now[30:0] != 31'd0));",
+        "rch_tmr  <= (nd_now == 32'd0) | nd_now[31];",
+        "a timer exactly half the range ahead counts as reached"),
+    "ahd_range_edge": ("esc_core.v", "ahd_now  <= (nd_now != 32'd0) & ~nd_now[31];",
+        "ahd_now  <= (nd_now != 32'd0) & (nd_now < 32'h7FFFFFFF);",
+        "a deadline 2^31 - 1 ticks ahead refused"),
+    "ahd_unsigned": ("esc_core.v", "ahd_now  <= (nd_now != 32'd0) & ~nd_now[31];",
+        "ahd_now  <= (n_tmr > now_n);",
+        "ahead by unsigned compare: wrong only across the 2^32 wrap of now"),
+    "rch_unsigned": ("esc_core.v", "rch_tmr  <= (nd_now == 32'd0) | (nd_now[31] & (nd_now[30:0] != 31'd0));",
+        "rch_tmr  <= (n_tmr <= now_n);",
+        "reached by unsigned compare: wrong only across the 2^32 wrap of now"),
+    "lead_sat_17": ("esc_core.v", "lead16   <= (nd_now[31:16] != 16'd0) ? 16'hFFFF : nd_now[15:0];",
+        "lead16   <= (nd_now[31:17] != 15'd0) ? 16'hFFFF : nd_now[15:0];",
+        "a lead of 65,536 to 131,071 wraps instead of saturating"),
+    "lead_sat_fffe": ("esc_core.v", "lead16   <= (nd_now[31:16] != 16'd0) ? 16'hFFFF : nd_now[15:0];",
+        "lead16   <= (nd_now[31:16] != 16'd0) ? 16'hFFFE : nd_now[15:0];",
+        "a saturated lead reads 0xFFFE"),
+    "admit_tail_equal": ("esc_core.v", "ahd_tail <= (nd_tail != 32'd0) & ~nd_tail[31];",
+        "ahd_tail <= ~nd_tail[31];",
+        "a deadline equal to the FIFO tail admitted"),
+    "expect_lee_equal": ("esc_core.v", "ahd_lee  <= (nd_lee != 32'd0) & ~nd_lee[31];",
+        "ahd_lee  <= ~nd_lee[31];",
+        "an EXPECT deadline equal to the open window's end admitted"),
+    "pre_tail_ctx": ("esc_core.v", "wire [31:0] nd_tail = n_tmr - c_tail[32*nq +: 32];",
+        "wire [31:0] nd_tail = n_tmr - c_tail[32*cq +: 32];",
+        "admission compares with the FIFO tail of the context committing now"),
+    "pre_lee_ctx": ("esc_core.v", "wire [31:0] nd_lee  = n_tmr - c_lee[32*nq +: 32];",
+        "wire [31:0] nd_lee  = n_tmr - c_lee[32*cq +: 32];",
+        "EXPECT window end of the context committing now"),
+    "due_keep_stale": ("esc_ctx.v", "wire        n_keep  = (o_cnt_after != 3'd0);",
+        "wire        n_keep  = (o_cnt != 3'd0);",
+        "the next head test ignores a retirement that empties the FIFO"),
+    "due_empty_no_push": ("esc_ctx.v", "(push & (w_lead16 == 16'd1))",
+        "(w_lead16 == 16'd1)",
+        "an empty FIFO is tested against a lead nobody pushed"),
+    "kill_keeps_due": ("esc_ctx.v", "        o_cnt <= 3'd0;\n        due_q <= 1'b0; late_q <= 1'b0;",
+        "        o_cnt <= 3'd0;\n        late_q <= 1'b0;",
+        "a stop or fault leaves the retire test set"),
 }
 
 
@@ -283,9 +324,10 @@ class Mutant:
     line: int | None = None   # generated mutants replace one whole line
 
 
-def all_mutants() -> list[Mutant]:
+def all_mutants(rate: float = generate.RATE) -> list[Mutant]:
     ms = [Mutant(n, f, o, w, d, "curated") for n, (f, o, w, d) in MUTANTS.items()]
-    ms += [Mutant(g.id, g.file, g.old, g.new, g.desc, "generated", g.op, g.line) for g in generate.generate()]
+    ms += [Mutant(g.id, g.file, g.old, g.new, g.desc, "generated", g.op, g.line)
+           for g in generate.generate(rate)]
     return ms
 
 
@@ -467,12 +509,14 @@ def main() -> int:
     ap.add_argument("--recheck", action="store_true",
                     help="with --progress: rerun only the equivalence check of the survivors it holds")
     ap.add_argument("--list", action="store_true", help="list the mutants and exit")
+    ap.add_argument("--rate", type=float, default=generate.RATE,
+                    help=f"fraction of the generated sites taken (default {generate.RATE}; 1 takes every site)")
     args = ap.parse_args()
 
     if args.recheck:
         prog = Path(args.progress)
         rows = [json.loads(line) for line in prog.read_text().splitlines() if line.strip()]
-        byid = {m.id: m for m in all_mutants()}
+        byid = {m.id: m for m in all_mutants(args.rate)}
         todo = [r for r in rows if r["result"] == "SURVIVED" and r["id"] in byid and not r.get("rechecked")]
         print(f"rechecking {len(todo)} survivors, {args.jobs} at a time", flush=True)
         with tempfile.TemporaryDirectory(prefix="escmut_") as td, ThreadPoolExecutor(max(1, args.jobs)) as pool:
@@ -485,7 +529,7 @@ def main() -> int:
                 prog.write_text("".join(json.dumps(x) + "\n" for x in rows))   # keep each result
         return 0
 
-    ms = all_mutants()
+    ms = all_mutants(args.rate)
     if args.curated:
         ms = [m for m in ms if m.origin == "curated"]
     if args.generated:
