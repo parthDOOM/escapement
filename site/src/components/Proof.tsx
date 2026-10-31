@@ -3,6 +3,7 @@ import { useState } from "react";
 const P: [string, string, string, string, string][] = [
   ["P2", "Never late", "No event queue head is ever past its deadline, in any reachable state, including the 32-bit counter wrap.", "unbounded, assume-guarantee", "time"],
   ["P6", "Admitted means ahead", "Every admitted event is strictly after its commit tick and after the last event already queued.", "unbounded, PDR", "time"],
+  ["B1–B5 · D1–D2", "Early tests are exact", "The deadline tests computed a cycle before the commit that uses them (v1.5) equal the same tests on that commit's own state.", "unbounded, k-induction", "time"],
   ["P7", "Fixed slots", "A commit always belongs to the context that owns that slot, so no context can steal another's time.", "unbounded, PDR", "time"],
   ["P1", "Open drain stays open", "An open-drain pin is never driven high, whatever the firmware does.", "unbounded, PDR", "pins"],
   ["P3 · P5", "Pins stay owned", "A pin no context owns is never driven, and a faulted context drives none of its pins, in either bank.", "unbounded, PDR", "pins"],
@@ -51,7 +52,8 @@ export function ProofTable() {
           <tr><td>Random programs with the host reading the tape during the run</td><td className="num">60</td><td>7,598 words, 0 mismatches</td></tr>
           <tr><td>Firmware cases with independent bus models, RTL against the model</td><td className="num">26</td><td>0 mismatches</td></tr>
           <tr><td>Line unit against its model, every output every cycle</td><td className="num">12 million cycles</td><td>0 mismatches</td></tr>
-          <tr><td>Planted RTL faults (mutants), on the standard-cell models</td><td className="num">710</td><td>653 caught, 19 proved equivalent, 38 excluded, 0 surviving</td></tr>
+          <tr><td>Planted RTL faults (mutants), v1.4 campaign on the standard-cell models</td><td className="num">710</td><td>653 caught, 19 proved equivalent, 38 excluded, 0 surviving</td></tr>
+          <tr><td>Planted faults at every site of v1.5's new logic</td><td className="num">103</td><td>97 caught, 5 proved equivalent, 1 excluded, 0 surviving</td></tr>
           <tr><td>Timing certificates against measured leads (26 cases, 31 contexts)</td><td className="num">31</td><td>28 exact, 0 below</td></tr>
           <tr><td>Software tests: assembler, simulator, certificates, models, bring-up</td><td className="num">525</td><td>pass</td></tr>
           <tr><td>Chip tests on the final gate-level netlist</td><td className="num">7</td><td>pass</td></tr>

@@ -143,9 +143,9 @@ kbd { font: 500 0.68rem var(--font-mono); padding: 0.05rem 0.3rem; border-radius
 .decoded { font-size: var(--step-0); color: var(--fg); padding-bottom: 0.35rem; overflow-wrap: anywhere; }
 
 /* ---- history ---- */
-/* the chart's points sit over the centres of the five columns below them */
+/* the chart's points sit over the centres of the columns below them, one per version (--n) */
 .hist-chart { width: 100%; height: 170px; }
-.hist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; align-items: start; }
+.hist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n, 6), minmax(0, 1fr)); gap: 0; align-items: start; }
 .hist-col { display: grid; gap: 0.35rem; align-content: start; min-width: 0; padding: 0.7rem 0.7rem 0.4rem; border-top: 2px solid var(--line); outline: none; transition: border-color 0.2s, background 0.2s; }
 .hist-col.on, .hist-col:focus-visible { border-top-color: var(--brass); background: color-mix(in srgb, var(--brass) 6%, transparent); }
 .hist-head { display: flex; align-items: baseline; gap: 0.6rem; }

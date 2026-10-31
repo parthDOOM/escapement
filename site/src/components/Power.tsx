@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { css, fit, useResize, useThemeTick } from "../lib/util";
 
-// docs/15-POWER.md: the first v1.1 netlist, and v1.4 as built
-const ROWS: [string, number, number][] = [["Sending UART", 8.61, 3.13], ["Logic analyser", 8.45, 2.82], ["Stopped", 7.99, 2.48]];
+// docs/15-POWER.md: the first v1.1 netlist, and v1.5 as built (at 25 MHz)
+const ROWS: [string, number, number][] = [["Sending UART", 8.61, 3.18], ["Logic analyser", 8.45, 2.87], ["Stopped", 7.99, 2.53]];
 const MAX = 9;
 
 export function Power() {
@@ -38,10 +38,12 @@ const VERSIONS = [
     what: "Streaming capture: the host reads the tape during a run, so a capture lasts as long as the host keeps up, and PulseView records through the demo board." },
   { v: "v1.4", date: "21 Oct", cells: 27972, util: 58.2,
     what: "The line unit: USB and CAN on the pins, coded in hardware. Registers became latches, so the larger design takes less area than v1.3." },
+  { v: "v1.5", date: "31 Oct", cells: 28961, util: 59.5,
+    what: "Deadline tests decided a cycle early: the slow-corner limit rises from 28.6 to 38.6 MHz, so the chip is rated up to 33 MHz." },
 ];
 
 /** Cells of each adopted layout on a labelled axis (the changes are a few thousand cells
- *  on about 26,000, which bars from zero hide), with the five versions in matching columns
+ *  on about 26,000, which bars from zero hide), with the six versions in matching columns
  *  below; on a phone the columns become a vertical timeline. */
 export function History() {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -88,7 +90,7 @@ export function History() {
     <figure className="panel history">
       <canvas ref={ref} className="hist-chart" role="img"
         aria-label={"Standard cells per layout: " + VERSIONS.map((x) => `${x.v} ${x.cells.toLocaleString()}`).join(", ")} />
-      <ol className="hist">
+      <ol className="hist" style={{ "--n": VERSIONS.length } as React.CSSProperties}>
         {VERSIONS.map((x, i) => {
           const d = i ? x.cells - VERSIONS[i - 1].cells : 0;
           return (

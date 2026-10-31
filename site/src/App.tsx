@@ -263,11 +263,13 @@ export default function App() {
                 <p>A 32-bit <strong>execution digest</strong> folds every commit, register write and pin change of a
                   run into one word. After a run on silicon, one SPI read compares the chip with the model's
                   prediction.</p>
-                <p>To check the tests themselves, 710 faults are planted in the RTL one at a time, across every
-                  module, the line unit included, and simulated on the PDK's standard-cell models. The tests catch 653. Of
-                  the rest, 19 are proved to change no output of the chip, and 38 are excluded with a written reason,
-                  such as logic a proof shows can never run. None survives. Every fault that slipped through an
-                  earlier run was read against the RTL, and each hole it showed was closed with a new test.</p>
+                <p>To check the tests themselves, faults are planted in the RTL one at a time, across every module,
+                  the line unit included, and simulated on the PDK's standard-cell models. In the version 1.4
+                  campaign the tests caught 653 of 710. Of the rest, 19 are proved to change no output of the chip,
+                  and 38 are excluded with a written reason, such as logic a proof shows can never run. None
+                  survives. Version 1.5's new logic was mutated at every site: 97 of 103 caught, 5 proved equivalent,
+                  1 excluded. Every fault that slipped through an earlier run was read against the RTL, and each hole
+                  it showed was closed with a new test.</p>
               </div>
               <ProofTable />
             </div>
@@ -297,19 +299,21 @@ export default function App() {
                 <p>Only four metal layers can carry signals in a Tiny Tapeout block on this process, and each SRAM
                   blocks three of them over its whole footprint. Routing Metal1 as a signal layer cut global-route
                   overflow from 5,276 to 76. Version 1.4 adds the line unit in the same area: most registers became
-                  latches, 44% smaller than flip-flops, and the design ended smaller than version 1.3.</p>
+                  latches, 44% smaller than flip-flops, and the design ended smaller than version 1.3. Version 1.5
+                  decides each deadline test a cycle before the commit that needs it, which moves the slow-corner
+                  limit from 28.6 to 38.6 MHz; it is laid out for a 30 ns clock and rated up to 33 MHz.</p>
                 <p>To save power, register banks that are not being written do not see the clock: 80 clock gates cover
-                  about 3,150 of the 4,374 storage cells, and each memory is selected only on the cycles that read
+                  about 3,150 of the 4,402 storage cells, and each memory is selected only on the cycles that read
                   it.</p>
               </div>
             </div>
 
             <div className="stats" style={{ marginTop: "3rem" }} aria-label="Sign-off results">
-              <div><b>27,972</b><span>standard cells</span></div>
-              <div><b>58.2%</b><span>utilisation</span></div>
-              <div><b>2.22 m</b><span>of wire</span></div>
-              <div><b>243,088</b><span>vias</span></div>
-              <div><b>+0.138 ns</b><span>worst hold slack, fast corner</span></div>
+              <div><b>28,961</b><span>standard cells</span></div>
+              <div><b>59.5%</b><span>utilisation</span></div>
+              <div><b>2.21 m</b><span>of wire</span></div>
+              <div><b>38.6 MHz</b><span>clock limit, slow corner (rated 33)</span></div>
+              <div><b>+0.157 ns</b><span>worst hold slack, fast corner</span></div>
               <div><b>0</b><span>DRC, LVS and antenna errors</span></div>
             </div>
 
@@ -325,7 +329,7 @@ export default function App() {
               <Power />
             </div>
             <div style={{ marginTop: "3rem" }}>
-              <h3 style={{ marginBottom: "1rem" }}>Five layouts, one story</h3>
+              <h3 style={{ marginBottom: "1rem" }}>Six layouts, one story</h3>
               <History />
             </div>
           </div>
