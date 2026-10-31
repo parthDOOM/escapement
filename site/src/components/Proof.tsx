@@ -55,8 +55,9 @@ export function ProofTable() {
           <tr><td>Planted RTL faults (mutants), v1.4 campaign on the standard-cell models</td><td className="num">710</td><td>653 caught, 19 proved equivalent, 38 excluded, 0 surviving</td></tr>
           <tr><td>Planted faults at every site of v1.5's new logic</td><td className="num">103</td><td>97 caught, 5 proved equivalent, 1 excluded, 0 surviving</td></tr>
           <tr><td>Timing certificates against measured leads (26 cases, 31 contexts)</td><td className="num">31</td><td>28 exact, 0 below</td></tr>
-          <tr><td>Software tests: assembler, simulator, certificates, models, bring-up</td><td className="num">525</td><td>pass</td></tr>
+          <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 MHz</td><td className="num">685</td><td>pass</td></tr>
           <tr><td>Chip tests on the final gate-level netlist</td><td className="num">7</td><td>pass</td></tr>
+          <tr><td>Firmware through the pins on the final netlist, NEC at 33 MHz included</td><td className="num">8</td><td>pass</td></tr>
           <tr><td>Netlist against RTL, sequential equivalence</td><td className="num">332 bits</td><td>proved</td></tr>
         </tbody>
       </table>

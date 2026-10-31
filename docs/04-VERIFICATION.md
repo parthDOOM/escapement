@@ -414,7 +414,7 @@ trusted. A measured lead below its bound is a bug in escert or in whatever measu
 and fails the table.
 
 Result on 2026-10-26, the 26 co-simulation cases with their bus models and host traffic
-(36 contexts):
+(36 contexts); rerun 2026-10-31 on v1.5, with the changed NEC firmware: the same counts:
 
 | | Contexts |
 | --- | ---: |
@@ -432,8 +432,8 @@ event a tick closer to its deadline than escert's worst case would fail it.
 The table also runs every shipped firmware on the ISS in the demo board's environment,
 with nothing on the Pmods: the environment in which bring-up stage 5 checks the same
 bounds on the chip and writes `proof.json` for `--board`
-([bring-up](16-BRING-UP.md#stage-5-firmware-digests)). There, 28 contexts queue events,
-19 measure exactly their bound and none is below it. The other nine are looser (`i2c_ctrl`
+([bring-up](16-BRING-UP.md#stage-5-firmware-digests)). There, 30 contexts queue events
+(v1.5, VGA Pong included), 21 measure exactly their bound and none is below it. The other nine are looser (`i2c_ctrl`
 33 against 2, for example) because the inputs that produce the worst case, such as a
 device on the bus, are absent.
 
@@ -520,13 +520,13 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 MHz | 683 | Pass (7 need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 MHz | 685 | Pass (7 need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
 | Co-simulation (`make cosim`) | 8 | Pass |
 | Host interface (`make host-test`) | 16 | Pass |
-| Core unit tests (`make unit-test`) | 31 | Pass |
+| Core unit tests (`make unit-test`) | 33 | Pass |
 | Newer firmware (SWD, SPI target, NEC, NEC rebuilt for 33 MHz, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 8 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
