@@ -38,7 +38,7 @@ from escasm import assemble_file  # noqa: E402
 from escert import certify  # noqa: E402
 from esciss import Machine  # noqa: E402
 from esciss.machine import no_board_b  # noqa: E402
-from fw_cases import FIRMWARE_CASES, TAPE_PREP  # noqa: E402
+from fw_cases import FIRMWARE_CASES, fw_image  # noqa: E402
 
 SKIP = {"replay.asm"}          # a template: sw/esctape fills in its pins and trace
 NONE = 0xFFFF                  # min_lead after a run that queued no event
@@ -103,9 +103,7 @@ def cosim_table(rtl: dict) -> tuple[list[str], list[str]]:
         rule += " --- | --- |"
     rows, bad = [head, rule], []
     for name, (fw, ticks, factory) in FIRMWARE_CASES.items():
-        image = assemble_file(REPO / "firmware" / fw)
-        if name in TAPE_PREP:
-            TAPE_PREP[name](image)
+        image = fw_image(name, fw, REPO / "firmware")
         board, host, check, *bb = factory()
         m = Machine(image, board=board, board_b=bb[0] if bb else no_board_b)
         if host is not None:

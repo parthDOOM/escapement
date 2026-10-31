@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
-from escmodels import (Board, CanBus, DmxRx, HostScript, I2cController, I2cTarget, JtagTap,
-                       OneWireDevice, Ps2Host, SpiTarget, SplitBoard, UartRx, UartTx,
+from pathlib import Path
+
+from escmodels import (Board, CanBus, Device, DmxRx, HostScript, I2cController, I2cTarget,
+                       JtagTap, OneWireDevice, Ps2Host, SpiTarget, SplitBoard, UartRx, UartTx,
                        Ws2812Decoder, crc8_maxim)
 from escmodels.usb import UsbHost, bus_reset, control, in_txn, setup_bytes
 
@@ -424,6 +426,99 @@ def case_dali():
     return Board(ctl, host), host, check
 
 
+def case_can_tx_lu():
+    """v1.6: CAN at 1 Mbit/s on the line unit (25 ticks a bit at the default clock), two
+    frames, acknowledged by the bus model."""
+    bus = CanBus(0, 1, 25)
+    host = HostScript([(600, 0, (0x123 << 16) | 2), (650, 0, 0xDEAD0000), (700, 0, 0),
+                       (4000, 0, (0x7FF << 16) | 8), (4050, 0, 0x01234567), (4100, 0, 0x89ABCDEF)],
+                      drain=[0], poll=500)
+
+    def check(board, h):
+        f = bus.frames
+        ok = ([(x["id"], x["data"]) for x in f] == [(0x123, [0xDE, 0xAD]),
+                                                     (0x7FF, [1, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF])]
+              and all(x["crc_ok"] for x in f) and h.received[0] == [1, 1])
+        return ([] if ok else [f"can_tx_lu {f} {h.received}"]) + board.errors()
+    return Board(bus, host), host, check
+
+
+def case_spi_tx():
+    """v1.6: write-only SPI through the line unit's clock pattern, 4 ticks a bit."""
+    from escmodels import SpiTarget
+    tgt = SpiTarget(4, 5, 6, 7, 0)
+    host = HostScript([(100, 0, 3), (110, 0, 0xA53C0F00), (1500, 0, 5), (1510, 0, 0x01020304),
+                       (1520, 0, 0x05000000)], drain=[0], poll=300)
+
+    def check(board, h):
+        ok = (tgt.frames == [[0xA5, 0x3C, 0x0F], [1, 2, 3, 4, 5]] and not tgt.violations
+              and h.received[0] == [1, 1])
+        return ([] if ok else [f"spi_tx {tgt.frames} {tgt.violations} {h.received}"]) + board.errors()
+    return Board(tgt, host), host, check
+
+
+class _TdRecorder:
+    """TD+ and TD- (pins 0, 1) every tick, for the 10BASE-T case."""
+
+    def __init__(self):
+        self.lv = []
+
+    def step(self, t, bus):
+        self.lv.append(bus & 3)
+        return 0, 0
+
+    def errors(self):
+        return []
+
+
+def case_eth_tx():
+    """v1.6: a 10BASE-T link pulse, then a frame from the host: preamble, SFD, frame and
+    its FCS (checked against zlib's CRC-32) from one SEND, at 2 ticks a Manchester cell."""
+    import zlib
+    rec = _TdRecorder()
+    frame = bytes(range(60))
+    words = [int.from_bytes(frame[i:i + 4], "little") for i in range(0, 60, 4)]
+    host = HostScript([(300 + 20 * i, 0, w) for i, w in enumerate([60] + words)], drain=[0], poll=400)
+
+    def check(board, h):
+        lv, bits = rec.lv, []
+        # the frame: the second time the pins leave idle (both high, released), the first
+        # being the link pulse; a bit is two 2-tick cells, its value the second cell's TD+
+        starts = [k for k in range(1, len(lv)) if lv[k] in (1, 2) and lv[k - 1] == 3]
+        t = starts[1] if len(starts) > 1 else None
+        while (t is not None and t + 4 <= len(lv) and lv[t] in (1, 2) and lv[t + 2] in (1, 2)
+               and lv[t] != lv[t + 2]):
+            bits.append(lv[t + 2] & 1)
+            t += 4
+        data = bytes(sum(bits[8 * i + j] << j for j in range(8)) for i in range(len(bits) // 8))
+        ok = (data[:8] == b"\x55" * 7 + b"\xd5" and data[8:68] == frame
+              and int.from_bytes(data[68:72], "little") == zlib.crc32(frame) and len(h.received[0]) == 1)
+        return ([] if ok else [f"eth {data[:12].hex()} {len(bits)} {h.received}"]) + board.errors()
+    return Board(rec, host), host, check
+
+
+class _Square(Device):
+    """A square wave on one pin from tick `start`: `period` ticks, high for `high`."""
+
+    def __init__(self, pin, period, high, start):
+        self.m, self.period, self.high, self.start = 1 << pin, period, high, start
+
+    def step(self, t, bus):
+        up = t >= self.start and (t - self.start) % self.period < self.high
+        return (0, self.m) if up else (self.m, 0)
+
+
+def case_freq_meter():
+    """v1.6: reciprocal counting from capture timestamps, 8 periods a gate: exact."""
+    host = HostScript([], drain=[0], poll=300)
+
+    def check(board, h):
+        r = [v & 0xFFFFFF for v in h.received[0]]
+        ok = len(r) >= 6 and set(zip(r[::2], r[1::2])) == {(2000, 600)}
+        return ([] if ok else [f"freq_meter {r}"]) + board.errors()
+    return Board(_Square(3, 250, 75, 400), host), host, check
+
+
 FIRMWARE_CASES = {
     "uart_rx": ("uart_rx.asm", 13500, case_uart_rx),
     "i2c_ctrl": ("i2c_ctrl.asm", 9000, case_i2c),
@@ -454,6 +549,27 @@ FIRMWARE_CASES = {
     "sent": ("sent_tx.asm", 36000, case_sent),
     "cec": ("../test/cosim/cec_cosim.asm", 46000, case_cec),
     "dali": ("../test/cosim/dali_cosim.asm", 33000, case_dali),
+    # v1.6: the line unit's extended configuration
+    "can_tx_lu": ("can_tx_lu.asm", 8000, case_can_tx_lu),
+    "spi_tx": ("spi_tx.asm", 3000, case_spi_tx),
+    "eth_tx": ("eth_tx.asm", 4500, case_eth_tx),
+    "freq_meter": ("freq_meter.asm", 8000, case_freq_meter),
 }
 TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
+# parameters a case sets on its firmware's .defaults (a short gate for the meter)
+FW_EQU = {"freq_meter": {"N": 8, "PIN": 3}}
+
+
+def fw_image(name, fw, firmware_dir):
+    """The image a case runs: its firmware, with FW_EQU parameters and TAPE_PREP applied."""
+    from escasm import assemble, assemble_file
+    if name in FW_EQU:
+        mod = fw.rsplit(".", 1)[0]
+        equ = "".join(f".equ {mod}.{k}, {v}\n" for k, v in FW_EQU[name].items())
+        image = assemble(equ + f'.include "{fw}"\n', base_dir=firmware_dir, name=fw)
+    else:
+        image = assemble_file(Path(firmware_dir) / fw)
+    if name in TAPE_PREP:
+        TAPE_PREP[name](image)
+    return image

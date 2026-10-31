@@ -26,7 +26,7 @@ from esciss import Machine
 from esciss.machine import no_board_b
 
 from escmodels import Board, HostScript
-from fw_cases import FIRMWARE_CASES, TAPE_PREP
+from fw_cases import FIRMWARE_CASES, fw_image
 from progen import gen_lu_program, gen_program, loopback_board, lu_board, make_board, make_board_b
 
 REPO = Path(__file__).resolve().parents[2]
@@ -367,9 +367,7 @@ async def test_firmware_with_bus_models(dut):
     for name, (fw, ticks, factory) in FIRMWARE_CASES.items():
         if only and name not in only:
             continue
-        image = assemble_file(REPO / "firmware" / fw)
-        if name in TAPE_PREP:
-            TAPE_PREP[name](image)
+        image = fw_image(name, fw, REPO / "firmware")
         board_i, host_i, check_i, *bb_i = factory()
         board_r, host_r, check_r, *bb_r = factory()
         if bb_i:                       # bank B: the RTL gets its own stateful twin

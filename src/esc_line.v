@@ -300,6 +300,7 @@ module esc_line (
   wire        t_pkt  = ~due & (eseg <= 3'd3);                // ... and it is a packet bit
   wire        lb     = due ? sb : pbit;
   wire        lv_nx  = c_nrzi ? (lb ? lv : ~lv) : lb;
+  wire [1:0]  k_s    = t_line ? 2'd0 : (c_eopl | (pos[1:0] == c_eop)) ? 2'd2 : 2'd1;  // its kind
   wire        tx_mon = (mode == TX) & mon & ~tb_hit & (el == c_S);
   wire        tx_rd  = (mode == TX) & req & own_cyc;
 
@@ -369,14 +370,58 @@ module esc_line (
                         .en(op_send | op_recv | op_crc | op_cfg), .d(op_v), .q(cmd));
 
   // ------------------------------------------------------------------ pin writes
+  // v1.6: a transmit write is decided in the cycle before its edge and registered (dq_*),
+  // so the pins are a few gates from flip-flops. Everything it depends on is known a cycle
+  // ahead: the next timed boundary from el, acc and ext (a cell lasts at least 2 ticks, so
+  // a boundary never follows a boundary); at a cell boundary the symbol's level, kind and
+  // cell, which change only at symbol boundaries; at a symbol boundary the packet bit,
+  // segment and last flag (pb_c, es_c, sl_c, registered as pb_q, es_q, sl_q), the stuffing
+  // run and the line level, which change only at boundaries, and the monitor's mismatch,
+  // seen at the latest in the cycle before. Asserted equal to the definitions (below).
   // the levels of cell c of a symbol: a line bit L shows its pattern's bit c on d; with
   // diff n shows not d, or with clk the clock pattern's bit c
-  wire [2:0] cn   = tx_cb ? cel + 3'd1 : 3'd0;           // the cell starting at this edge
-  wire       b_l  = tx_cb ? lv : lv_nx;                   // its line bit
-  wire [1:0] k_s  = tx_cb ? sk                            // its symbol kind
-                  : t_line ? 2'd0 : (c_eopl | (pos[1:0] == c_eop)) ? 2'd2 : 2'd1;
-  wire       d_l  = (k_s == 2'd0) ? (b_l ? c_p1[cn] : c_p0[cn]) : (k_s == 2'd2);
-  wire       n_l  = (k_s == 2'd1) ? 1'b0 : c_clk ? c_pc[cn] : ~d_l;
+  function [1:0] levels(input [1:0] k, input l, input [2:0] c,
+                        input [7:0] p0, input [7:0] p1, input ck, input [7:0] pc);
+    reg dl;
+    begin
+      dl = (k == 2'd0) ? (l ? p1[c] : p0[c]) : (k == 2'd2);
+      levels = {dl, (k == 2'd1) ? 1'b0 : ck ? pc[c] : ~dl};
+    end
+  endfunction
+  // (an op holds el and ext, so a boundary due under one comes in the cycle after)
+  wire       tb_n   = (mode == TX) & (anyop ? tb_hit : ~tb_hit
+                    & (((el_inc == c_P) & ~acc[8]) | ((el == c_P) & acc[8])));
+  wire       abt_n  = abt | (tx_mon & (view[c_r] != lv));
+  wire       lb_n   = due ? sb : pb_c;
+  wire       lvn    = c_nrzi ? (lb_n ? lv : ~lv) : lb_n;
+  wire       tln    = ~abt_n & (due | (es_c <= 3'd3));
+  wire       ten    = abt_n | (~due & (es_c == 3'd5));
+  wire [1:0] kn     = tln ? 2'd0 : k_s;
+  wire [1:0] lc_n   = levels(sk, lv, cel + 3'd1, c_p0, c_p1, c_clk, c_pc);   // the next cell
+  wire [1:0] ls_n   = levels(kn, lvn, 3'd0, c_p0, c_p1, c_clk, c_pc);        // the next symbol
+  wire [7:0] idle_v = pins2(c_d, c_n, c_diff, ~c_ilow, c_clk ? c_cidle : c_ilow) & claimed;
+  wire       sym_n  = (cel == c_cells);
+  wire [7:0] dq_vn  = (sym_n & ten) ? idle_v
+                    : pins2(c_d, c_n, c_diff, sym_n ? ls_n[1] : lc_n[1], sym_n ? ls_n[0] : lc_n[0])
+                      & claimed;
+  wire       dq_on  = ~(sym_n & ten) | c_idrv;
+  reg        dq_go, dq_oe;
+  reg  [7:0] dq_val;
+  // A packet's first boundary: its segment and its first bit when that is not a stream bit
+  // are registered at the SEND (the configuration cannot change while the unit is engaged);
+  // a first stream bit comes from the buffer, or from the tape in the cycle it arrives.
+  wire [12:0] nb_v  = {c_ext ? op_v[29:24] : 6'd0, op_v[14:8]};
+  wire [5:0]  sen_v = {1'b1, c_diff & (c_eop != 2'd0), op_v[15] & m_c[31], nb_v != 13'd0, c_hdr,
+                       c_pre != 8'd0};
+  wire [2:0]  es0_v = first_seg(3'd0, sen_v);
+  wire        pbx_v = (es0_v == 3'd0) ? (c_lsb ? c_pre[0] : c_pre[7])
+                    : (es0_v == 3'd1) ? (c_lsb ? op_v[16] : op_v[23]) : crcx0;
+  reg  [2:0]  es0_q;
+  reg         pbx_q;
+  wire        b0    = (es0_q == 3'd2) ? sb0 : pbx_q;      // the first packet bit (L = it)
+  wire [1:0]  k0    = (es0_q <= 3'd3) ? 2'd0 : c_eopl ? 2'd2 : 2'd1;
+  wire [1:0]  l0    = levels(k0, b0, 3'd0, c_p0, c_p1, c_clk, c_pc);
+  wire [7:0]  v0    = (es0_q == 3'd5) ? idle_v : pins2(c_d, c_n, c_diff, l0[1], l0[0]) & claimed;
   always @(*) begin
     rel_m = 8'd0; drv_m = 8'd0; drv_val = 8'd0; drv_oe = 1'b0;
     if (!start && !kill) begin
@@ -384,17 +429,26 @@ module esc_line (
       else if (!anyop && cfg_done) begin
         rel_m = claimed & ~n_cl;
         drv_m = n_cl; drv_val = pins2(n_d, n_n, n_diff, n_idl, n_idn) & n_cl; drv_oe = buf_q[18];
-      end else if (!anyop && (tx_bnd || tx_cb)) begin
-        drv_m = claimed;
-        if (tx_bnd && t_end) begin
-          drv_val = pins2(c_d, c_n, c_diff, ~c_ilow, c_clk ? c_cidle : c_ilow) & claimed;
-          drv_oe = c_idrv;
-        end else begin
-          drv_val = pins2(c_d, c_n, c_diff, d_l, n_l) & claimed; drv_oe = 1'b1;
-        end
+      end else if (!anyop && tx_start) begin
+        drv_m = claimed; drv_val = v0; drv_oe = (es0_q != 3'd5) | c_idrv;
+      end else if (!anyop && mode == TX && dq_go) begin
+        drv_m = claimed; drv_val = dq_val; drv_oe = dq_oe;
       end
     end
   end
+`ifdef FORMAL
+  // the definitions the registered writes replace (section 6.6)
+  wire [2:0] f_cn  = tx_cb ? cel + 3'd1 : 3'd0;
+  wire       f_bl  = tx_cb ? lv : lv_nx;
+  wire [1:0] f_ks  = tx_cb ? sk : k_s;
+  wire [1:0] f_lv  = levels(f_ks, f_bl, f_cn, c_p0, c_p1, c_clk, c_pc);
+  wire [7:0] f_val = (tx_bnd & t_end) ? idle_v : pins2(c_d, c_n, c_diff, f_lv[1], f_lv[0]) & claimed;
+  wire       f_oe  = ~(tx_bnd & t_end) | c_idrv;
+  always @(*) if (rst_n && !start && !kill && !anyop) begin
+    assert (((mode == TX) & dq_go) == ((mode == TX) & tb_hit));
+    if ((tx_bnd || tx_cb) && claimed != 8'd0) assert (drv_val == f_val && drv_oe == f_oe);
+  end
+`endif
 
   // ------------------------------------------------------------------ registers
   // Idle with nothing arriving, no register below can change, so they share one clock
@@ -418,6 +472,7 @@ module esc_line (
       req <= 1'b0; reqn <= 1'b0; fin <= 1'b0;
       eopw <= 1'b0; hunt <= 1'b0; dec <= 1'b0; stor <= 1'b0; noted <= 2'd0;
       mon <= 1'b0; abt <= 1'b0; es_q <= 3'd5; pb_q <= 1'b0; sl_q <= 1'b0;
+      dq_go <= 1'b0; dq_oe <= 1'b0; dq_val <= 8'd0; es0_q <= 3'd5; pbx_q <= 1'b0;
     end else if (lu_hold) begin
     end else if (start) begin
       owned <= 1'b0; owner <= 2'd0; conf <= 1'b0; mode <= IDLE; ld <= 1'b0; ldn <= 1'b0;
@@ -428,6 +483,8 @@ module esc_line (
       ldn <= 1'b0;
     end else begin
       es_q <= es_c; pb_q <= pb_c; sl_q <= sl_c;
+      dq_go <= tb_n; dq_val <= dq_vn; dq_oe <= dq_on;
+      if (op_send) begin es0_q <= es0_v; pbx_q <= pbx_v; end
       ld <= rd_now | rd_commit;
       ldn <= tx_rd & reqn;
       if (halt_done && arm_on) mode <= IDLE;
