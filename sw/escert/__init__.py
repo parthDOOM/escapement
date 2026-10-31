@@ -202,15 +202,17 @@ class St:
     lee: bool                        # an EXPECT has been admitted
     lu: str = "idle"                 # line unit: idle | armed | own | top
     stale: bool = False              # the line was busy while the firmware was not waiting
+    zrx: bool = False                # v1.6: Z is RXREADY's (the RX mailbox is empty)
+    rxne: bool = False               # v1.6: the RX mailbox holds a word (POP will not wait)
 
     def copy(self) -> "St":
         return St(self.z.copy(), list(self.reg), list(self.fifo), self.lc, self.zf,
-                  self.lr, self.lee, self.lu, self.stale)
+                  self.lr, self.lee, self.lu, self.stale, self.zrx, self.rxne)
 
     def key(self, pc: int):
         consts = tuple(r if (r[0] == "const" and r[1] == r[2]) else (r[0],) for r in self.reg)
         return (pc, self.lc, self.zf, tuple(k for _, k in self.fifo), consts, self.lee,
-                self.lu, self.stale)
+                self.lu, self.stale, self.zrx, self.rxne)
 
     def coarse_key(self, pc: int):
         return (pc, tuple(k for _, k in self.fifo), self.lee, self.lu, self.stale)
@@ -242,7 +244,8 @@ def join_st(a: St, b: St, widen: bool) -> St:
             z.free(R[i])
     return St(z, reg, list(a.fifo), a.lc if a.lc == b.lc else None,
               a.zf if a.zf == b.zf else None, a.lr | b.lr, a.lee or b.lee,
-              a.lu if a.lu == b.lu else "top", a.stale or b.stale)
+              a.lu if a.lu == b.lu else "top", a.stale or b.stale,
+              a.zrx and b.zrx, a.rxne and b.rxne)
 
 
 def rename_fifo(s: St, slots: list) -> Zone:
@@ -763,6 +766,12 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             _advance(t, wlo + SLOT, whi + SLOT)
             push(to, t)
 
+        # v1.6: whether Z holds RXREADY's answer (anything else that writes Z ends it)
+        if name == "RXREADY":
+            s.zrx = True
+        elif name in _ZW or name in ("GETL", "SEND"):
+            s.zrx = False
+
         # ------------------------------------------------------------- data
         if name == "MOVI":
             setreg(f["rd"], ("const", f["imm"], f["imm"]))
@@ -840,7 +849,14 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             go(s, f["target"])
         elif name in ("JZ", "JNZ"):
             want = 1 if name == "JZ" else 0
-            if s.zf is None:
+            if s.zf is None and s.zrx:
+                # v1.6: only this context pops its RX mailbox, so where RXREADY saw a word
+                # it is still there at the next POP
+                for to, z in ((f["target"], want), (nxt, 1 - want)):
+                    t = s.copy()
+                    t.rxne = t.rxne or z == 0
+                    go(t, to)
+            elif s.zf is None:
                 go(s, f["target"])
                 go(s, nxt)
             else:
@@ -910,7 +926,11 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
         elif name in ("POP", "PUSH"):
             if name == "POP":
                 setreg(f["rd"], ("top",))
-            go(s, nxt, 0, INF)
+            if name == "POP" and s.rxne:
+                s.rxne = False                           # a word is there: no wait
+                go(s, nxt)
+            else:
+                go(s, nxt, 0, INF)
         elif name == "GETI":
             setreg(f["rd"], ("top",))
             smp = [slot for slot, k in s.fifo if k == "SAMPLE"]

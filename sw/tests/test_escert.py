@@ -443,3 +443,18 @@ def test_random_line_unit_programs_checked_implies_no_admit_fault():
             timed += 1
             assert m.ctx[0].min_lead >= c.min_lead, (seed, str(c), m.ctx[0].min_lead)
     assert proved > 30 and timed > 20, (proved, timed)
+
+
+
+def test_pop_after_rxready_saw_a_word_does_not_wait():
+    """v1.6: only the context pops its RX mailbox, so a POP on the path where RXREADY saw a
+    word completes at once: the deadline after it keeps its lead. On the empty path, or
+    without RXREADY, POP may wait for ever and the deadline is not proven."""
+    head = ".entry 0, main\n.own 0, 0\nmain:\n ADDT 64\n EMIT 1, 1, 1\n RXREADY\n"
+    tail = "have:\n POP r0\n ADDT 32\n EMIT 1, 0, 1\n HALT\n"
+    ok = assemble(head + " JNZ have\n HALT\n" + tail)
+    assert [c.status for c in certify(ok)] == ["CHECKED"]
+    bad = assemble(head + " JZ have\n HALT\n" + tail)
+    assert [c.status for c in certify(bad)] != ["CHECKED"]
+    plain = assemble(".entry 0, main\n.own 0, 0\nmain:\n ADDT 64\n EMIT 1, 1, 1\n" + tail[6:])
+    assert [c.status for c in certify(plain)] != ["CHECKED"]
