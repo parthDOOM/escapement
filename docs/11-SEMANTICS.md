@@ -1,4 +1,4 @@
-# Escapement machine semantics v1.4.0 (normative)
+# Escapement machine semantics v1.6.0 (normative)
 
 This document is the single normative definition of the machine. The Python
 instruction-set simulator (`sw/esciss`) and the RTL (`src/`) are separate
@@ -22,7 +22,11 @@ bit stuffing and a CRC sent from and received into the tape, with clock recovery
 receive, a packet start admitted as an event (`SEND`), and the instructions `LINE` and
 `GETL` (§7.7). A late `SEND` is dropped rather than faulted, so a reply is on time or
 not sent. A program that does not use them behaves exactly as on 1.3.0, digest
-included.
+included. 1.6.0 extends the line unit (§6.6) with an optional second part of its
+configuration (`ext`): symbol coding, in which each line bit is a pattern of up to eight
+cells (Manchester, pulse-width codes), a clock pattern on the second pin, a CRC of up to
+32 bits, a repeated prefix, a positive end-of-packet level and streams of up to 8191 bits.
+A configuration without `ext` behaves exactly as on 1.4.0, digest included.
 
 Notation: all arithmetic on 32-bit values is modulo 2^32 unless stated. `zext` is
 zero extension. `ahead(a, b)` means `1 <= (a - b) mod 2^32 < 2^31` ("a is strictly
@@ -308,17 +312,34 @@ half duplex and runs one **job** at a time. Rationale and profiles:
 | `fall` | W2[19] | receive resyncs only on transitions from L = 1 to L = 0; else on every transition |
 | `abort` | W2[20] | transmit stops at the first monitor mismatch (below) |
 | `idle_min` | W2[24:21] | receive: bit times of idle line required before a start |
+| `ext` | W2[25] | (v1.6) the configuration has two more words, W3 and W4 |
+| `cells` | W3[2:0] | symbol coding: each symbol lasts `cells` + 1 cells |
+| `p0` | W3[10:3] | the cell levels of a line bit 0: cell c shows bit c |
+| `p1` | W3[18:11] | the cell levels of a line bit 1 |
+| `clk` | W3[19] | with `diff`, `n` carries the clock pattern instead of ¬L |
+| `pc` | W3[27:20] | the clock pattern: `n` shows bit c in cell c |
+| `cidle` | W3[28] | with `clk`, the level of `n` in the idle state |
+| `poly_hi` | W4[15:0] | the CRC polynomial's high half (below) |
+| `prep` | W4[18:16] | the prefix is sent `prep` + 1 times |
+| `eopl` | W4[19] | the end-of-packet symbols drive L = 1 instead of SE0, and no J follows |
+| `ilow` | W4[20] | the idle state is L = 0 instead of L = 1 |
 
-Bits not listed are ignored. A configuration is **invalid** if `P_int < 8`, `S < 4` or
-`S ≥ P_int`.
+Bits not listed are ignored. Without `ext`, W3 and W4 are not read and the fields above
+take their **legacy values**: one cell, `p0 = 0`, `p1 = 1`, `clk = 0`, `poly_hi` not used,
+`prep = 0`, `eopl = 0`, `ilow = 0`. A configuration is **invalid** if it has more than one cell and
+`P_int < 2`, or it has one cell and `P_int < 8`, `S < 4` or `S ≥ P_int`.
 
-**CRC.** The register `crc` has 16 bits. A polynomial G of width w ≤ 16 is written
-left-aligned, `poly = (G mod x^w) << (16 − w)`, so its lowest set bit is bit 16 − w
-(CRC-5/USB 0x2800, CRC-16/USB 0x8005, CRC-15/CAN 0x8B32). For `poly ≠ 0` the width is
-`w = 16 − ctz(poly)` and the width mask is `M = (−(poly & −poly)) mod 2^16`; the start
-value is `M` if `init_ones`, else 0. For `poly = 0` the start value is 0 and w = 0. A CRC
-bit b updates `crc <= ((crc << 1) mod 2^16) XOR ((crc[15] XOR b) ? poly : 0)`. A
-transmitted CRC is w bits; bit i (i = 0 first) is bit 15 − i of `inv ? ~crc : crc`.
+**CRC.** The register `crc` has 32 bits. A polynomial G of width w ≤ 32 is
+left-aligned in `poly32 = (G mod x^w) << (32 − w)`: with `ext`, `poly32 = poly_hi << 16 | poly`;
+without, `poly32 = poly << 16`, so a 16-bit field holds G written left-aligned in 16
+bits, `poly = (G mod x^w) << (16 − w)` (CRC-5/USB 0x2800, CRC-16/USB 0x8005, CRC-15/CAN
+0x8B32; CRC-32 as `poly_hi` 0x04C1, `poly` 0x1DB7). For `poly32 ≠ 0` the width is
+`w = 32 − ctz(poly32)` and the width mask is `M = (−(poly32 & −poly32)) mod 2^32`; the
+start value is `M` if `init_ones`, else 0. For `poly32 = 0` the start value is 0 and
+w = 0. A CRC bit b updates `crc <= ((crc << 1) mod 2^32) XOR ((crc[31] XOR b) ? poly32 : 0)`.
+A transmitted CRC is w bits; bit i (i = 0 first) is bit 31 − i of `inv ? ~crc : crc`.
+(Without `ext` the low 16 bits of `crc` stay 0, and its high half is the 16-bit register of
+version 1.4.)
 
 **The stream.** A job's tape data is a bit stream from word a. Stream bit j is bit
 `j mod 32` of `T[(a + ⌊j/32⌋) mod 256]` with `lsb`, and bit `31 − (j mod 32)` of it
@@ -329,14 +350,17 @@ without. A byte field (prefix, header) goes bit 0 first with `lsb`, bit 7 first 
 claimed during cycle t unchanged (its other pins change as usual), the LU's own pin
 writes at E_t come after DRIVE retirement, and a DRIVE that masks a claimed pin faults
 ADMIT/OWNER (§6.2).
-**Driving L** sets `val[d] = L`, with `diff` also `val[n] = ¬L`, and `oe = 1` on the
-claimed pins. **SE0** sets `val[d] = val[n] = 0`, `oe = 1`. The **idle state** is L = 1 with
-`oe = idle_drive`.
+**Driving L** sets `val[d] = L`, with `diff` also `val[n] = ¬L` (with `clk`, the clock
+level of the cell instead), and `oe = 1` on the claimed pins. **SE0** sets
+`val[d] = val[n] = 0`, `oe = 1`. The **idle state** is L = 1, or L = 0 with `ilow`, with
+`oe = idle_drive` (with `clk`, `val[n] = cidle`).
 
-**Bit timing.** Each bit boundary B carries an accumulator α. The bit starting at B lasts
-`P_int + carry` ticks, where `carry = 1` if `α + P_frac ≥ 256`, else 0; the next timed
-boundary is `B + P_int + carry`, with accumulator `(α + P_frac) mod 256`. A job's first
-boundary has α = 0, so transmitted bit k starts at `B_k = d + k·P_int + ⌊k·P_frac/256⌋`.
+**Bit timing.** Each timed boundary B carries an accumulator α. The interval starting at
+B lasts `P_int + carry` ticks, where `carry = 1` if `α + P_frac ≥ 256`, else 0; the next
+timed boundary is `B + P_int + carry`, with accumulator `(α + P_frac) mod 256`. A job's
+first boundary has α = 0. Receive and a configuration of one cell use one interval per
+bit, so transmitted bit k starts at `B_k = d + k·P_int + ⌊k·P_frac/256⌋`. With more than
+one cell an interval is a cell, and a symbol (below) lasts `cells` + 1 of them.
 
 **Tape access.** The LU uses the tape port only in its **owner's commit cycles**, the
 cycles u with `u mod 4 == (owner + 3) mod 4`, whether or not the owner commits in u. The
@@ -352,7 +376,7 @@ receiver waits for a start); RX (receiving, up to the last tape write); CRC. The
 ends it records its **end tick** `e` (32 bits).
 
 **Status** (GETL, dbg sel 21): [31] busy; [30:28] last job (1 RECV, 2 CRC, 3 CONFIG,
-4 SEND); [27:25] cause; [24:16] count; [15:0] `crc`. Causes: 0 OK; 1 VIOL, a receive
+4 SEND); [27:25] cause; [24:16] count; [15:0] `crc[31:16]`. Causes: 0 OK; 1 VIOL, a receive
 ended by a stuffing violation; 2 SE0, a receive that saw SE0 and no packet; 3 STUFF, a
 stuffing violation inside a differential packet; 4 FULL, the receive limit was reached;
 5 NOSYNC, a packet ended before its sync pattern did; 6 MISMATCH, a transmit stopped by
@@ -363,7 +387,9 @@ start.
 #### CONFIG (from LINE, word a, committing at E_c)
 
 Mode CFG, last job CONFIG. The LU reads `T[a]` in cycle c, `T[a+1]` in cycle c+4 and
-`T[a+2]` in cycle c+8 (addresses mod 256), and completes at E_(c+9):
+`T[a+2]` in cycle c+8 (addresses mod 256), and completes at E_(c+9). If the new W2 has
+`ext`, it also reads `T[a+3]` in cycle c+12 and `T[a+4]` in cycle c+16, and completes at
+E_(c+17) instead:
 
 1. If the new W0 has `tx_pins` and `d`, or with `diff` `n`, is not a logical pin the owner
    owns (§5), or `diff` and `d == n`, the owner faults ADMIT/OWNER at E_(c+9). Otherwise,
@@ -371,18 +397,20 @@ Mode CFG, last job CONFIG. The LU reads `T[a]` in cycle c, `T[a+1]` in cycle c+4
    unconfigured (§8).
 2. Otherwise the new configuration takes effect. Pins claimed before and not claimed now
    are released (`oe <= 0`); the claimed pins are set to the idle state; `crc` = the new
-   start value; cause OK, count 0; `e = c + 9`; mode IDLE.
+   start value; cause OK, count 0; `e` = the completion edge (c + 9 or c + 17); mode IDLE.
 
 #### SEND and transmission
 
 On admission at E_c (§6.2, with d = `tmr` and `v = R[rs]`) the mode becomes PEND, a LINE
-entry {d, v[23:0]} is appended, and if `v[14:8] > 0` the LU reads stream word 0,
-`T[v[7:0]]`, in cycle c. At E_d the entry retires (§6.3) and the job starts: mode TX,
-last job SEND, `crc` = start value. The packet is this bit sequence:
+entry {d, v[29:0]} is appended, and if the packet has stream bits the LU reads stream word
+0, `T[v[7:0]]`, in cycle c. The **stream length** is `nb = v[14:8]`, and with `ext`
+`nb = v[29:24]·128 + v[14:8]` (up to 8191). At E_d the entry retires (§6.3) and the job
+starts: mode TX, last job SEND, `crc` = start value. The packet is this bit sequence:
 
-- the 8 prefix bits, if `prefix ≠ 0`; the 8 bits of the header `v[23:16]`, if `hdr`;
-- `v[14:8]` stream bits from word `v[7:0]`, each also a CRC bit;
-- the CRC (w bits), if `v[15]` and `poly ≠ 0`.
+- the 8 prefix bits, `prep` + 1 times, if `prefix ≠ 0`; the 8 bits of the header
+  `v[23:16]`, if `hdr`;
+- `nb` stream bits from word `v[7:0]`, each also a CRC bit;
+- the CRC (w bits), if `v[15]` and `poly32 ≠ 0`.
 
 **Stuffing** covers the whole sequence. With N > 0 the LU tracks the run of the last
 line bits: when, after a bit, the run has reached N, the next line bit is a **stuff bit**
@@ -392,23 +420,40 @@ packet bit too when the run requires it. **NRZI**, if set, then turns each line 
 L, starting from L = 1.
 
 Line bit k (stuff bits counted) is driven at E_(B_k), so it shows during cycle B_k + 1.
-With `diff` and `eop > 0`, `eop` bits of SE0 and one bit of L = 1 follow, each one bit
-long. At the boundary after the last of these the idle state is applied, the job ends
-(cause OK, count 0, `e` = that boundary) and the mode is IDLE. A packet with no bits and
-no EOP applies the idle state at E_d.
+With `diff` and `eop > 0`, end-of-packet symbols follow: `eop` symbols of SE0 and one of
+L = 1, or with `eopl` `eop` symbols of L = 1 only. At the boundary after the last of these
+the idle state is applied, the job ends (cause OK, count 0, `e` = that boundary) and the
+mode is IDLE. A packet with no bits and no EOP applies the idle state at E_d.
 
-If stream bits from 32(m+1) remain, stream word m+1 is read in the first owner commit
-cycle u > B, where E_B drives stream bit 32m + 31. (It is usable from u + 1 ≤ B + 5,
-before the next boundary.)
+**Symbols.** Each line bit and each end-of-packet symbol is a symbol of `cells` + 1 cells,
+each cell one timed interval; the symbol's first cell starts at its boundary B_k. In cell
+c a line bit L drives L' = bit c of `p1` (L = 1) or of `p0` (L = 0) on `d`, and with `diff`
+¬L' on `n`, or with `clk` bit c of `pc`; an L = 1 symbol drives L = 1 in every cell (with
+`clk`, `n` shows `pc`'s bit c), and an SE0 symbol drives SE0 in every cell. Each cell's
+levels are applied at the edge that starts it. With the legacy values a symbol is one
+cell and drives L, as in version 1.4. (802.3 Manchester, for example, is two cells with
+`p0` = 0b01 and `p1` = 0b10; a WS2812 bit is three cells with `p0` = 0b001 and `p1` =
+0b011.)
 
-**Monitor.** With `abort` and without `diff`, at tick `B_k + S` of each line bit k of
-the packet (not the EOP bits), the LU compares `sync[r]` with the L it drives for bit k.
+**Stream words.** Without `ext`: if stream bits from 32(m+1) remain, stream word m+1 is
+read in the first owner commit cycle u > B, where E_B drives stream bit 32m + 31. (It is
+usable from u + 1 ≤ B + 5, before the next boundary.) With `ext`: if stream bits from
+32(m+1) remain, stream word m+1 is read into a second buffer in the first owner commit
+cycle u > B, where E_B drives stream bit 32m + 15, and takes the first buffer's place at
+the edge that drives stream bit 32m + 31. (A symbol lasts at least 4 ticks, so the word
+arrives long before it is used.)
+
+**Monitor.** With `abort`, without `diff` and with one cell, at tick `B_k + S` of each line
+bit k of the packet (not the EOP bits), the LU compares `sync[r]` with the L it drives for
+bit k.
 At a mismatch the idle state is applied at `B_(k+1)` instead of the next bit, and the job
 ends there with cause MISMATCH, count = min(k, 511) and `e = B_(k+1)`.
 
 #### RECV and reception
 
-RECV at E_c (`v = R[rs]`): mode ARM, buffer word a = `v[7:0]`, limit `L_max = 8·v[12:8]`
+RECV at E_c (`v = R[rs]`) with a configuration of more than one cell ends at once: last
+job RECV, cause VIOL, count 0, `e = c`, mode IDLE (the receiver decodes one interval per
+bit only). Otherwise: mode ARM, buffer word a = `v[7:0]`, limit `L_max = 8·v[12:8]`
 stored bits (`v[12:8] = 0` means 256). During cycle t the **line level** `x_t` is
 `sync[d]` with `diff` and `sync[r]` without, and `se0_t` holds if `diff` and
 `sync[d] = sync[n] = 0`. The line is **idle** at t if `x_t = 1` and not `se0_t`.
@@ -461,9 +506,10 @@ Mode CRC, last job CRC, `crc` = start value. The LU reads stream word m in cycle
 and stream bit j is a CRC bit at E_(c+1+j), for j < nb. The job ends at E_(c+nb): cause
 OK, count = nb, `e = c + nb`, mode IDLE. (With nb = 0 it ends at E_c and reads nothing.)
 With the **wire** flag (`v[16]`), at that same edge `crc` becomes the CRC in transmission
-order: bit i, for i < w, is bit 15 − i of `inv ? ~crc : crc`, the i-th CRC bit a SEND would
-put on the line, and bits w..15 are 0. (An LSB-first protocol can then place the CRC in a
-field directly, as a USB token's CRC-5.)
+order in its high half: bit 16 + i, for i < min(w, 16), is bit 31 − i of `inv ? ~crc : crc`,
+the i-th CRC bit a SEND would put on the line, and every other bit is 0, so the status
+field shows the first 16 CRC bits from its bit 0. (An LSB-first protocol can then place
+the CRC in a field directly, as a USB token's CRC-5.)
 
 #### OFF, faults, stop and HALT
 

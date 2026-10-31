@@ -252,6 +252,7 @@ module esc_core (
   // Line unit (v1.4, sec. 6.6): its state during this cycle, as commits see it.
   wire        lu_owned, lu_conf, lu_engaged, lu_busy, lu_port, lu_pwe, lu_flto, lu_fltc;
   wire        lu_doe;
+  wire        lu_srd;                  // v1.6: a SEND with this R[rs] reads stream word 0
   wire [1:0]  lu_owner;
   wire [2:0]  lu_mode;
   wire [7:0]  lu_claimed, lu_paddr, lu_rel, lu_drv, lu_dval;
@@ -625,7 +626,7 @@ module esc_core (
   // reads word R[rs][7:0] when it starts a CONFIG, a CRC job or a packet with data.
   // At a start or stop edge the unit makes no access.
   wire        lu_cmc   = commit_valid & (d_op[I_SEND] | d_op[I_LINE]);
-  wire        lu_rd_c  = cm_ok & ((d_op[I_SEND] & w_push & (opb[14:8] != 7'd0))
+  wire        lu_rd_c  = cm_ok & ((d_op[I_SEND] & w_push & lu_srd)
                                 | (d_op[I_LINE] & ((l_op == 4'd3)
                                                      | ((l_op == 4'd2) & (opb[15:8] != 8'd0)))));
   wire        lu_acc   = lu_port & ~start & ~stop;
@@ -692,12 +693,12 @@ module esc_core (
       .op_send(cm_ok & d_op[I_SEND] & w_push),
       .op_off(lu_cm & (l_op == 4'd0)), .op_recv(lu_cm & (l_op == 4'd1)),
       .op_crc(lu_cm & (l_op == 4'd2)), .op_cfg(lu_cm & (l_op == 4'd3)),
-      .op_ctx(cctx), .op_v(opb[23:0]),
+      .op_ctx(cctx), .op_v(opb[29:0]),
       .line_ret(c_lret[lu_owner] & lu_owned), .halt_done(cm_ok & w_halt & lu_mine),
       .kill(stop_q | (|(fault_k & lu_sel))), .rdata(tape_rdata),
       .owned(lu_owned), .owner(lu_owner), .conf(lu_conf), .claimed(lu_claimed),
       .engaged(lu_engaged), .busy(lu_busy), .status(lu_status), .e(lu_e), .mode(lu_mode),
-      .flt_owner(lu_flto), .flt_config(lu_fltc),
+      .flt_owner(lu_flto), .flt_config(lu_fltc), .send_rd(lu_srd),
       .port(lu_port), .port_we(lu_pwe), .port_addr(lu_paddr), .port_wdata(lu_pwdata),
       .rel_m(lu_rel), .drv_m(lu_drv), .drv_val(lu_dval), .drv_oe(lu_doe));
 

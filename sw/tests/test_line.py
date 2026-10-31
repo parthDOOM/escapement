@@ -811,8 +811,9 @@ def test_crc_job_wire_order_gives_the_token_crc5_field(addr, endp):
     cmd = (2 << 28) | (1 << 16) | (11 << 8) | DATA_AT
     m = run(program(li(0, cmd) + " LINE r0\n ADDT 0xFFFFFF\n GETL r1\n HALT", cfg=cfg,
                     tape={DATA_AT: value}))
-    assert m.lu.crc == usb.crc5_usb(value) and m.lu.e == 35 + 11
-    assert usb.token_field(addr, endp) == value | (m.lu.crc << 11)
+    crc = m.lu.status() & 0xFFFF                            # the CRC field GETL returns
+    assert crc == usb.crc5_usb(value) and m.lu.e == 35 + 11
+    assert usb.token_field(addr, endp) == value | (crc << 11)
 
 
 @pytest.mark.parametrize("n", [0, 1, 2, 8])
@@ -822,4 +823,4 @@ def test_crc_job_wire_order_gives_the_data_crc16_field(n):
     cmd = (2 << 28) | (1 << 16) | ((8 * n) << 8) | DATA_AT
     m = run(program(li(0, cmd) + " LINE r0\n ADDT 0xFFFFFF\n GETL r1\n HALT", cfg=cfg,
                     tape=bytes_to_words(data)))
-    assert m.lu.crc == usb.crc16_usb(data)
+    assert m.lu.status() & 0xFFFF == usb.crc16_usb(data)

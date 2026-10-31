@@ -1,20 +1,21 @@
 // Lockstep testbench for the line unit (src/esc_line.v): replays lockstep.py vectors and
 // compares every output with the ISS's, every cycle. The tape is modelled here as the
-// core's synchronous SRAM. W1 loads early during a CONFIG (no debug select shows it).
+// core's synchronous SRAM. W1..W4 load early during a CONFIG (no debug select shows them).
 `timescale 1ns/1ps
 `default_nettype none
 module tb_line;
   reg clk = 0, rst_n = 1;
   reg [31:0] now; reg [7:0] view, owns;
   reg start, kill, stop;
-  reg [2:0] op; reg [1:0] opctx; reg [23:0] opv;
+  reg [2:0] op; reg [1:0] opctx; reg [29:0] opv;
   reg lret, halt, ewe; reg [7:0] eaddr; reg [31:0] edata;
   reg [31:0] x_owned, x_owner, x_conf, x_claimed, x_engaged, x_busy, x_status, x_e, x_mode,
-             x_flto, x_fltc, x_port, x_pwe, x_paddr, x_pwdata, x_w0, x_w1, x_w2, x_rel, x_drv, x_dval, x_doe;
+             x_flto, x_fltc, x_port, x_pwe, x_paddr, x_pwdata, x_w0, x_w1, x_w2, x_w3, x_w4, x_rel, x_drv,
+             x_dval, x_doe;
   reg [31:0] mem [0:255];
   reg [31:0] rdata;
 
-  wire owned, conf, engaged, busy, flt_owner, flt_config, port, port_we, drv_oe;
+  wire owned, conf, engaged, busy, flt_owner, flt_config, port, port_we, drv_oe, send_rd;
   wire [1:0] owner; wire [2:0] mode; wire [7:0] claimed, port_addr, rel_m, drv_m, drv_val;
   wire [31:0] status, e, port_wdata;
 
@@ -25,13 +26,12 @@ module tb_line;
     .kill(kill), .rdata(rdata),
     .owned(owned), .owner(owner), .conf(conf), .claimed(claimed), .engaged(engaged),
     .busy(busy), .status(status), .e(e), .mode(mode), .flt_owner(flt_owner),
-    .flt_config(flt_config), .port(port), .port_we(port_we), .port_addr(port_addr),
+    .flt_config(flt_config), .send_rd(send_rd), .port(port), .port_we(port_we), .port_addr(port_addr),
     .port_wdata(port_wdata), .rel_m(rel_m), .drv_m(drv_m), .drv_val(drv_val), .drv_oe(drv_oe));
 
   integer fd, n, line_no, errors;
   reg [8*512-1:0] vecfile, tapefile;
-  wire commit_rd = (op == 3'd5) | ((op == 3'd4) && opv[15:8] != 8'd0)
-                 | ((op == 3'd1) && opv[14:8] != 7'd0);
+  wire commit_rd = (op == 3'd5) | ((op == 3'd4) && opv[15:8] != 8'd0) | ((op == 3'd1) && send_rd);
 
   task check(input [31:0] got, input [31:0] want, input [8*10-1:0] name);
     if (got !== want) begin
@@ -52,12 +52,12 @@ module tb_line;
     #1 rst_n = 0;
     #4 rst_n = 1;
     while (!$feof(fd)) begin
-      n = $fscanf(fd, "%h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h\n",
+      n = $fscanf(fd, "%h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h\n",
                   now, view, owns, start, kill, stop, op, opctx, opv, lret, halt, ewe, eaddr,
                   edata, x_owned, x_owner, x_conf, x_claimed, x_engaged, x_busy, x_status,
-                  x_e, x_mode, x_flto, x_fltc, x_port, x_pwe, x_paddr, x_pwdata, x_w0, x_w1, x_w2, x_rel,
+                  x_e, x_mode, x_flto, x_fltc, x_port, x_pwe, x_paddr, x_pwdata, x_w0, x_w1, x_w2, x_w3, x_w4, x_rel,
                   x_drv, x_dval, x_doe);
-      if (n == 36) begin
+      if (n == 38) begin
         line_no = line_no + 1;
         #1;
         check(owned, x_owned, "owned");
@@ -65,8 +65,11 @@ module tb_line;
         check(conf, x_conf, "conf");
         check(claimed, x_claimed, "claimed");
         if (x_conf) begin
-          check(dut.w0, {x_w0[31:24], x_w0[20:0]}, "w0"); check(dut.w2, x_w2[24:0], "w2");
-          if (x_mode != 1) check(dut.w1, x_w1, "w1");   // W1 loads early (no debug select)
+          check(dut.w0, {x_w0[31:24], x_w0[20:0]}, "w0");
+          if (x_mode != 1) begin                          // W1..W4 load early (no debug select)
+            check(dut.w1, x_w1, "w1"); check(dut.w2, x_w2[25:0], "w2");
+            if (x_w2[25]) begin check(dut.w3, x_w3[28:0], "w3"); check(dut.w4, x_w4[20:0], "w4"); end
+          end
         end
         check(engaged, x_engaged, "engaged");
         check(busy, x_busy, "busy");

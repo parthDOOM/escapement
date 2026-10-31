@@ -27,9 +27,55 @@ from esciss.line import (LineUnit, Cfg, crc_step, IDLE, CFG, PEND, TX, ARM, RX, 
 M32 = 0xFFFFFFFF
 
 
+def rand_ext(rng, w2, w3=None, w4=None):
+    """v1.6: set ext in W2, with W3 and W4 random unless given."""
+    return (w2 | 1 << 25, rng.getrandbits(32) if w3 is None else w3,
+            rng.getrandbits(32) if w4 is None else w4)
+
+
 def rand_cfg(rng):
-    """(w0, w1, w2) from a profile."""
-    prof = rng.choice(["usb", "usb", "can", "can", "rand", "rand", "rand", "bad"])
+    """(w0, w1, w2, w3, w4) from a profile."""
+    prof = rng.choice(["usb", "usb", "can", "can", "rand", "rand", "rand", "bad",
+                       "eth", "spi", "pulse", "xrand", "xrand"])
+    if prof == "eth":                          # 10BASE-T: Manchester half-bits, CRC-32, TP_IDL
+        d, n = rng.sample(range(8), 2)
+        w0 = (d | n << 3 | 1 << 9 | 1 << 11 | rng.choice([1, 3]) << 16 | rng.randint(0, 1) << 18
+              | 1 << 20 | rng.choice([0x55, 0x55, 0]) << 24)
+        w1 = rng.choice([2, 2, 3, 4]) | rng.choice([0, 0, 128]) << 12 | rng.randint(0, 15) << 20
+        w2, w3, w4 = rand_ext(rng, 0x1DB7 | 1 << 16 | 1 << 17 | rng.randint(0, 1) << 18,
+                              1 | 0b01 << 3 | 0b10 << 11,
+                              0x04C1 | rng.choice([6, 6, 0, rng.randint(0, 7)]) << 16 | 1 << 19)
+        return w0, w1, w2, w3, w4
+    if prof == "spi":                          # clocked: data on d, the clock pattern on n
+        d, n = rng.sample(range(8), 2)
+        w0 = (d | n << 3 | 1 << 9 | rng.randint(0, 1) << 11 | rng.randint(0, 1) << 18 | 1 << 20
+              | rng.choice([0, 0, rng.randint(0, 255)]) << 24)
+        w1 = rng.choice([2, 2, 3, 5]) | rng.choice([0, 0, rng.randint(0, 255)]) << 12
+        cells = rng.choice([2, 2, 4])
+        pc = rng.choice([0b10, 0b01, 0b1100, 0b0011]) & ((1 << cells) - 1)
+        w3 = ((cells - 1) | (0 if cells == 2 else 0) << 3 | ((1 << cells) - 1) << 11 | 1 << 19
+              | pc << 20 | rng.randint(0, 1) << 28)
+        w2, w3, w4 = rand_ext(rng, rng.choice([0, 0x8005]) | rng.randint(0, 3) << 16, w3,
+                              rng.randint(0, 0xFFFF))
+        return w0, w1, w2, w3, w4
+    if prof == "pulse":                        # pulse-width codes (WS2812, DShot): cells 3..8
+        d, r = rng.sample(range(8), 2)
+        w0 = d | r << 6 | rng.randint(0, 1) << 11 | rng.randint(0, 1) << 18 | 1 << 20
+        cells = rng.randint(3, 8)
+        hi0, hi1 = rng.randint(1, cells - 1), rng.randint(1, cells - 1)
+        w3 = (cells - 1) | ((1 << hi0) - 1) << 3 | ((1 << hi1) - 1) << 11
+        w1 = rng.choice([2, 3, 8, 13, 20]) | rng.choice([0, rng.randint(0, 255)]) << 12 | 5 << 20
+        w2, w3, w4 = rand_ext(rng, 0, w3, rng.randint(0, 0xFFFF))
+        return w0, w1, w2, w3, w4
+    if prof == "xrand":                        # any ext configuration
+        w0 = rng.getrandbits(32)
+        P = rng.choice([2, 2, 3, 4, 8, 9, 16]) if rng.random() < 0.9 else rng.randint(0, 40)
+        w1 = P | rng.choice([0, 0, rng.randint(0, 255)]) << 12 | rng.randint(0, 20) << 20
+        w2, w3, w4 = rand_ext(rng, rng.getrandbits(25))
+        if rng.random() < 0.3:
+            w2 &= ~0xFFFF
+            w4 &= ~0xFFFF
+        return w0, w1, w2, w3, w4
     P = rng.choice([8, 8, 9, 10, 12, 16, 16, 20, 33]) if rng.random() < 0.9 else rng.randint(8, 70)
     F = rng.choice([0, 0, rng.randint(0, 255), 255, 128])
     S = rng.randint(4, P - 1)
@@ -47,7 +93,7 @@ def rand_cfg(rng):
         w2 = (0x8B32 | 1 << 19 | 1 << 20 | rng.randint(0, 11) << 21 | rng.randint(0, 1) << 18)
     else:
         w0 = rng.getrandbits(32)
-        w2 = rng.getrandbits(32)
+        w2 = rng.getrandbits(32) & ~(1 << 25)   # (ext: the xrand profile)
         if rng.random() < 0.3:
             w2 &= ~0xFFFF                      # poly 0
         if rng.random() < 0.5:
@@ -56,7 +102,7 @@ def rand_cfg(rng):
     if prof == "bad":
         w1 = rng.choice([rng.randint(0, 7) | 5 << 20, 10 | 10 << 20, 10 | 3 << 20,
                          10 | 11 << 20 | rng.getrandbits(8) << 12])
-    return w0, w1, w2
+    return w0, w1, w2, rng.getrandbits(32), rng.getrandbits(32)
 
 
 class Line:
@@ -110,7 +156,7 @@ class Line:
 
     def _packet(self, cfg: Cfg):
         rng = self.rng
-        P = cfg.P_int + cfg.P_frac / 256
+        P = max(1, cfg.P_int) + cfg.P_frac / 256
         P *= 1 + rng.choice([0, 0, rng.uniform(-0.05, 0.05)])
         jit = rng.choice([0, 0, 1])
         self._emit(rng.randint(1, max(2, cfg.idle_min * cfg.P_int + rng.randint(-3, 20))), self._level(cfg, 1))
@@ -119,14 +165,14 @@ class Line:
             bits += [0] * rng.randint(0, 9) + [1]
         nb = rng.choice([0, 1, 7, 8, 16, 31, 32, 33, 64, 72, rng.randint(0, 300)])
         data = [rng.getrandbits(1) for _ in range(nb)]
-        if rng.random() < 0.5 and cfg.poly:
+        if rng.random() < 0.5 and cfg.poly32:
             crc = cfg.crc_start()
             start = 8 if cfg.hdr else 0
             for b in data[start:]:
-                crc = crc_step(crc, b, cfg.poly)
+                crc = crc_step(crc, b, cfg.poly32)
             w = cfg.width()
-            x = crc ^ (0xFFFF if cfg.inv else 0)
-            data += [(x >> (15 - i)) & 1 for i in range(w)]
+            x = crc ^ (M32 if cfg.inv else 0)
+            data += [(x >> (31 - i)) & 1 for i in range(w)]
         bits += data
         # stuffing
         line, run, rb = [], 0, 0
@@ -217,7 +263,7 @@ def main():
     def new_cfg_block():
         a = rng.randint(0, 255)
         w = rand_cfg(rng)
-        for i in range(3):
+        for i in range(5):
             tape[(a + i) & 0xFF] = w[i]
         return a
 
@@ -240,7 +286,7 @@ def main():
         exp_state = (int(lu.owner is not None), lu.owner or 0, int(lu.configured), lu.claimed,
                      int(lu.engaged()), int(lu.busy()), lu.status(), lu.e, lu.mode,
                      int(flt == "OWNER"), int(flt == "CONFIG"), int(acc), int(pwe), paddr, pwdata,
-                     lu.cfg.w0, lu.cfg.w1, lu.cfg.w2)
+                     lu.cfg.w0, lu.cfg.w1, lu.cfg.w2, lu.cfg.w3, lu.cfg.w4)
 
         # ---- inputs
         r = rng.random()
@@ -287,8 +333,12 @@ def main():
                         op = 1
                         nb = rng.choice([0, 0, 1, 8, 16, 31, 32, 33, 63, 64, 65, 127,
                                          rng.randint(0, 127)])
-                        opv = (rng.getrandbits(8) | nb << 8 | rng.getrandbits(1) << 15
-                               | rng.getrandbits(8) << 16)
+                        if lu.cfg.ext and rng.random() < 0.4:
+                            nb = rng.choice([15, 16, 17, 47, 48, 49, 128, 160, 200, 300,
+                                             rng.randint(0, 700)])
+                        opv = (rng.getrandbits(8) | (nb & 0x7F) << 8 | rng.getrandbits(1) << 15
+                               | rng.getrandbits(8) << 16 | (nb >> 7) << 24
+                               | rng.getrandbits(2) << 30)
                         pending.append(d)
             opctx = commit_k if op else 0
         if pending and pending[0] == tm and not kill and not start:
@@ -344,7 +394,7 @@ def main():
         commit_read = op in (1, 4, 5)
         if not acc and not commit_read and rng.random() < 0.03:
             ea = rng.getrandbits(8)
-            if all((ea - b) & 0xFF > 2 for b in cfg_blocks):      # keep the config blocks
+            if all((ea - b) & 0xFF > 4 for b in cfg_blocks):      # keep the config blocks
                 ewe, eaddr, edata = 1, ea, rng.getrandbits(32)
                 tape[eaddr] = edata
         if not start:
@@ -352,7 +402,7 @@ def main():
             if lu.mode == IDLE and exp_state[8] in (TX, RX, CRC, CFG):
                 st(f"end{exp_state[8]}_cause{lu.cause}")
         lines.append(" ".join(f"{x:x}" for x in (
-            tm & M32, view, owns, start, kill, stop, op, opctx, opv & 0xFFFFFF, lret, halt,
+            tm & M32, view, owns, start, kill, stop, op, opctx, opv & 0x3FFFFFFF, lret, halt,
             ewe, eaddr, edata) + exp_state + (rel, drv, dval, doe)))
         now = 0 if start else now + 1
     (out / "vec.txt").write_text("\n".join(lines) + "\n")

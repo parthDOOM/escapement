@@ -1,4 +1,4 @@
-"""The line unit (docs/11-SEMANTICS.md v1.4.0 §6.6), as the ISS models it.
+"""The line unit (docs/11-SEMANTICS.md v1.6.0 §6.6), as the ISS models it.
 
 Written from the semantics document only, like the rest of the ISS. For every edge E_t of
 a run the machine calls
@@ -32,16 +32,18 @@ def owner_cycle(t: int, owner: Optional[int]) -> bool:
 
 
 def crc_step(crc: int, b: int, poly: int) -> int:
-    """§6.6: crc <= ((crc << 1) mod 2^16) XOR ((crc[15] XOR b) ? poly : 0)."""
-    return ((crc << 1) & 0xFFFF) ^ (poly if ((crc >> 15) & 1) ^ b else 0)
+    """§6.6: crc <= ((crc << 1) mod 2^32) XOR ((crc[31] XOR b) ? poly32 : 0)."""
+    return ((crc << 1) & M32) ^ (poly if ((crc >> 31) & 1) ^ b else 0)
 
 
 @dataclass(frozen=True)
 class Cfg:
-    """The fields of W0, W1, W2 (§6.6 configuration table)."""
+    """The fields of W0..W4 (§6.6 configuration table; W3 and W4 with ext)."""
     w0: int = 0
     w1: int = 0
     w2: int = 0
+    w3: int = 0
+    w4: int = 0
 
     @property
     def d(self): return self.w0 & 7
@@ -89,25 +91,61 @@ class Cfg:
     def abort(self): return (self.w2 >> 20) & 1
     @property
     def idle_min(self): return (self.w2 >> 21) & 0xF
+    @property
+    def ext(self): return (self.w2 >> 25) & 1
+    # v1.6 extended configuration (W3, W4); without ext they take their legacy values
+    @property
+    def cells(self): return ((self.w3 & 7) + 1) if self.ext else 1
+    @property
+    def p0(self): return (self.w3 >> 3) & 0xFF if self.ext else 0x00
+    @property
+    def p1(self): return (self.w3 >> 11) & 0xFF if self.ext else 0x01
+    @property
+    def clk(self): return (self.w3 >> 19) & 1 if self.ext else 0
+    @property
+    def pc(self): return (self.w3 >> 20) & 0xFF
+    @property
+    def cidle(self): return (self.w3 >> 28) & 1
+    @property
+    def poly32(self):
+        """The polynomial left-aligned in 32 bits: {W4[15:0], W2[15:0]} with ext, else
+        W2[15:0] << 16."""
+        return ((self.w4 & 0xFFFF) << 16 | self.poly) if self.ext else self.poly << 16
+    @property
+    def prep(self): return (self.w4 >> 16) & 7 if self.ext else 0
+    @property
+    def eopl(self): return (self.w4 >> 19) & 1 if self.ext else 0
+    @property
+    def ilow(self): return (self.w4 >> 20) & 1 if self.ext else 0
 
     def valid(self) -> bool:
+        if self.cells > 1:
+            return self.P_int >= 2
         return self.P_int >= 8 and 4 <= self.S < self.P_int
 
     def width(self) -> int:
-        """CRC width w = 16 - ctz(poly); 0 when poly == 0."""
-        p = self.poly
-        return 16 - ((p & -p).bit_length() - 1) if p else 0
+        """CRC width w = 32 - ctz(poly32); 0 when poly32 == 0."""
+        p = self.poly32
+        return 32 - ((p & -p).bit_length() - 1) if p else 0
 
     def crc_start(self) -> int:
-        """M = -(poly & -poly) mod 2^16 if init_ones, else 0 (and 0 when poly == 0)."""
-        p = self.poly
-        return (-(p & -p)) & 0xFFFF if (p and self.init_ones) else 0
+        """M = -(poly32 & -poly32) mod 2^32 if init_ones, else 0 (and 0 when poly32 == 0)."""
+        p = self.poly32
+        return (-(p & -p)) & M32 if (p and self.init_ones) else 0
 
     def claimed(self) -> int:
         """Logical mask of the pins this configuration claims."""
         if not self.tx_pins:
             return 0
         return (1 << self.d) | ((1 << self.n) if self.diff else 0)
+
+    def cell(self, L: int, c: int) -> int:
+        """The level a line bit L drives in its cell c (v1.6 symbol coding)."""
+        return ((self.p1 if L else self.p0) >> c) & 1
+
+    def stream_bits(self, v: int) -> int:
+        """Stream bits of a SEND: v[14:8], with ext also v[29:24] above them."""
+        return ((v >> 8) & 0x7F) | ((((v >> 24) & 0x3F) << 7) if self.ext else 0)
 
     def byte_bit(self, v: int, i: int) -> int:
         """Bit i (0 first on the line) of a byte field."""
@@ -150,6 +188,7 @@ class Request:
     earliest: int
     addr: int
     write: bool
+    nxt: bool = False            # v1.6 ext transmit: the read fills the next-word buffer
 
 
 @dataclass
@@ -168,6 +207,7 @@ class LineUnit:
     claimed: int = 0
     mode: int = IDLE
     buf: int = 0
+    nxt: int = 0                 # v1.6 ext transmit: the next stream word
     crc: int = 0
     last_job: int = 0
     cause: int = 0
@@ -194,6 +234,8 @@ class LineUnit:
     tx_pos: int = 0
     tx_k: int = 0                # line bits driven so far
     tx_tail: list[str] = field(default_factory=list)
+    tx_sym: Optional[tuple] = None   # v1.6: the symbol in progress (kind, L) and its cell
+    tx_cel: int = 0
     mon_at: Optional[int] = None
     mon_L: int = 0
     mon_k: int = 0
@@ -226,9 +268,9 @@ class LineUnit:
         return self.mode != IDLE
 
     def status(self) -> int:
-        """§6.6: [31] busy, [30:28] last job, [27:25] cause, [24:16] count, [15:0] crc."""
+        """§6.6: [31] busy, [30:28] last job, [27:25] cause, [24:16] count, [15:0] crc[31:16]."""
         return ((int(self.busy()) << 31) | (self.last_job << 28) | (self.cause << 25)
-                | ((self.count & 0x1FF) << 16) | (self.crc & 0xFFFF))
+                | ((self.count & 0x1FF) << 16) | ((self.crc >> 16) & 0xFFFF))
 
     def dbg26(self) -> int:
         """§10 sel 26."""
@@ -244,7 +286,7 @@ class LineUnit:
         if not owner_cycle(t, self.owner):
             return False
         if self.mode == CFG:
-            return t in (self.cfg_c + 4, self.cfg_c + 8)
+            return t in self._cfg_reads()
         if self.mode == CRC:
             m, rem = divmod(t - self.crc_c, 32)
             return rem == 0 and m >= 1 and 32 * m < self.crc_nb
@@ -252,10 +294,21 @@ class LineUnit:
             return self.req is not None and t >= self.req.earliest
         return False
 
+    def _cfg_ext(self) -> bool:
+        """The CONFIG being loaded has ext (known once its W2 has arrived, in cycle c+9)."""
+        return len(self.cfg_words) >= 3 and bool((self.cfg_words[2] >> 25) & 1)
+
+    def _cfg_reads(self) -> tuple:
+        return ((self.cfg_c + 4, self.cfg_c + 8, self.cfg_c + 12, self.cfg_c + 16)
+                if self._cfg_ext() else (self.cfg_c + 4, self.cfg_c + 8))
+
+    def _cfg_done_at(self) -> int:
+        return self.cfg_c + (17 if self._cfg_ext() else 9)
+
     def config_fault(self, t: int, owns) -> Optional[str]:
         """The ADMIT subcode with which a CONFIG completing at E_t faults the owner, if any.
         owns(j) tells whether the owner owns its logical pin j (§5)."""
-        if self.mode != CFG or t != self.cfg_c + 9:
+        if self.mode != CFG or t != self._cfg_done_at():
             return None
         new = Cfg(*self.cfg_words)
         if new.tx_pins and (not owns(new.d) or (new.diff and (not owns(new.n)
@@ -284,18 +337,21 @@ class LineUnit:
         self.claimed = 0
         self.configured = False
 
-    def _drive(self, L: int, oe: int = 1) -> PinWrite:
+    def _drive(self, L: int, oe: int = 1, ck: Optional[int] = None) -> PinWrite:
+        """d = L; with diff, n = not L, or with clk the clock level ck (cidle when idle)."""
         c, m = self.cfg, self.claimed
         val = L << c.d
         if c.diff:
-            val |= (L ^ 1) << c.n
+            nv = (ck if ck is not None else c.cidle) if c.clk else (L ^ 1)
+            val |= nv << c.n
         return PinWrite(m, val & m, m if oe else 0)
 
     def _se0(self) -> PinWrite:
         return PinWrite(self.claimed, 0, self.claimed)
 
     def _idle(self) -> Optional[PinWrite]:
-        return self._drive(1, self.cfg.idle_drive) if self.claimed else None
+        """The idle state: L = 1, or with ilow L = 0 (v1.6), driven with idle_drive."""
+        return self._drive(self.cfg.ilow ^ 1, self.cfg.idle_drive) if self.claimed else None
 
     def _end(self, cause: int, count: int, e: int) -> None:
         self.cause, self.count, self.e = cause, count, e & M32
@@ -356,8 +412,8 @@ class LineUnit:
         kind, v, k = op
         if kind == "SEND":                       # §6.6 SEND admission at E_c
             self.mode = PEND
-            self.tx_cmd = v & 0xFFFFFF
-            if (v >> 8) & 0x7F:
+            self.tx_cmd = v & 0x3FFFFFFF
+            if self.cfg.stream_bits(v):
                 self.buf = tape[v & 0xFF]
                 return [], None, True
             return [], None, False
@@ -376,6 +432,10 @@ class LineUnit:
             self.cfg_words = [tape[self.cfg_addr]]
             return [], None, True
         if o == OP_RECV:
+            if self.cfg.cells > 1:               # v1.6: no receiver for a symbol coding
+                self.last_job, self.mode = JOB_RECV, IDLE
+                self._end(VIOL, 0, t)
+                return [], None, False
             n = (v >> 8) & 0x1F
             self.mode, self.rx_c, self.rx_addr = ARM, t, v & 0xFF
             self.rx_limit = 8 * (n if n else 32)
@@ -396,10 +456,10 @@ class LineUnit:
     # ------------------------------------------------------------------ CONFIG, CRC
 
     def _cfg_edge(self, t: int, tape: list[int]):
-        if t in (self.cfg_c + 4, self.cfg_c + 8):
+        if t in self._cfg_reads():
             self.cfg_words.append(tape[(self.cfg_addr + len(self.cfg_words)) & 0xFF])
             return [], None, True
-        if t != self.cfg_c + 9:
+        if t != self._cfg_done_at():
             return [], None, False
         pins: list[PinWrite] = []                # (a faulting CONFIG is handled by the owner fault)
         new = Cfg(*self.cfg_words)
@@ -419,7 +479,7 @@ class LineUnit:
         j = t - self.crc_c - 1
         if 0 <= j < self.crc_nb:
             b = (self.buf >> self.cfg.word_pos(j)) & 1
-            self.crc = crc_step(self.crc, b, self.cfg.poly)
+            self.crc = crc_step(self.crc, b, self.cfg.poly32)
             if j == self.crc_nb - 1:
                 self._crc_done(t)
                 return False
@@ -433,8 +493,8 @@ class LineUnit:
         """The CRC job ends at E_t; with the wire flag crc becomes its transmitted form."""
         c = self.cfg
         if self.crc_wire:
-            x = self.crc ^ (0xFFFF if c.inv else 0)
-            self.crc = sum(((x >> (15 - i)) & 1) << i for i in range(c.width()))
+            x = self.crc ^ (M32 if c.inv else 0)
+            self.crc = sum(((x >> (31 - i)) & 1) << (16 + i) for i in range(min(c.width(), 16)))
         self.mode = IDLE
         self._end(OK, self.crc_nb, t)
 
@@ -446,16 +506,20 @@ class LineUnit:
         self.crc = c.crc_start()
         segs = []
         if c.prefix:
-            segs.append(("pre", 8))
+            segs.append(("pre", 8 * (c.prep + 1)))
         if c.hdr:
             segs.append(("hdr", 8))
-        if (v >> 8) & 0x7F:
-            segs.append(("dat", (v >> 8) & 0x7F))
-        if (v >> 15) & 1 and c.poly:
+        if c.stream_bits(v):
+            segs.append(("dat", c.stream_bits(v)))
+        if (v >> 15) & 1 and c.poly32:
             segs.append(("crc", c.width()))
         self.tx_segs, self.tx_seg, self.tx_pos = segs, 0, 0
-        self.tx_tail = (["se0"] * c.eop + ["j"]) if (c.diff and c.eop) else []
+        if c.diff and c.eop:                     # v1.6: eopl sends L = 1 and no J after it
+            self.tx_tail = ["pos"] * c.eop if c.eopl else ["se0"] * c.eop + ["j"]
+        else:
+            self.tx_tail = []
         self.tx_stf, self.tx_L, self.tx_k = Stuffer(), 1, 0
+        self.tx_sym, self.tx_cel = None, 0
         self.tx_nxt, self.tx_alpha = d, 0
         self.mon_at, self.tx_abort, self.req = None, False, None
 
@@ -470,13 +534,13 @@ class LineUnit:
             i = self.tx_pos
             self.tx_pos += 1
             if kind == "pre":
-                return c.byte_bit(c.prefix, i), None
+                return c.byte_bit(c.prefix, i % 8), None
             if kind == "hdr":
                 return c.byte_bit((v >> 16) & 0xFF, i), None
             if kind == "dat":
                 return (self.buf >> c.word_pos(i)) & 1, i
-            w = self.crc ^ (0xFFFF if c.inv else 0)
-            return (w >> (15 - i)) & 1, None
+            w = self.crc ^ (M32 if c.inv else 0)
+            return (w >> (31 - i)) & 1, None
         return None
 
     def _symbol(self, B: int) -> Optional[PinWrite]:
@@ -490,11 +554,17 @@ class LineUnit:
             if pb is not None:
                 b, j = pb
                 if j is not None:
-                    self.crc = crc_step(self.crc, b, c.poly)
-                    nb = (self.tx_cmd >> 8) & 0x7F
-                    if j % 32 == 31 and j + 1 < nb:
-                        self.req = Request(B + 1, ((self.tx_cmd & 0xFF) + (j + 1) // 32) & 0xFF,
-                                           False)
+                    self.crc = crc_step(self.crc, b, c.poly32)
+                    nb = c.stream_bits(self.tx_cmd)
+                    nw = ((self.tx_cmd & 0xFF) + (j + 1) // 32) & 0xFF   # the next word's address
+                    if not c.ext and j % 32 == 31 and j + 1 < nb:
+                        self.req = Request(B + 1, nw, False)
+                    if c.ext and j % 32 == 15 and j + 17 < nb:   # v1.6: fetched mid-word
+                        self.req = Request(B + 1, ((self.tx_cmd & 0xFF) + (j + 17) // 32) & 0xFF,
+                                           False, nxt=True)
+                    if c.ext and j % 32 == 31 and j + 1 < nb:
+                        assert self.req is None, "the next stream word arrives mid-word"
+                        self.buf = self.nxt
         if b is not None:                        # a line bit
             self.tx_stf.push(b, c)
             if c.nrzi:
@@ -502,18 +572,33 @@ class LineUnit:
                     self.tx_L ^= 1
             else:
                 self.tx_L = b
-            if c.abort and not c.diff:
+            if c.abort and not c.diff and c.cells == 1:
                 self.mon_at, self.mon_L, self.mon_k = B + c.S, self.tx_L, self.tx_k
             self.tx_k += 1
-            return self._drive(self.tx_L)
+            self.tx_sym, self.tx_cel = ("bit", self.tx_L), 0
+            return self._cell_write()
         if self.tx_tail:
             s = self.tx_tail.pop(0)
-            return self._se0() if s == "se0" else self._drive(1)
+            self.tx_sym, self.tx_cel = (s, 1), 0
+            return self._cell_write()
         return None
+
+    def _cell_write(self) -> PinWrite:
+        """The pins of the symbol in progress during its cell tx_cel."""
+        kind, L = self.tx_sym
+        if kind == "se0":
+            return self._se0()
+        lv = self.cfg.cell(L, self.tx_cel) if kind == "bit" else 1
+        return self._drive(lv, ck=self.cfg.pc >> self.tx_cel & 1)
 
     def _tx_edge(self, t: int, tape: list[int], sync: int, pins: list[PinWrite]) -> bool:
         c = self.cfg
-        if t == self.tx_nxt:
+        if t == self.tx_nxt and self.tx_sym is not None and self.tx_cel + 1 < c.cells:
+            self.tx_cel += 1                     # v1.6: the next cell of the same symbol
+            pins.append(self._cell_write())
+            self.tx_nxt = t + c.bit_len(self.tx_alpha)
+            self.tx_alpha = (self.tx_alpha + c.P_frac) & 0xFF
+        elif t == self.tx_nxt:
             sym = None if self.tx_abort else self._symbol(t)
             if sym is None:                      # the idle state; the job ends here
                 idle = self._idle()
@@ -533,7 +618,10 @@ class LineUnit:
             if ((sync >> c.r) & 1) != self.mon_L:
                 self.tx_abort = True
         if self.req is not None and owner_cycle(t, self.owner) and t >= self.req.earliest:
-            self.buf = tape[self.req.addr]
+            if self.req.nxt:
+                self.nxt = tape[self.req.addr]
+            else:
+                self.buf = tape[self.req.addr]
             self.req = None
             return True
         return False
@@ -625,7 +713,7 @@ class LineUnit:
         n = self.count                           # 5. store
         self.buf |= b << c.word_pos(n)
         if not c.hdr or n >= 8:
-            self.crc = crc_step(self.crc, b, c.poly)
+            self.crc = crc_step(self.crc, b, c.poly32)
         self.count = n + 1
         if self.count % 32 == 0:
             self.req = Request(t + 1, (self.rx_addr + self.count // 32 - 1) & 0xFF, True)

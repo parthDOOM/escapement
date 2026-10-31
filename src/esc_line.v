@@ -51,7 +51,7 @@ module esc_line (
     input  wire        op_crc,
     input  wire        op_cfg,
     input  wire [1:0]  op_ctx,         // the committing context (a CONFIG may take ownership)
-    input  wire [23:0] op_v,           // R[rs][23:0]
+    input  wire [29:0] op_v,           // R[rs][29:0]
     input  wire        line_ret,       // the owner's LINE entry retires at this edge
     input  wire        halt_done,      // the owner's HALT completes at this edge
     input  wire        kill,           // the owner faults, or stop, at this edge: as OFF
@@ -68,6 +68,7 @@ module esc_line (
     output reg  [2:0]  mode,
     output wire        flt_owner,      // a CONFIG completing at this edge faults ADMIT/OWNER
     output wire        flt_config,     //   ... or ADMIT/CONFIG
+    output wire        send_rd,        // v1.6: a SEND with operand op_v reads stream word 0
     // a scheduled tape access in this cycle (the commit-cycle reads of SEND, CRC and
     // CONFIG use the committing instruction's address, R[rs][7:0])
     output wire        port,
@@ -87,12 +88,16 @@ module esc_line (
 
   // ------------------------------------------------------------------ state
   wire [28:0] w0;                          // configuration (gated banks): W0[31:24, 20:0],
-  wire [31:0] w1;                          //   W1, W2[24:0] (the bits section 6.6 defines)
-  wire [24:0] w2;
-  wire [23:0] cmd;                         // SEND command, RECV/CRC/CONFIG operand
+  wire [31:0] w1;                          //   W1, W2[25:0], and with ext (v1.6) W3[28:0],
+  wire [25:0] w2;                          //   W4[20:0] (the bits section 6.6 defines)
+  wire [28:0] w3;
+  wire [20:0] w4;
+  wire [29:0] cmd;                         // SEND command, RECV/CRC/CONFIG operand
   reg  [31:0] buf_q;                       // stream word
+  reg  [31:0] nxt_q;                       // v1.6 ext transmit: the next stream word
   reg         ld;                          // the unit read the tape in the previous cycle
-  reg  [15:0] crc;
+  reg         ldn;                         // ... into the next-word buffer
+  reg  [31:0] crc;                         // v1.6: 32 bits, the polynomial left-aligned
   reg  [2:0]  job, cause;
   reg  [8:0]  count;
   reg  [11:0] el;                          // tick counter (see header)
@@ -101,11 +106,14 @@ module esc_line (
   reg  [3:0]  rn;                          // stuffing run; idle bit times in ARM
   reg         rb;                          // the run's bit (any = 1)
   reg  [8:0]  kc;                          // TX: monitored bits; RX: ticks since t0 (to 255)
-  reg  [6:0]  pos;                         // TX: bit within the segment
+  reg  [12:0] pos;                         // TX: bit within the segment
+  reg  [2:0]  cel;                         // TX: cell of the symbol in progress (v1.6)
+  reg  [1:0]  sk;                          // TX: that symbol: 0 a line bit, 1 SE0, 2 L = 1
   reg  [2:0]  seg;                         // TX: 0 prefix, 1 header, 2 data, 3 CRC, 4 EOP
   reg         lv;                          // TX: line level L; RX: NRZI reference
   reg         xp;                          // RX: x during the previous cycle
   reg         req;                         // TX read or RX write waiting for an owner cycle
+  reg         reqn;                        // ... a TX read for the next-word buffer (ext)
   reg         fin;                         // RX: ended; a last word waits for its write
   reg         eopw;                        // RX: waiting for the end of SE0
   reg         hunt, dec, stor;             // RX: in sync hunt; decoded a bit; storing
@@ -123,48 +131,61 @@ module esc_line (
   wire [11:0] c_P = w1[11:0];
   wire [7:0]  c_F = w1[19:12];
   wire [11:0] c_S = w1[31:20];
-  wire [15:0] c_poly = w2[15:0];
   wire        c_init = w2[16], c_inv = w2[17], c_hdr = w2[18], c_fall = w2[19],
               c_abort = w2[20];
   wire [3:0]  c_imin = w2[24:21];
+  // v1.6 extended configuration; without ext the legacy values (one cell, NRZ patterns)
+  wire        c_ext   = w2[25];
+  wire [2:0]  c_cells = c_ext ? w3[2:0] : 3'd0;         // cells per symbol, minus one
+  wire [7:0]  c_p0    = c_ext ? w3[10:3] : 8'h00;       // cell levels of a line bit 0
+  wire [7:0]  c_p1    = c_ext ? w3[18:11] : 8'h01;      //   ... and of a line bit 1
+  wire        c_clk   = c_ext & w3[19];                 // n carries the clock pattern
+  wire [7:0]  c_pc    = w3[27:20];
+  wire        c_cidle = w3[28];                         // n while idle, with clk
+  wire [31:0] c_poly  = c_ext ? {w4[15:0], w2[15:0]} : {w2[15:0], 16'd0};
+  wire [2:0]  c_prep  = c_ext ? w4[18:16] : 3'd0;       // the prefix goes prep + 1 times
+  wire        c_eopl  = c_ext & w4[19];                 // EOP symbols are L = 1, no J
+  wire        c_ilow  = c_ext & w4[20];                 // the idle state is L = 0
 
   function [7:0] dec8(input [2:0] i);
     dec8 = 8'd1 << i;
   endfunction
-  // M = -(poly & -poly) mod 2^16: bit i is set iff poly has a set bit at or below i
-  function [15:0] pfx(input [15:0] p);
+  // M = -(poly & -poly) mod 2^32: bit i is set iff poly has a set bit at or below i
+  function [31:0] pfx(input [31:0] p);
     integer i;
     begin
       pfx[0] = p[0];
-      for (i = 1; i < 16; i = i + 1) pfx[i] = pfx[i-1] | p[i];
+      for (i = 1; i < 32; i = i + 1) pfx[i] = pfx[i-1] | p[i];
     end
   endfunction
   function [15:0] rev16(input [15:0] x);
     integer i;
     for (i = 0; i < 16; i = i + 1) rev16[i] = x[15-i];
   endfunction
-  function [7:0] pattern(input [2:0] d, input [2:0] n, input diff, input l);
-    pattern = (l ? dec8(d) : 8'd0) | ((diff & ~l) ? dec8(n) : 8'd0);
+  // levels dl on d and, with diff, nl on n
+  function [7:0] pins2(input [2:0] d, input [2:0] n, input diff, input dl, input nl);
+    pins2 = (dl ? dec8(d) : 8'd0) | ((diff & nl) ? dec8(n) : 8'd0);
   endfunction
 
-  wire [15:0] m_c = pfx(c_poly);
-  wire [15:0] lsbm = m_c & ~{m_c[14:0], 1'b0};          // the polynomial's lowest set bit
-  wire [15:0] crc_start = c_init ? m_c : 16'd0;
-  // the CRC in transmission order (CRC wire flag): bit i = bit 15 - i, below the width
+  wire [31:0] m_c = pfx(c_poly);
+  wire [31:0] lsbm = m_c & ~{m_c[30:0], 1'b0};          // the polynomial's lowest set bit
+  wire [31:0] crc_start = c_init ? m_c : 32'd0;
+  // the CRC in transmission order (CRC wire flag): bit 16 + i = bit 31 - i, for i below the
+  // width and below 16 (where the 16-bit status field shows it)
   // (functions take every input as an argument: a simulator re-evaluates a continuous
   // assignment only when an argument changes)
-  function [15:0] xf(input [15:0] c, input inv, input [15:0] m);
-    xf = rev16(inv ? ~c : c) & rev16(m);
+  function [31:0] xf(input [15:0] c, input inv, input [15:0] m);    // c, m: bits 31:16
+    xf = {rev16(inv ? ~c : c) & rev16(m), 16'd0};
   endfunction
-  function [15:0] crc_nx(input [15:0] c, input b, input [15:0] poly);
-    crc_nx = {c[14:0], 1'b0} ^ ((c[15] ^ b) ? poly : 16'd0);
+  function [31:0] crc_nx(input [31:0] c, input b, input [31:0] poly);
+    crc_nx = {c[30:0], 1'b0} ^ ((c[31] ^ b) ? poly : 32'd0);
   endfunction
 
   assign claimed = (conf & c_txp) ? (dec8(c_d) | (c_diff ? dec8(c_n) : 8'd0)) : 8'd0;
   assign engaged = (mode == CFG) | (mode == PEND) | (mode == TX) | (mode == RX)
                  | (mode == CRCM);
   assign busy    = (mode != IDLE);
-  assign status  = {busy, job, cause, count, crc};
+  assign status  = {busy, job, cause, count, crc[31:16]};
 
   wire own_cyc = owned & (now[1:0] == owner - 2'd1);     // the owner's commit cycles
   wire x   = c_diff ? view[c_d] : view[c_r];             // line level
@@ -188,34 +209,49 @@ module esc_line (
   // stream bit of the buffer (TX data, CRC job); a word read in the previous cycle is
   // used straight from the tape, and then always from its bit 0 in stream order
   wire [4:0] sidx = ((mode == CRCM) ? el[4:0] : pos[4:0]) ^ {5{~c_lsb}};
-  wire sbit = ld ? (c_lsb ? rdata[0] : rdata[31]) : buf_q[sidx];
+  // (v1.6: not a load of the next-word buffer, which fills nxt_q, not buf_q)
+  wire sbit = (ld & ~ldn) ? (c_lsb ? rdata[0] : rdata[31]) : buf_q[sidx];
 
   // ------------------------------------------------------------------ CONFIG
   wire        cfg_on   = (mode == CFG);
-  wire        cfg_rd   = cfg_on & ((el == 12'd3) | (el == 12'd7));   // cycles c+4, c+8
-  wire        cfg_done = cfg_on & (el == 12'd8);                     // E_(c+9)
+  // cycles c+4 and c+8, and with the new W2's ext (written at el = 8) c+12 and c+16;
+  // done at E_(c+9), or E_(c+17) with ext
+  wire        cfg_rd   = cfg_on & ((el == 12'd3) | (el == 12'd7)
+                                   | (w2[25] & ((el == 12'd11) | (el == 12'd15))));
+  wire        cfg_x    = cfg_on & (el == 12'd16);                    // an ext CONFIG's last edge
+  wire        cfg_done = cfg_on & (((el == 12'd8) & ~rdata[25]) | (el == 12'd16));
   wire [2:0]  n_d = buf_q[2:0], n_n = buf_q[5:3];
   wire        n_diff = buf_q[9], n_tx = buf_q[20];
   wire [7:0]  n_cl = n_tx ? (dec8(n_d) | (n_diff ? dec8(n_n) : 8'd0)) : 8'd0;
-  wire        n_valid = (w1[11:0] >= 12'd8) & (w1[31:20] >= 12'd4) & (w1[31:20] < w1[11:0]);
+  wire        n_valid = (cfg_x & (w3[2:0] != 3'd0)) ? (w1[11:0] >= 12'd2)
+                      : (w1[11:0] >= 12'd8) & (w1[31:20] >= 12'd4) & (w1[31:20] < w1[11:0]);
   assign flt_owner  = cfg_done & n_tx & (~owns[n_d] | (n_diff & (~owns[n_n] | (n_d == n_n))));
   assign flt_config = cfg_done & ~flt_owner & ~n_valid;
-  wire [15:0] n_m = pfx(rdata[15:0]);
+  wire [31:0] n_m    = pfx(cfg_x ? {rdata[15:0], w2[15:0]} : {rdata[15:0], 16'd0});
+  wire        n_init = cfg_x ? w2[16] : rdata[16];
+  // the new configuration's idle levels: d = L (0 with ilow), n = not L, or cidle with clk
+  wire        n_idl  = ~(cfg_x & rdata[20]);
+  wire        n_idn  = (cfg_x & w3[19]) ? w3[28] : ~n_idl;
 
   // ------------------------------------------------------------------ CRC job
   wire        crc_on   = (mode == CRCM);
   wire [7:0]  nbits    = cmd[15:8];
   wire        crc_last = crc_on & (el_inc[7:0] == nbits);
   wire        crc_rd   = crc_on & (el[4:0] == 5'd31) & (el_inc[7:0] < nbits);
-  wire [15:0] crc_b    = crc_nx(crc, sbit, c_poly);
-  wire [15:0] crc_w    = xf(crc_on ? crc_b : crc_start, c_inv, m_c);   // wire-flag result
+  wire [31:0] crc_b    = crc_nx(crc, sbit, c_poly);
+  wire [15:0] crc_xw   = crc_on ? crc_b[31:16] : crc_start[31:16];
+  wire [31:0] crc_w    = xf(crc_xw, c_inv, m_c[31:16]);                // wire-flag result
 
   // ------------------------------------------------------------------ transmit
   wire        tx_start = (mode == PEND) & line_ret;
-  wire        tx_bnd   = tx_start | ((mode == TX) & tb_hit);
-  wire [6:0]  nb       = cmd[14:8];
-  wire [5:0]  sen = {1'b1, c_diff & (c_eop != 2'd0), cmd[15] & m_c[15], nb != 7'd0, c_hdr,
+  // v1.6: a symbol lasts cells timed boundaries; a symbol boundary starts the next one
+  wire        lastc    = (cel == c_cells);
+  wire        tx_bnd   = tx_start | ((mode == TX) & tb_hit & lastc);
+  wire        tx_cb    = (mode == TX) & tb_hit & ~lastc;     // the next cell of a symbol
+  wire [12:0] nb       = {c_ext ? cmd[29:24] : 6'd0, cmd[14:8]};
+  wire [5:0]  sen = {1'b1, c_diff & (c_eop != 2'd0), cmd[15] & m_c[31], nb != 13'd0, c_hdr,
                      c_pre != 8'd0};
+  wire [1:0]  eopn = c_eop - {1'b0, c_eopl};            // the last EOP symbol's index
   // first enabled segment at or after a segment
   function [2:0] first_seg(input [2:0] from, input [5:0] en);
     integer si;
@@ -236,25 +272,26 @@ module esc_line (
   wire [2:0]  es_c   = first_seg(seg, sen);              // registered as es_q
   wire [7:0]  fbyte  = (es_c == 3'd0) ? c_pre : cmd[23:16];
   wire        b_byte = fbyte[pos[2:0] ^ {3{~c_lsb}}];
-  wire [15:0] crcx   = c_inv ? ~crc : crc;
-  wire        b_crc  = crcx[~pos[3:0]];
+  wire [31:0] crcx   = c_inv ? ~crc : crc;
+  wire        b_crc  = crcx[~pos[4:0]];
   wire        pb_c   = (es_c[2:1] == 2'b00) ? b_byte : (es_c == 3'd2) ? sbit : b_crc;
-  wire        sl_c   = (es_c[2:1] == 2'b00) ? (pos[2:0] == 3'd7)
-                     : (es_c == 3'd2) ? (pos + 7'd1 == nb)
-                     : (es_c == 3'd3) ? lsbm[~pos[3:0]]
-                     : (pos[1:0] == c_eop);
+  wire        sl_c   = (es_c == 3'd0) ? (pos[5:0] == {c_prep, 3'd7})
+                     : (es_c == 3'd1) ? (pos[2:0] == 3'd7)
+                     : (es_c == 3'd2) ? (pos + 13'd1 == nb)
+                     : (es_c == 3'd3) ? lsbm[~pos[4:0]]
+                     : (pos[1:0] == eopn);
   reg  [2:0]  es_q;
   reg         pb_q, sl_q;
   wire [2:0]  es0    = first_seg(3'd0, sen);             // the first boundary: seg = pos = 0
-  wire        crcx0  = c_inv ? ~crc_start[15] : crc_start[15];   // first CRC bit
+  wire        crcx0  = c_inv ? ~crc_start[31] : crc_start[31];   // first CRC bit
   wire        sb0    = ld ? (c_lsb ? rdata[0] : rdata[31]) : (c_lsb ? buf_q[0] : buf_q[31]);
   wire        pb0    = (es0 == 3'd0) ? (c_lsb ? c_pre[0] : c_pre[7])
                      : (es0 == 3'd1) ? (c_lsb ? cmd[16] : cmd[23])
                      : (es0 == 3'd2) ? sb0 : crcx0;
   wire        sl0    = (es0[2:1] == 2'b00) ? 1'b0
-                     : (es0 == 3'd2) ? (nb == 7'd1)
-                     : (es0 == 3'd3) ? lsbm[15]
-                     : (c_eop == 2'd0);
+                     : (es0 == 3'd2) ? (nb == 13'd1)
+                     : (es0 == 3'd3) ? lsbm[31]
+                     : (eopn == 2'd0);
   wire [2:0]  eseg   = tx_start ? es0 : es_q;
   wire        pbit   = tx_start ? pb0 : pb_q;
   wire        s_last = tx_start ? sl0 : sl_q;
@@ -298,17 +335,21 @@ module esc_line (
   // ------------------------------------------------------------------ tape port
   assign port       = cfg_rd | crc_rd | tx_rd | rx_wr;
   assign port_we    = rx_wr;
-  wire [2:0] off    = cfg_on ? {1'b0, el[2], ~el[2]} : crc_on ? el_inc[7:5]
-                    : (mode == TX) ? {1'b0, pos[6:5]} : rx_wi;
-  assign port_addr  = cmd[7:0] + {5'd0, off};
+  // CONFIG words 1..4 at el = 3, 7, 11, 15; a TX read: the word of pos, or with ext the one
+  // after it (requested mid-word, while pos is still in the current word)
+  wire [7:0] off    = cfg_on ? {6'd0, el[3:2]} + 8'd1 : crc_on ? {5'd0, el_inc[7:5]}
+                    : (mode == TX) ? (pos[12:5] + {7'd0, c_ext}) : {5'd0, rx_wi};
+  assign port_addr  = cmd[7:0] + off;
   assign port_wdata = buf_q;
   wire rd_now = cfg_rd | crc_rd | tx_rd;
-  wire rd_commit = op_cfg | (op_crc & (op_v[15:8] != 8'd0)) | (op_send & (op_v[14:8] != 7'd0));
+  assign send_rd = (op_v[14:8] != 7'd0) | (c_ext & (op_v[29:24] != 6'd0));
+  wire rd_commit = op_cfg | (op_crc & (op_v[15:8] != 8'd0)) | (op_send & send_rd);
 
   // ------------------------------------------------------------------ banks
   wire tx_endev = live & tx_bnd & t_end;
+  wire rx_none = op_recv & (c_cells != 3'd0);           // v1.6: no receiver for cells > 1
   wire e_ev = (live & (cfg_done | crc_last | tx_endev | rx_fin))
-            | (~start & ~kill & op_crc & (op_v[15:8] == 8'd0));
+            | (~start & ~kill & ((op_crc & (op_v[15:8] == 8'd0)) | rx_none));
   esc_greg #(32) g_e (.clk(clk), .rst_n(rst_n), .en(start | e_ev),
                       .d(start ? 32'd0 : now), .q(e));
   // W0 is a latch bank (D-40): the buffer holds still at the CONFIG's last edge, so it is
@@ -317,25 +358,39 @@ module esc_line (
                        .dq({buf_q[31:24], buf_q[20:0]}), .q(w0));
   esc_greg #(32) g_w1 (.clk(clk), .rst_n(rst_n), .en(cfg_on & ld & (el == 12'd4)),
                        .d(rdata), .q(w1));
-  esc_greg #(25) g_w2 (.clk(clk), .rst_n(rst_n), .en(cfg_done), .d(rdata[24:0]), .q(w2));
-  esc_greg #(24) g_cmd (.clk(clk), .rst_n(rst_n),
+  // v1.6: W2 is written when it arrives (its ext decides whether W3 and W4 follow); the
+  // unit is in CFG, so nothing uses the configuration until the CONFIG completes
+  esc_greg #(26) g_w2 (.clk(clk), .rst_n(rst_n), .en(cfg_on & ld & (el == 12'd8)),
+                       .d(rdata[25:0]), .q(w2));
+  esc_greg #(29) g_w3 (.clk(clk), .rst_n(rst_n), .en(cfg_on & ld & (el == 12'd12)),
+                       .d(rdata[28:0]), .q(w3));
+  esc_greg #(21) g_w4 (.clk(clk), .rst_n(rst_n), .en(cfg_x), .d(rdata[20:0]), .q(w4));
+  esc_greg #(30) g_cmd (.clk(clk), .rst_n(rst_n),
                         .en(op_send | op_recv | op_crc | op_cfg), .d(op_v), .q(cmd));
 
   // ------------------------------------------------------------------ pin writes
+  // the levels of cell c of a symbol: a line bit L shows its pattern's bit c on d; with
+  // diff n shows not d, or with clk the clock pattern's bit c
+  wire [2:0] cn   = tx_cb ? cel + 3'd1 : 3'd0;           // the cell starting at this edge
+  wire       b_l  = tx_cb ? lv : lv_nx;                   // its line bit
+  wire [1:0] k_s  = tx_cb ? sk                            // its symbol kind
+                  : t_line ? 2'd0 : (c_eopl | (pos[1:0] == c_eop)) ? 2'd2 : 2'd1;
+  wire       d_l  = (k_s == 2'd0) ? (b_l ? c_p1[cn] : c_p0[cn]) : (k_s == 2'd2);
+  wire       n_l  = (k_s == 2'd1) ? 1'b0 : c_clk ? c_pc[cn] : ~d_l;
   always @(*) begin
     rel_m = 8'd0; drv_m = 8'd0; drv_val = 8'd0; drv_oe = 1'b0;
     if (!start && !kill) begin
       if (op_off) rel_m = claimed;
       else if (!anyop && cfg_done) begin
         rel_m = claimed & ~n_cl;
-        drv_m = n_cl; drv_val = dec8(n_d) & n_cl; drv_oe = buf_q[18];
-      end else if (!anyop && tx_bnd) begin
+        drv_m = n_cl; drv_val = pins2(n_d, n_n, n_diff, n_idl, n_idn) & n_cl; drv_oe = buf_q[18];
+      end else if (!anyop && (tx_bnd || tx_cb)) begin
         drv_m = claimed;
-        if (t_end)       begin drv_val = pattern(c_d, c_n, c_diff, 1'b1) & claimed; drv_oe = c_idrv; end
-        else if (t_line) begin drv_val = pattern(c_d, c_n, c_diff, lv_nx) & claimed; drv_oe = 1'b1; end
-        else begin                                       // EOP: SE0 bits, then J
-          drv_val = (pos[1:0] == c_eop) ? (pattern(c_d, c_n, c_diff, 1'b1) & claimed) : 8'd0;
-          drv_oe = 1'b1;
+        if (tx_bnd && t_end) begin
+          drv_val = pins2(c_d, c_n, c_diff, ~c_ilow, c_clk ? c_cidle : c_ilow) & claimed;
+          drv_oe = c_idrv;
+        end else begin
+          drv_val = pins2(c_d, c_n, c_diff, d_l, n_l) & claimed; drv_oe = 1'b1;
         end
       end
     end
@@ -356,30 +411,39 @@ module esc_line (
   always @(posedge lclk or negedge rst_n) begin
     if (!rst_n) begin
       owned <= 1'b0; owner <= 2'd0; conf <= 1'b0; mode <= IDLE;
-      buf_q <= 32'd0; ld <= 1'b0; crc <= 16'd0; job <= 3'd0; cause <= 3'd0; count <= 9'd0;
+      buf_q <= 32'd0; nxt_q <= 32'd0; ld <= 1'b0; ldn <= 1'b0; crc <= 32'd0;
+      job <= 3'd0; cause <= 3'd0; count <= 9'd0;
       el <= 12'd0; acc <= 9'd0; ext <= 1'b0; rn <= 4'd0; rb <= 1'b0; kc <= 9'd0;
-      pos <= 7'd0; seg <= 3'd0; lv <= 1'b1; xp <= 1'b1; req <= 1'b0; fin <= 1'b0;
+      pos <= 13'd0; cel <= 3'd0; sk <= 2'd0; seg <= 3'd0; lv <= 1'b1; xp <= 1'b1;
+      req <= 1'b0; reqn <= 1'b0; fin <= 1'b0;
       eopw <= 1'b0; hunt <= 1'b0; dec <= 1'b0; stor <= 1'b0; noted <= 2'd0;
       mon <= 1'b0; abt <= 1'b0; es_q <= 3'd5; pb_q <= 1'b0; sl_q <= 1'b0;
     end else if (lu_hold) begin
     end else if (start) begin
-      owned <= 1'b0; owner <= 2'd0; conf <= 1'b0; mode <= IDLE; ld <= 1'b0; req <= 1'b0;
-      fin <= 1'b0; crc <= 16'd0; job <= 3'd0; cause <= 3'd0; count <= 9'd0;
+      owned <= 1'b0; owner <= 2'd0; conf <= 1'b0; mode <= IDLE; ld <= 1'b0; ldn <= 1'b0;
+      req <= 1'b0; reqn <= 1'b0; fin <= 1'b0; crc <= 32'd0; job <= 3'd0; cause <= 3'd0;
+      count <= 9'd0;
     end else if (kill) begin                             // as OFF; fault and stop release pins
-      mode <= IDLE; req <= 1'b0; fin <= 1'b0; conf <= 1'b0; ld <= 1'b0;
+      mode <= IDLE; req <= 1'b0; reqn <= 1'b0; fin <= 1'b0; conf <= 1'b0; ld <= 1'b0;
+      ldn <= 1'b0;
     end else begin
       es_q <= es_c; pb_q <= pb_c; sl_q <= sl_c;
       ld <= rd_now | rd_commit;
+      ldn <= tx_rd & reqn;
       if (halt_done && arm_on) mode <= IDLE;
       if (op_send) begin
-        mode <= PEND; seg <= 3'd0; pos <= 7'd0; rn <= 4'd0; rb <= 1'b0; lv <= 1'b1;
-        kc <= 9'd0; abt <= 1'b0; mon <= 1'b0; req <= 1'b0; fin <= 1'b0; eopw <= 1'b0;
+        mode <= PEND; seg <= 3'd0; pos <= 13'd0; rn <= 4'd0; rb <= 1'b0; lv <= 1'b1;
+        kc <= 9'd0; abt <= 1'b0; mon <= 1'b0; req <= 1'b0; reqn <= 1'b0; fin <= 1'b0;
+        eopw <= 1'b0; cel <= 3'd0;
       end
       if (op_off) begin
         mode <= IDLE; conf <= 1'b0; req <= 1'b0; fin <= 1'b0; eopw <= 1'b0;
       end
-      if (op_recv) begin
+      if (op_recv && !rx_none) begin
         mode <= ARM; el <= 12'd1; rn <= 4'd0;
+      end
+      if (rx_none) begin
+        mode <= IDLE; job <= 3'd1; cause <= VIOL; count <= 9'd0;
       end
       if (op_crc) begin
         job <= 3'd2; cause <= OK; count <= 9'd0; el <= 12'd0;
@@ -400,7 +464,7 @@ module esc_line (
           if (ld && el == 12'd0) buf_q <= rdata;         // W0 waits in the buffer
           if (cfg_done) begin
             conf <= 1'b1; mode <= IDLE; cause <= OK; count <= 9'd0;
-            crc <= rdata[16] ? n_m : 16'd0;
+            crc <= n_init ? n_m : 32'd0;
           end
         end
         // ---------------------------------------------------------- CRC job
@@ -414,34 +478,47 @@ module esc_line (
           end
         end
         // ---------------------------------------------------------- PEND, TX
-        if ((mode == PEND || mode == TX) && ld) buf_q <= rdata;
+        if ((mode == PEND || mode == TX) && ld) begin
+          if (ldn) nxt_q <= rdata;
+          else     buf_q <= rdata;
+        end
         if (tx_start) begin
           mode <= TX; job <= 3'd4; cause <= OK; count <= 9'd0; crc <= crc_start;
+        end
+        if (tx_cb) begin                                 // v1.6: the next cell
+          el <= 12'd1; ext <= 1'b0; acc <= acc_nx;
+          cel <= cel + 3'd1;
         end
         if (tx_bnd) begin
           el <= 12'd1; ext <= 1'b0;
           acc <= tx_start ? acc_go : acc_nx;
+          cel <= 3'd0; sk <= k_s;
           if (t_end) begin
-            mode <= IDLE; req <= 1'b0; mon <= 1'b0;
+            mode <= IDLE; req <= 1'b0; reqn <= 1'b0; mon <= 1'b0;
             if (abt) begin cause <= MISMATCH; count <= kc; end
             else begin cause <= OK; count <= 9'd0; end
           end else if (t_line) begin
             {rn, rb} <= push(rn, rb, lb, c_any);
             lv <= lv_nx;
-            mon <= c_abort & ~c_diff;
+            mon <= c_abort & ~c_diff & (c_cells == 3'd0);
             if (t_pkt) begin
-              if (s_last) begin seg <= eseg + 3'd1; pos <= 7'd0; end
-              else pos <= pos + 7'd1;
+              if (s_last) begin seg <= eseg + 3'd1; pos <= 13'd0; end
+              else pos <= pos + 13'd1;
               if (eseg == 3'd2) begin
                 crc <= crc_nx(tx_start ? crc_start : crc, pbit, c_poly);
-                if (pos[4:0] == 5'd31 && !s_last) req <= 1'b1;
+                if (!c_ext && pos[4:0] == 5'd31 && !s_last) req <= 1'b1;
+                // v1.6 ext: the next word is fetched mid-word, and used from bit 0 on
+                if (c_ext && pos[4:0] == 5'd15 && pos + 13'd17 < nb) begin
+                  req <= 1'b1; reqn <= 1'b1;
+                end
+                if (c_ext && pos[4:0] == 5'd31 && !s_last) buf_q <= nxt_q;
               end
             end
           end else begin                                 // EOP symbol
-            if (s_last) begin seg <= eseg + 3'd1; pos <= 7'd0; end
-            else pos <= pos + 7'd1;
+            if (s_last) begin seg <= eseg + 3'd1; pos <= 13'd0; end
+            else pos <= pos + 13'd1;
           end
-        end else if (mode == TX) begin
+        end else if (mode == TX && !tx_cb) begin
           el <= el_inc;
           ext <= (el == c_P) & acc[8];
         end
@@ -450,7 +527,7 @@ module esc_line (
           if (view[c_r] != lv) abt <= 1'b1;
           else kc <= kc + 9'd1;
         end
-        if (tx_rd) req <= 1'b0;
+        if (tx_rd) begin req <= 1'b0; reqn <= 1'b0; end
         // ---------------------------------------------------------- ARM
         if (arm_on && !halt_done) begin
           if (arm_go) begin
@@ -513,7 +590,7 @@ module esc_line (
 `ifdef FORMAL
   // v1.6: a transmit boundary other than the first uses registered values equal to the
   // values of its own cycle (the timing argument above).
-  always @(*) if (rst_n && mode == TX && tb_hit && !kill && !start && !anyop)
+  always @(*) if (rst_n && mode == TX && tb_hit && lastc && !kill && !start && !anyop)
     assert (es_q == es_c && pb_q == pb_c && sl_q == sl_c);
   // A CONFIG keeps its phase: it commits in an owner cycle c (now = owner - 1 mod 4) and
   // during cycle c+1+k it has el = k, so it completes at E_(c+9), never at one of the
