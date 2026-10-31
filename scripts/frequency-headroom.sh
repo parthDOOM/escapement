@@ -11,16 +11,17 @@
 # parasitics with the sign-off constraints (src/escapement.sdc: latches modelled, time
 # borrowing allowed), the period shortened and the 20% I/O delays scaled with it. Setup
 # holds when the worst slack is >= 0; a latch input that borrows reports exactly 0 (printed
-# as 0.000 or -0.000). On the v1.4 run (v14i) this gives the docs/03 table: setup holds at
-# 35, 22 and 14.3 ns and fails at 34.5, 21.5 and 14 ns.
+# as 0.000 or -0.000). On the v1.5 run (v15c) this gives the docs/03 table: setup holds at
+# 25.9, 16.3 and 10.6 ns and fails at 25.8, 16.2 and 10.5 ns (v1.4, v14i: 35, 22 and 14.3 ns,
+# with slow:35 slow:34.5 typ:22 typ:21.5 fast:14.3 fast:14).
 # Prints one RESULT line per corner and period; reports go to RUN_DIR/frequency/.
 set -euo pipefail
 
 RUN=$(realpath "$1"); shift
 POINTS=("$@")
-[[ ${#POINTS[@]} -eq 0 ]] && POINTS=(slow:36 slow:35.5 slow:35 slow:34.5
-                                      typ:22.5 typ:22 typ:21.5 typ:21
-                                      fast:15 fast:14.6 fast:14.3 fast:14)
+[[ ${#POINTS[@]} -eq 0 ]] && POINTS=(slow:26 slow:25.9 slow:25.8
+                                      typ:16.4 typ:16.3 typ:16.2
+                                      fast:10.7 fast:10.6 fast:10.5)
 
 REPO=$(realpath "$(dirname "$0")/..")
 EDA="${EDA:-$HOME/eda}"
