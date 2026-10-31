@@ -450,9 +450,10 @@ def _writes(name: str, f: dict) -> Optional[int]:
     return f.get("rd")
 
 
-def _reach(image: Image, ctx: int) -> set:
+def _reach(image: Image, ctx: int, stop=None) -> set:
     """Instructions reachable in the control-flow graph (every branch both ways, RET to
-    every CALL's return address)."""
+    every CALL's return address). With `stop(name, f)`, instructions after one that stops
+    are not followed (the stopping instruction itself is reached)."""
     rets = {pc + 1 for pc, w in enumerate(image.words) if _decode(w)[0] == "CALL"}
     seen, todo = set(), [image.entry_pcs[ctx]]
     while todo:
@@ -461,7 +462,7 @@ def _reach(image: Image, ctx: int) -> set:
             continue
         seen.add(pc)
         name, f = _decode(image.words[pc])
-        if name is None or name == "HALT":
+        if name is None or name == "HALT" or (stop is not None and stop(name, f)):
             continue
         if name == "JMP":
             todo.append(f["target"])
@@ -577,6 +578,34 @@ def const_tape(image: Image) -> dict:
     return {a: v for a, v in cand.items() if a not in written}
 
 
+def const_tape_before_stores(image: Image, ctx: int) -> tuple:
+    """(words, pcs): v1.6. The tape words that still hold their image value at the
+    instructions `pcs` of context ctx, those reached from its entry before any STT whose
+    address is not fixed: words set by .tape, never the target of a fixed STT, outside
+    every receive buffer a constant RECV word names. Empty if a capture unit is used or
+    another context has an STT whose address is not fixed (it runs from START too)."""
+    written: set = set()
+    for k, en in enumerate(image.ctx_enable):
+        if not en:
+            continue
+        fixed = _fixed_regs(image, k)
+        for pc in _reach(image, k):
+            name, f = _decode(image.words[pc])
+            if name == "CAPT" or (name == "STT" and f["rb"] not in fixed and k != ctx):
+                return {}, set()
+            if name == "STT" and f["rb"] in fixed:
+                written.add(f["imm"])
+    fixed = _fixed_regs(image, ctx)
+    pcs = _reach(image, ctx, stop=lambda n, f: n == "STT" and f["rb"] not in fixed)
+    cand = {a: image.tape[a] for a in image.tape_used if a not in written}
+    for a, v in list(cand.items()):
+        if (v >> 28) == 1:                       # a RECV command: its buffer may change
+            nbytes = ((v >> 8) & 31) or 32
+            for i in range((8 * nbytes + 31) // 32):
+                written.add(((v & 0xFF) + i) & 0xFF)
+    return {a: v for a, v in cand.items() if a not in written}, pcs
+
+
 def _mark(t: St) -> St:
     t.z.assign(SCR, NOW, 0)
     return t
@@ -652,6 +681,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                     if _decode(image.words[pc])[0] == "LDT"}
     fixed = _fixed_regs(image, ctx)
     consts = const_tape(image) if lu_ctx else {}
+    early, early_pcs = const_tape_before_stores(image, ctx) if lu_ctx else ({}, set())
     lu_users = [k for k, en in enumerate(image.ctx_enable) if en and _uses_line(image, k)]
     claimed = [0, False]                         # pins a CONFIG claims; unknown config seen
     emit_masks: set = set()
@@ -934,15 +964,19 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                     t.z.constrain(LUE, NOW, crc_nb[1])
                     t.z.constrain(NOW, LUE, -crc_nb[0])
                 elif op == 3:                            # CONFIG: complete at E_(c+9)
-                    t.lu = "own"
-                    t.z.assign(LUE, NOW, 9)
+                    t.lu = "own"                         # (v1.6: E_(c+17) with ext)
                     a = v & 0xFF
-                    blk = [consts.get((a + i) & 0xFF) for i in range(3)]
+                    src = consts if consts else (early if pc in early_pcs else {})
+                    blk = [src.get((a + i) & 0xFF) for i in range(3)]
                     if None in blk:
                         claimed[1] = True
+                        t.z.free(LUE)                    # ext unknown: c+9 .. c+17
+                        t.z.constrain(LUE, NOW, 17)
+                        t.z.constrain(NOW, LUE, -9)
                     else:
                         from esciss.line import Cfg
                         claimed[0] |= Cfg(*blk).claimed()
+                        t.z.assign(LUE, NOW, 17 if (blk[2] >> 25) & 1 else 9)
                 else:
                     t.lu = "top"
                     t.z.free(LUE)
