@@ -12,8 +12,10 @@
 # a VCD of the design for the measurement window, then OpenSTA reads the run's database
 # and the VCD and reports power at the typical corner (scripts/power_vcd.tcl). A static
 # (default-activity) report is written too, for comparison with LibreLane's power.rpt.
-# Results: RUN_DIR/power/<workload>.rpt, and <workload>.sram with the macro energy counted
-# edge by edge (scripts/sram_energy.py), which replaces the report's Macro row.
+# Power is reported at the 25 MHz rating (POWER_PERIOD=40 ns, the default), whatever period
+# the layout was signed off at. Results: RUN_DIR/power/<workload>.rpt, and <workload>.sram
+# with the macro energy counted edge by edge (scripts/sram_energy.py), which replaces the
+# report's Macro row.
 set -euo pipefail
 
 RUN=$(realpath "$1"); shift
@@ -46,7 +48,7 @@ pw() {   # $1 = VCD path or "" ; $2 = report
     -e PDK_LIB="$PDK_ROOT/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib" \
     -e MACRO_DIR="$REPO/macro" -e ODB="$RUN/$STEP/tt_um_escapement.odb" \
     -e SDC="$RUN/$STEP/tt_um_escapement.sdc" -e SET_RC="$LL/openroad/common/set_rc.tcl" \
-    -e VCD="$1" -e OUT="$2" "$IMAGE" \
+    -e VCD="$1" -e OUT="$2" -e POWER_PERIOD="${POWER_PERIOD:-40}" "$IMAGE" \
     openroad -exit -no_splash "$REPO/scripts/power_vcd.tcl" > "$2.log" 2>&1
 }
 

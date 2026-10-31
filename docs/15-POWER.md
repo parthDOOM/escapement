@@ -119,10 +119,15 @@ estimate, which LibreLane prints in its power report.
 | + D-29b fetch/host gating (v1.1) | 23,484 | 54.7% | 383 | 2.44 mW | 2.92 mW | 2.58 mW | 2.23 mW |
 | v1.2: pin bank B (D-31), hold margin 0.2 ns | 25,399 | 58.3% | 1,515 | 2.48 mW | 3.01 mW | 2.67 mW | 2.30 mW |
 | v1.3: streaming capture (D-32) | 25,383 | 58.9% | 1,614 | 2.57 mW | 3.11 mW | 2.77 mW | 2.39 mW |
-| **v1.4: line unit (D-33), latch banks (D-40, D-41)** | **27,461** | **57.4%** | **1,453** | 2.64 mW | **3.13 mW** | **2.82 mW** | **2.48 mW** |
-| change, before → v1.4 | −15% | | −68% | −65% | **−64%** | **−67%** | **−69%** |
+| v1.4: line unit (D-33), latch banks (D-40, D-41) | 27,461 | 57.4% | 1,453 | 2.64 mW | 3.13 mW | 2.82 mW | 2.48 mW |
+| **v1.5: tests a cycle early (D-43)** | **27,726** | **57.6%** | **1,523** | 2.68 mW | **3.18 mW** | **2.87 mW** | **2.53 mW** |
+| change, before → v1.5 | −14% | | −66% | −65% | **−63%** | **−66%** | **−68%** |
 
-n/m = not measured. The workload columns use the exact SRAM count below. Version 1.4
+n/m = not measured. The workload columns use the exact SRAM count below. Version 1.5 adds
+28 flip-flops and costs 0.04–0.05 mW (2%) in every workload. Its layout is placed and
+routed for a 30 ns clock, and OpenSTA takes the clock pins' activity from the constraints'
+clock, not from the simulation, so v1.5 is measured with that clock set back to 40 ns.
+Version 1.4
 adds the line unit, 2,600 cells, and costs 1–4% over v1.3: the unit sits behind a clock
 gate that closes while it is idle, and the latch banks (D-40) replace flip-flops whose
 clock was already gated, so they save area rather than power. Stopped, the 11 new clock

@@ -1,7 +1,8 @@
 # Power from real switching activity (D-29 evidence).
 #
 #   openroad -exit power_vcd.tcl   with env ODB, SDC, PDK_LIB, MACRO_DIR, SCRIPTS_DIR,
-#                                  _TCL_ENV_IN (a step's _env.tcl), SET_RC, VCD, OUT
+#                                  _TCL_ENV_IN (a step's _env.tcl), SET_RC, VCD, OUT,
+#                                  POWER_PERIOD (ns, optional)
 #
 # Typical corner. With VCD unset, reports the default static activity estimate instead,
 # which is what LibreLane's own power.rpt shows.
@@ -16,6 +17,11 @@ read_liberty -corner nom_typ_1p20V_25C $mac/RM_IHPSG13_1P_256x32_c2_bm_bist_typ_
 
 read_db $::env(ODB)
 read_sdc $::env(SDC)
+# At the 25 MHz rating whatever period the layout was signed off at (v1.5: 30 ns): OpenSTA
+# takes the clock pins' activity from the constraints' clock, not from the VCD.
+if { [info exists ::env(POWER_PERIOD)] && $::env(POWER_PERIOD) != "" } {
+    create_clock -name clk -period $::env(POWER_PERIOD) [get_ports clk]
+}
 set_propagated_clock [all_clocks]
 source $::env(SCRIPTS_DIR)/openroad/common/io.tcl
 set ::db [ord::get_db]
