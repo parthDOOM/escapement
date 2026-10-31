@@ -148,16 +148,6 @@ module esc_ctx (
   wire [57:0] ent0, ent1, ent2, ent3;   // clock-gated banks, below
   reg [1:0]  head;
 
-  reg [25:0] h;                         // the head's kind and payload (v1.5: its deadline
-  always @* begin                       // is tested a cycle early, below)
-    case (head)
-      2'd0:    h = {ent0[57:56], ent0[23:0]};
-      2'd1:    h = {ent1[57:56], ent1[23:0]};
-      2'd2:    h = {ent2[57:56], ent2[23:0]};
-      default: h = {ent3[57:56], ent3[23:0]};
-    endcase
-  end
-
   wire [1:0] tail_idx = head + o_cnt[1:0] - 2'd1;
   wire [1:0] wr_idx   = head + o_cnt[1:0];
   always @* begin
@@ -175,9 +165,6 @@ module esc_ctx (
                      ((ent1[57:56] == K_SAMPLE) & ({1'b0, rel1} < o_cnt)) |
                      ((ent2[57:56] == K_SAMPLE) & ({1'b0, rel2} < o_cnt)) |
                      ((ent3[57:56] == K_SAMPLE) & ({1'b0, rel3} < o_cnt));
-
-  wire [1:0]  h_kind = h[25:24];
-  wire [23:0] h_pl   = h[23:0];
 
   // sec. 6.3: retire when head deadline == now; LATE_HEAD when reached and !=. Both are
   // registers (v1.5): due_q and late_q hold, during this cycle, exactly those two tests.
@@ -206,6 +193,25 @@ module esc_ctx (
   wire        n_keep  = (o_cnt_after != 3'd0);
   wire        due_n   = run & (n_keep ? (n_diff == 32'd0) : (push & (w_lead16 == 16'd1)));
   wire        late_n  = run & n_keep & (n_diff != 32'd0) & ~n_diff[31];
+
+  // v1.6: the head's kind and payload are registered the same way (h_q): the entry that is
+  // the head after this edge, or the entry pushed at it (any, if none is pushed: the FIFO
+  // is then empty and nothing reads h_q). Equal to the head entry whenever the FIFO is not
+  // empty (D3, below), so a retiring DRIVE reaches the pins from flip-flops, not through
+  // the entry's latch bank.
+  reg [25:0] n_h;
+  always @* begin
+    case (head + {1'b0, due})
+      2'd0:    n_h = {ent0[57:56], ent0[23:0]};
+      2'd1:    n_h = {ent1[57:56], ent1[23:0]};
+      2'd2:    n_h = {ent2[57:56], ent2[23:0]};
+      default: n_h = {ent3[57:56], ent3[23:0]};
+    endcase
+  end
+  reg  [25:0] h_q;
+  wire [25:0] h_n    = n_keep ? n_h : {w_entry[57:56], w_entry[23:0]};
+  wire [1:0]  h_kind = h_q[25:24];
+  wire [23:0] h_pl   = h_q[23:0];
 
   // ------------------------------------------------------------------ checker
   reg [7:0] ck_mask, ck_level;
@@ -269,7 +275,7 @@ module esc_ctx (
     if (!rst_n) begin
       o_lc <= 16'd0; o_pc <= 8'd0; o_lr <= 8'd0;
       o_z <= 1'b0; o_c <= 1'b0; o_state <= ST_IDLE;
-      head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0;
+      head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0; h_q <= 26'd0;
       o_act <= 1'b0; ck_mask <= 8'd0; ck_level <= 8'd0; ck_mode <= 1'b0; ck_rem <= 7'd0;
       o_pass <= 8'd0; o_fail <= 8'd0; o_failed <= 1'b0;
       o_exp_seen <= 1'b0;
@@ -280,7 +286,7 @@ module esc_ctx (
       // sec. 9 Start
       o_lc <= 16'd0; o_pc <= cfg_entry_pc; o_lr <= 8'd0;
       o_z <= 1'b0; o_c <= 1'b0; o_state <= cfg_enable ? ST_RUN : ST_IDLE;
-      head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0;
+      head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0; h_q <= 26'd0;
       o_act <= 1'b0; ck_rem <= 7'd0;
       o_pass <= 8'd0; o_fail <= 8'd0; o_failed <= 1'b0;
       o_exp_seen <= 1'b0;
@@ -325,7 +331,7 @@ module esc_ctx (
       end else begin
         o_cnt <= o_cnt - {2'b0, due} + {2'b0, push};
         if (due) head <= head + 2'd1;
-        due_q <= due_n; late_q <= late_n;
+        due_q <= due_n; late_q <= late_n; h_q <= h_n;
       end
 
       // ---- checker
@@ -485,6 +491,8 @@ module esc_ctx (
   always @(*) if (rst_n) begin
     assert (due_q  == (run & nonempty & (h_dl == now)));                              // D1
     assert (late_q == (run & nonempty & (f_late_diff != 32'd0) & ~f_late_diff[31]));  // D2
+    // v1.6 D3: the registered head is the head entry's kind and payload
+    if (nonempty) assert (h_q == {f_ent[head][57:56], f_ent[head][23:0]});            // D3
   end
 `endif
 `endif
