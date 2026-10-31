@@ -1031,9 +1031,10 @@ module esc_core (
   // definitions (sec. 6.2) on the state of the commit cycle. Proved by k-induction
   // (esc_core.sby task `ahead`, which keeps only these labelled assertions): a commit
   // follows at least three edges of an uninterrupted run (p1v-p3v clear on start and
-  // stop), over which the registers are a delayed copy of their definitions. Bit-level
-  // PDR cannot learn a 32-bit compare as an invariant (B1 alone ran past an hour), so the
-  // pdr task assumes them.
+  // stop), over which the registers are a delayed copy of their definitions. Every other
+  // task assumes them: bit-level PDR cannot learn a 32-bit compare as an invariant (B1
+  // alone ran past an hour), and asserted at every step they double the bounded check's
+  // time by depth 15.
   wire [31:0] cs_tail    = c_tail[32*cctx +: 32];
   wire [31:0] cs_lee     = c_lee[32*cctx +: 32];
   wire [31:0] f_d_now    = cs_tmr - now;
@@ -1041,10 +1042,10 @@ module esc_core (
   wire [31:0] f_d_lee    = cs_tmr - cs_lee;
   wire        f_ahd_now  = (f_d_now != 32'd0) & ~f_d_now[31];
   wire        f_ahd_tail = (f_d_tail != 32'd0) & ~f_d_tail[31];
-`ifdef ESC_CORE_PDR
-  `define ESC_AHEAD assume
-`else
+`ifdef ESC_AHEAD_CHECK
   `define ESC_AHEAD assert
+`else
+  `define ESC_AHEAD assume
 `endif
   always @(*) if (rst_n && commit_valid) begin
     ahead_b1: `ESC_AHEAD (ahd_now == f_ahd_now);
