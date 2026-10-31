@@ -291,6 +291,30 @@ def test_escapement_demo_streams_past_the_tape(tmp_path, monkeypatch, capsys):
     assert all(b[0] - a[0] == 6000 and a[1] != b[1] for a, b in zip(e, e[1:]))
 
 
+def test_escapement_demo_capture_records_the_boards_clock(tmp_path, monkeypatch, capsys):
+    """A board clocking the chip at 33 MHz (a config.ini clock_frequency; the rating is up
+    to 33 MHz, D-5): the capture file says 33 MHz, so the PC tools read the same wave as
+    6,000 ticks of 30.3 ns, or 4,545 ticks of 40 ns, not 6,000 ticks of 40 ns."""
+    import escapement_demo
+    from esctape import edges
+    from esctape.export import load_capture, read_trace
+    fw = ROOT / "firmware" / "logic_analyzer.asm"
+    name, (f, overrides) = next(iter(make_bundle.VARIANTS.items()))
+    (tmp_path / "la.json").write_text(json.dumps(make_bundle.bundle(fw, name, overrides)))
+    chip = SimChip()
+    chip.sources.append(lambda t: (0x02, 0x02 * ((t // 6000) & 1)))
+    board = MockBoard(chip, clock_hz=33_000_000)
+    monkeypatch.setattr(bringup.DemoBoardIO, "open", classmethod(lambda cls: board.io(bringup)))
+    escapement_demo.stream(seconds=0.02, path=str(tmp_path / "cap.json"),
+                           bundle_file=str(tmp_path / "la.json"))
+    assert "OVERFLOW" not in capsys.readouterr().out
+    assert load_capture(tmp_path / "cap.json")["clock_hz"] == 33_000_000
+    e33 = edges(read_trace(tmp_path / "cap.json", clock_hz=33e6)[0], 1)[1:]
+    e25 = edges(read_trace(tmp_path / "cap.json")[0], 1)[1:]
+    assert len(e33) > 50 and all(b[0] - a[0] == 6000 for a, b in zip(e33, e33[1:]))
+    assert all(abs(b[0] - a[0] - 6000 * 25 / 33) <= 1 for a, b in zip(e25, e25[1:]))
+
+
 def test_demo_menu_show_keeps_the_animation_running(tmp_path, monkeypatch):
     """The menu's display entry loads the animation and leaves it running: bank B
     (segments d, e, f, g, dp) steps through its frames. Built at CLK_KHZ 25 here, so a

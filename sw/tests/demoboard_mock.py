@@ -693,14 +693,15 @@ class MockBoard:
     """Holds RP time and the chip; cost() advances both."""
 
     def __init__(self, chip, op_ns=1000, port_ns=40_000, dip_high=0, in_shuttle=True,
-                 pwm_report=None):
+                 pwm_report=None, clock_hz=25_000_000):
         self.chip, self.op_ns, self.port_ns = chip, op_ns, port_ns
         self.time = RpTime()
         self.ui_driven = 0
         self.platform = MockPlatform(self, dip_high)
         self.machine = MockMachine(self)
         self.time_mod = MockTime(self)
-        projects = {"tt_um_escapement": 25_000_000} if in_shuttle else {"tt_um_other": 0}
+        # clock_hz: the clock enable() starts, the design's or a config.ini clock_frequency
+        projects = {"tt_um_escapement": clock_hz} if in_shuttle else {"tt_um_other": 0}
         self.tt = MockTT(self, projects, pwm_report)
 
     def cost(self, ns):

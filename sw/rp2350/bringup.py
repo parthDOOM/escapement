@@ -166,6 +166,10 @@ class DemoBoardIO:
 
     def set_clock(self, hz):
         self.tt.clock_project_PWM(hz)
+        return self.clock()
+
+    def clock(self):
+        # the project clock now running: PWM.freq(), 0 when the RP is not clocking it
         return self.tt.auto_clocking_freq
 
     def rp_clock(self):
@@ -308,7 +312,7 @@ class Bringup:
         self.io, self.bundles, self.quick, self.say = io, bundles, quick, out
         self.proof_file = proof
         self.link = self.host = None
-        self.f_clk = F_CLK                    # replaced by the stage 4 measurement
+        self.f_clk = F_CLK                    # the running clock from stage 0, then measured
         self.results = []
         self.proof = {}                       # stage 5: bundle name -> chip telemetry
 
@@ -339,6 +343,10 @@ class Bringup:
     def stage0(self):
         io = self.io
         info = io.select()
+        # enable() starts the clock at clock_hz, or at a config.ini clock_frequency (up to
+        # 33 MHz, D-5): captures and the SUMP bridge take their timebase from it until
+        # stage 4 measures the chip
+        self.f_clk = io.clock() or F_CLK
         for v in (0, 7, 5, 2, CS):
             io.write_ui(v)
             io.sleep_us(10)
@@ -360,6 +368,7 @@ class Bringup:
                        "project clock is the RP's PWM; check config.ini for a "
                        "[%s] section that overrides clock_frequency or rp_clock_frequency."
                        % (F_CLK, hz, io.rp_clock(), PROJECT))
+        self.f_clk = hz
         io.write_ui(CS)
         io.reset(True)
         io.sleep_ms(1)

@@ -56,13 +56,13 @@ def acquisition(rate, n, ratio, mask, value, groups=1):
             + b"\x82" + le32(flags) + b"\x01")
 
 
-def run_bridge(commands):
+def run_bridge(commands, clock_hz=25_000_000, half=HALF):
     fw = ROOT / "firmware" / "logic_analyzer.asm"
     name, (_, overrides) = next(iter(make_bundle.VARIANTS.items()))
     bundle = json.loads(json.dumps(make_bundle.bundle(fw, name, overrides)))
     chip = SimChip()
-    chip.sources.append(lambda t: (0x02, 0x02 * ((t // HALF) & 1)))
-    board = MockBoard(chip)
+    chip.sources.append(lambda t: (0x02, 0x02 * ((t // half) & 1)))
+    board = MockBoard(chip, clock_hz=clock_hz)
     b = bringup.Bringup(board.io(bringup))
     b.stage0()
     b.connect()
@@ -103,6 +103,22 @@ def test_capture_matches_the_pin(groups):
     edges = [k for k in range(trig, n) if pin[k] != pin[k - 1]]
     assert edges[0] == trig and all(b - a == HALF // 25 for a, b in zip(edges, edges[1:]))
     assert "OVERFLOW" not in br.log[0]
+
+
+def test_bridge_takes_the_boards_clock():
+    """A board clocking the chip at 33 MHz, the rated maximum (D-5; a config.ini
+    clock_frequency): the bridge reports 33 MHz to PulseView and samples in 33 MHz ticks,
+    so a wave toggling every 6,600 ticks (200 us) shows edges 200 samples apart at 1 MHz."""
+    out, _ = run_bridge(b"\x00" * 5 + b"\x04", clock_hz=33_000_000, half=6600)
+    meta, _ = parse_metadata(out)
+    assert meta[0x23] == 33_000_000
+    rate, n = 1_000_000, 2048
+    out, br = run_bridge(b"\x00" * 5 + acquisition(rate, n, 50, mask=0x02, value=0x02),
+                         clock_hz=33_000_000, half=6600)
+    pin = [(s >> 1) & 1 for s in out[::-1]]
+    edges = [k for k in range(n // 2, n) if pin[k] != pin[k - 1]]
+    assert len(out) == n and edges[0] == n // 2, br.log
+    assert all(b - a == 200 for a, b in zip(edges, edges[1:]))
 
 
 @pytest.mark.skipif(sys.platform == "win32" or __import__("shutil").which("sigrok-cli") is None
