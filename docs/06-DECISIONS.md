@@ -34,8 +34,11 @@ corner and 61.3 MHz at the typical one (v1.4, rated 25 MHz: 28.6 and 45 MHz; v1.
 timed for 25 MHz, the clock `info.yaml` asks the Tiny Tapeout board for: VGA Pong uses the
 core clock as its pixel clock, the hand-written programs count ticks at 40 ns, and the USB
 firmware runs at 24 MHz (D-37). The 14 programs whose timing derives from `CLK_KHZ`
-rebuild for another clock; at 33.333 MHz eleven certify unchanged, and `nec_tx`, `nec_rx`
-and `westminster` are timed for clocks up to 25 MHz.
+rebuild for another clock: at 33 MHz each certifies and drives its bus model, the models
+timing every edge in 30.3 ns ticks (`test_rated_clock.py`). On the Tiny Tapeout demo board
+use exactly 33 MHz: its firmware divides the RP2040's clock (132 MHz, by 4), which gives 50%
+duty and no jitter; 33.333 MHz has no such divisor, and a fractional one would make
+cycles shorter than the 30 ns the layout is signed off at.
 
 **D-9 Event model.** Per-context FIFOs of DRIVE, EXPECT and SAMPLE entries with absolute
 deadlines, strict ordering within half the counter range, and visible rejection. An

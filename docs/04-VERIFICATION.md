@@ -115,11 +115,12 @@ needs a lemma can take far longer split than together. Assertions tagged with th
 both rest on H4, and together with H3 and H4 they prove in two minutes. Alone, P5's did
 not finish in two hours, and P3's ran past the three-hour limit on the CI runner. Since
 version 1.4 the line unit's L1 lemmas join that group (five minutes), and P8's commit
-clause is proved with the CONFIG phase lemma. For version 1.4, with 6 jobs, the 27 core
-tasks and the separate proofs (bounded check, covers, context, clock-gate and latch-bank
-banks, host interface) all pass in 58 minutes of wall time. The single task
-(`sby -f esc_core.sby pdr`, all assertions together) passed in 34 minutes on one core
-for version 1.3.
+clause is proved with the CONFIG phase lemma. For version 1.5, with 6 jobs, the 28 core
+tasks (19 minutes) and the separate proofs (bounded check, covers, the `ahead` task,
+context, clock-gate and latch-bank banks, host interface: 53 minutes, 42 of them the
+bounded check) all pass in 72 minutes of wall time (v1.4: 27 tasks, 58 minutes). The
+single task (`sby -f esc_core.sby pdr`, all assertions together) passed in 34 minutes on
+one core for version 1.3.
 
 **Tests decided a cycle early (v1.5, D-43).** Since version 1.5 the deadline tests are
 registers, computed in the cycle before they are used: the retire and late flags of each
@@ -364,6 +365,20 @@ telemetry in simulation, and most are equal to the tick. `replay.asm` computes i
 deadlines from captured data, so it is checked by the replay tests and by the hardware's
 admission rules instead.
 
+**At the rated maximum clock (D-5).** The 14 programs whose timing derives from `CLK_KHZ`
+certify CHECKED rebuilt for 33 MHz and for 33.333 MHz, and each drives its bus model at
+33 MHz with the model timing every edge in 30.3 ns ticks (`test_rated_clock.py`; the
+14-second `westminster` tune is certified there and played at a hundredth of real time).
+Three needed changes, which leave their 25 MHz behaviour as it was. `nec_rx` measured in
+4-tick units, and its longest bound outgrew the 16-bit compare; its unit now doubles above
+25 MHz. `westminster`'s 0.65 s rest outgrew ADDT's 24 bits; it is added in two halves.
+`nec_tx`'s repeat code queued its stop burst more than 2^16 ticks after the leader's last
+edge, which escert could not bound (POSSIBLE): at 25 MHz the gap had been 56,214 ticks. It
+now drains the queue first, as the frame path always did, and certifies from 2.5 to 38 MHz.
+Both NEC programs rebuilt for 33 MHz also run a frame through the chip's pins, transmitter
+through an IR receiver model into the receiver, on the RTL and on the v15c netlist
+(`test_nec_loopback_at_33_mhz_on_chip`; 2.9 million cycles, 49 minutes on the netlist).
+
 **The checker found real bugs.** It refuted the I2C controller's stuck-bus timeout,
 which released the bus with a lead of −4, and a PS/2 frame that started under the
 previous frame's queued events when scancodes arrived back to back. No test had reached
@@ -432,22 +447,24 @@ deleted, an ADDT's delay cut to a quarter, or a conditional branch inverted. Eac
 is certified, and a certified mutant is then attacked with escert's randomised input
 search on the ISS: a fault there would mean escert certified a program that can fault.
 
-Result on 2026-10-26, 229 mutants in 27 programs, 12 input searches each. Mutants are
-chosen by hash and the searches are seeded, so `make fw-mutants` on the same firmware
-prints this table exactly (rerun 2026-10-27: identical, mutant by mutant):
+Result on 2026-10-31, 237 mutants in 28 programs, 12 input searches each. Mutants are
+chosen by hashing each program's source lines and the searches are seeded, so
+`make fw-mutants` on the same firmware prints this table exactly (rerun on the changed
+programs: identical, mutant by mutant). Editing a program changes its mutants: the v1.5
+changes to `nec_rx`, `nec_tx` and `westminster` replaced their 33 mutants with 28.
 
 | escert's answer | Mutants |
 | --- | ---: |
-| REFUTED: a fault, reproduced on the ISS with concrete inputs | 50 |
-| NOT_PROVEN: a fault not excluded, and none found by the search | 13 |
-| CHECKED: no admission fault for any input | 166 |
+| REFUTED: a fault, reproduced on the ISS with concrete inputs | 53 |
+| NOT_PROVEN: a fault not excluded, and none found by the search | 20 |
+| CHECKED: no admission fault for any input | 164 |
 | CHECKED, yet the search made it fault | **0** |
 
 A CHECKED mutant is a change that keeps every deadline admissible, which escert is right
-to accept: it proves timing, not protocol correctness. All 53 inverted branches are of
+to accept: it proves timing, not protocol correctness. All 47 inverted branches are of
 this kind (escert already follows both directions of a branch whose flag depends on
-inputs, so inverting one leaves the same timed paths), and so are 63 of the 76 shortened
-delays. Six of the 13 NOT_PROVEN mutants violate a rule in every state escert holds at
+inputs, so inverting one leaves the same timed paths), and so are 67 of the 80 shortened
+delays. Ten of the 20 NOT_PROVEN mutants violate a rule in every state escert holds at
 the flagged instruction, for example a lead of exactly −24 ticks in `cec` without one of
 its ADDTs: they fault if that instruction is reachable, and the random search did not
 reach it. NOT_PROVEN is never counted as safe; such firmware carries no certificate.
@@ -492,14 +509,14 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong, the site's make-it-late audit | 633 | Pass (7 need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 MHz | 683 | Pass (7 need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
 | Co-simulation (`make cosim`) | 8 | Pass |
 | Host interface (`make host-test`) | 16 | Pass |
 | Core unit tests (`make unit-test`) | 31 | Pass |
-| Newer firmware (SWD, SPI target, NEC, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 7 | Pass on the RTL and on the final netlist |
+| Newer firmware (SWD, SPI target, NEC, NEC rebuilt for 33 MHz, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 8 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 
@@ -548,8 +565,8 @@ make proof-table fw-mutants                                      # certificates 
 make pin-test bringup-test                                       # newer firmware through the pins; bring-up script
 make gl-test gl-pin-test                                         # the same chip-level checks on the gate-level netlist
 CELLS=yes make test cosim-parallel                               # the RTL with the real clock-gate and latch cells
-make formal-quick                                                # bounded core proof, cover, never-late, clock gate, latch bank
-make formal JOBS=8                                               # adds the unbounded core proof (~1 h for v1.4)
+make formal-quick                                                # bounded core proof, cover, ahead, never-late, clock gate, latch bank, host
+make formal JOBS=8                                               # adds the unbounded core proof (72 min for v1.5 at 6 jobs)
 make equiv                                                       # final netlist equals the RTL (~4 min)
 CELLS=yes make mutation JOBS=8                                   # mutation campaign, 8 mutants at a time (hours; CI: 16 shards of ~2 h)
 ```
