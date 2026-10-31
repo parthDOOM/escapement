@@ -186,7 +186,9 @@ the same). A bank B pin is push-pull and one-directional: drive it (an output on
 [`firmware/combo_two_banks.asm`](../firmware/combo_two_banks.asm) runs four unchanged
 modules on both banks at once. `.tape addr, words...` sets the tape's initial words, and
 `.tapeb addr, bytes...` packs bytes into words from `addr`, little-endian (USB
-descriptors, for instance).
+descriptors, for instance). `.assert expr, message` stops the assembly unless `expr` is non-zero, so a
+module can state what it assumes about its parameters (v1.6; the 10BASE-T transmitter, for
+instance, needs `CLK_KHZ` = 40000).
 
 UART transmit at 115,200 baud (217 ticks per bit at 25 MHz), from
 [`firmware/uart_tx.asm`](../firmware/uart_tx.asm):

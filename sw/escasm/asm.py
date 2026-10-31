@@ -137,7 +137,9 @@ class Image:
 _ALLOWED_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant, ast.Name,
                   ast.Add, ast.Sub, ast.Mult, ast.LShift, ast.RShift, ast.BitOr,
                   ast.BitAnd, ast.BitXor, ast.Invert, ast.USub, ast.UAdd, ast.Load,
-                  ast.FloorDiv, ast.Mod)
+                  ast.FloorDiv, ast.Mod,
+                  # v1.6: comparisons (1 or 0), for .assert
+                  ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)
 
 
 def _eval(expr: str, symbols: dict[str, int], line: int, allow_undefined: bool) -> int:
@@ -313,6 +315,14 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
                         if ta in tape:
                             raise AsmError(f"{where}: tape word {ta} written twice")
                         tape[ta] = sum((v & 0xFF) << (8 * j) for j, v in enumerate(vals[i:i + 4]))
+            elif directive == ".assert":
+                # .assert EXPR[, message] : assembly fails unless EXPR is non-zero (v1.6; for
+                # a program's assumptions about its parameters, such as the clock)
+                if not 1 <= len(ops) <= 2:
+                    raise AsmError(f"{where}: .assert EXPR[, message]")
+                if final and not ev(ops[0]):
+                    msg = ops[1].strip().strip('"') if len(ops) == 2 else ops[0]
+                    raise AsmError(f"{where}: assertion failed: {msg}")
             elif directive == ".org":
                 pc = ev(ops[0])
             elif directive == ".word":

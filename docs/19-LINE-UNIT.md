@@ -1,8 +1,10 @@
 # The line unit
 
 The line unit (v1.4) moves packets between the tape and the pins and does the line
-coding on the way: NRZI, bit stuffing, a sync prefix, a CRC of any width up to 16 bits,
-an end-of-packet, and clock recovery on receive. Firmware handles packets; the line
+coding on the way: NRZI, bit stuffing, a sync prefix, a CRC (of any width up to 32 bits
+since v1.6), an end-of-packet, and clock recovery on receive. Since v1.6 each bit can be a
+pattern of cells (Manchester, pulse-width codes) and the second pin can carry a clock, so
+10BASE-T Ethernet frames, SPI at 10 Mb/s and LED strips are configurations of it too. Firmware handles packets; the line
 unit handles bits. It keeps the chip's timing model: a packet starts as an event at an
 absolute deadline, and a reception reports the tick its packet ended, so a reply can
 be scheduled a fixed number of ticks after the host's packet, exact to the tick.
@@ -126,6 +128,33 @@ The certificate needed escert to learn one thing: the CRC job's length comes fro
 frame, so its operand is known only down to bits 31:16 (`MOVHI`). escert now takes that as
 a CRC job of 0 to 255 ticks that writes no tape word ([verification](04-VERIFICATION.md#timing-certificates)).
 
+## The extended configuration (v1.6)
+
+A configuration whose W2 has `ext` carries two more words, W3 and W4
+([§6.6](11-SEMANTICS.md#66-line-unit-v14-one-global)); without it everything above is
+unchanged, digest included. One mechanism covers what would otherwise be separate
+blocks: each line bit becomes a **symbol** of up to eight **cells**, with one cell pattern
+for a 0 and one for a 1, and the cell period is W1's period (2 ticks or more).
+
+| Profile | Cells, patterns | Other fields | Result |
+| --- | --- | --- | --- |
+| 10BASE-T frame | 2 cells of 2 ticks at 40 MHz; 0 = high-low, 1 = low-high (802.3 Manchester) | prefix 0x55 seven times, SFD 0xD5 as the header, CRC-32 (`poly_hi` 0x04C1, `poly` 0x1DB7) from all ones, inverted, LSB first; end symbols L = 1 for 3 bit times; released when idle | preamble, SFD, frame, FCS and TP_IDL from one `SEND` |
+| 10BASE-T link pulse | as above | no prefix, header or data; one end symbol | one 100 ns pulse per `SEND` |
+| SPI controller, mode 0 | 2 cells; data held for both | `clk`: `n` carries the clock pattern 0 then 1, idle low (`cidle`) | MOSI and SCK at one bit per 4 ticks (10 Mb/s at 40 MHz) |
+| WS2812 | 3 cells of 0.42 µs; 0 = high one cell, 1 = high two | idle low (`ilow`) | a whole LED string from one `SEND` |
+
+Streams can be up to 8191 bits (the SEND operand's bits 29:24 extend the length), with
+the next tape word fetched halfway through the current one, so 4-tick bits never wait
+for the tape. The CRC register is 32 bits; a 16-bit configuration uses its top half, as
+before. The receiver decodes one interval per bit, so a RECV with more than one cell ends
+at once (cause VIOL).
+
+`firmware/eth_tx.asm` is a 10BASE-T transmitter: link pulses every 16 ms while idle, and
+each frame the host sends through the mailbox as one packet. It needs a 40 MHz clock
+(half-bits of exactly 2 ticks; an `.assert` stops the assembly at any other `CLK_KHZ`) and
+a transformer or an RJ45 jack with magnetics on two pins. Receive is not implemented: a
+10BASE-T receiver needs a line comparator, and Manchester at 4 samples per bit.
+
 ## Reply timing, certified
 
 `escert` proves the firmware free of admission faults for any input, and reports when
@@ -172,7 +201,8 @@ boundary: one tick less and the simulator faults.
 | `sw/tests/test_usb_hid.py` | 72 | The keyboard against a reactive USB host model that checks every device packet (EOP, stuffing, CRC, turnaround) and flags a device that drives the bus unasked: enumeration with exact descriptors, host clock ±1.5% and ±5%, random host gaps down to 2 bit times, keep-alives, `wLength` from 0 to 65535 around every packet boundary, standard and class requests, lost and corrupted handshakes, corrupted tokens and data, foreign addresses, bus reset at every stage, 10 ms resets with keep-alives every millisecond, long report sequences, glitches, hostile traffic |
 | `sw/tests/test_escert.py` | 11 more | The certificate above, checked against measured leads; exact boundaries for CONFIG, CRC and reception waits; a CRC job of input-dependent length; the path after a dropped `SEND`; random programs on the line unit (wherever escert says CHECKED, the simulator never faults and measures no lead below the bound) |
 | `sw/tests/test_usbip.py` | 4 | The USB/IP bridge, with the test playing the kernel's side |
-| `make line-test` (`test/line/`) | 8 seeds | The line unit RTL against the simulator's model, every output on every cycle: configurations from USB-like, CAN-like and random profiles, packets at offset clocks with jitter and glitches, noise, the unit's own pins read back, owner faults, stop and start, tape writes from elsewhere. 12 million cycles across 40 seeds with no difference; both builds (clock-gated and plain flip-flops) |
+| `sw/tests/test_line_ext.py`, `test_eth.py` | 6 + 1 | v1.6: a 10BASE-T frame decoded as 802.3 Manchester with its FCS checked against zlib's CRC-32, the link pulse, SPI sampled at the clock's rising edges, WS2812 through the LED model, the CRC-32 job, RECV with cells; `eth_tx.asm` sending link pulses and a frame from the host |
+| `make line-test` (`test/line/`) | 8 seeds | The line unit RTL against the simulator's model, every output on every cycle: configurations from USB-like, CAN-like and random profiles, and since v1.6 10BASE-T, SPI-clock, pulse-code and random extended ones, packets at offset clocks with jitter and glitches, noise, the unit's own pins read back, owner faults, stop and start, tape writes from elsewhere. 12 million cycles across 40 seeds with no difference; both builds (clock-gated and plain flip-flops) |
 | `sw/tests/test_firmware.py` | 6 | `can_rx` against a bus model: every frame type, 40 random frames back to back from nodes 0.5% slow or fast, bad CRCs, error flags, DLC over 8, 500 kbit/s |
 | `make cosim` | 4 jobs more | The whole chip, RTL against simulator, tick for tick and the final state of every debug register: `usb_hid.asm` enumerating and sending key reports to the USB host model, `can_rx.asm` receiving standard, extended and remote frames back to back, 40 firmware-shaped line unit programs (receives, packets at end-tick deadlines, CRC jobs, GETL timeouts, owner LDT/STT in the unit's tape cycles, another context's traffic), and random programs with line unit instructions from any context |
 
