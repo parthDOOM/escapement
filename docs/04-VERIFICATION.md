@@ -386,7 +386,9 @@ edge, which escert could not bound (POSSIBLE): at 25 MHz the gap had been 56,214
 now drains the queue first, as the frame path always did, and certifies from 2.5 to 38 MHz.
 Both NEC programs rebuilt for 33 MHz also run a frame through the chip's pins, transmitter
 through an IR receiver model into the receiver, on the RTL and on the v15c netlist
-(`test_nec_loopback_at_33_mhz_on_chip`; 2.9 million cycles, 49 minutes on the netlist).
+(`test_nec_loopback_at_33_mhz_on_chip`; 2.9 million cycles, 49 minutes on the netlist). That
+simulation is functional; the 30 ns timing of the same netlist is the static analysis in
+[physical design](03-PHYSICAL-DESIGN.md#sign-off-results).
 
 **The checker found real bugs.** It refuted the I2C controller's stuck-bus timeout,
 which released the bus with a lead of −4, and a PS/2 frame that started under the
@@ -532,7 +534,10 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 The chip-level tests drive the real pins: they load firmware over SPI, run it, decode
 the protocol on the pins, and compare the execution digest with the simulator's
 prediction. On the gate-level netlist, an equal digest means the gates executed exactly
-the commits, register values and pin changes of the model.
+the commits, register values and pin changes of the model. Gate-level simulation is
+zero-delay: it shows that the gates compute what the RTL computes, not how fast. Timing,
+at the rated 30 ns and at the default 40 ns, comes from static analysis of the routed
+netlist with extracted parasitics at three corners ([physical design](03-PHYSICAL-DESIGN.md)).
 
 ## Limits
 
