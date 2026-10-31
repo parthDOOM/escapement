@@ -1,5 +1,5 @@
-"""Remote-control and pulse-coded receivers: Sony SIRC and Philips RC5 from the carrier on
-a pin, EV1527 433 MHz codes from an OOK data pin, NMRA DCC packets from a track signal.
+"""Remote-control and pulse-coded receivers: Sony SIRC, Philips RC5 and JVC from the
+carrier on a pin, EV1527 433 MHz codes from an OOK data pin, NMRA DCC packets from a track signal.
 
 SIRC and RC5:
 Written from the protocol descriptions (SB-Projects: www.sbprojects.net/knowledge/ir/
@@ -128,6 +128,35 @@ class Rc5Receiver(_Bursts):
                 v = int("".join(map(str, bits[:14])), 2)
                 out.append({"start": v >> 12, "toggle": (v >> 11) & 1,
                             "address": (v >> 6) & 0x1F, "command": v & 0x3F})
+        return out
+
+
+class JvcReceiver(_Bursts):
+    """JVC: 38 kHz; an 8.4 ms burst and a 4.2 ms space, then 16 bits LSB first (address,
+    command), each a 526 us burst whose distance to the next burst is 1.05 ms (0) or
+    2.10 ms (1); the last bit is closed by a burst (SB-Projects jvc.php, +/-25% here)."""
+
+    def frames(self):
+        out, b, i = [], self.bursts, 0
+        while i < len(b):
+            s, e, per = b[i]
+            if not (_near(self.us(e - s), 8400) and i + 17 < len(b)
+                    and _near(self.us(b[i + 1][0] - e), 4200)):
+                i += 1
+                continue
+            bits = []
+            for j in range(i + 1, i + 17):
+                if not _near(self.us(b[j][1] - b[j][0]), 526):
+                    break
+                d = self.us(b[j + 1][0] - b[j][0])
+                bits.append(0 if _near(d, 1050) else 1 if _near(d, 2100) else None)
+            if len(bits) == 16 and None not in bits and _near(self.us(b[i + 17][1] - b[i + 17][0]), 526):
+                v = sum(bit << k for k, bit in enumerate(bits))
+                out.append({"address": v & 0xFF, "command": v >> 8,
+                            "carrier_khz": 1e6 / (per * self.tick) if per else 0})
+                i += 18
+            else:
+                i += 1
         return out
 
 

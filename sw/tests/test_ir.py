@@ -90,3 +90,43 @@ def test_dcc_packets(khz):
     got = dec.packets()
     assert [p["bytes"] for p in got] == [[a, i, a ^ i] for a, i in pkts]
     assert all(p["check_ok"] for p in got) and not dec.violations and not m.ff.valid
+
+
+@pytest.mark.parametrize("khz", [4000, 25000])
+def test_jvc_frames(khz):
+    from escmodels import JvcReceiver
+    codes = [0x59 | 0x35 << 8, 0xFFFF, 0x0000, 0x01 | 0x80 << 8]
+    if khz == 25000:
+        codes = codes[:1]
+    rx, acks = run("jvc_tx", JvcReceiver, codes, khz, 58)
+    got = [f["address"] | f["command"] << 8 for f in rx.frames()]
+    assert got == codes and acks == [1] * len(codes)
+    assert all(abs(f["carrier_khz"] - 38) < 0.5 for f in rx.frames())
+
+
+def wiegand26(facility, card):
+    v = facility << 16 | card
+    even = bin(v >> 12).count("1") & 1            # over the first 12 data bits
+    odd = 1 - (bin(v & 0xFFF).count("1") & 1)     # over the last 12
+    return even << 25 | v << 1 | odd
+
+
+@pytest.mark.parametrize("khz", [4000, 25000])
+def test_wiegand_frames(khz):
+    from escmodels import WiegandReceiver
+    cards = [(0x12, 0x3456), (0xFF, 0xFFFF), (0, 0), (0x81, 0x0102)]
+    if khz == 25000:
+        cards = cards[:2]
+    _, image = escgen.build(table("wiegand_tx"), CLK_KHZ=khz)
+    rx = WiegandReceiver(0, 1, tick_ns=1e6 / khz)
+    m = Machine(image, board=Board(rx))
+    acks = []
+    for f, c in cards:
+        m.host_rx_push(0, wiegand26(f, c))
+        m.run(int(52 * khz), stop_when_idle=False)
+        v = m.host_tx_pop(0)
+        if v is not None:
+            acks.append(v)
+    rx.finish()
+    assert [WiegandReceiver.card26(b) for b in rx.frames] == cards
+    assert not rx.violations and acks == [1] * len(cards) and not m.ff.valid

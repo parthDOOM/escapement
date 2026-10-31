@@ -1,0 +1,21 @@
+# Wiegand 26-bit reader output (access control): two lines idling high, DATA0 pulsed low
+# for a 0 and DATA1 for a 1, 50 us pulses 1 ms apart, the bits MSB first: an even parity
+# bit, 8 facility code bits, 16 card number bits, an odd parity bit (the host computes them).
+name: wiegand_tx
+title: Wiegand 26-bit reader frame on DATA0 / DATA1; one 26-bit frame (parity included) per host word, acknowledged
+refs: ["SIA AC-01-1996.10, Access Control Standard Protocol for the 26-Bit Wiegand Reader Interface (limits as quoted by vendors, e.g. Suprema support article 24000028006: pulse width 20 to 100 us, pulse interval 200 us to 20 ms)"]
+context: 0
+pins:
+  D0: {pin: 0, idle: 1}
+  D1: {pin: 1, idle: 1}
+constants:
+  W: CLK_KHZ * 50 // 1000                  # 50 us pulse
+  I: CLK_KHZ                               # 1 ms from pulse to pulse
+  GAP: CLK_KHZ * 25                        # 25 ms of quiet ends a frame
+symbols:
+  zero: [[{D0: 0}, W], [{D0: 1}, I - W]]
+  one:  [[{D1: 0}, W], [{D1: 1}, I - W]]
+  gap:  [[{D0: 1}, GAP]]
+frame: [{bits: 26, order: msb, choose: [zero, one]}]
+source: {kind: mailbox}
+packet: {after: [gap], ack: true}
