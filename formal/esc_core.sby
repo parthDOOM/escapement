@@ -3,11 +3,14 @@
 #   bmc   : bounded safety from reset (depth 32 is out of reach for yices; 16 is ~1 min)
 #   pdr   : UNBOUNDED safety by IC3/PDR (ABC); a PASS holds for every reachable state
 #   kind  : UNBOUNDED safety by k-induction (fails if the properties are not k-inductive)
+#   ahead : UNBOUNDED, by k-induction, of the labelled assertions only (v1.5 B1-B5, which
+#           the pdr task assumes; the other assertions are removed)
 [tasks]
 bmc
 cover
 pdr
 kind
+ahead
 
 [options]
 bmc: mode bmc
@@ -17,17 +20,21 @@ cover: depth 48
 pdr: mode prove
 kind: mode prove
 kind: depth 12
+ahead: mode prove
+ahead: depth 8
 
 [engines]
 bmc: smtbmc yices
 cover: smtbmc yices
 pdr: abc pdr
 kind: smtbmc yices
+ahead: smtbmc yices
 
 [script]
 ~pdr: read -formal -DFORMAL -DFORMAL_ANYNOW esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v
 pdr: read -formal -DFORMAL -DESC_CORE_PDR esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v
 prep -top esc_core
+ahead: chformal -assert -remove n:$assert$*
 # PDR needs defined initial values: every flop is async-reset and step 0 is assumed to be
 # in reset, so the pre-reset contents are irrelevant; the unbounded run reaches the 2^32
 # wrap without FORMAL_ANYNOW.

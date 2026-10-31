@@ -53,7 +53,7 @@ def pdr_lines(lines):
         if not s or s.startswith("#"):
             continue
         m = re.match(r"(~?)(\w+):\s*(.*)", s)
-        if m and m.group(2) in ("pdr", "bmc", "cover", "kind"):
+        if m and m.group(2) in ("pdr", "bmc", "cover", "kind", "ahead"):
             if (m.group(1) == "") == (m.group(2) == "pdr"):
                 res.append(m.group(3))
         else:

@@ -1028,7 +1028,12 @@ module esc_core (
     end
 
   // v1.5 B1-B5: the deadline tests registered in the cycle before a commit are their
-  // definitions (sec. 6.2) on the state of the commit cycle.
+  // definitions (sec. 6.2) on the state of the commit cycle. Proved by k-induction
+  // (esc_core.sby task `ahead`, which keeps only these labelled assertions): a commit
+  // follows at least three edges of an uninterrupted run (p1v-p3v clear on start and
+  // stop), over which the registers are a delayed copy of their definitions. Bit-level
+  // PDR cannot learn a 32-bit compare as an invariant (B1 alone ran past an hour), so the
+  // pdr task assumes them.
   wire [31:0] cs_tail    = c_tail[32*cctx +: 32];
   wire [31:0] cs_lee     = c_lee[32*cctx +: 32];
   wire [31:0] f_d_now    = cs_tmr - now;
@@ -1036,37 +1041,19 @@ module esc_core (
   wire [31:0] f_d_lee    = cs_tmr - cs_lee;
   wire        f_ahd_now  = (f_d_now != 32'd0) & ~f_d_now[31];
   wire        f_ahd_tail = (f_d_tail != 32'd0) & ~f_d_tail[31];
+`ifdef ESC_CORE_PDR
+  `define ESC_AHEAD assume
+`else
+  `define ESC_AHEAD assert
+`endif
   always @(*) if (rst_n && commit_valid) begin
-    assert (ahd_now == f_ahd_now);                                                   // B1  lemma-group: ahead
-    assert (rch_tmr == ((f_d_now == 32'd0) | (f_d_now[31] & (f_d_now[30:0] != 31'd0))));  // B2  lemma-group: ahead
-    assert (ahd_tail == f_ahd_tail);                                                 // B3  lemma-group: ahead
-    assert (ahd_lee == ((f_d_lee != 32'd0) & ~f_d_lee[31]));                         // B4  lemma-group: ahead
-    assert (lead16 == ((f_d_now[31:16] != 16'd0) ? 16'hFFFF : f_d_now[15:0]));       // B5  lemma-group: ahead
+    ahead_b1: `ESC_AHEAD (ahd_now == f_ahd_now);
+    ahead_b2: `ESC_AHEAD (rch_tmr == ((f_d_now == 32'd0) | (f_d_now[31] & (f_d_now[30:0] != 31'd0))));
+    ahead_b3: `ESC_AHEAD (ahd_tail == f_ahd_tail);
+    ahead_b4: `ESC_AHEAD (ahd_lee == ((f_d_lee != 32'd0) & ~f_d_lee[31]));
+    ahead_b5: `ESC_AHEAD (lead16 == ((f_d_now[31:16] != 16'd0) ? 16'hFFFF : f_d_now[15:0]));
   end
-  // B1-B5 in two parts, proved with them in one task: a bit-level PDR cannot learn a
-  // 32-bit compare as an invariant, and B1 alone ran past an hour. B0: the registers are
-  // their definitions on the previous cycle's operands (true one edge after any state).
-  // S: at a commit, those operands are the commit cycle's (word equalities, which PDR
-  // learns). B1-B5 then follow without an invariant of their own.
-  reg  [31:0] f_n_tmr, f_n_now, f_n_tail, f_n_lee;
-  reg         f_n_v = 1'b0;
-  always @(posedge clk) begin
-    f_n_tmr <= n_tmr; f_n_now <= now_n; f_n_v <= rst_n;
-    f_n_tail <= c_tail[32*nq +: 32]; f_n_lee <= c_lee[32*nq +: 32];
-  end
-  wire [31:0] f_p_now  = f_n_tmr - f_n_now;
-  wire [31:0] f_p_tail = f_n_tmr - f_n_tail;
-  wire [31:0] f_p_lee  = f_n_tmr - f_n_lee;
-  always @(*)
-    if (f_n_v && rst_n) begin
-      assert (ahd_now == ((f_p_now != 32'd0) & ~f_p_now[31]));                       // B0  lemma-group: ahead
-      assert (rch_tmr == ((f_p_now == 32'd0) | (f_p_now[31] & (f_p_now[30:0] != 31'd0))));  // B0  lemma-group: ahead
-      assert (ahd_tail == ((f_p_tail != 32'd0) & ~f_p_tail[31]));                    // B0  lemma-group: ahead
-      assert (ahd_lee == ((f_p_lee != 32'd0) & ~f_p_lee[31]));                       // B0  lemma-group: ahead
-      assert (lead16 == ((f_p_now[31:16] != 16'd0) ? 16'hFFFF : f_p_now[15:0]));    // B0  lemma-group: ahead
-      if (commit_valid)
-        assert (f_n_tmr == cs_tmr && f_n_now == now && f_n_tail == cs_tail && f_n_lee == cs_lee);  // S  lemma-group: ahead
-    end
+`undef ESC_AHEAD
 
   // driven(p): physical pin p is away from its released level (bank A: output enabled;
   // bank B: low, since a released split pin is high)
@@ -1115,8 +1102,8 @@ module esc_core (
     if (!run) assert (lu_mode == 3'd0 && !lu_conf);                             // lemma-group: faulted
     if (lu_owned && c_state[2*lu_owner +: 2] == 2'd3) assert (lu_mode == 3'd0 && !lu_conf);  // lemma-group: faulted
     if (cm_ok && w_push) begin
-      assert (f_ahd_now);                                                        // lemma-group: ahead
-      if (cs_cnta != 3'd0) assert (f_ahd_tail);                                  // lemma-group: ahead
+      assert (f_ahd_now);
+      if (cs_cnta != 3'd0) assert (f_ahd_tail);
       // P8 the rest of what formal/esc_ctx_env.v assumes about a push
       assert (cs_cnta != 3'd4);
       if (ev_kind == K_DRIVE) assert ((f_mask & ~owned_c) == 8'd0);
