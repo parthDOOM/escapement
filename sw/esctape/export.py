@@ -58,13 +58,15 @@ def load_capture(path) -> dict:
 _IDS = "!\"#$%&'("
 
 
-def _timescale(clock_hz: float) -> tuple[str, int]:
-    """A VCD timescale and the clock period in its units (an integer)."""
+def _timescale(clock_hz: float) -> tuple[str, float]:
+    """A VCD timescale and the clock period in its units: whole in the coarsest of ns, ps
+    and fs that allows it; otherwise (24 MHz, a board's approximate 33.3 MHz) fractional fs,
+    and each record's time is rounded on its own, so times never drift."""
     for unit, per_s in (("ns", 1e9), ("ps", 1e12), ("fs", 1e15)):
         p = per_s / clock_hz
         if abs(p - round(p)) < 1e-9:
             return f"1 {unit}", int(round(p))
-    raise ValueError(f"clock {clock_hz} Hz has no whole-femtosecond period")
+    return "1 fs", 1e15 / clock_hz
 
 
 def write_vcd(records, out, clock_hz=CLOCK_HZ, names=None, pins=0xFF) -> None:
@@ -79,10 +81,10 @@ def write_vcd(records, out, clock_hz=CLOCK_HZ, names=None, pins=0xFF) -> None:
     prev = None
     for t, lv in records:
         if prev is None:
-            lines += [f"#{t * period}", "$dumpvars"]
+            lines += [f"#{round(t * period)}", "$dumpvars"]
             lines += [f"{(lv >> i) & 1}{_IDS[i]}" for i in sel] + ["$end"]
         elif (lv ^ prev) & pins:
-            lines.append(f"#{t * period}")
+            lines.append(f"#{round(t * period)}")
             lines += [f"{(lv >> i) & 1}{_IDS[i]}" for i in sel if ((lv ^ prev) >> i) & 1]
         else:
             continue
@@ -212,7 +214,8 @@ def read_sr(path, clock_hz=CLOCK_HZ) -> tuple[list[tuple[int, int]], list[str]]:
 
 
 def read_trace(path, clock_hz=CLOCK_HZ, signals=None):
-    """Records and names from a .vcd, .sr or Escapement capture .json file."""
+    """Records and names from a .vcd, .sr or Escapement capture .json file, in ticks of
+    clock_hz (a capture taken at another clock is rescaled)."""
     from . import decode_records
     p = Path(path)
     if p.suffix == ".vcd":
@@ -220,4 +223,8 @@ def read_trace(path, clock_hz=CLOCK_HZ, signals=None):
     if p.suffix == ".sr":
         return read_sr(p, clock_hz)
     d = load_capture(p)
-    return decode_records(d["words"], d.get("first_epoch", 0)), d["names"]
+    records = decode_records(d["words"], d.get("first_epoch", 0))
+    f = d.get("clock_hz", clock_hz)
+    if f != clock_hz:
+        records = [(round(t * clock_hz / f), lv) for t, lv in records]
+    return records, d["names"]

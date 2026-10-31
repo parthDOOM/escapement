@@ -72,6 +72,27 @@ def test_vcd_round_trip_is_edge_exact(tmp_path, uart_capture):
     assert uart_bytes(edges(back, 1), TPB) == MSG
 
 
+@pytest.mark.parametrize("hz", [24e6, 33_333_333, 1e8 / 3])
+def test_vcd_round_trip_at_other_clocks(tmp_path, uart_capture, hz):
+    """USB's 24 MHz and a board's 33.3 MHz have no whole-femtosecond period: times are
+    rounded record by record, so even ticks 2^32 apart come back exactly."""
+    _, recs = uart_capture
+    far = recs + [(t + (1 << 32), lv) for t, lv in recs]
+    write_vcd(far, tmp_path / "c.vcd", clock_hz=hz)
+    back, _ = read_vcd(tmp_path / "c.vcd", clock_hz=hz)
+    assert edges(back, 1) == edges(far, 1)
+
+
+def test_capture_from_another_clock_is_rescaled(tmp_path, uart_capture):
+    """A capture taken at 33.3 MHz holds 30 ns ticks; read at 25 MHz they become 40 ns
+    ticks, so learned or replayed durations keep their length in time."""
+    words, recs = uart_capture
+    save_capture(tmp_path / "c.json", words, clock_hz=1e8 / 3)
+    back, _ = read_trace(tmp_path / "c.json")
+    assert back == [(round(t * 0.75), lv) for t, lv in recs]
+    assert read_trace(tmp_path / "c.json", clock_hz=1e8 / 3)[0] == recs
+
+
 def test_sr_round_trip(tmp_path, uart_capture):
     _, recs = uart_capture
     n = write_sr(recs, tmp_path / "c.sr")
