@@ -126,6 +126,18 @@ module esc_core (
                    OP_CAPT = 8'h36, OP_GETC = 8'h37, OP_POP = 8'h38, OP_PUSH = 8'h39,
                    OP_RXREADY = 8'h3A, OP_TXREADY = 8'h3B,
                    OP_SEND = 8'h2D, OP_LINE = 8'h3C, OP_GETL = 8'h3D;          // v1.4
+  // v1.6: bit I_x of the registered decode d_op is set iff the opcode is OP_x
+  localparam integer I_NOP = 0, I_HALT = 1, I_IRQ = 2, I_RET = 3, I_MOV = 4, I_MOVI = 5,
+                     I_MOVHI = 6, I_ADD = 7, I_SUB = 8, I_AND = 9, I_OR = 10, I_XOR = 11,
+                     I_CMP = 12, I_TSTI = 13, I_SHL = 14, I_SHR = 15, I_ADDI = 16,
+                     I_CMPI = 17, I_LDSH = 18, I_STSH = 19, I_JMP = 20, I_JZ = 21,
+                     I_JNZ = 22, I_JC = 23, I_JNC = 24, I_DJNZ = 25, I_LDLC = 26,
+                     I_CALL = 27, I_RDTIME = 28, I_SETT = 29, I_ADDT = 30, I_WAITT = 31,
+                     I_ADDTR = 32, I_EMIT = 33, I_EMITR = 34, I_EMITX = 35, I_EXPECT = 36,
+                     I_SAMPLE = 37, I_GETP = 38, I_WAITP = 39, I_GETI = 40, I_GETX = 41,
+                     I_LDT = 42, I_STT = 43, I_CAPT = 44, I_GETC = 45, I_POP = 46,
+                     I_PUSH = 47, I_RXREADY = 48, I_TXREADY = 49, I_SEND = 50, I_LINE = 51,
+                     I_GETL = 52;
 
   // reserved payload bits per format (payload bits not named by the format)
   localparam [23:0] RSV_N = 24'hFFFFFF, RSV_I8 = 24'hFFFF00, RSV_R = 24'h0FFFFF,
@@ -152,6 +164,8 @@ module esc_core (
   reg [12:0] s1, s2;
   reg        p1v, p2v, p3v;
   reg [31:0] p2_insn, p3_insn;
+  reg [52:0] d_op;                     // v1.6: decode of p3_insn, registered (below)
+  reg        illegal;
   reg        ff_valid;
   reg [2:0]  ff_cause, ff_sub;
   reg [1:0]  ff_ctx;
@@ -190,7 +204,6 @@ module esc_core (
   reg  [1:0]  cq;
   wire [1:0]  cctx    = cq;
   wire [31:0] insn    = p3_insn;
-  wire [7:0]  op      = insn[31:24];
 
   wire [31:0] cs_r0   = c_r0[32*cctx +: 32];
   wire [31:0] cs_r1   = c_r1[32*cctx +: 32];
@@ -249,7 +262,7 @@ module esc_core (
 
   // ------------------------------------------------------------------ fields
   wire [1:0]  f_rd    = insn[23:22];
-  wire [1:0]  f_rs    = (op == OP_EMITR) ? insn[15:14] : insn[21:20];
+  wire [1:0]  f_rs    = d_op[I_EMITR] ? insn[15:14] : insn[21:20];
   wire [15:0] f_imm16 = insn[15:0];
   wire [23:0] f_imm24 = insn[23:0];
   wire [4:0]  f_n     = insn[4:0];
@@ -269,41 +282,57 @@ module esc_core (
     endcase
   end
 
-  // ------------------------------------------------------------------ decode (legality)
-  reg        legal;
-  reg [23:0] rsv;
-  always @* begin
-    legal = 1'b1;
-    rsv   = RSV_N;
-    case (op)
-      OP_NOP, OP_HALT, OP_RET, OP_WAITT, OP_RXREADY, OP_TXREADY: rsv = RSV_N;
-      OP_IRQ:                                                    rsv = RSV_I8;
-      OP_MOV, OP_ADD, OP_SUB, OP_AND, OP_OR, OP_XOR, OP_CMP:     rsv = RSV_R;
-      OP_MOVI, OP_MOVHI, OP_TSTI, OP_ADDI, OP_CMPI:              rsv = RSV_I16;
-      OP_SHL, OP_SHR:                                            rsv = RSV_SH;
-      OP_LDSH, OP_SETT, OP_ADDTR, OP_PUSH, OP_CAPT, OP_SEND,
-      OP_LINE:                                                   rsv = RSV_RS;
-      OP_STSH, OP_RDTIME, OP_GETP, OP_GETI, OP_GETX, OP_POP,
-      OP_GETC, OP_GETL:                                          rsv = RSV_RD;
-      OP_LDT, OP_STT:                                            rsv = RSV_TM;
-      OP_JMP, OP_JZ, OP_JNZ, OP_JC, OP_JNC, OP_DJNZ, OP_CALL:    rsv = RSV_B;
-      OP_LDLC:                                                   rsv = RSV_L16;
-      OP_ADDT:                                                   rsv = RSV_T24;
-      OP_EMIT:                                                   rsv = RSV_P;
-      OP_EMITR:                                                  rsv = RSV_PR;
-      OP_EMITX:                                                  rsv = RSV_PX;
-      OP_EXPECT:                                                 rsv = RSV_PE;
-      OP_SAMPLE:                                                 rsv = RSV_PS;
-      OP_WAITP:                                                  rsv = RSV_PW;
-      default:                                                   legal = 1'b0;
-    endcase
-  end
-  wire illegal = ~legal | (|(insn[23:0] & rsv));
+  // ------------------------------------------------------------------ decode
+  // Legality (sec. 4): an unknown opcode, or a payload bit its format reserves.
+  // One-hot opcode and reserved-bit mask as compare logic: a case table of constants
+  // becomes a ROM in Yosys, whose read port can absorb the address register, a hidden
+  // state that k-induction starts anywhere.
+  function [52:0] onehot(input [7:0] o);
+    onehot = {o == OP_GETL, o == OP_LINE, o == OP_SEND, o == OP_TXREADY, o == OP_RXREADY,
+              o == OP_PUSH, o == OP_POP, o == OP_GETC, o == OP_CAPT, o == OP_STT,
+              o == OP_LDT, o == OP_GETX, o == OP_GETI, o == OP_WAITP, o == OP_GETP,
+              o == OP_SAMPLE, o == OP_EXPECT, o == OP_EMITX, o == OP_EMITR, o == OP_EMIT,
+              o == OP_ADDTR, o == OP_WAITT, o == OP_ADDT, o == OP_SETT, o == OP_RDTIME,
+              o == OP_CALL, o == OP_LDLC, o == OP_DJNZ, o == OP_JNC, o == OP_JC,
+              o == OP_JNZ, o == OP_JZ, o == OP_JMP, o == OP_STSH, o == OP_LDSH,
+              o == OP_CMPI, o == OP_ADDI, o == OP_SHR, o == OP_SHL, o == OP_TSTI,
+              o == OP_CMP, o == OP_XOR, o == OP_OR, o == OP_AND, o == OP_SUB,
+              o == OP_ADD, o == OP_MOVHI, o == OP_MOVI, o == OP_MOV, o == OP_RET,
+              o == OP_IRQ, o == OP_HALT, o == OP_NOP};
+  endfunction
+  function [23:0] rsv_of(input [52:0] h);
+    rsv_of = ({24{h[I_NOP] | h[I_HALT] | h[I_RET] | h[I_WAITT] | h[I_RXREADY] | h[I_TXREADY]}} & RSV_N)
+           | ({24{h[I_IRQ]}} & RSV_I8)
+           | ({24{h[I_MOV] | h[I_ADD] | h[I_SUB] | h[I_AND] | h[I_OR] | h[I_XOR] | h[I_CMP]}} & RSV_R)
+           | ({24{h[I_MOVI] | h[I_MOVHI] | h[I_TSTI] | h[I_ADDI] | h[I_CMPI]}} & RSV_I16)
+           | ({24{h[I_SHL] | h[I_SHR]}} & RSV_SH)
+           | ({24{h[I_LDSH] | h[I_SETT] | h[I_ADDTR] | h[I_PUSH] | h[I_CAPT] | h[I_SEND] | h[I_LINE]}} & RSV_RS)
+           | ({24{h[I_STSH] | h[I_RDTIME] | h[I_GETP] | h[I_GETI] | h[I_GETX] | h[I_POP] | h[I_GETC] | h[I_GETL]}} & RSV_RD)
+           | ({24{h[I_LDT] | h[I_STT]}} & RSV_TM)
+           | ({24{h[I_JMP] | h[I_JZ] | h[I_JNZ] | h[I_JC] | h[I_JNC] | h[I_DJNZ] | h[I_CALL]}} & RSV_B)
+           | ({24{h[I_LDLC]}} & RSV_L16)
+           | ({24{h[I_ADDT]}} & RSV_T24)
+           | ({24{h[I_EMIT]}} & RSV_P)
+           | ({24{h[I_EMITR]}} & RSV_PR)
+           | ({24{h[I_EMITX]}} & RSV_PX)
+           | ({24{h[I_EXPECT]}} & RSV_PE)
+           | ({24{h[I_SAMPLE]}} & RSV_PS)
+           | ({24{h[I_WAITP]}} & RSV_PW);
+  endfunction
+  function illegal_of(input [31:0] w);
+    illegal_of = ~(|onehot(w[31:24])) | (|(w[23:0] & rsv_of(onehot(w[31:24]))));
+  endfunction
+  // v1.6: the instruction is decoded in the X stage, from p2_insn, and registered beside
+  // p3_insn (both load at every edge), so the commit cycle starts from flip-flops instead
+  // of the opcode compare and legality trees. Equal to the decode of p3_insn in every
+  // cycle (formal, ahead_d1).
+  wire [52:0] d_op_n    = onehot(p2_insn[31:24]);
+  wire        illegal_n = illegal_of(p2_insn);
 
   // ------------------------------------------------------------------ datapath
   // Main adder: ADD/ADDI (A + B), SUB/CMP/CMPI (A + ~B + 1; borrow = ~carry).
-  wire        is_sub  = (op == OP_SUB) | (op == OP_CMP) | (op == OP_CMPI);
-  wire        is_immb = (op == OP_ADDI) | (op == OP_CMPI);
+  wire        is_sub  = d_op[I_SUB] | d_op[I_CMP] | d_op[I_CMPI];
+  wire        is_immb = d_op[I_ADDI] | d_op[I_CMPI];
   wire [31:0] alu_b   = is_immb ? {16'd0, f_imm16} : opb;
   wire [32:0] sum     = {1'b0, opa} + {1'b0, (is_sub ? ~alu_b : alu_b)} + {32'd0, is_sub};
 
@@ -315,14 +344,14 @@ module esc_core (
       for (i = 0; i < 32; i = i + 1) rev32[i] = x[31-i];
     end
   endfunction
-  wire        is_shr = (op == OP_SHR);
+  wire        is_shr = d_op[I_SHR];
   wire [31:0] shl_in = is_shr ? rev32(opa) : opa;
   wire [32:0] shl_t  = {1'b0, shl_in} << f_n;   // [32] = last bit shifted out (0 if n=0)
   wire [31:0] sh_res = is_shr ? rev32(shl_t[31:0]) : shl_t[31:0];
 
   // Timer adder: ADDT/ADDTR new tmr, EXPECT end-of-window d + window.
-  wire [31:0] t_add  = (op == OP_ADDT)  ? {8'd0, f_imm24} :
-                       (op == OP_ADDTR) ? opb : {25'd0, f_win};
+  wire [31:0] t_add  = d_op[I_ADDT]  ? {8'd0, f_imm24} :
+                       d_op[I_ADDTR] ? opb : {25'd0, f_win};
   wire [31:0] t_sum  = cs_tmr + t_add;
 
   // Deadline arithmetic. d = tmr during the commit cycle; c = now. v1.5: computed in the
@@ -351,10 +380,10 @@ module esc_core (
   end
 
   wire        x_bit   = f_dir ? cs_sh[31] : cs_sh[0];          // EMITX bit
-  wire [7:0]  ev_val  = (op == OP_EMITR) ? opb[7:0] :
-                        (op == OP_EMITX) ? (x_bit ? f_mask : 8'd0) : f_val;
-  wire [1:0]  ev_kind = (op == OP_EXPECT) ? K_EXPECT : (op == OP_SAMPLE) ? K_SAMPLE :
-                        (op == OP_SEND) ? K_LINE : K_DRIVE;
+  wire [7:0]  ev_val  = d_op[I_EMITR] ? opb[7:0] :
+                        d_op[I_EMITX] ? (x_bit ? f_mask : 8'd0) : f_val;
+  wire [1:0]  ev_kind = d_op[I_EXPECT] ? K_EXPECT : d_op[I_SAMPLE] ? K_SAMPLE :
+                        d_op[I_SEND] ? K_LINE : K_DRIVE;
   wire [3:0]  l_op    = opb[31:28];                            // LINE operation (sec. 7.7)
   wire [57:0] w_entry = {ev_kind, cs_tmr, f_mask, ev_val, insn[7:0]};
   wire        p_match = ((sync & f_mask) == f_val);            // WAITP
@@ -398,86 +427,87 @@ module esc_core (
       outcome = OC_F;
       f_cause = FC_ILLEGAL;
     end else begin
-      case (op)
-        OP_NOP: ;
-        OP_HALT: begin
+      (* parallel_case *)
+      case (1'b1)
+        d_op[I_NOP]: ;
+        d_op[I_HALT]: begin
           seq  = 1'b0;
           w_pc = cs_pc;
           // v1.4: the owner of an engaged line unit waits too (sec. 7.2)
           if (cs_cnta == 3'd0 && !cs_acta && !(lu_mine && lu_engaged)) w_halt = 1'b1;
           else                                                         outcome = OC_W;
         end
-        OP_IRQ: w_irq = 1'b1;
-        OP_RET: begin
+        d_op[I_IRQ]: w_irq = 1'b1;
+        d_op[I_RET]: begin
           seq  = 1'b0;
           w_pc = cs_lr;
         end
-        OP_MOV:   begin w_rd_we = 1'b1; w_rd_data = opb;                     z_src = 3'd1; end
-        OP_MOVI:  begin w_rd_we = 1'b1; w_rd_data = {16'd0, f_imm16};        z_src = 3'd1; end
-        OP_MOVHI: begin w_rd_we = 1'b1; w_rd_data = {f_imm16, opa[15:0]};    z_src = 3'd1; end
-        OP_ADD, OP_ADDI: begin
+        d_op[I_MOV]:   begin w_rd_we = 1'b1; w_rd_data = opb;                     z_src = 3'd1; end
+        d_op[I_MOVI]:  begin w_rd_we = 1'b1; w_rd_data = {16'd0, f_imm16};        z_src = 3'd1; end
+        d_op[I_MOVHI]: begin w_rd_we = 1'b1; w_rd_data = {f_imm16, opa[15:0]};    z_src = 3'd1; end
+        d_op[I_ADD], d_op[I_ADDI]: begin
           w_rd_we = 1'b1; w_rd_data = sum[31:0]; z_src = 3'd1;
           w_c_we  = 1'b1; w_c = sum[32];
         end
-        OP_SUB: begin
+        d_op[I_SUB]: begin
           w_rd_we = 1'b1; w_rd_data = sum[31:0]; z_src = 3'd1;
           w_c_we  = 1'b1; w_c = ~sum[32];
         end
-        OP_CMP, OP_CMPI: begin
+        d_op[I_CMP], d_op[I_CMPI]: begin
           z_src  = 3'd2;
           w_c_we = 1'b1; w_c = ~sum[32];
         end
-        OP_AND: begin w_rd_we = 1'b1; w_rd_data = opa & opb; z_src = 3'd1; end
-        OP_OR:  begin w_rd_we = 1'b1; w_rd_data = opa | opb; z_src = 3'd1; end
-        OP_XOR: begin w_rd_we = 1'b1; w_rd_data = opa ^ opb; z_src = 3'd1; end
-        OP_TSTI: z_src = 3'd3;
-        OP_SHL, OP_SHR: begin
+        d_op[I_AND]: begin w_rd_we = 1'b1; w_rd_data = opa & opb; z_src = 3'd1; end
+        d_op[I_OR]:  begin w_rd_we = 1'b1; w_rd_data = opa | opb; z_src = 3'd1; end
+        d_op[I_XOR]: begin w_rd_we = 1'b1; w_rd_data = opa ^ opb; z_src = 3'd1; end
+        d_op[I_TSTI]: z_src = 3'd3;
+        d_op[I_SHL], d_op[I_SHR]: begin
           w_rd_we = 1'b1; w_rd_data = sh_res; z_src = 3'd1;
           w_c_we  = 1'b1; w_c = shl_t[32];
         end
-        OP_LDSH: begin w_sh_we = 1'b1; w_sh = opb; end
-        OP_STSH: begin w_rd_we = 1'b1; w_rd_data = cs_sh; end
-        OP_JMP: begin seq = 1'b0; w_pc = f_tgt; end
-        OP_JZ:  if (cs_z)  begin seq = 1'b0; w_pc = f_tgt; end
-        OP_JNZ: if (!cs_z) begin seq = 1'b0; w_pc = f_tgt; end
-        OP_JC:  if (cs_c)  begin seq = 1'b0; w_pc = f_tgt; end
-        OP_JNC: if (!cs_c) begin seq = 1'b0; w_pc = f_tgt; end
-        OP_DJNZ: begin
+        d_op[I_LDSH]: begin w_sh_we = 1'b1; w_sh = opb; end
+        d_op[I_STSH]: begin w_rd_we = 1'b1; w_rd_data = cs_sh; end
+        d_op[I_JMP]: begin seq = 1'b0; w_pc = f_tgt; end
+        d_op[I_JZ]:  if (cs_z)  begin seq = 1'b0; w_pc = f_tgt; end
+        d_op[I_JNZ]: if (!cs_z) begin seq = 1'b0; w_pc = f_tgt; end
+        d_op[I_JC]:  if (cs_c)  begin seq = 1'b0; w_pc = f_tgt; end
+        d_op[I_JNC]: if (!cs_c) begin seq = 1'b0; w_pc = f_tgt; end
+        d_op[I_DJNZ]: begin
           w_lc_we = 1'b1; w_lc = lc_dec;
           if (lc_dec != 16'd0) begin seq = 1'b0; w_pc = f_tgt; end
         end
-        OP_LDLC: begin w_lc_we = 1'b1; w_lc = f_imm16; end
-        OP_CALL: begin
+        d_op[I_LDLC]: begin w_lc_we = 1'b1; w_lc = f_imm16; end
+        d_op[I_CALL]: begin
           // seq stays 1: CALL at PC 255 faults PC_RANGE (sec. 7.2)
           w_pc = f_tgt; w_lr_we = 1'b1; w_lr = pc_inc;
         end
-        OP_RDTIME: begin w_rd_we = 1'b1; w_rd_data = now; end
-        OP_SETT:   begin w_tmr_we = 1'b1; w_tmr = opb; end
-        OP_ADDT, OP_ADDTR: begin w_tmr_we = 1'b1; w_tmr = t_sum; end
-        OP_WAITT:  if (!rch_tmr) outcome = OC_W;
-        OP_GETP:   begin w_rd_we = 1'b1; w_rd_data = {24'd0, sync}; z_src = 3'd1; end
-        OP_WAITP: begin
+        d_op[I_RDTIME]: begin w_rd_we = 1'b1; w_rd_data = now; end
+        d_op[I_SETT]:   begin w_tmr_we = 1'b1; w_tmr = opb; end
+        d_op[I_ADDT], d_op[I_ADDTR]: begin w_tmr_we = 1'b1; w_tmr = t_sum; end
+        d_op[I_WAITT]:  if (!rch_tmr) outcome = OC_W;
+        d_op[I_GETP]:   begin w_rd_we = 1'b1; w_rd_data = {24'd0, sync}; z_src = 3'd1; end
+        d_op[I_WAITP]: begin
           if (p_match)      begin z_src = 3'd4; w_z = 1'b1; end
           else if (rch_tmr) begin z_src = 3'd4; w_z = 1'b0; end
           else              outcome = OC_W;
         end
-        OP_GETI: begin
+        d_op[I_GETI]: begin
           // v1.1 (D-20): wait while a SAMPLE is in the FIFO during the commit cycle
           if (cs_hsmp) outcome = OC_W;
           else begin
             w_rd_we = 1'b1; w_rd_data = cs_ish; z_src = 3'd1; w_geti = 1'b1;
           end
         end
-        OP_GETC: begin
+        d_op[I_GETC]: begin
           w_rd_we = 1'b1; w_rd_data = cap_status; z_src = 3'd1;
         end
         // LDT: the tape reads at this edge; the register is written at the next one
         // (ld_* below). STT: tape_we at this edge. CAPT: esc_cap. v1.4: LDT and STT wait
         // in a cycle the line unit uses the port (always one of its owner's cycles).
-        OP_LDT, OP_STT: if (lu_port) outcome = OC_W;
-        OP_CAPT: ;
+        d_op[I_LDT], d_op[I_STT]: if (lu_port) outcome = OC_W;
+        d_op[I_CAPT]: ;
         // v1.4 line unit (sec. 7.7)
-        OP_LINE: begin
+        d_op[I_LINE]: begin
           if (l_op > 4'd3) begin
             outcome = OC_F; f_cause = FC_ILLEGAL;
           end else if ((l_op == 4'd3) ? (lu_owned && !lu_mine)
@@ -487,7 +517,7 @@ module esc_core (
             outcome = OC_W;
           end
         end
-        OP_GETL: begin
+        d_op[I_GETL]: begin
           if (!lu_mine) begin
             outcome = OC_F; f_cause = FC_ADMIT; f_sub = AS_OWNER;
           end else if (!lu_busy || rch_tmr) begin
@@ -497,7 +527,7 @@ module esc_core (
             outcome = OC_W;
           end
         end
-        OP_SEND: begin
+        d_op[I_SEND]: begin
           // sec. 6.2 for a LINE entry: no mask check; a late packet is dropped, not faulted
           if (cs_cnta == 3'd4) begin
             outcome  = OC_W;
@@ -514,21 +544,21 @@ module esc_core (
             w_push = 1'b1; z_src = 3'd4; w_z = 1'b1;
           end
         end
-        OP_GETX: begin
+        d_op[I_GETX]: begin
           w_rd_we = 1'b1; z_src = 3'd1;
           w_rd_data = {cs_fail, cs_pass, 14'd0, cs_act, cs_failed};
         end
-        OP_POP: begin
+        d_op[I_POP]: begin
           if (cs_rxe) outcome = OC_W;
           else begin w_rd_we = 1'b1; w_rd_data = cs_rxh; w_rx_pop = 1'b1; end
         end
-        OP_PUSH: begin
+        d_op[I_PUSH]: begin
           if (cs_txf) outcome = OC_W;
           else        w_tx_push = 1'b1;
         end
-        OP_RXREADY: begin z_src = 3'd4; w_z = cs_rxe; end
-        OP_TXREADY: begin z_src = 3'd4; w_z = cs_txf; end
-        OP_EMIT, OP_EMITR, OP_EMITX, OP_EXPECT, OP_SAMPLE: begin
+        d_op[I_RXREADY]: begin z_src = 3'd4; w_z = cs_rxe; end
+        d_op[I_TXREADY]: begin z_src = 3'd4; w_z = cs_txf; end
+        d_op[I_EMIT], d_op[I_EMITR], d_op[I_EMITX], d_op[I_EXPECT], d_op[I_SAMPLE]: begin
           // sec. 6.2 admission, checked in order on Q = FIFO after retirement at E_c
           if (cs_cnta == 3'd4) begin
             outcome  = OC_W;
@@ -546,7 +576,7 @@ module esc_core (
           end else begin
             w_push      = 1'b1;
             w_exp_admit = (ev_kind == K_EXPECT);
-            if (op == OP_EMITX) begin
+            if (d_op[I_EMITX]) begin
               w_sh_we = 1'b1;
               w_sh    = f_dir ? {cs_sh[30:0], 1'b0} : {1'b0, cs_sh[31:1]};
               w_c_we  = 1'b1;
@@ -588,30 +618,30 @@ module esc_core (
   // Busy in a cycle whose observed commit has opcode LDT/STT, whatever its outcome
   // (sec. 6.5); otherwise the capture unit may drain into it. v1.3: the host has the
   // port in every cycle the core does not use (tape_busy low), during a run too.
-  wire        is_tm    = (op == OP_LDT) | (op == OP_STT);
+  wire        is_tm    = d_op[I_LDT] | d_op[I_STT];
   wire        tp_busy  = commit_valid & is_tm;
   // v1.4 (sec. 6.6): the line unit has the port for its scheduled accesses (an owner LDT
   // or STT then waits), and in the commit cycle of every SEND and LINE, whose operation
   // reads word R[rs][7:0] when it starts a CONFIG, a CRC job or a packet with data.
   // At a start or stop edge the unit makes no access.
-  wire        lu_cmc   = commit_valid & ((op == OP_SEND) | (op == OP_LINE));
-  wire        lu_rd_c  = cm_ok & (((op == OP_SEND) & w_push & (opb[14:8] != 7'd0))
-                                | ((op == OP_LINE) & ((l_op == 4'd3)
+  wire        lu_cmc   = commit_valid & (d_op[I_SEND] | d_op[I_LINE]);
+  wire        lu_rd_c  = cm_ok & ((d_op[I_SEND] & w_push & (opb[14:8] != 7'd0))
+                                | (d_op[I_LINE] & ((l_op == 4'd3)
                                                      | ((l_op == 4'd2) & (opb[15:8] != 8'd0)))));
   wire        lu_acc   = lu_port & ~start & ~stop;
   wire        lu_tb    = lu_port | lu_cmc;
   assign tape_addr  = lu_port ? lu_paddr : lu_cmc ? opb[7:0]
                     : tp_busy ? (opb[7:0] + f_imm16[7:0]) : cap_ptr;
   assign tape_we    = lu_port ? (lu_acc & lu_pwe) : lu_cmc ? 1'b0
-                    : tp_busy ? (cm_ok & (op == OP_STT)) : cap_drain;
-  assign tape_re    = lu_port ? (lu_acc & ~lu_pwe) : lu_cmc ? lu_rd_c : (tp_busy & (op == OP_LDT));
+                    : tp_busy ? (cm_ok & d_op[I_STT]) : cap_drain;
+  assign tape_re    = lu_port ? (lu_acc & ~lu_pwe) : lu_cmc ? lu_rd_c : (tp_busy & d_op[I_LDT]);
   assign tape_wdata = lu_port ? lu_pwdata : tp_busy ? opa : cap_head;
   assign tape_busy  = tp_busy | lu_tb | cap_drain;
 
   esc_cap u_cap (
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop_q), .run(run), .now(now),
       .psync(s2), .busy(tp_busy | lu_tb | tape_host_we), .ack(tape_ack), .ack_v(tape_ack_v),
-      .capt_we(cm_ok & (op == OP_CAPT)), .capt_v(opb),
+      .capt_we(cm_ok & d_op[I_CAPT]), .capt_v(opb),
       .drain(cap_drain), .ptr_o(cap_ptr), .head_o(cap_head),
       .status(cap_status), .cfg(cap_cfg), .rptr(cap_rptr), .ovf_tick(cap_ovf_tick));
 
@@ -655,11 +685,11 @@ module esc_core (
   esc_greg #(32) g_qld (.clk(clk), .rst_n(rst_n), .en(ld_v), .d(tape_rdata), .q(q_ld));
 
   // ------------------------------------------------------------------ line unit (v1.4)
-  wire lu_cm = cm_ok & (op == OP_LINE);
+  wire lu_cm = cm_ok & d_op[I_LINE];
   esc_line u_line (
       .clk(clk), .rst_n(rst_n), .start(start), .now(now),
       .view(vsync[8*lu_owner +: 8]), .owns(owned_by[8*lu_owner +: 8]),
-      .op_send(cm_ok & (op == OP_SEND) & w_push),
+      .op_send(cm_ok & d_op[I_SEND] & w_push),
       .op_off(lu_cm & (l_op == 4'd0)), .op_recv(lu_cm & (l_op == 4'd1)),
       .op_crc(lu_cm & (l_op == 4'd2)), .op_cfg(lu_cm & (l_op == 4'd3)),
       .op_ctx(cctx), .op_v(opb[23:0]),
@@ -854,7 +884,7 @@ module esc_core (
       dg <= 32'hFFFF_FFFF; dg_prev <= 21'd0;
       ld_v <= 1'b0; ld_ctx <= 2'd0; ld_rd <= 2'd0; q_ldk <= 4'd0;
     end else begin
-      ld_v   <= ~start & cm_ok & (op == OP_LDT);
+      ld_v   <= ~start & cm_ok & d_op[I_LDT];
       ld_ctx <= cctx;
       ld_rd  <= f_rd;
       q_ldk  <= (ld_v & ~start) ? (4'd1 << ld_ctx) : 4'd0;
@@ -875,6 +905,7 @@ module esc_core (
       s1 <= 13'd0; s2 <= 13'd0;
       p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
       p2_insn <= 32'd0; p3_insn <= 32'd0;
+      d_op <= 53'd0; illegal <= 1'b1;          // the decode of 0: no opcode, illegal
       ff_valid <= 1'b0; ff_cause <= 3'd0; ff_sub <= 3'd0; ff_ctx <= 2'd0;
       ff_pc <= 8'd0; ff_tick <= 32'd0;
       dbg_commit_valid <= 1'b0; dbg_commit_ctx <= 2'd0; dbg_commit_pc <= 8'd0;
@@ -887,6 +918,8 @@ module esc_core (
       // instruction pipeline
       p2_insn <= imem_rdata;
       p3_insn <= p2_insn;
+      d_op    <= d_op_n;
+      illegal <= illegal_n;
       if (start || stop) begin
         p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
       end else begin
@@ -1053,6 +1086,11 @@ module esc_core (
     ahead_b3: `ESC_AHEAD (ahd_tail == f_ahd_tail);
     ahead_b4: `ESC_AHEAD (ahd_lee == ((f_d_lee != 32'd0) & ~f_d_lee[31]));
     ahead_b5: `ESC_AHEAD (lead16 == ((f_d_now[31:16] != 16'd0) ? 16'hFFFF : f_d_now[15:0]));
+  end
+  wire [7:0] op = insn[31:24];
+  always @(*) if (rst_n) begin
+    ahead_d1: `ESC_AHEAD (d_op == onehot(op));
+    ahead_d2: `ESC_AHEAD (illegal == illegal_of(insn));
   end
 `undef ESC_AHEAD
 
