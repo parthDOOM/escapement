@@ -213,26 +213,51 @@ module esc_line (
   // ------------------------------------------------------------------ transmit
   wire        tx_start = (mode == PEND) & line_ret;
   wire        tx_bnd   = tx_start | ((mode == TX) & tb_hit);
-  wire [15:0] crc_in   = tx_start ? crc_start : crc;
   wire [6:0]  nb       = cmd[14:8];
   wire [5:0]  sen = {1'b1, c_diff & (c_eop != 2'd0), cmd[15] & m_c[15], nb != 7'd0, c_hdr,
                      c_pre != 8'd0};
-  reg  [2:0]  eseg;                                      // first enabled segment >= seg
-  integer si;
-  always @(*) begin
-    eseg = 3'd5;
-    for (si = 4; si >= 0; si = si - 1)
-      if (si[2:0] >= seg && sen[si]) eseg = si[2:0];
-  end
-  wire [7:0]  fbyte  = (eseg == 3'd0) ? c_pre : cmd[23:16];
+  // first enabled segment at or after a segment
+  function [2:0] first_seg(input [2:0] from, input [5:0] en);
+    integer si;
+    begin
+      first_seg = 3'd5;
+      for (si = 4; si >= 0; si = si - 1)
+        if (si[2:0] >= from && en[si]) first_seg = si[2:0];
+    end
+  endfunction
+  // v1.6: the line bit of a boundary starts from flip-flops. The packet bit, its
+  // last-of-segment flag and its segment depend on seg, pos, the stream buffer and crc,
+  // which change only at a boundary, at a SEND, and when a stream word loads, at least
+  // three cycles before the next boundary (sec. 6.6: usable from u + 1 <= B + 5, and
+  // P_int >= 8). So they are registered in every cycle (pb_q, sl_q, es_q), and in every
+  // boundary cycle but the first they hold that cycle's values (asserted below). The first
+  // boundary has seg = pos = 0 (set by the SEND) and uses direct values, which select
+  // fixed bits only.
+  wire [2:0]  es_c   = first_seg(seg, sen);              // registered as es_q
+  wire [7:0]  fbyte  = (es_c == 3'd0) ? c_pre : cmd[23:16];
   wire        b_byte = fbyte[pos[2:0] ^ {3{~c_lsb}}];
-  wire [15:0] crcx   = c_inv ? ~crc_in : crc_in;
+  wire [15:0] crcx   = c_inv ? ~crc : crc;
   wire        b_crc  = crcx[~pos[3:0]];
-  wire        pbit   = (eseg[2:1] == 2'b00) ? b_byte : (eseg == 3'd2) ? sbit : b_crc;
-  wire        s_last = (eseg[2:1] == 2'b00) ? (pos[2:0] == 3'd7)
-                     : (eseg == 3'd2) ? (pos + 7'd1 == nb)
-                     : (eseg == 3'd3) ? lsbm[~pos[3:0]]
+  wire        pb_c   = (es_c[2:1] == 2'b00) ? b_byte : (es_c == 3'd2) ? sbit : b_crc;
+  wire        sl_c   = (es_c[2:1] == 2'b00) ? (pos[2:0] == 3'd7)
+                     : (es_c == 3'd2) ? (pos + 7'd1 == nb)
+                     : (es_c == 3'd3) ? lsbm[~pos[3:0]]
                      : (pos[1:0] == c_eop);
+  reg  [2:0]  es_q;
+  reg         pb_q, sl_q;
+  wire [2:0]  es0    = first_seg(3'd0, sen);             // the first boundary: seg = pos = 0
+  wire        crcx0  = c_inv ? ~crc_start[15] : crc_start[15];   // first CRC bit
+  wire        sb0    = ld ? (c_lsb ? rdata[0] : rdata[31]) : (c_lsb ? buf_q[0] : buf_q[31]);
+  wire        pb0    = (es0 == 3'd0) ? (c_lsb ? c_pre[0] : c_pre[7])
+                     : (es0 == 3'd1) ? (c_lsb ? cmd[16] : cmd[23])
+                     : (es0 == 3'd2) ? sb0 : crcx0;
+  wire        sl0    = (es0[2:1] == 2'b00) ? 1'b0
+                     : (es0 == 3'd2) ? (nb == 7'd1)
+                     : (es0 == 3'd3) ? lsbm[15]
+                     : (c_eop == 2'd0);
+  wire [2:0]  eseg   = tx_start ? es0 : es_q;
+  wire        pbit   = tx_start ? pb0 : pb_q;
+  wire        s_last = tx_start ? sl0 : sl_q;
   wire        t_line = ~abt & (due | (eseg <= 3'd3));      // a line bit at this boundary
   wire        t_end  = abt | (~due & (eseg == 3'd5));
   wire        t_pkt  = ~due & (eseg <= 3'd3);                // ... and it is a packet bit
@@ -335,7 +360,7 @@ module esc_line (
       el <= 12'd0; acc <= 9'd0; ext <= 1'b0; rn <= 4'd0; rb <= 1'b0; kc <= 9'd0;
       pos <= 7'd0; seg <= 3'd0; lv <= 1'b1; xp <= 1'b1; req <= 1'b0; fin <= 1'b0;
       eopw <= 1'b0; hunt <= 1'b0; dec <= 1'b0; stor <= 1'b0; noted <= 2'd0;
-      mon <= 1'b0; abt <= 1'b0;
+      mon <= 1'b0; abt <= 1'b0; es_q <= 3'd5; pb_q <= 1'b0; sl_q <= 1'b0;
     end else if (lu_hold) begin
     end else if (start) begin
       owned <= 1'b0; owner <= 2'd0; conf <= 1'b0; mode <= IDLE; ld <= 1'b0; req <= 1'b0;
@@ -343,6 +368,7 @@ module esc_line (
     end else if (kill) begin                             // as OFF; fault and stop release pins
       mode <= IDLE; req <= 1'b0; fin <= 1'b0; conf <= 1'b0; ld <= 1'b0;
     end else begin
+      es_q <= es_c; pb_q <= pb_c; sl_q <= sl_c;
       ld <= rd_now | rd_commit;
       if (halt_done && arm_on) mode <= IDLE;
       if (op_send) begin
@@ -407,7 +433,7 @@ module esc_line (
               if (s_last) begin seg <= eseg + 3'd1; pos <= 7'd0; end
               else pos <= pos + 7'd1;
               if (eseg == 3'd2) begin
-                crc <= crc_nx(crc_in, sbit, c_poly);
+                crc <= crc_nx(tx_start ? crc_start : crc, pbit, c_poly);
                 if (pos[4:0] == 5'd31 && !s_last) req <= 1'b1;
               end
             end
@@ -485,6 +511,10 @@ module esc_line (
     end
   end
 `ifdef FORMAL
+  // v1.6: a transmit boundary other than the first uses registered values equal to the
+  // values of its own cycle (the timing argument above).
+  always @(*) if (rst_n && mode == TX && tb_hit && !kill && !start && !anyop)
+    assert (es_q == es_c && pb_q == pb_c && sl_q == sl_c);
   // A CONFIG keeps its phase: it commits in an owner cycle c (now = owner - 1 mod 4) and
   // during cycle c+1+k it has el = k, so it completes at E_(c+9), never at one of the
   // owner's commit edges (the lemma for esc_core's P8 clause).
