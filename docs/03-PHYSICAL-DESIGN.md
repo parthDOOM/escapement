@@ -27,7 +27,8 @@ Version 1.5 (tests decided a cycle early, D-43), harden `v15c` (local, `scripts/
 | IR drop | 0.19 mV worst |
 | Power (static estimate) | 2.68 mW at 25 MHz; workload measurements in [power](15-POWER.md) |
 | Precheck | Tiny Tapeout precheck (tt-support-tools `d66cf17`) passes, including KLayout SG13CMOS5L DRC |
-| Gate level | The chip-level (7) and pin (7) test suites pass on the final netlist; the netlist is proved equivalent to the RTL |
+| Gate level | The chip-level (7) and pin (8, one of them NEC rebuilt for 33 MHz) test suites pass on the final netlist (zero-delay simulation: function, not timing); the netlist is proved equivalent to the RTL |
+| Reproduction | A second harden of the committed `src/config.json`, with no overrides, gives the same netlist (sha256 `2b8e5f5b…`) and the same value for every flow metric; GitHub Actions' harden runs on push |
 
 Version 1.5 adds 28 flip-flops (each FIFO's retire and late flags, the core's four test
 flags and its 16-bit lead) and 989 cells. A layout of the same RTL without the second
