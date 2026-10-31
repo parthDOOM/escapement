@@ -132,12 +132,15 @@ an uninterrupted run, because the pipeline's valid bits clear on start and stop,
 those edges the registers are a delayed copy of their definitions. The task passes in
 seconds, and it has teeth: measuring the lead from the current tick instead of the next
 one fails with a trace, and computing the tests for the context committing now instead
-of next fails the induction step. The PDR tasks assume B1–B5 instead of proving them.
-Bit-level PDR cannot use them otherwise: its invariant is a set of clauses over the
+of next fails the induction step. Every other task (the PDR tasks, the bounded check and
+the covers) assumes B1–B5 instead of proving them. Bit-level PDR cannot use them otherwise: its invariant is a set of clauses over the
 flip-flops, and "this register equals a 32-bit comparison of those registers" has no
 compact clause form, even when it holds one edge after any state. Proved as PDR tasks,
 alone or grouped with helper lemmas, they had not converged after an hour. The assumption
-is sound because the `ahead` task proves them under the same environment.
+is sound because the `ahead` task proves them under the same environment. Asserted at
+every step of the bounded check, they doubled its time by depth 15; assumed, it reaches
+depth 16 in 569 s locally against 351 s for version 1.4, the rest being v1.5's added
+state.
 
 **Faults from the line unit.** A CONFIG that turns out invalid faults its owner when it
 completes, an edge where another context may commit. P8's commit clause is therefore
@@ -203,21 +206,34 @@ visible. Before any mutant is scored, every suite it needs must pass on the unmu
 RTL: a suite that cannot run (a tool or model problem) would otherwise fail for every
 mutant and read as kills.
 
-The campaign has 710 mutants across the whole RTL, the line unit included. Fifty-two are
-written by hand, each aimed at one feature (below). The other 658 are generated
+The campaign has 745 mutants across the whole RTL, the line unit included. Seventy are
+written by hand, each aimed at one feature (below). The other 675 are generated
 (`test/mutation/generate.py`):
 every synthesisable line outside the formal blocks is scanned for classic fault sites
 (a comparison or logic operator swapped, an inversion dropped, an arithmetic operator
 swapped, a constant changed, an `if` condition negated, a register that keeps its value
 instead of taking an assignment), and a site is chosen when a hash of its file, operator
-and line text falls under a fixed rate, so editing one line changes only that line's
-mutants.
+and line text falls under a fixed rate (30%), so editing one line changes only that line's
+mutants. `--rate 1` takes every site, 2,189 mutants in all; that run is too long for CI
+and is made locally, on lines that change.
 
 A mutant that every suite misses is then checked formally against the original RTL with
 `formal/equiv.sh`: if no input sequence ever makes any chip output differ, it is
 **equivalent**, and no test could kill it. Otherwise it is a test hole.
 
 The hand-written mutants:
+
+Eighteen target v1.5's tests decided a cycle early (D-43). Six the FIFO head's retire
+flag: measured against the current tick instead of the next, the entry behind a retiring
+head never tested, an entry pushed into an empty FIFO with lead 1 never retiring, a test
+that ignores a retirement emptying the FIFO, an empty FIFO tested against a lead nobody
+pushed, and a stop or fault that leaves the flag set. Twelve the core's registered tests:
+computed for the context committing now instead of next, the lead measured from the
+current tick, the FIFO tail or the window end taken from the wrong context, a timer exactly
+half the range ahead counted as reached, a deadline 2^31 − 1 ticks ahead refused, unsigned
+comparisons in place of the half-range ones (wrong only across the counter's wrap), the
+lead saturating at 17 bits or one below 0xFFFF, and a deadline equal to the FIFO tail or
+to the open window's end admitted.
 
 Eight mutants target pin bank B: a DRIVE landing one pin off, a released output going
 low, a context reading the other bank, ownership checked against the wrong bank, a fault

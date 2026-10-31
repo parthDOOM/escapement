@@ -235,6 +235,7 @@ EXCLUDED = {
     "esc_core_rel_b808cdef": P2,       # esc_core.v:491 cs_late suppression
     "esc_core_cond_6ee4183d": P2,      # esc_core.v:666 late_ctx priority
     "esc_core_const_f8680ed1": P2,     # esc_core.v:776 first-fault record of LATE_HEAD
+    "esc_ctx_stuck_dd1c44ac": P2,      # esc_ctx.v:328 late_q never set (it is never set anyway)
     "escapement_sram_const_6c8bc178": "A_DLY is the SRAM macro's delay-select tie (must be 1); it has no "
                                       "function in any model, and the macro model flags any other value",
     "escapement_sram_const_8907efe9": "A_BIST_REN is read only in the macro's BIST mode, which A_BIST_EN = 0 "

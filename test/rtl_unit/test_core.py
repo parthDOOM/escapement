@@ -418,6 +418,36 @@ async def test_waitt_waitp(dut):
     assert env.commit_at(19)["r1"] == 19
 
 
+@cocotb.test()
+async def test_timer_range_edges(dut):
+    """Sec. 2: reached(c, tmr) at the ends of the half range, from the tests decided a cycle
+    early (v1.5): tmr - c = 2^31 is not reached, tmr - c = 2^31 + 1 is (2^31 - 1 behind)."""
+    env = await new_env(dut)
+    # tmr = 0x80000000 + 15, WAITT at tick 15: d = 2^31 -> waits, and keeps waiting
+    await env.load_and_start(".entry 0, s\ns: MOVHI r0, 0x8000\nADDTR r0\nADDT 15\nWAITT\nHALT")
+    await env.run(28)
+    assert env.commit_summary() == [(3, 0, 0, C), (7, 0, 1, C), (11, 0, 2, C),
+                                    (15, 0, 3, W), (19, 0, 3, W), (23, 0, 3, W)]
+    # tmr = 0x80000000 + 16: d = 2^31 + 1 at tick 15 -> completes there
+    await env.load_and_start(".entry 0, s\ns: MOVHI r0, 0x8000\nADDTR r0\nADDT 16\nWAITT\nHALT")
+    await env.run(24)
+    assert env.commit_summary() == [(3, 0, 0, C), (7, 0, 1, C), (11, 0, 2, C),
+                                    (15, 0, 3, C), (19, 0, 4, C)]
+
+
+@cocotb.test()
+async def test_lead_saturates(dut):
+    """Sec. 10 telemetry: a lead of 65,536 or more counts as 0xFFFF, and an entry pushed into an
+    empty FIFO with lead 65,537 (low half 1) is not taken as due at the next tick."""
+    env = await new_env(dut)
+    # EMIT at tick 7, d = 65,544: lead 65,537
+    await env.load_and_start(".entry 0, s\n.own 0, 0\ns: ADDT 65544\nEMIT 1, 1, 1\nl: JMP l")
+    await env.run(40)
+    assert all((r["out"], r["oe"]) == (0, 0) for r in env.trace)
+    assert await env.rd(9) == 0xFFFF0000            # min_lead 0xFFFF, wait_full 0
+    assert (await env.rd(10) >> 4) & 7 == 1         # still queued
+
+
 # --------------------------------------------------------------------------- sec. 7.1
 @cocotb.test()
 async def test_flags_shifts(dut):
@@ -871,7 +901,9 @@ async def test_stop(dut):
     assert tr[30]["running"] == 1 and tr[31]["running"] == 0
     assert all((tr[t]["out"], tr[t]["oe"]) == (1, 1) for t in range(22, 31))
     assert all((tr[t]["out"], tr[t]["oe"]) == (1, 0) for t in range(31, 50))   # val kept
-    assert tr[31]["state"] == (HALTED << 6) | (HALTED)
+    # and stays so: nothing left over from the stop edge (a late flag, say) faults it
+    assert all(tr[t]["state"] == (HALTED << 6) | (HALTED) for t in range(31, 50))
+    assert all(tr[t]["fv"] == 0 for t in range(50)) and await env.rd(14) == 0
     assert (tr[30]["sel"][(10, 0)] >> 1) & 1 == 1
     # after stop: count 0, inactive, no pass/fail; max_occ 2 (t15: Q {20})
     assert all(tr[t]["sel"][(10, 0)] == (2 << 8) for t in range(31, 50))
