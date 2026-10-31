@@ -27,10 +27,11 @@ adds one exception, and keeps it protocol-neutral: a configurable line unit for 
 work that four instructions per bit cannot do (D-33).
 
 **D-5 Clock: 25 MHz at the slow corner.** The rated frequency is quoted at the slow
-corner (1.08 V, 125 °C), not the typical one. The v1.4 layout itself meets timing up to
-28.6 MHz at the slow corner and 45 MHz at the typical one (v1.3: 35 and 55 MHz)
-([physical design](03-PHYSICAL-DESIGN.md#sign-off-results));
-the rating keeps that margin, and the USB firmware runs at 24 MHz (D-37).
+corner (1.08 V, 125 °C), not the typical one. The v1.5 layout itself meets timing up to
+38.6 MHz at the slow corner and 61.3 MHz at the typical one (v1.4: 28.6 and 45 MHz; v1.3: 35
+and 55 MHz) ([physical design](03-PHYSICAL-DESIGN.md#sign-off-results)); the rating keeps
+that margin, VGA Pong uses the core clock as its pixel clock, and the USB firmware runs at
+24 MHz (D-37).
 
 **D-9 Event model.** Per-context FIFOs of DRIVE, EXPECT and SAMPLE entries with absolute
 deadlines, strict ordering within half the counter range, and visible rejection. An
@@ -234,6 +235,23 @@ co-simulation failed within seconds and each failure read as a kill. `run_mutant
 runs every suite a shard needs on the unmutated RTL first and stops if one fails, and CI
 builds Icarus 13. A kill that took seconds where a pass takes minutes was the clue; the
 baseline makes the check mechanical.
+
+**D-43 Tests decided a cycle early (v1.5).** v1.4's limiting path at the slow corner ran
+from a context's tick counter through the FIFO head's deadline comparison and the retire
+and fault logic to a pin's output register, and the committing instruction's admission
+tests (its deadline ahead of now, of its FIFO tail and of its open window's end; its timer
+reached) reached the same fault logic as late, so moving either alone gained nothing
+([physical design](03-PHYSICAL-DESIGN.md#sign-off-results)). Every operand of those 32-bit
+tests is known a cycle before it is used. A context's timer, tail and window end change
+only at its own commit, four edges back, and the tick then is now + 1. So each FIFO
+decides its next head's retire and late flags, and the core decides the admission and
+timer tests of the context that commits next, in the cycle before, into registers. No program can tell the difference; the subtractions leave the path from the
+counter to the pins. The proofs state each register as an equality with its definition in
+every cycle that uses it (D1, D2, B1–B5, [verification](04-VERIFICATION.md)), so every
+other property reads as before. It costs 28 flip-flops and 2% power. The layout, placed and
+routed for 30 ns, meets timing at the slow corner up to 38.6 MHz (v1.4: 28.6 MHz; a v1.4
+layout aimed at 32 ns reached about 30.5 MHz), and the limit is now the decode of the
+instruction itself.
 
 ## Power and timing margin
 
