@@ -21,7 +21,7 @@ from esctape import decode_capture, decode_records, edges
 from spi_master import SpiMaster
 
 FW = Path(__file__).resolve().parents[1] / "firmware"
-CLK_NS = 40  # 25 MHz design target
+CLK_NS = 40  # 25 MHz, the default clock (rated up to 33 MHz, D-5)
 
 
 class UiBit:

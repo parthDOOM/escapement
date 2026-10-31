@@ -122,15 +122,16 @@ the path from the tick counter to the pins; no program can tell the difference, 
 proofs check each registered test against its definition in every cycle that uses it. The
 layout meets timing up to 38.6 MHz at the slow corner, 61.3 MHz at the typical one and
 94.3 MHz at the fast one (v1.4: 28.6, 45 and 70 MHz; layout effort alone took v1.4 to about
-30.5 MHz at the slow corner), for 28 more flip-flops and 2% more power. The rating stays
-25 MHz (D-43).
+30.5 MHz at the slow corner), for 28 more flip-flops and 2% more power. Signed off at
+30 ns, the chip is rated for clocks up to 33 MHz; the shipped firmware runs at 25 MHz
+(D-5, D-43).
 
 ## Results
 
 | | |
 | --- | --- |
 | Process | IHP SG13CMOS5L (130 nm), Tiny Tapeout, **6×4 tiles** (1289.28 × 710.64 µm) |
-| Clock | 25 MHz rated at the slow corner (1.08 V, 125 °C); the layout meets timing up to 38.6 MHz there, 61.3 MHz at the typical corner (1.20 V, 25 °C) and 94.3 MHz at the fast one ([frequency headroom](docs/03-PHYSICAL-DESIGN.md#sign-off-results)) |
+| Clock | Rated up to 33 MHz at the slow corner (1.08 V, 125 °C), 25 MHz by default; the layout meets timing up to 38.6 MHz there, 61.3 MHz at the typical corner (1.20 V, 25 °C) and 94.3 MHz at the fast one ([frequency headroom](docs/03-PHYSICAL-DESIGN.md#sign-off-results)) |
 | Physical | 28,961 cells and two SRAM macros, 59.5% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes; the netlist is proved equivalent to the RTL and passes the chip and pin tests |
 | Power | 3.2 mW sending UART, 2.5 mW stopped (typical corner, 25 MHz) |
 | Firmware | 32 programs (two, the USB keyboard and the CAN receiver, for v1.4's line unit), five of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs); of 229 timing bugs planted in them, escert rejects 63, and none of the 166 it certifies faults under a randomised input search ([certificates](docs/04-VERIFICATION.md#planted-timing-bugs)) |

@@ -16,7 +16,7 @@ Version 1.5 (tests decided a cycle early, D-43), harden `v15c` (local, `scripts/
 | Standard cells | 28,961 (433,985 µm²); storage: 2,037 flip-flops and 2,365 latches, plus 80 clock-gate latches |
 | Macros | 2 × `RM_IHPSG13_1P_256x32_c2_bm_bist` (98,977 µm²) |
 | Utilisation | 59.5% |
-| Clock | Rated 25 MHz (40 ns); placed, routed and signed off at 30 ns (33.3 MHz) |
+| Clock | Placed, routed and signed off at 30 ns: rated up to 33 MHz; 25 MHz by default (D-5) |
 | Setup | No violations at any corner at 30 ns. The latch banks' inputs borrow time (D-40) and report 0 slack; at 40 ns the worst path into a flip-flop has +14.13 ns (slow), +23.73 ns (typical), +29.41 ns (fast) |
 | Hold | No violations. Worst slack: fast +0.157 ns, typical +0.290 ns, slow +0.478 ns |
 | Hold buffers | 1,523 after clock-tree synthesis (margin 0.2 ns), 72 after global routing |
@@ -79,7 +79,7 @@ the line unit 1.0 ns before the latch opens and could borrow 19.9 ns more. The 1
 max-fanout warnings (v1.4: 101) are against the template's limit of 10 loads, and the nets
 behind them meet their slew limits.
 
-**Frequency headroom.** 25 MHz is the rating at the slow corner with margin to spare (D-5),
+**Frequency headroom.** 33 MHz is the rating at the slow corner with margin to spare (D-5),
 not the limit of the layout. Static timing analysis of the final v15c (v1.5) netlist with
 its extracted parasitics (OpenSTA, the sign-off constraints with the latches modelled, the
 period shortened and the 20% I/O delays scaled with it) finds the shortest period at which
@@ -92,7 +92,8 @@ past its limit, negative):
 | Typical, 1.20 V, 25 °C | 16.3 ns | 61.3 MHz | 16.2 ns | 45 MHz |
 | Fast, 1.32 V, −40 °C | 10.6 ns | 94.3 MHz | 10.5 ns | 70 MHz |
 
-The rating keeps 35% at the slow corner (v1.4: 14%). v1.4's limit was a single-cycle path
+The rating keeps 16% at the slow corner, and the 25 MHz default 54% (v1.4, rated 25 MHz:
+14%). v1.4's limit was a single-cycle path
 from a context's tick counter through the deadline comparison and the retire and fault
 logic to a pin's output register (`now` to `pin_val`, 34.4 ns at the slow corner), and the
 committing instruction's admission tests reached the same fault logic as late. Version 1.5
@@ -107,9 +108,9 @@ flow does not model (the Tiny Tapeout clock specification gives 66 MHz).
 
 Layout effort alone did not move v1.4 this far: a trial harden of the v1.4 RTL with a 32 ns
 target (`v14j`) ended with its limiting path at −0.42 ns at the slow corner, about 30.5 MHz.
-Version 1.5 is placed and routed for 30 ns. The rating stays at 25 MHz: VGA Pong uses the
-core clock as its pixel clock (VGA's is 25.175 MHz), and every shipped program is timed and
-certified for a 40 ns tick.
+Version 1.5 is placed, routed and signed off at 30 ns, so it is rated up to 33 MHz. The
+shipped firmware still runs at 25 MHz: VGA Pong uses the core clock as its pixel clock
+(VGA's is 25.175 MHz), and the hand-written programs count 40 ns ticks (D-5).
 
 `scripts/frequency-headroom.sh RUN_DIR` reruns the sweep behind the table on a harden run
 of `scripts/local-harden.sh` ([toolchain](05-TOOLCHAIN.md#local-hardening)).

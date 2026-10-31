@@ -26,12 +26,16 @@ branch-free. CRC-15 and bit stuffing for CAN run in firmware at 250 kbit/s. Vers
 adds one exception, and keeps it protocol-neutral: a configurable line unit for the bit
 work that four instructions per bit cannot do (D-33).
 
-**D-5 Clock: 25 MHz at the slow corner.** The rated frequency is quoted at the slow
-corner (1.08 V, 125 °C), not the typical one. The v1.5 layout itself meets timing up to
-38.6 MHz at the slow corner and 61.3 MHz at the typical one (v1.4: 28.6 and 45 MHz; v1.3: 35
-and 55 MHz) ([physical design](03-PHYSICAL-DESIGN.md#sign-off-results)); the rating keeps
-that margin, VGA Pong uses the core clock as its pixel clock, and the USB firmware runs at
-24 MHz (D-37).
+**D-5 Clock: up to 33 MHz, 25 MHz by default.** Frequencies are quoted at the slow corner
+(1.08 V, 125 °C), not the typical one. Since version 1.5 the layout is signed off at 30 ns,
+so the chip is rated for clocks up to 33 MHz; it meets timing up to 38.6 MHz at the slow
+corner and 61.3 MHz at the typical one (v1.4, rated 25 MHz: 28.6 and 45 MHz; v1.3: 35 and
+55 MHz) ([physical design](03-PHYSICAL-DESIGN.md#sign-off-results)). The shipped firmware is
+timed for 25 MHz, the clock `info.yaml` asks the Tiny Tapeout board for: VGA Pong uses the
+core clock as its pixel clock, the hand-written programs count ticks at 40 ns, and the USB
+firmware runs at 24 MHz (D-37). The 14 programs whose timing derives from `CLK_KHZ`
+rebuild for another clock; at 33.333 MHz eleven certify unchanged, and `nec_tx`, `nec_rx`
+and `westminster` are timed for clocks up to 25 MHz.
 
 **D-9 Event model.** Per-context FIFOs of DRIVE, EXPECT and SAMPLE entries with absolute
 deadlines, strict ordering within half the counter range, and visible rejection. An
@@ -176,7 +180,7 @@ the cycle alone.
 **D-37 USB runs at 24 MHz.** Low-speed USB allows 25 ns of jitter per data transition. At
 25 MHz a bit is 16⅔ ticks and the fractional period puts edges up to one tick (40 ns)
 early, so the USB firmware and tests use a 24 MHz clock, 16 ticks per bit, and the chip
-keeps its 25 MHz rating.
+keeps its 25 MHz default.
 
 **D-38 The configuration words are not debug registers.** Debug selects 22 to 24 first
 showed W0 to W2. To keep them exact, a CONFIG would have had to hold its new words aside
@@ -248,10 +252,10 @@ decides its next head's retire and late flags, and the core decides the admissio
 timer tests of the context that commits next, in the cycle before, into registers. No program can tell the difference; the subtractions leave the path from the
 counter to the pins. The proofs state each register as an equality with its definition in
 every cycle that uses it (D1, D2, B1–B5, [verification](04-VERIFICATION.md)), so every
-other property reads as before. It costs 28 flip-flops and 2% power. The layout, placed and
-routed for 30 ns, meets timing at the slow corner up to 38.6 MHz (v1.4: 28.6 MHz; a v1.4
-layout aimed at 32 ns reached about 30.5 MHz), and the limit is now the decode of the
-instruction itself.
+other property reads as before. It costs 28 flip-flops and 2% power. The layout, signed
+off at 30 ns, meets timing at the slow corner up to 38.6 MHz (v1.4: 28.6 MHz; a v1.4 layout
+aimed at 32 ns reached about 30.5 MHz), and the limit is now the decode of the instruction
+itself. The rating rises from 25 to 33 MHz (D-5).
 
 ## Power and timing margin
 

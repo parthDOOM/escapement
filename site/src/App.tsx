@@ -84,11 +84,11 @@ export default function App() {
                 <a className="icon-btn" href="#inside">How it works</a>
               </div>
               <div className="facts">
-                <div><b>40 ns</b><span>one tick at 25 MHz</span></div>
+                <div><b>40 ns</b><span>one tick at 25 MHz, rated to 33</span></div>
                 <div><b>4</b><span>programs running at once</span></div>
                 <div><b>13</b><span>protocol pins, two banks</span></div>
                 <div><b>32</b><span>firmware programs</span></div>
-                <div><b>3.1 mW</b><span>sending UART</span></div>
+                <div><b>3.2 mW</b><span>sending UART</span></div>
                 <div><b>0</b><span>late edges, for any program, for all time</span></div>
               </div>
             </div>

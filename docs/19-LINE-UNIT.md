@@ -76,8 +76,8 @@ and CRC-8/MAXIM-DOW.
 
 **Clock.** USB low speed allows 25 ns of jitter per data transition (USB 2.0, TDDJ1). At
 25 MHz a bit is 16⅔ ticks, and the 1/256-tick period makes edges land up to 40 ns early,
-so the USB firmware runs at 24 MHz, where a bit is exactly 16 ticks. The chip itself is
-rated for 25 MHz.
+so the USB firmware runs at 24 MHz, where a bit is exactly 16 ticks. The chip itself runs
+at 25 MHz by default and is rated up to 33 MHz.
 
 ## A USB keyboard
 
