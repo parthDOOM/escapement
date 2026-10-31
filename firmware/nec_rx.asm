@@ -12,22 +12,23 @@
 ; error (about +/-10% overall).
 ;
 ; Every mark and space is measured edge to edge: WAITP (with a timeout of 18 units,
-; so a stuck line is rejected) and RDTIME, in 4-tick units (exact to the slot grid,
-; 0.16 us). No events are queued, so there is nothing for the certificate to refuse.
+; so a stuck line is rejected) and RDTIME, in units of 2^U ticks: 4 up to 25 MHz (exact
+; to the slot grid, 0.16 us), 8 up to 50 MHz, so the 18-unit bound always fits the 16-bit
+; compare. No events are queued, so there is nothing for the certificate to refuse.
 ;
 ; Host: PUSH one word per valid transmission:
 ;   repeat code   0x80000000
 ;   frame         [23:16] command, [15:0] address, [24] extended: set when the second
 ;                 byte is not the inverse of the first, so [15:0] is a 16-bit address
 ; A frame whose command byte is not followed by its inverse, or any timing outside
-; the windows, is dropped and the receiver waits for the line to idle. CLK_KHZ up to
-; 25000 (the 18-unit bound must fit 16 bits in 4-tick units).
+; the windows, is dropped and the receiver waits for the line to idle.
 
 .default CTX, 1
 .default PIN, 1
 .default CLK_KHZ, 25000
 .equ RX, 1 << PIN
-.equ H, CLK_KHZ * 9                  ; H * k // 128 = k half units (281.25 us), 4-tick units
+.equ U, 1 + (CLK_KHZ + 24999) // 25000   ; measuring unit 2^U ticks (U = 2 up to 25 MHz)
+.equ H, (CLK_KHZ * 36) >> U         ; H * k // 128 = k half units (281.25 us), in 2^U ticks
 .equ TOUT, CLK_KHZ * 9 * 36 // 32    ; 18 units, in ticks: the longest level accepted
 
 .entry CTX, main
@@ -131,7 +132,7 @@ repeat:
     JMP   idle
 
 ; ---- rise / fall: wait (from the edge at r2) for the line to go high / low;
-; r0 = the level's length in 4-tick units, r2 = this edge.
+; r0 = the level's length in 2^U-tick units, r2 = this edge.
 rise:
     SETT  r2
     ADDT  TOUT
@@ -147,5 +148,5 @@ meas:
     MOV   r3, r0
     SUB   r0, r2
     MOV   r2, r3
-    SHR   r0, 2
+    SHR   r0, U
     RET

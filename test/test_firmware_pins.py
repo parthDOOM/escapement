@@ -83,6 +83,28 @@ async def test_nec_loopback_on_chip(dut):
     await no_fault(host)
 
 
+@chip.cocotb.test()
+async def test_nec_loopback_at_33_mhz_on_chip(dut):
+    """Both NEC programs rebuilt for 33 MHz, the rated maximum (D-5; the receiver measures
+    in 8-tick units there), the bus models' tick 30.3 ns: one full-length frame (2.9
+    million cycles) through the pins."""
+    tick = 1e6 / 33000
+    rx = NecReceiver(0, tick_ns=tick)
+    board = Board(rx, Tsop(0, 1, tick_ns=tick))
+    host = await chip.bring_up(dut, board)
+    await host.load(assemble('.equ nec_tx.CLK_KHZ, 33000\n.equ nec_rx.CLK_KHZ, 33000\n'
+                             '.include "nec_tx.asm"\n.include "nec_rx.asm"\n', base_dir=FW))
+    await host.start()
+    await host.mbx_push(0, 0x5AA5)
+    got = await pop_n(dut, host, 1, 1, 3_300_000, step=50_000)
+    acks = await pop_n(dut, host, 0, 1, 50_000, step=5_000)
+    dut._log.info(f"NEC rx {[hex(v) for v in got]} acks {acks} frames {rx.frames()}")
+    assert rx.frames() == [(0xA5, 0x5A)], rx.events
+    assert got == [0x5A00A5] and acks == [1]
+    assert not board.errors(), board.errors()
+    await no_fault(host)
+
+
 async def spi_target_run(dut, mode, frames, mem):
     ctl = SpiController(4, 5, 6, 7, frames, mode=mode, t_high=30, t_low=30, t_css=25,
                         t_idle=100, start_at=2_000)

@@ -28,8 +28,9 @@
 ; the frame can be played at another clock (the co-simulation runs it at 2.5 MHz).
 ;
 ; Limits: the carrier is quantised to whole ticks (37.99 kHz at 25 MHz); escert proves
-; CLK_KHZ >= 2500 (at 1.25 MHz the 33-tick carrier runs without a fault but is beyond
-; the checker's precision). The host must drain the acks (two-word mailbox), or the
+; CLK_KHZ from 2500 to 38000 (at 1.25 MHz the 33-tick carrier runs without a fault but is
+; beyond the checker's precision; above 38 MHz the gap from a burst's last edge to the next
+; burst outgrows 2^16 ticks). The host must drain the acks (two-word mailbox), or the
 ; transmitter waits. SB-Projects gives 110 ms for the repeat period; Vishay's 108 ms is
 ; used here.
 
@@ -119,7 +120,9 @@ counted:
     JNZ   bit
     JMP   stop
 repeat:
-    ADDT  RPT - NLEAD * PERIOD
+    ADDT  RPT - NLEAD * PERIOD - LEAD       ; 2.25 ms space, drained like the frame's
+    WAITT
+    ADDT  LEAD
 stop:
     LDLC  NBIT
     CALL  burst                             ; stop burst

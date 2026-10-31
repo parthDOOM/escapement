@@ -1337,14 +1337,15 @@ def test_cec_host_sets_logical_address():
 
 
 # --------------------------------------------------------------------------- DALI
-def dali_run(frames, ticks, scale=1.0, host=(), src='.equ dali.CLK_KHZ, 2500\n.include "dali.asm"\n'):
+def dali_run(frames, ticks, scale=1.0, host=(), src='.equ dali.CLK_KHZ, 2500\n.include "dali.asm"\n',
+             tick_ns=400.0):
     """dali.asm (control gear, short address 0) with a controller model, at a tenth of
     the clock (2.5 MHz, 400 ns ticks; every timing derives from CLK_KHZ); returns the
     machine, board, controller and the words the chip pushed."""
     from escasm import assemble
     from esciss import Machine
     from escmodels import DaliController
-    ctl = DaliController(0, frames, tick_ns=400.0, scale=scale)
+    ctl = DaliController(0, frames, tick_ns=tick_ns, scale=scale)
     board = Board(ctl)
     m = Machine(assemble(src, base_dir=FW), board=board)
     q, out = list(host), []

@@ -36,7 +36,8 @@
 .equ NB3, 123
 .equ NE3, 412
 .equ GAP, CLK_KHZ * 150                     ; 0.15 s between notes
-.equ REST, CLK_KHZ * 650                    ; a further 0.65 s after each change
+.equ REST2, CLK_KHZ * 325                   ; a further 0.65 s after each change, in two
+                                            ; halves (ADDT takes 24 bits: 16.25 M at 25 MHz)
 
 .bank  CTX
 .entry CTX, main
@@ -54,7 +55,8 @@ main:
     CALL  fs4
     LDLC  NB3
     CALL  b3
-    ADDT  REST
+    ADDT  REST2
+    ADDT  REST2
 ; change 3: E F# G# E
     LDLC  NE4
     CALL  e4
@@ -64,7 +66,8 @@ main:
     CALL  gs4
     LDLC  NE4
     CALL  e4
-    ADDT  REST
+    ADDT  REST2
+    ADDT  REST2
 ; change 4: G# E F# B
     LDLC  NGS4
     CALL  gs4
@@ -74,7 +77,8 @@ main:
     CALL  fs4
     LDLC  NB3
     CALL  b3
-    ADDT  REST
+    ADDT  REST2
+    ADDT  REST2
 ; change 5: B F# G# E
     LDLC  NB3
     CALL  b3
@@ -84,7 +88,8 @@ main:
     CALL  gs4
     LDLC  NE4
     CALL  e4
-    ADDT  REST
+    ADDT  REST2
+    ADDT  REST2
 ; the hour bell
     LDLC  NE3
     CALL  e3

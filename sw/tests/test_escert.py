@@ -93,16 +93,17 @@ def test_shipped_firmware_is_certified_and_telemetry_agrees(fw):
         assert m.ctx[c.ctx].min_lead >= c.min_lead, (str(c), m.ctx[c.ctx].min_lead)
 
 
-# D-5: the chip is signed off at 33 MHz. Programs whose timing derives from CLK_KHZ, rebuilt
-# for 33.333 MHz, still certify. nec_tx (POSSIBLE there), nec_rx and westminster (a timing
-# constant outgrows its field) are timed for clocks up to 25 MHz.
-CLK_33 = ["can_rx", "cec", "dali", "dmx512_tx", "dshot_tx", "midi_tx", "nec_tx_gen", "sent_tx",
-          "seven_seg", "uart_tx_gen", "ws2812_gen"]
+# D-5: the chip is signed off at 30 ns. Every program whose timing derives from CLK_KHZ,
+# rebuilt for 33 MHz (the demo board's jitter-free clock) or 33.333 MHz, still assembles
+# and certifies (test_rated_clock runs each at 33 MHz).
+CLK_33 = ["can_rx", "cec", "dali", "dmx512_tx", "dshot_tx", "midi_tx", "nec_rx", "nec_tx",
+          "nec_tx_gen", "sent_tx", "seven_seg", "uart_tx_gen", "westminster", "ws2812_gen"]
 
 
+@pytest.mark.parametrize("khz", [33000, 33333])
 @pytest.mark.parametrize("fw", CLK_33)
-def test_clock_parameterised_firmware_certifies_at_33_mhz(fw):
-    image = assemble(f'.equ {fw}.CLK_KHZ, 33333\n.include "{fw}.asm"\n', base_dir=FW)
+def test_clock_parameterised_firmware_certifies_at_33_mhz(fw, khz):
+    image = assemble(f'.equ {fw}.CLK_KHZ, {khz}\n.include "{fw}.asm"\n', base_dir=FW)
     certs = certify(image)
     assert certs and all(c.status == "CHECKED" for c in certs), [str(c) for c in certs]
 
