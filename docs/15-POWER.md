@@ -50,7 +50,8 @@ from two allowed cells, instantiated by name (`sg13cmos5l_dllrq_1`,
 
 68 gates covered about 2,600 flops in v1.1, 17 per context: r0–r3, sh, tmr, lee, ish, the
 first-failure record, the four FIFO entries and the four mailbox words. In v1.4, 80 gates
-cover about 3,150 of the 4,374 storage cells, and 2,365 of those are latches (below). Each enable is
+cover about 3,150 of the 4,374 storage cells, and 2,365 of those are latches (below); v1.5's
+28 added flip-flops are ungated, so its final netlist has 3,151 of 4,402 behind a gate. Each enable is
 exactly the condition under which the old always block assigned the bank, with the same
 priority (reset, then start, then that edge's effects). So the change is invisible
 architecturally:

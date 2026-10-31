@@ -37,8 +37,10 @@ firmware runs at 24 MHz (D-37). The 14 programs whose timing derives from `CLK_K
 rebuild for another clock: at 33 MHz each certifies and drives its bus model, the models
 timing every edge in 30.3 ns ticks (`test_rated_clock.py`). On the Tiny Tapeout demo board
 use exactly 33 MHz: its firmware divides the RP2040's clock (132 MHz, by 4), which gives 50%
-duty and no jitter; 33.333 MHz has no such divisor, and a fractional one would make
-cycles shorter than the 30 ns the layout is signed off at.
+duty and no jitter. A request for 33.333 MHz finds no even divisor of an RP2040 clock up to
+its default 133 MHz, falls back to a fractional one, and so jitters, with cycles shorter than
+the 30 ns the layout is signed off at (it is exact only with the RP2040 overclocked,
+`max_rp2040_freq=200_000_000`, divided by 6).
 
 **D-9 Event model.** Per-context FIFOs of DRIVE, EXPECT and SAMPLE entries with absolute
 deadlines, strict ordering within half the counter range, and visible rejection. An

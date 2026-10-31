@@ -84,7 +84,8 @@ the commit cycle, which the proofs check in every commit cycle. No program can t
 difference; the comparisons simply leave the path from the tick counter to the pins
 (D-43).
 
-At 25 MHz the counter wraps after 171.8 s, and the admission horizon is 85.9 s.
+At 25 MHz the counter wraps after 171.8 s, and the admission horizon is 85.9 s (at the
+rated maximum of 33 MHz, 130.2 s and 65.1 s).
 
 ## Telemetry and faults
 

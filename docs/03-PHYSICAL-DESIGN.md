@@ -117,8 +117,9 @@ At 30 ns the checks other than setup hold too, at all three corners: minimum pul
 hold at the SRAM inputs (12.5 ns setup slack at the slow corner, hold at least +0.33 ns).
 A clock that is high for 40% or 60% of the period instead of half gives the same setup and
 hold slack at the slow and fast corners. The Tiny Tapeout demo board should be set to
-exactly 33 MHz, which its RP2040 makes without jitter (132 MHz divided by 4); 33.333 MHz
-has no whole divider, and its jitter could shorten a cycle below 30 ns.
+exactly 33 MHz, which its RP2040 makes without jitter (132 MHz divided by 4); a request for
+33.333 MHz gets a fractional divider unless the RP2040 is overclocked, and its jitter could
+shorten a cycle below 30 ns (D-5).
 
 `scripts/frequency-headroom.sh RUN_DIR` reruns the sweep behind the table on a harden run
 of `scripts/local-harden.sh` ([toolchain](05-TOOLCHAIN.md#local-hardening)).

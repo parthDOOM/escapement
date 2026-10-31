@@ -19,6 +19,15 @@ event, otherwise the context faults (ADMIT) and its pins release. An admitted ev
 happens exactly on its tick. Firmware therefore runs **ahead** of real time, by up to
 four queued events.
 
+The chip is rated up to 33 MHz (D-5). Programs that take their timing from `CLK_KHZ`
+rebuild for another clock by defining it before the include, for example
+`.equ nec_tx.CLK_KHZ, 33000` then `.include "nec_tx.asm"`; the 14 shipped ones all
+certify at 33 MHz, and all but `westminster` run against their bus models there
+(`sw/tests/test_rated_clock.py`). The other shipped programs count ticks of the 25 MHz
+default (`usb_hid` of USB's 24 MHz, D-37). Rerun
+`python -m escert` after any rebuild: a delay that fits at one clock can outgrow a
+16-bit compare, ADDT's 24 bits or the 2^16-tick gap escert can bound at a faster one.
+
 ## Idioms
 
 **1. Accumulate for periodic streams.** For a fixed bit rate, add a constant to `tmr`

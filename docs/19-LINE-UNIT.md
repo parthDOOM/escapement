@@ -11,7 +11,8 @@ The normative definition is [11-SEMANTICS §6.6](11-SEMANTICS.md#66-line-unit-v1
 Status: v1.4 specification, simulator, firmware, timing certificates and RTL
 (`src/esc_line.v`, integrated in the core and checked against the simulator cycle by
 cycle), on `master`. Laid out with the rest of v1.4 at 6×4 (harden `v14i`, reproduced by
-CI's harden), every sign-off check passing ([physical design](03-PHYSICAL-DESIGN.md)).
+CI's harden), and again with v1.5 (harden `v15c`), every sign-off check passing
+([physical design](03-PHYSICAL-DESIGN.md)).
 
 ```
 python -m escert firmware/usb_hid.asm      # the reply-timing certificate (below)

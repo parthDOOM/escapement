@@ -267,6 +267,15 @@ capture rule changes and clock-gate enable errors.
 | Proved equivalent (`formal/equiv.sh`): no chip output can differ | 19 |
 | Excluded, each with its written argument in `run_mutants.py` | 38 |
 
+**v1.5's new logic, every site (local, behavioural build).** The 18 hand-written v1.5
+mutants, the original `admit_past_off_by_one` (moved to v1.5's registered test) and all 84
+generated sites (`--rate 1`) on the lines v1.5 changed in `esc_ctx.v` and `esc_core.v`, 103
+mutants: 97 killed, 5 proved equivalent, 1 excluded (`late_q` keeping its value, when it is
+never set because no head is ever late: argument P2), none surviving. Five survived a first
+run; the core unit tests `test_timer_range_edges`, `test_lead_saturates` and the no-fault
+check in `test_stop` kill four of them. The whole 745-mutant campaign on the standard-cell
+models runs in CI.
+
 **v1.4's holes, now closed.** The first v1.4 campaign, on the behavioural build, left 9
 survivors. Three showed holes, closed with directed co-simulation programs: a SEND into a
 full FIFO, a SEND before the FIFO's tail, and a mailbox push and pop at the edges the host
