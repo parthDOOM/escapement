@@ -1,0 +1,21 @@
+# Philips RC5 infrared remote: a 36 kHz carrier and 14 Manchester bits, MSB first: two
+# start bits (the second is the field bit of extended RC5), the toggle bit, a 5-bit address
+# and a 6-bit command. A 1 is a space then a burst, a 0 a burst then a space.
+name: rc5_tx
+title: Philips RC5 infrared frame with a 36 kHz carrier; one 14-bit code per host word, acknowledged
+refs: ["SB-Projects, Philips RC-5 Protocol, www.sbprojects.net/knowledge/ir/rc5.php: 36 kHz carrier, bit time 1.778 ms (64 carrier periods), Manchester, 1 = low then high, 14 bits MSB first, frames every 113.778 ms"]
+context: 0
+pins:
+  IR: {pin: 0, idle: 0}
+constants:
+  PERIOD: (CLK_KHZ * 10 + 180) // 360      # 694 ticks at 25 MHz: 36.02 kHz
+  HALF: 32 * PERIOD                        # 889 us, half a bit
+  GAP: CLK_KHZ * 89                        # 89 ms of quiet: about 114 ms frame to frame
+carrier: {period: PERIOD, high: (PERIOD + 1) // 3}    # 1/3 duty
+symbols:
+  zero: [[{IR: carrier}, HALF], [{IR: 0}, HALF]]
+  one:  [[{IR: 0}, HALF], [{IR: carrier}, HALF]]
+  gap:  [[{IR: 0}, GAP]]
+frame: [{bits: 14, order: msb, choose: [zero, one]}]
+source: {kind: mailbox}
+packet: {after: [gap], ack: true}

@@ -27,7 +27,7 @@ Table keys:
     frame       the items of one data unit, in order: a symbol name, or a field:
                   {bits: n, order: lsb|msb, symbol: NAME}   each bit sent as the symbol,
                            which has exactly one data phase
-                  {bits: n, order: lsb, choose: [S0, S1]}   each bit sends S0 or S1
+                  {bits: n, order: lsb|msb, choose: [S0, S1]}   each bit sends S0 or S1
                            (pulse-distance and pulse-width codes; may contain bursts)
     source      where units come from:
                   {kind: mailbox}                      POP one word per packet
@@ -213,7 +213,7 @@ class _Gen:
         if not 1 <= bits <= 32 or order not in ("lsb", "msb"):
             raise TableError(f"field {f}: bits 1..32, order lsb or msb")
         if "choose" in f:
-            return self.choose(f, bits, order)
+            return self.choose(f, bits, order, last)
         name = f["symbol"]
         ph = _phases(self.t, name)
         if sum(k == "data" for _, _, k in ph) != 1 or any(k == "carrier" for _, _, k in ph):
@@ -237,13 +237,13 @@ class _Gen:
         if not last and bits < 32:
             self.emit(f"SHR   r1, {bits}", "next field")
 
-    def choose(self, f, bits, order):
+    def choose(self, f, bits, order, last=True):
         s0, s1 = f["choose"]
         p0, p1 = _phases(self.t, s0), _phases(self.t, s1)
-        if order != "lsb":
-            raise TableError("a choose field is sent LSB first")
         if any(k == "data" for _, _, k in p0 + p1):
             raise TableError("choose symbols have no data phase: the bit picks the symbol")
+        if order == "msb":
+            return self.choose_msb(s0, s1, p0, p1, bits, last)
         self.emit(f"MOVI  r3, {bits}", f"{bits} bits, LSB first, each {s0} or {s1}")
         entry = self.known
         body = _meet(self._apply(entry, p0), self._apply(entry, p1))
@@ -262,6 +262,32 @@ class _Gen:
         self.emit("MOVI  r0, 1")
         self.emit("SUB   r3, r0", "Z after the last bit")
         self.emit(f"JNZ   {lbl}")
+
+    def choose_msb(self, s0, s1, p0, p1, bits, last):
+        """v1.6: a choose field MSB first: r0 shifts a copy of the word left, r3 counts up."""
+        self.emit("MOV   r0, r1", f"{bits} bits, MSB first, each {s0} or {s1}")
+        if bits < 32:
+            self.emit(f"SHL   r0, {32 - bits}", "the field's first bit to bit 31")
+        self.emit("MOVI  r3, 0")
+        entry = self.known
+        body = _meet(self._apply(entry, p0), self._apply(entry, p1))
+        head = _meet(entry, body)
+        head = _meet(head, _meet(self._apply(head, p0), self._apply(head, p1)))
+        lbl, one, nxt = self.fresh("bit"), self.fresh("one"), self.fresh("next")
+        self.label(lbl, head)
+        self.emit("SHL   r0, 1", "C = the next bit")
+        self.emit(f"JC    {one}")
+        self.symbol(s0)
+        after0 = self.known
+        self.emit(f"JMP   {nxt}")
+        self.label(one, head)
+        self.symbol(s1)
+        self.label(nxt, _meet(after0, self.known))
+        self.emit("ADDI  r3, 1")
+        self.emit(f"CMPI  r3, {bits}", "Z after the last bit")
+        self.emit(f"JNZ   {lbl}")
+        if not last and bits < 32:
+            self.emit(f"SHR   r1, {bits}", "next field")
 
     def word(self):
         k = int(self.t["source"].get("units_per_word", 1))

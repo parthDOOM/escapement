@@ -1,0 +1,21 @@
+# Sony SIRC infrared remote, 12-bit: a 40 kHz carrier, a start burst, then per bit a space
+# and a burst whose length is the bit (pulse-width coding).
+name: sirc_tx
+title: Sony SIRC 12-bit infrared frame with a 40 kHz carrier; one 12-bit code per host word, acknowledged
+refs: ["SB-Projects, Sony SIRC Protocol, www.sbprojects.net/knowledge/ir/sirc.php: 40 kHz carrier, 2.4 ms start burst, 0.6 ms spaces, 1.2 / 0.6 ms bursts, 7 command bits then 5 address bits LSB first, frames every 45 ms"]
+context: 0
+pins:
+  IR: {pin: 0, idle: 0}
+constants:
+  PERIOD: (CLK_KHZ + 20) // 40             # 625 ticks at 25 MHz: 40 kHz
+  T: 24 * PERIOD                           # 600 us, 24 carrier periods
+  GAP: CLK_KHZ * 26                        # 26 ms of quiet: about 45 ms frame to frame
+carrier: {period: PERIOD, high: (PERIOD + 1) // 3}    # 1/3 duty
+symbols:
+  start: [[{IR: carrier}, 4 * T]]
+  zero:  [[{IR: 0}, T], [{IR: carrier}, T]]
+  one:   [[{IR: 0}, T], [{IR: carrier}, 2 * T]]
+  gap:   [[{IR: 0}, GAP]]
+frame: [start, {bits: 12, order: lsb, choose: [zero, one]}]
+source: {kind: mailbox}
+packet: {after: [gap], ack: true}
