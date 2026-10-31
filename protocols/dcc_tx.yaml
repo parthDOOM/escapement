@@ -1,0 +1,25 @@
+# NMRA DCC (model railway command packets) for a booster input: a 1 is two 58 us
+# half-periods, a 0 two 100 us half-periods. A three-byte packet: a preamble of 14 ones,
+# then a 0 before each byte (address, instruction, and their XOR) and a 1 at the end.
+name: dcc_tx
+title: NMRA DCC three-byte packet for a booster; one packet per host word (address | instruction << 8 | check << 16), acknowledged
+refs: ["NMRA S-9.1 Electrical Standards for Digital Command Control: 1 bit half-period 58 us (52 to 64), 0 bit half-period 100 us nominal (95 to 9900)",
+       "NMRA S-9.2 Communications Standards: preamble of at least 14 one-bits, packet start bit 0, data byte start bits 0, error detection byte (XOR), packet end bit 1"]
+context: 0
+pins:
+  DCC: {pin: 0, idle: 0}
+constants:
+  H1: CLK_KHZ * 58 // 1000                 # 58 us
+  H0: CLK_KHZ * 100 // 1000                # 100 us
+symbols:
+  one:  [[{DCC: 1}, H1], [{DCC: 0}, H1]]
+  zero: [[{DCC: 1}, H0], [{DCC: 0}, H0]]
+  pre:  [[{DCC: 1}, H1], [{DCC: 0}, H1], [{DCC: 1}, H1], [{DCC: 0}, H1], [{DCC: 1}, H1], [{DCC: 0}, H1],
+         [{DCC: 1}, H1], [{DCC: 0}, H1], [{DCC: 1}, H1], [{DCC: 0}, H1], [{DCC: 1}, H1], [{DCC: 0}, H1],
+         [{DCC: 1}, H1], [{DCC: 0}, H1], [{DCC: 1}, H1], [{DCC: 0}, H1], [{DCC: 1}, H1], [{DCC: 0}, H1],
+         [{DCC: 1}, H1], [{DCC: 0}, H1], [{DCC: 1}, H1], [{DCC: 0}, H1], [{DCC: 1}, H1], [{DCC: 0}, H1],
+         [{DCC: 1}, H1], [{DCC: 0}, H1], [{DCC: 1}, H1], [{DCC: 0}, H1]]
+frame: [pre, zero, {bits: 8, order: msb, choose: [zero, one]}, zero, {bits: 8, order: msb, choose: [zero, one]},
+        zero, {bits: 8, order: msb, choose: [zero, one]}, one]
+source: {kind: mailbox}
+packet: {after: [one], ack: true}           # a one-bit after: the end bit's second half ends, and it joins the next preamble

@@ -1,0 +1,19 @@
+# EV1527 (and PT2262-style) 433 MHz OOK remote: no carrier on the pin, which keys an RF
+# transmitter module. A sync pulse, then 24 bits MSB first (a 20-bit ID and 4 data bits),
+# each a short and a long level: 0 is 1T high then 3T low, 1 is 3T high then 1T low.
+name: ev1527_tx
+title: EV1527 433 MHz remote frame (OOK, rc-switch protocol 1 timing); one 24-bit code per host word, acknowledged
+refs: ["Silvan Chip EV1527 datasheet: 4 clock cycles per bit, sync of 1 high and 31 low, 20-bit ID and 4 data bits",
+       "rc-switch, protocol 1: T = 350 us, sync 1:31, zero 1:3, one 3:1 (github.com/sui77/rc-switch)"]
+context: 0
+pins:
+  TX: {pin: 0, idle: 0}
+constants:
+  T: CLK_KHZ * 35 // 100                   # 350 us
+symbols:
+  sync: [[{TX: 1}, T], [{TX: 0}, 31 * T]]
+  zero: [[{TX: 1}, T], [{TX: 0}, 3 * T]]
+  one:  [[{TX: 1}, 3 * T], [{TX: 0}, T]]
+frame: [sync, {bits: 24, order: msb, choose: [zero, one]}]
+source: {kind: mailbox}
+packet: {after: [sync], ack: true}

@@ -55,3 +55,38 @@ def test_rc5_frames(khz):
     rx, acks = run("rc5_tx", Rc5Receiver, codes, khz, 115)
     got = [f["start"] << 12 | f["toggle"] << 11 | f["address"] << 6 | f["command"] for f in rx.frames()]
     assert got == codes and acks == [1] * len(codes)
+
+
+@pytest.mark.parametrize("khz", [4000, 25000])
+def test_ev1527_codes(khz):
+    from escmodels import Ev1527Receiver
+    codes = [0xABCDE5, 0x000001, 0xFFFFFF, 0x123456]
+    if khz == 25000:
+        codes = codes[:2]
+    _, image = escgen.build(table("ev1527_tx"), CLK_KHZ=khz)
+    rx = Ev1527Receiver(0, tick_ns=1e6 / khz)
+    m = Machine(image, board=Board(rx, pullups=0))
+    acks = []
+    for c in codes:
+        m.host_rx_push(0, c)
+        m.run(int(60 * khz), stop_when_idle=False)
+        v = m.host_tx_pop(0)
+        if v is not None:
+            acks.append(v)
+    assert rx.codes() == codes and acks == [1] * len(codes) and not m.ff.valid
+
+
+@pytest.mark.parametrize("khz", [4000, 25000])
+def test_dcc_packets(khz):
+    from escmodels import DccDecoder
+    pkts = [(0x03, 0x74), (0x7F, 0x3F), (0x01, 0x00)]        # loco 3 speed, ...
+    _, image = escgen.build(table("dcc_tx"), CLK_KHZ=khz)
+    dec = DccDecoder(0, tick_ns=1e6 / khz)
+    m = Machine(image, board=Board(dec, pullups=0))
+    for a, i in pkts:
+        m.host_rx_push(0, a | i << 8 | (a ^ i) << 16)
+        m.run(int(8 * khz), stop_when_idle=False)
+        m.host_tx_pop(0)
+    got = dec.packets()
+    assert [p["bytes"] for p in got] == [[a, i, a ^ i] for a, i in pkts]
+    assert all(p["check_ok"] for p in got) and not dec.violations and not m.ff.valid

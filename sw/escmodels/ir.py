@@ -1,5 +1,7 @@
-"""Infrared remote receivers: Sony SIRC and Philips RC5, from the carrier on a pin.
+"""Remote-control and pulse-coded receivers: Sony SIRC and Philips RC5 from the carrier on
+a pin, EV1527 433 MHz codes from an OOK data pin, NMRA DCC packets from a track signal.
 
+SIRC and RC5:
 Written from the protocol descriptions (SB-Projects: www.sbprojects.net/knowledge/ir/
 sirc.php and rc5.php), not from any firmware: the pin's carrier pulses are grouped into
 bursts (a gap longer than three carrier periods ends a burst), the carrier period of
@@ -126,4 +128,97 @@ class Rc5Receiver(_Bursts):
                 v = int("".join(map(str, bits[:14])), 2)
                 out.append({"start": v >> 12, "toggle": (v >> 11) & 1,
                             "address": (v >> 6) & 0x1F, "command": v & 0x3F})
+        return out
+
+
+class Ev1527Receiver(Device):
+    """EV1527 / rc-switch protocol 1 on an OOK data pin: a sync (1 high, 31 low) gives T,
+    then 24 bits MSB first, 0 = 1T high + 3T low, 1 = 3T high + 1T low (+/-30%)."""
+
+    def __init__(self, pin: int, tick_ns: float):
+        self.pin, self.tick = pin, tick_ns
+        self.levels: list[tuple[int, int]] = []        # (level, duration in ticks)
+        self._prev, self._since = 0, 0
+
+    def step(self, t, bus):
+        lv = (bus >> self.pin) & 1
+        if lv != self._prev:
+            self.levels.append((self._prev, t - self._since))
+            self._prev, self._since = lv, t
+        return 0, 0
+
+    def codes(self):
+        out, L = [], self.levels
+        for i in range(len(L) - 1):
+            (l0, d0), (l1, d1) = L[i], L[i + 1]
+            if not (l0 == 1 and l1 == 0 and 25 <= d1 / max(d0, 1) <= 37):
+                continue
+            T, bits, j = d0, [], i + 2
+            while j + 1 < len(L) and len(bits) < 24:
+                (h, dh), (lo, dl) = L[j], L[j + 1]
+                if h != 1 or lo != 0:
+                    break
+                r = (round(dh / T), round(dl / T))
+                bits.append(0 if r == (1, 3) else 1 if r == (3, 1) else None)
+                j += 2
+            if len(bits) == 24 and None not in bits:
+                out.append(int("".join(map(str, bits)), 2))
+        return out
+
+
+class DccDecoder(Device):
+    """NMRA DCC from a track (or booster input) signal: half-periods of 52-64 us are a 1,
+    95-9900 us a 0 (S-9.1); both halves of a bit must be the same kind. Packets (S-9.2): a
+    preamble of at least 10 ones, a 0, then bytes each followed by a 0 or by the end bit 1;
+    the last byte is the XOR of the others."""
+
+    def __init__(self, pin: int, tick_ns: float):
+        self.pin, self.tick = pin, tick_ns
+        self.halves: list[str] = []
+        self.violations: list[str] = []
+        self._prev, self._since = 0, None
+
+    def step(self, t, bus):
+        lv = (bus >> self.pin) & 1
+        if lv != self._prev:
+            if self._since is not None:
+                us = (t - self._since) * self.tick / 1000
+                k = "1" if 52 <= us <= 64 else "0" if 95 <= us <= 9900 else "?"
+                if k == "?":
+                    self.violations.append(f"t={t}: half-period {us:.1f} us")
+                self.halves.append(k)
+            self._prev, self._since = lv, t
+        return 0, 0
+
+    def packets(self):
+        bits, h = [], self.halves
+        i = 0
+        while i + 1 < len(h):                     # pair halves into bits (resync on a mismatch)
+            if h[i] == h[i + 1] and h[i] != "?":
+                bits.append(int(h[i]))
+                i += 2
+            else:
+                i += 1
+        out, i = [], 0
+        while i < len(bits):
+            run = 0
+            while i < len(bits) and bits[i] == 1:
+                run += 1
+                i += 1
+            if run < 10 or i >= len(bits):
+                i += 1
+                continue
+            i += 1                                # the packet start bit 0
+            data = []
+            while i + 8 < len(bits):
+                byte = int("".join(map(str, bits[i:i + 8])), 2)
+                data.append(byte)
+                end = bits[i + 8]
+                i += 9
+                if end == 1:
+                    break
+            x = 0
+            for b in data[:-1]:
+                x ^= b
+            out.append({"bytes": data, "check_ok": len(data) >= 2 and x == data[-1]})
         return out
