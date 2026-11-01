@@ -274,7 +274,11 @@ mutants: 97 killed, 5 proved equivalent, 1 excluded (`late_q` keeping its value,
 never set because no head is ever late: argument P2), none surviving. Five survived a first
 run; the core unit tests `test_timer_range_edges`, `test_lead_saturates` and the no-fault
 check in `test_stop` kill four of them. The whole 745-mutant campaign on the standard-cell
-models runs in CI.
+models runs in CI. Its first run on v1.5 killed 699, proved 16 equivalent and excluded 29;
+one survived: START setting the FIFO's head to 1 instead of 0, whose equivalence proof
+was undecided in 30 minutes. It is excluded with its argument: the FIFO is a ring
+addressed only relative to the head, START empties it, and every read of a slot is
+gated by the count.
 
 **v1.4's holes, now closed.** The first v1.4 campaign, on the behavioural build, left 9
 survivors. Three showed holes, closed with directed co-simulation programs: a SEND into a
