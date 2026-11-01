@@ -310,6 +310,11 @@ EXCLUDED = {
     "esc_line_const_437dd9b7": "rb is read only while the stuffing run rn is nonzero (push(), and sb through due, "
                                "which needs rn >= N > 0); the start of a reception sets rn to 0, and the first "
                                "bit loads rb",
+    # v1.5 (undecided by the 30-minute equivalence proof since the head tests became registers)
+    "esc_ctx_const_1b7ca694": "the FIFO is a ring addressed only relative to head (wr_idx, tail_idx, GETI's rel, "
+                              "the next head's tests), START empties it, and every read of a slot is gated by the "
+                              "count (n_keep, rel < cnt, due, the core's tail tests under cs_cnta != 0): the slot "
+                              "a run starts from changes no output",
 }
 
 
