@@ -471,6 +471,20 @@ class _TdRecorder:
         return []
 
 
+def _td_frame(lv):
+    """The bytes of the 10BASE-T frame after the first link pulse: the second time the pins
+    leave idle (both high, released); a bit is two 2-tick cells, its value the second
+    cell's TD+."""
+    bits = []
+    starts = [k for k in range(1, len(lv)) if lv[k] in (1, 2) and lv[k - 1] == 3]
+    t = starts[1] if len(starts) > 1 else None
+    while (t is not None and t + 4 <= len(lv) and lv[t] in (1, 2) and lv[t + 2] in (1, 2)
+           and lv[t] != lv[t + 2]):
+        bits.append(lv[t + 2] & 1)
+        t += 4
+    return bytes(sum(bits[8 * i + j] << j for j in range(8)) for i in range(len(bits) // 8))
+
+
 def case_eth_tx():
     """v1.6: a 10BASE-T link pulse, then a frame from the host: preamble, SFD, frame and
     its FCS (checked against zlib's CRC-32) from one SEND, at 2 ticks a Manchester cell."""
@@ -481,20 +495,62 @@ def case_eth_tx():
     host = HostScript([(300 + 20 * i, 0, w) for i, w in enumerate([60] + words)], drain=[0], poll=400)
 
     def check(board, h):
-        lv, bits = rec.lv, []
-        # the frame: the second time the pins leave idle (both high, released), the first
-        # being the link pulse; a bit is two 2-tick cells, its value the second cell's TD+
-        starts = [k for k in range(1, len(lv)) if lv[k] in (1, 2) and lv[k - 1] == 3]
-        t = starts[1] if len(starts) > 1 else None
-        while (t is not None and t + 4 <= len(lv) and lv[t] in (1, 2) and lv[t + 2] in (1, 2)
-               and lv[t] != lv[t + 2]):
-            bits.append(lv[t + 2] & 1)
-            t += 4
-        data = bytes(sum(bits[8 * i + j] << j for j in range(8)) for i in range(len(bits) // 8))
+        data = _td_frame(rec.lv)
         ok = (data[:8] == b"\x55" * 7 + b"\xd5" and data[8:68] == frame
               and int.from_bytes(data[68:72], "little") == zlib.crc32(frame) and len(h.received[0]) == 1)
-        return ([] if ok else [f"eth {data[:12].hex()} {len(bits)} {h.received}"]) + board.errors()
+        return ([] if ok else [f"eth {data[:12].hex()} {h.received}"]) + board.errors()
     return Board(rec, host), host, check
+
+
+def case_udp_tx():
+    """v1.6: a UDP datagram, headers and IPv4 checksum built on chip, padded to 60 bytes."""
+    import struct
+    import zlib
+    rec = _TdRecorder()
+    pay = b"escapement says hi"
+    ip = bytearray(struct.pack("!BBHHHBBH4s4s", 0x45, 0, 28 + len(pay), 0, 0x4000, 64, 17, 0,
+                               bytes([192, 168, 1, 100]), b"\xff" * 4))
+    s_ = sum(struct.unpack("!10H", ip))
+    s_ = (s_ & 0xFFFF) + (s_ >> 16)
+    ip[10:12] = struct.pack("!H", ~s_ & 0xFFFF)
+    frame = (b"\xff" * 6 + bytes.fromhex("020000000001") + b"\x08\x00" + bytes(ip)
+             + struct.pack("!HHHH", 5000, 5000, 8 + len(pay), 0) + pay)
+    padded = pay + b"\0" * (-len(pay) % 4)
+    words = [len(pay)] + [int.from_bytes(padded[i:i + 4], "little") for i in range(0, len(padded), 4)]
+    # (the store loop takes a word per ~40 ticks; the host model does not wait for room)
+    host = HostScript([(300 + 100 * i, 0, w) for i, w in enumerate(words)], drain=[0], poll=400)
+
+    def check(board, h):
+        data = _td_frame(rec.lv)
+        ok = (len(frame) == 60 and data[:8] == b"\x55" * 7 + b"\xd5" and data[8:68] == frame
+              and int.from_bytes(data[68:72], "little") == zlib.crc32(frame) and len(h.received[0]) == 1)
+        return ([] if ok else [f"udp {data[8:20].hex()} {h.received}"]) + board.errors()
+    return Board(rec, host), host, check
+
+
+class _Encoder(Device):
+    """A quadrature encoder on pins 0 (A) and 1 (B): steps [(tick, +1 / -1)]."""
+
+    def __init__(self, steps):
+        self.steps, self.k, self.ph = steps, 0, 0
+
+    def step(self, t, bus):
+        while self.k < len(self.steps) and self.steps[self.k][0] <= t:
+            self.ph = (self.ph + self.steps[self.k][1]) % 4
+            self.k += 1
+        g = [0, 1, 3, 2][self.ph]
+        return (~g & 3, g)
+
+
+def case_quadrature():
+    """v1.6: 30 steps forward and 10 back from capture records; the host asks once."""
+    steps = [(500 + 120 * k, 1 if k < 30 else -1) for k in range(40)]
+    host = HostScript([(6000, 0, 0)], drain=[0], poll=200)
+
+    def check(board, h):
+        ok = h.received[0] == [20]
+        return ([] if ok else [f"quadrature {h.received}"]) + board.errors()
+    return Board(_Encoder(steps), host), host, check
 
 
 class _Square(Device):
@@ -554,6 +610,8 @@ FIRMWARE_CASES = {
     "spi_tx": ("spi_tx.asm", 3000, case_spi_tx),
     "eth_tx": ("eth_tx.asm", 4500, case_eth_tx),
     "freq_meter": ("freq_meter.asm", 8000, case_freq_meter),
+    "udp_tx": ("udp_tx.asm", 4500, case_udp_tx),
+    "quadrature": ("quadrature.asm", 7000, case_quadrature),
 }
 TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
