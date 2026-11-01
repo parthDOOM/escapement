@@ -353,6 +353,14 @@ PIPELINE = {
     "project.v": ["chip", "pins"],
 }
 CORE_PIPELINE = ["cosim", "unit", "chip", "pins"]
+# A suite that runs out of time on a mutant counts as a kill, so its limit must be far
+# above what the suite takes on the same machine under the same load: each limit is the
+# larger of the one above and TIMEOUT_FACTOR times the suite's time in the baseline run.
+# (v1.6: with the fixed limits alone, the v1.5 CI runs scored about 20 timeouts as kills,
+# and several of those mutants were proved equivalent in the other run: a busy runner,
+# not a detection.)
+TIMEOUT_FACTOR = 3
+BASE_SECS: dict[str, float] = {}
 
 
 def apply(m: Mutant, src: Path) -> str | None:
@@ -374,6 +382,7 @@ def apply(m: Mutant, src: Path) -> str | None:
 def run_suite(suite: str, src: Path, work: Path, seeds: int) -> str:
     """'pass', 'fail', 'timeout' or 'compile-error' for one suite on the mutated tree."""
     d, extra, limit = SUITES[suite]
+    limit = max(limit, TIMEOUT_FACTOR * BASE_SECS.get(suite, 0))
     cwd = REPO / d
     if suite == "line":
         cmd = [sys.executable, str(cwd / "run.py"), "--src", str(src), "--seeds", "4", "--jobs", "1"]
@@ -475,10 +484,16 @@ def baseline(suites: set[str], seeds: int, root: Path, jobs: int) -> bool:
     cannot run at all (a tool or model problem) fails for every mutant and reads as kills."""
     src = root / "baseline" / "src"
     shutil.copytree(REPO / "src", src)
+    def timed(s):
+        t0 = time.time()
+        r = run_suite(s, src, root / "baseline", seeds)
+        BASE_SECS[s] = time.time() - t0
+        return r
     with ThreadPoolExecutor(max(1, min(jobs, len(suites)))) as pool:
-        got = dict(zip(suites, pool.map(lambda s: run_suite(s, src, root / "baseline", seeds), suites)))
+        got = dict(zip(suites, pool.map(timed, suites)))
     for s, r in sorted(got.items()):
-        print(f"baseline {s:6s} {r}", flush=True)
+        limit = max(SUITES[s][2], TIMEOUT_FACTOR * BASE_SECS[s])
+        print(f"baseline {s:6s} {r}  {BASE_SECS[s]:.0f} s, limit per mutant {limit:.0f} s", flush=True)
         if r != "pass":
             print("".join((root / "baseline" / f"{s}.log").read_text().splitlines(True)[-60:]), flush=True)
     return all(r == "pass" for r in got.values())
