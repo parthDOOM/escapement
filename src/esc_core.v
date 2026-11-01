@@ -263,7 +263,6 @@ module esc_core (
 
   // ------------------------------------------------------------------ fields
   wire [1:0]  f_rd    = insn[23:22];
-  wire [1:0]  f_rs    = d_op[I_EMITR] ? insn[15:14] : insn[21:20];
   wire [15:0] f_imm16 = insn[15:0];
   wire [23:0] f_imm24 = insn[23:0];
   wire [4:0]  f_n     = insn[4:0];
@@ -273,15 +272,11 @@ module esc_core (
   wire        f_dir   = insn[15];
   wire [6:0]  f_win   = insn[6:0];
 
-  reg [31:0] opa, opb;
-  always @* begin
-    case (f_rd)
-      2'd0: opa = cs_r0; 2'd1: opa = cs_r1; 2'd2: opa = cs_r2; default: opa = cs_r3;
-    endcase
-    case (f_rs)
-      2'd0: opb = cs_r0; 2'd1: opb = cs_r1; 2'd2: opb = cs_r2; default: opb = cs_r3;
-    endcase
-  end
+  reg [31:0] opa, opb;                 // v1.6: registered in the cycle before (below)
+  function [31:0] pick(input [1:0] i, input [31:0] a0, input [31:0] a1, input [31:0] a2,
+                       input [31:0] a3);
+    pick = i[1] ? (i[0] ? a3 : a2) : (i[0] ? a1 : a0);
+  endfunction
 
   // ------------------------------------------------------------------ decode
   // Legality (sec. 4): an unknown opcode, or a payload bit its format reserves.
@@ -363,6 +358,15 @@ module esc_core (
   // in every commit cycle (formal, below).
   wire [1:0]  nq      = cq + 2'd1;
   wire [31:0] n_tmr   = c_tmr[32*nq +: 32];
+  // v1.6: the operands likewise, from p2_insn's register fields: a context's registers
+  // change only at its own commit, four edges back, or (an LDT's load) at the edge after
+  // it, three back. Asserted equal to the commit cycle's reads in every commit cycle
+  // (formal, ahead_o1, ahead_o2).
+  wire [1:0]  n_rs    = d_op_n[I_EMITR] ? p2_insn[15:14] : p2_insn[21:20];
+  wire [31:0] opa_n   = pick(p2_insn[23:22], c_r0[32*nq +: 32], c_r1[32*nq +: 32],
+                             c_r2[32*nq +: 32], c_r3[32*nq +: 32]);
+  wire [31:0] opb_n   = pick(n_rs, c_r0[32*nq +: 32], c_r1[32*nq +: 32],
+                             c_r2[32*nq +: 32], c_r3[32*nq +: 32]);
   wire [31:0] nd_now  = n_tmr - now_n;
   wire [31:0] nd_tail = n_tmr - c_tail[32*nq +: 32];
   wire [31:0] nd_lee  = n_tmr - c_lee[32*nq +: 32];
@@ -907,6 +911,7 @@ module esc_core (
       p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
       p2_insn <= 32'd0; p3_insn <= 32'd0;
       d_op <= 53'd0; illegal <= 1'b1;          // the decode of 0: no opcode, illegal
+      opa <= 32'd0; opb <= 32'd0;
       ff_valid <= 1'b0; ff_cause <= 3'd0; ff_sub <= 3'd0; ff_ctx <= 2'd0;
       ff_pc <= 8'd0; ff_tick <= 32'd0;
       dbg_commit_valid <= 1'b0; dbg_commit_ctx <= 2'd0; dbg_commit_pc <= 8'd0;
@@ -921,6 +926,8 @@ module esc_core (
       p3_insn <= p2_insn;
       d_op    <= d_op_n;
       illegal <= illegal_n;
+      opa     <= opa_n;
+      opb     <= opb_n;
       if (start || stop) begin
         p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
       end else begin
@@ -1092,6 +1099,11 @@ module esc_core (
   always @(*) if (rst_n) begin
     ahead_d1: `ESC_AHEAD (d_op == onehot(op));
     ahead_d2: `ESC_AHEAD (illegal == illegal_of(insn));
+  end
+  wire [1:0] f_rs = d_op[I_EMITR] ? insn[15:14] : insn[21:20];
+  always @(*) if (rst_n && commit_valid) begin
+    ahead_o1: `ESC_AHEAD (opa == pick(f_rd, cs_r0, cs_r1, cs_r2, cs_r3));
+    ahead_o2: `ESC_AHEAD (opb == pick(f_rs, cs_r0, cs_r1, cs_r2, cs_r3));
   end
 `undef ESC_AHEAD
 
