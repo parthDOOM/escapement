@@ -1,17 +1,20 @@
-; UART RX, 8N1, 115200 baud at 25 MHz (217 ticks/bit). Context 1, RX on pin 1.
+; UART RX, 8N1, BAUD (115200) at CLK_KHZ (25 MHz: 217 ticks/bit). Context 1, RX on pin 1.
 ; Each received byte is PUSHed to the host mailbox; a missing stop bit raises IRQ 0xFE
 ; (the byte is still pushed, with bit 8 set).
 ;
 ; The start edge is found with WAITP (quantised to the 4-tick slot plus the 2-tick
 ; synchroniser: the edge happened 2..6 ticks before the observing commit). Data bits
-; are then captured by SAMPLE events at exact ticks: bit k centre = edge + (k+1.5)*217,
-; using edge ~= observed - 4, so the worst-case sampling error is +/-2 ticks (1% of a bit).
+; are then captured by SAMPLE events at exact ticks: bit k centre = edge + (k+1.5)*BIT,
+; using edge ~= observed - 4, so the worst-case sampling error is +/-2 ticks (1% of a bit
+; at 25 MHz).
 
 .default CTX, 1              ; module parameters
 .default RX_PIN, 1
 .equ RX,     1 << RX_PIN
-.equ BIT,    217
-.equ FIRST,  325 - 4           ; 1.5 bits after the edge, minus the mean detection lag
+.default CLK_KHZ, 25000
+.default BAUD, 115200
+.equ BIT,    (CLK_KHZ * 1000 + BAUD // 2) // BAUD
+.equ FIRST,  (3 * BIT) // 2 - 4    ; 1.5 bits after the edge, minus the mean detection lag
 
 .entry CTX, main
 

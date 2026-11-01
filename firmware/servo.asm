@@ -1,11 +1,11 @@
 ; RC servo outputs (v1.6): NCH channels on bank A pins 0..NCH-1 (it owns the whole bank),
-; one pulse each per 22 ms
-; frame (45 Hz), 500 to 2547 us wide (1500 us centres a standard servo), the pulses one after
-; another so a single context times them all.
+; one pulse each per 22 ms frame (45 Hz), 500 to 2547 us wide (1500 us centres a standard
+; servo), the pulses one after another so a single context times them all.
 ;
 ; A pulse's width is 500 us plus an 11-bit value in microseconds, built from constant
 ; delays: one ADDT of 2^i us for each set bit i of the value. Every delay is a constant, so
-; escert certifies the program for any value the host sends, at any CLK_KHZ.
+; escert certifies the program for any value the host sends, at any CLK_KHZ from 1346
+; (below that it cannot bound one lead, and the .assert stops the assembly).
 ;
 ; Host (POP, any time): {channel << 16 | value}, value 0..2047 = 500..2547 us; it takes
 ; effect from the next frame, one update a frame (so the next frame is never late).
@@ -17,6 +17,7 @@
 .default CLK_KHZ, 25000
 .default TB, 0xF0                           ; tape: the channels' values (NCH words)
 .assert (NCH >= 1) & (NCH <= 8), one to eight channels on bank A
+.assert CLK_KHZ >= 1346, escert certifies servo from 1346 kHz
 .equ FRAME, CLK_KHZ * 22                    ; 22 ms: eight pulses of 2547 us fit
 .equ BASE, CLK_KHZ // 2                     ; 500 us
 .equ ALL, (1 << NCH) - 1
@@ -85,7 +86,7 @@ b11:
     CMPI  r2, NCH
     JNZ   chan
     EMIT  ALL, 0, ALL        ; the last pulse ends
-    MOVI  r1, FRAME & 0xFFFF ; the next frame starts 20 ms after this one
+    MOVI  r1, FRAME & 0xFFFF ; the next frame starts 22 ms after this one
     MOVHI r1, FRAME >> 16
     ADD   r0, r1
     SETT  r0

@@ -95,12 +95,24 @@ def test_shipped_firmware_is_certified_and_telemetry_agrees(fw):
 
 # D-5: the chip is signed off at 30 ns. Every program whose timing derives from CLK_KHZ,
 # rebuilt for 33 MHz (the demo board's jitter-free clock) or 33.333 MHz, still assembles
-# and certifies (test_rated_clock runs each at 33 MHz).
-CLK_33 = ["can_rx", "cec", "dali", "dmx512_tx", "dshot_tx", "midi_tx", "nec_rx", "nec_tx",
-          "nec_tx_gen", "sent_tx", "seven_seg", "uart_tx_gen", "westminster", "ws2812_gen"]
+# and certifies (test_rated_clock runs each at 33 MHz); v1.6: and at 40 and 50 MHz, the
+# clocks a faster rating would use. Four programs are tied to one clock by their protocol
+# (an .assert): 10BASE-T at 40 MHz, USB low speed at 24 MHz, VGA at its pixel clock.
+FIXED_CLOCK = {"eth_tx": 40000, "udp_tx": 40000, "usb_hid": 24000, "vga_pong": 25000}
+CLK_33 = sorted(p.stem for p in FW.glob("*.asm")
+                if ".default CLK_KHZ" in p.read_text() and p.stem not in FIXED_CLOCK)
 
 
-@pytest.mark.parametrize("khz", [33000, 33333])
+@pytest.mark.parametrize("fw", sorted(FIXED_CLOCK))
+def test_fixed_clock_firmware_certifies_at_its_clock_and_refuses_50_mhz(fw):
+    image = assemble(f'.equ {fw}.CLK_KHZ, {FIXED_CLOCK[fw]}\n.include "{fw}.asm"\n', base_dir=FW)
+    certs = certify(image)
+    assert certs and all(c.status == "CHECKED" for c in certs), [str(c) for c in certs]
+    with pytest.raises(AsmError, match="assertion failed"):
+        assemble(f'.equ {fw}.CLK_KHZ, 50000\n.include "{fw}.asm"\n', base_dir=FW)
+
+
+@pytest.mark.parametrize("khz", [33000, 33333, 40000, 50000])
 @pytest.mark.parametrize("fw", CLK_33)
 def test_clock_parameterised_firmware_certifies_at_33_mhz(fw, khz):
     image = assemble(f'.equ {fw}.CLK_KHZ, {khz}\n.include "{fw}.asm"\n', base_dir=FW)

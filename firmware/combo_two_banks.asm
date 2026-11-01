@@ -14,6 +14,12 @@
 .bank 2
 .bank 3
 
+.default CLK_KHZ, 25000                     ; one clock for every module below
+.equ ps2_device.CLK_KHZ, CLK_KHZ
+.equ jtag_idcode.CLK_KHZ, CLK_KHZ
+.equ spi_ctrl.CLK_KHZ, CLK_KHZ
+.equ uart_tx.CLK_KHZ, CLK_KHZ
+
 .equ ps2_device.CTX, 0
 .equ ps2_device.CLK_PIN, 0
 .equ ps2_device.DATA_PIN, 1

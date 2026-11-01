@@ -1,4 +1,4 @@
-"""Escapement instruction-set simulator: a cycle-by-cycle model of docs/11-SEMANTICS.md v1.4.0.
+"""Escapement instruction-set simulator: a cycle-by-cycle model of docs/11-SEMANTICS.md v1.6.0.
 
 v1.1 adds the tape and capture unit (§6.5, §7.6), the execution digest (§10.1) and the
 wait-class GETI (§7.3). v1.2 adds pin bank B (§5): five split pins seen by a context as
@@ -8,7 +8,8 @@ v1.3 adds streaming capture (§6.5): CAPT bit 26, the host's read pointer `rptr`
 TAPE_ACK (`host_tape_ack`), and a drain that is held rather than overwrite an
 unacknowledged record. Host tape reads never affect the machine; `tape_log` records
 every tape write so a host read at any cycle can be checked. v1.4 adds the line unit
-(§6.6, `line.py`) and SEND, LINE and GETL (§6.2, §7.7).
+(§6.6, `line.py`) and SEND, LINE and GETL (§6.2, §7.7); v1.6 its extended configuration
+(symbol coding, clock pattern, CRC up to 32 bits, prefix, long streams; `line.py`).
 
 One loop iteration = one run cycle t, ending with edge E_t. State held in the Python
 objects is always "state during cycle self.now" (i.e. the register values after the

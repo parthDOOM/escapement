@@ -26,9 +26,9 @@
 ; One bit cycle from tick T: SWCLK falls at T; the host changes SWDIO at T + 1 (EMITX
 ; from sh) or samples it at T + 2 (the bit the target drove at the previous rising edge,
 ; an exact-tick SAMPLE in the middle of its cycle); SWCLK rises at T + H, where the
-; target samples and changes SWDIO. H = 16: SWCLK = 25 MHz / 32 = 781 kHz. A bit is a
-; 7-instruction loop (28 ticks), so H = 14 (893 kHz) is the fastest clock; escert
-; certifies H = 16 and H = 14 and refutes H = 13.
+; target samples and changes SWDIO. H = CLK_KHZ * 1000 / (2 SWCLK_HZ), rounded up: 16 at
+; 25 MHz, SWCLK 781 kHz. A bit is a 7-instruction loop (28 ticks), so H = 14 is the
+; fastest clock; escert certifies H = 16 and H = 14 and refutes H = 13.
 ; The packet is played as segments (request; turnaround + ACK; data; parity; turnaround
 ; + idle). Each starts on an empty queue with a fresh time base, GAP ticks after the
 ; previous one ended, with SWCLK resting high in between (48-60 ticks instead of H; 143
@@ -44,7 +44,10 @@
 .default CTX, 2
 .default CLK_PIN, 4
 .default DIO_PIN, 5
-.default H, 16
+.default CLK_KHZ, 25000
+.default SWCLK_HZ, 781250
+.default H, (CLK_KHZ * 1000 + 2 * SWCLK_HZ - 1) // (2 * SWCLK_HZ)   ; rounded up
+.assert H >= 14, a bit is a 7-instruction loop (28 ticks): H of 14 ticks or more
 .default WAIT_MAX, 64
 .equ CLK, 1 << CLK_PIN
 .equ DIO, 1 << DIO_PIN

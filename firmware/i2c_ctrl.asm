@@ -1,4 +1,4 @@
-; I2C controller, Fast-mode (~380-395 kHz at a 25 MHz core clock), with clock stretching.
+; I2C controller, Fast-mode (fSCL <= 400 kHz at any CLK_KHZ from 23 MHz), with clock stretching.
 ; Context 0, SCL = pin 2, SDA = pin 3, both open-drain (value 1 = release, 0 = drive low).
 ;
 ; Host protocol (mailboxes): POP a command word, PUSH one result word per command.
@@ -8,18 +8,25 @@
 ;   result  [15:8] ACK bits, one per byte sent, oldest first (1 = NACK), [7:0] read data
 ; A stuck SCL (no rise within 100 us) raises IRQ 0xEE, releases the bus and halts.
 ;
-; Timing per bit (ticks of 40 ns), every edge an event at an absolute deadline:
-;   SCL falls at F; SDA changes at F+10 (tHD;DAT 400 ns, tSU;DAT 1.04 us);
-;   SCL released at F+36 (tLOW 1.44 us >= 1.3 us); the high phase is measured from
-;   the *observed* SCL rise (stretch-safe), >= 20 ticks (tHIGH 0.8 us >= 0.6 us).
-;   Worst-case period 63-66 ticks => fSCL <= 397 kHz. Read bits use SAMPLE events
-;   at an exact tick inside the high phase.
+; Timing per bit, every edge an event at an absolute deadline (ticks at 25 MHz, 40 ns):
+;   SCL falls at F; SDA changes at F+T_DAT (10: tHD;DAT 400 ns, tSU;DAT 1.04 us);
+;   SCL released at F+T_LOW (36: tLOW 1.44 us >= 1.3 us); the high phase is measured
+;   from the *observed* SCL rise (stretch-safe), >= T_HI (20: tHIGH 0.8 us >= 0.6 us).
+;   Seeing the rise and scheduling the fall adds at least 7 ticks, so the period is at
+;   least T_LOW + T_HI + 7 (63 at 25 MHz): T_LOW is lengthened where needed to keep that
+;   at 2.5 us or more (fSCL <= 400 kHz) at any clock, since 7 ticks is less time at a
+;   faster one (at 50 MHz T_LOW is 78). Read bits use SAMPLE events at an exact tick
+;   inside the high phase.
 ;   After any variable-length code (call/return, flag tests) the bit timeline is
-;   re-anchored to `now + 12` (REANCHOR): that only lengthens an SCL low phase, which
-;   UM10204 allows, and it is always after the scheduled SCL fall (>= 3 instructions
-;   = 12 ticks have passed since the fall was scheduled 20 ticks after its RDTIME).
-;   Found by the ISS: without it the first data bit of a byte missed its deadline
-;   and the hardware rejected it (ADMIT/PAST) instead of emitting a late edge.
+;   re-anchored to `now + RA` once the scheduled SCL fall has happened (WAITT first):
+;   that only lengthens an SCL low phase, which UM10204 allows, and never shortens one,
+;   whatever the clock. (v1.5's program, fixed at 25 MHz, relied on the fall having
+;   passed by tick count alone: true with its constants, but rebuilt from CLK_KHZ for
+;   33 MHz that would cut tLOW short.)
+;   Found by the ISS: without a re-anchor the first data bit of a byte missed its
+;   deadline and the hardware rejected it (ADMIT/PAST) instead of emitting a late edge.
+;   The rise of SCL is watched for only once its release is due (WAITT), so every edge
+;   scheduled from the observed rise follows the release in the FIFO at any clock.
 
 .default CTX,     0         ; module parameters
 .default SCL_PIN, 2
@@ -27,11 +34,19 @@
 .equ SCL,     1 << SCL_PIN
 .equ SDA,     1 << SDA_PIN
 .equ BOTH,    SCL | SDA
-.equ T_DAT,   10
-.equ T_LOW,   36
-.equ T_HI,    20
-.equ TO,      2500           ; 100 us stretch/stuck timeout
-.equ RA,      12             ; re-anchor offset
+.default CLK_KHZ, 25000
+.assert CLK_KHZ >= 23000, Fast-mode at 400 kHz needs a clock of 23 MHz or more (escert)
+.equ T_DAT,   (400 * CLK_KHZ + 999999) // 1000000     ; 400 ns
+.equ T_HI,    (800 * CLK_KHZ + 999999) // 1000000     ; 0.8 us
+.equ T_LOW0,  (1440 * CLK_KHZ + 999999) // 1000000    ; 1.44 us
+.equ T_PER,   (2500 * CLK_KHZ + 999999) // 1000000    ; 2.5 us: 400 kHz
+.equ T_LOW,   T_LOW0 + (T_PER - T_HI - 7 - T_LOW0) * (T_PER - T_HI - 7 > T_LOW0)
+.equ T_HDSTA, (800 * CLK_KHZ + 999999) // 1000000     ; tHD;STA 0.8 us
+.equ T_BUF,   (1600 * CLK_KHZ + 999999) // 1000000    ; tBUF 1.6 us
+.equ T_SMP,   (640 * CLK_KHZ + 999999) // 1000000     ; read sample, 0.64 us into the high phase
+.equ T_RHI,   (960 * CLK_KHZ + 999999) // 1000000     ; read high phase 0.96 us
+.equ TO,      100 * CLK_KHZ // 1000                   ; 100 us stretch/stuck timeout
+.equ RA,      12             ; re-anchor offset (instruction time, in ticks)
 
 .entry CTX, main
 .own   SCL_PIN, CTX
@@ -46,11 +61,11 @@ loop:
     POP   r3                 ; wait for a command
     MOVI  r2, 0              ; ACK accumulator
     RDTIME r1
-    ADDI  r1, 40             ; >= tBUF after the previous STOP
+    ADDI  r1, T_BUF          ; >= tBUF after the previous STOP
     SETT  r1
     ; ---- START: SDA falls while SCL is high, then SCL falls (tHD;STA 0.8 us)
     EMIT  SDA, 0, SDA
-    ADDT  20
+    ADDT  T_HDSTA
     EMIT  SCL, 0, SCL
     ; ---- address + W, register
     MOV   r0, r3
@@ -70,6 +85,7 @@ no_wdata:
     TSTI  r3, 2
     JZ    stop
     ; ---- repeated START
+    WAITT                    ; the scheduled SCL fall has happened
     RDTIME r0
     ADDI  r0, RA
     SETT  r0
@@ -77,6 +93,7 @@ no_wdata:
     EMIT  SDA, SDA, SDA      ; release SDA while SCL is low
     ADDT  T_LOW - T_DAT
     EMIT  SCL, SCL, SCL      ; release SCL
+    WAITT                    ; SCL released: watch for its rise from here
     ADDT  TO
     WAITP SCL, SCL
     JNZ   timeout
@@ -84,7 +101,7 @@ no_wdata:
     ADDI  r1, T_HI           ; tSU;STA 0.8 us
     SETT  r1
     EMIT  SDA, 0, SDA
-    ADDT  20                 ; tHD;STA 0.8 us
+    ADDT  T_HDSTA            ; tHD;STA 0.8 us
     EMIT  SCL, 0, SCL
     ; ---- address + R, one byte with NACK
     MOV   r0, r3
@@ -96,6 +113,7 @@ no_wdata:
     CALL  read_byte          ; -> r1
 stop:
     ; ---- STOP: SDA low while SCL low, release SCL, then release SDA
+    WAITT                    ; the scheduled SCL fall has happened
     RDTIME r0
     ADDI  r0, RA
     SETT  r0
@@ -103,6 +121,7 @@ stop:
     EMIT  SDA, 0, SDA
     ADDT  T_LOW - T_DAT
     EMIT  SCL, SCL, SCL
+    WAITT                    ; SCL released: watch for its rise from here
     ADDT  TO
     WAITP SCL, SCL
     JNZ   timeout
@@ -122,6 +141,7 @@ write_byte:
     SHL   r1, 24
     LDSH  r1
     LDLC  8
+    WAITT                    ; the scheduled SCL fall has happened
     RDTIME r1
     ADDI  r1, RA
     SETT  r1
@@ -130,6 +150,7 @@ wb_bit:
     EMITX SDA, MSB, SDA
     ADDT  T_LOW - T_DAT
     EMIT  SCL, SCL, SCL
+    WAITT                    ; SCL released: watch for its rise from here
     ADDT  TO
     WAITP SCL, SCL
     JNZ   timeout
@@ -142,6 +163,7 @@ wb_bit:
     EMIT  SDA, SDA, SDA
     ADDT  T_LOW - T_DAT
     EMIT  SCL, SCL, SCL
+    WAITT                    ; SCL released: watch for its rise from here
     ADDT  TO
     WAITP SCL, SCL
     JNZ   timeout
@@ -158,10 +180,11 @@ wb_ack:
     RET
 
 ; read_byte: receive 8 bits MSB first into r1, then send r0 in the 9th clock
-; (r0 = 0 for ACK, SDA for NACK). SDA is sampled by a SAMPLE event 16 ticks after
+; (r0 = 0 for ACK, SDA for NACK). SDA is sampled by a SAMPLE event T_SMP ticks after
 ; the observed SCL rise.
 read_byte:
     LDLC  8
+    WAITT                    ; the scheduled SCL fall has happened
     RDTIME r1
     ADDI  r1, RA
     SETT  r1
@@ -170,20 +193,22 @@ rb_bit:
     EMIT  SDA, SDA, SDA
     ADDT  T_LOW - T_DAT
     EMIT  SCL, SCL, SCL
+    WAITT                    ; SCL released: watch for its rise from here
     ADDT  TO
     WAITP SCL, SCL
     JNZ   timeout
     RDTIME r1
-    ADDI  r1, 16
+    ADDI  r1, T_SMP
     SETT  r1
     SAMPLE SDA_PIN, MSB
-    ADDT  8
+    ADDT  T_RHI - T_SMP
     EMIT  SCL, 0, SCL
     DJNZ  rb_bit
     ADDT  T_DAT
     EMITR SDA, r0, SDA       ; ACK/NACK
     ADDT  T_LOW - T_DAT
     EMIT  SCL, SCL, SCL
+    WAITT                    ; SCL released: watch for its rise from here
     ADDT  TO
     WAITP SCL, SCL
     JNZ   timeout

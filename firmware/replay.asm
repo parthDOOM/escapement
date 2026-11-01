@@ -7,6 +7,9 @@
 ; late or approximately: admission refuses the first edge that cannot be met
 ; (ADMIT/PAST), the context faults, and its pins release.
 ; Limits: one 2^24-tick epoch (0.67 s at 25 MHz); drives only the pins in PINS.
+; Records are ticks of the chip's clock: esctape.read_trace rescales a capture taken at
+; another clock (or a .vcd/.sr in real time) before build_replay, so a trace keeps its
+; real-time spacing at any clock (the epoch is 0.34 s at 50 MHz).
 
 .default CTX, 0
 .default PINS, 0x01            ; pins driven (must be owned: .own lines from the host)

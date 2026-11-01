@@ -1,9 +1,10 @@
-"""At the rated maximum clock (D-5), 33 MHz exactly, as the Tiny Tapeout board makes it
-without jitter (RP2040 at 132 MHz, PWM divider 4): the programs whose timing derives from
-CLK_KHZ, rebuilt for it, run on the ISS against their bus models with the models' tick at
-30.3 ns, so every protocol time is checked in real time, not in ticks. test_escert
-certifies all fourteen at 33 and 33.333 MHz; here each runs. westminster (a 14 s tune)
-runs at a hundredth of real time in test_firmware; at this clock it is certified only.
+"""At the rated clocks (D-5): 33 MHz (v1.5) and 50 MHz (v1.6), as the Tiny Tapeout board
+makes them without jitter (RP clock 132 MHz divided by 4, and 100 MHz divided by 2): the
+programs whose timing derives from CLK_KHZ, rebuilt for each, run on the ISS against their
+bus models with the models' tick at 30.3 or 20 ns, so every protocol time is checked in
+real time, not in ticks. test_escert certifies all of them at 33, 33.333, 40 and 50 MHz;
+here those with a bus model run. westminster (a 14 s tune) runs at a hundredth of real
+time in test_firmware; at these clocks it is certified only.
 """
 
 from __future__ import annotations
@@ -22,13 +23,18 @@ from test_firmware import (CAN_RX_FRAMES, FW, can_rx_parse, can_rx_run, can_rx_w
                            dshot_run, nec_image, nec_report, nec_run, nec_rx_run, sent_run,
                            word_nibbles)
 
-KHZ = 33000
-TICK = 1e6 / KHZ                                  # 30.303 ns
-MS = KHZ                                          # ticks per millisecond
+# v1.6: each program at both rated steps, 33 MHz (v1.5) and 50 MHz (v1.6)
+CLOCKS = [33000, 50000]
+
+
+@pytest.fixture(params=CLOCKS, ids=lambda k: f"{k // 1000}MHz")
+def khz(request):
+    return request.param
 
 
 @pytest.mark.parametrize("name, baud", [("uart_tx_gen", 115200), ("midi_tx", 31250)])
-def test_serial_bytes(name, baud):
+def test_serial_bytes(name, baud, khz):
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     _, image = escgen.build(table(name), CLK_KHZ=KHZ)
     msg = [0x90, 0x3C, 0x7F, 0x80, 0x3C, 0x00, 0x55, 0xAA]
     frame = int(11 * KHZ * 1000 / baud)
@@ -41,8 +47,9 @@ def test_serial_bytes(name, baud):
     assert not m.ff.valid
 
 
-def test_dmx512_packet():
+def test_dmx512_packet(khz):
     """A whole packet (break, mark after break, start code and 512 slots, 23 ms)."""
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     _, image = escgen.build(table("dmx512_tx"), CLK_KHZ=KHZ)
     slots = [0] + [(7 * i + 1) & 0xFF for i in range(1, 512)]
     for w in range(128):
@@ -56,7 +63,8 @@ def test_dmx512_packet():
     assert not m.ff.valid
 
 
-def test_ws2812_frames():
+def test_ws2812_frames(khz):
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     _, image = escgen.build(table("ws2812_gen"), CLK_KHZ=KHZ)
     colours = [0x00FF00, 0xFF0000, 0x0000FF, 0x123456, 0xABCDEF]
     image.tape[0] = len(colours)
@@ -69,7 +77,8 @@ def test_ws2812_frames():
     assert not m.ff.valid
 
 
-def test_nec_frame_from_a_table():
+def test_nec_frame_from_a_table(khz):
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     _, image = escgen.build(table("nec_tx_gen"), CLK_KHZ=KHZ)
     a, c = 0x5A, 0xC3
     raw = a | ((a ^ 0xFF) << 8) | (c << 16) | ((c ^ 0xFF) << 24)
@@ -85,9 +94,10 @@ def test_nec_frame_from_a_table():
     assert not m.ff.valid
 
 
-def test_nec_tx_frame_and_repeat():
+def test_nec_tx_frame_and_repeat(khz):
     """A frame, then a repeat code one 108 ms slot later: the repeat path drains the
     queue before its 2.25 ms space, which at this clock is over 2^16 ticks."""
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     rx = NecReceiver(0, TICK)
     board = Board(rx)
     m, acks, _ = nec_run(nec_image(KHZ), [0xC35A, 1 << 31], 108 * MS + 15 * MS, board,
@@ -105,16 +115,18 @@ def test_nec_tx_frame_and_repeat():
 
 
 @pytest.mark.parametrize("scale", [1.0, 0.9, 1.1])
-def test_nec_rx(scale):
+def test_nec_rx(scale, khz):
     """A frame then a repeat code, from a remote exact or 10% fast or slow: the receiver
     measures in 8-tick units at this clock."""
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     slot = 108 * MS
     got = nec_rx_run([(1000, nec_raw(0x5A, 0xC3)), (1000 + slot, None)], slot + 15 * MS,
                      clk_khz=KHZ, scale=scale)
     assert got == [nec_report(0x5A, 0xC3), 1 << 31], [hex(v) for v in got]
 
 
-def test_nec_loopback_tx_carrier_through_tsop_into_rx():
+def test_nec_loopback_tx_carrier_through_tsop_into_rx(khz):
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     image = assemble(f".equ nec_tx.CLK_KHZ, {KHZ}\n.equ nec_rx.CLK_KHZ, {KHZ}\n"
                      '.include "nec_tx.asm"\n.include "nec_rx.asm"\n', base_dir=FW)
     rx = NecReceiver(0, tick_ns=TICK)
@@ -138,10 +150,13 @@ def test_nec_loopback_tx_carrier_through_tsop_into_rx():
     assert not board.errors() and not m.ff.valid
 
 
-def test_dshot():
-    """DShot600: three bits are 165 ticks (55 each), high 0.625 or 1.25 us, 8 kHz frames."""
+def test_dshot(khz):
+    """DShot600: three bits are 5 us (165 ticks at 33 MHz), high 0.625 or 1.25 us, 8 kHz
+    frames. Times are in microseconds, so the run ends between frames at every clock."""
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     src = f'.equ dshot_tx.CLK_KHZ, {KHZ}\n.include "dshot_tx.asm"\n'
-    m, board, escs = dshot_run([(4000, (1 << 14) | (1234 << 1))], 20_000, src=src, tick_ns=TICK)
+    m, board, escs = dshot_run([(121 * KHZ // 1000, (1 << 14) | (1234 << 1))], 606 * KHZ // 1000,
+                               src=src, tick_ns=TICK)
     assert not board.errors(), board.errors()
     assert all(e.frames[-1][:3] == (1234, 0, True) for e in escs)
     t0h, t1h = (KHZ * 625 + 500000) // 1000000, (KHZ * 1250 + 500000) // 1000000
@@ -149,17 +164,20 @@ def test_dshot():
     assert not m.ff.valid
 
 
-def test_sent():
-    """A unit is 99 ticks (2.97 us), inside SENT's tolerance; frames decode with good CRCs."""
-    m, board, rx = sent_run([(3000, 0x2468ACE)], 55_000, clk_khz=KHZ)
+def test_sent(khz):
+    """A unit is 3 us (99 ticks at 33 MHz), inside SENT's tolerance; frames decode with good
+    CRCs. Times are in microseconds, so the pushed word's frame is sent at every clock."""
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
+    m, board, rx = sent_run([(91 * KHZ // 1000, 0x2468ACE)], 1667 * KHZ // 1000, clk_khz=KHZ)
     assert not board.errors(), board.errors()
     f = rx.frames[-1]
     assert f["unit"] == KHZ * 3 // 1000 and (f["status"], f["data"]) == word_nibbles(0x2468ACE)
     assert f["crc_ok"] and not m.ff.valid
 
 
-def test_can_rx():
+def test_can_rx(khz):
     """250 kbit/s: a bit is 132 ticks."""
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     lv = [encode_frame(i, d, rtr=r, ext=e, dlc=n) for i, d, r, e, n in CAN_RX_FRAMES]
     src = f'.equ can_rx.CLK_KHZ, {KHZ}\n.include "can_rx.asm"\n'
     m, words = can_rx_run(lv, period=KHZ / 250, src=src)
@@ -168,9 +186,10 @@ def test_can_rx():
     assert not m.ff.valid
 
 
-def test_cec_initiator_and_follower():
+def test_cec_initiator_and_follower(khz):
     """The chip sends CEC Version to a TV model, which acknowledges every block within its
     receive windows; then the TV sends Give Physical Address, which the chip acknowledges."""
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     src = f'.equ cec.CLK_KHZ, {KHZ}\n.include "cec.asm"\n'
     tv = CecDevice(0, 0, tick_ns=TICK, send=[(120 * MS, [0x04, 0x83])], retries=0)
     m, board, out = cec_run([tv], cec_frame(0x40, 0x9E, 0x05), 200 * MS, src=src, chunk=2000)
@@ -183,9 +202,10 @@ def test_cec_initiator_and_follower():
 
 
 @pytest.mark.parametrize("scale", [1.0, 0.9, 1.1])
-def test_dali(scale):
+def test_dali(scale, khz):
     """QUERY CONTROL GEAR PRESENT, RECALL MAX LEVEL and QUERY ACTUAL LEVEL, from a
     controller exact or 10% fast or slow: each query answered 7.5 ms after its frame."""
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     script = [(0x0191, 0xFF), (0x0105, None), (0x01A0, 0xFE)]
     src = f'.equ dali.CLK_KHZ, {KHZ}\n.include "dali.asm"\n'
     frames = [(5 * MS + i * 40 * MS, f) for i, (f, _) in enumerate(script)]
@@ -196,8 +216,9 @@ def test_dali(scale):
     assert not m.ff.valid
 
 
-def test_seven_seg():
+def test_seven_seg(khz):
     """Each segment lit alone for exactly one 160 ms frame (5,280,000 ticks)."""
+    KHZ, TICK, MS = khz, 1e6 / khz, khz                # ticks per ms
     from escasm import assemble as asm
     m = Machine(asm(f'.equ seven_seg.CLK_KHZ, {KHZ}\n.include "seven_seg.asm"\n', base_dir=FW))
     frame = KHZ * 160
@@ -214,3 +235,189 @@ def test_seven_seg():
     assert [ob for _, ob in frames][:3] == [0x04, 0x08, 0x02]
     assert all(b[0] - a[0] == frame for a, b in zip(frames, frames[1:]))
     assert not m.ff.valid
+
+
+# --------------------------------------------------------------------------- v1.6
+# The hand-written programs that took their timing from 25 MHz ticks up to v1.5, now from
+# CLK_KHZ (their 25 MHz images unchanged, except i2c_ctrl's two waits): each at both rated
+# steps against a model that times every edge in real nanoseconds.
+
+def build(name, khz, extra=""):
+    return assemble(f'.equ {name}.CLK_KHZ, {khz}\n{extra}.include "{name}.asm"\n', base_dir=FW)
+
+
+def edges_of(board, pin):
+    lv = board.level(pin)
+    return [t for t in range(1, len(lv)) if lv[t] != lv[t - 1]]
+
+
+def test_uart_tx_and_rx(khz):
+    from escmodels import UartTx
+    rx = UartRx(0, khz * 1000 / 115200)
+    board = Board(rx)
+    m = Machine(build("uart_tx", khz), board=board)
+    m.run(khz * 2, stop_when_idle=False)
+    assert rx.bytes == [0x55, 0x4B, 0x21, 0x0A] and not board.errors() and not m.ff.valid
+    for err in (0.0, 0.02, -0.02):
+        data = bytes(range(256))
+        tx = UartTx(1, khz * 1000 / 115200 * (1 + err), data, start=500, gap_bits=0.0)
+        script = HostScript([], drain=[1], poll=1400)
+        board = Board(tx, script)
+        m = Machine(build("uart_rx", khz), board=board)
+        script.machine = m
+        m.run(tx.end + 4000, stop_when_idle=False)
+        assert script.received[1] == list(data) and not m.ff.valid, err
+
+
+def test_ws2812_chain(khz):
+    dec = Ws2812Decoder(0, 1e6 / khz)
+    script = HostScript([(30, 3, 0x102030), (40, 3, 0x010203), (2000, 3, 6)], drain=[3], poll=97)
+    board = Board(dec, script)
+    m = Machine(build("ws2812", khz), board=board)
+    script.machine = m
+    m.run(khz // 2, stop_when_idle=False)
+    dec.finish()
+    assert dec.frames == [[(0x102030 + i * 0x010203) & 0xFFFFFF for i in range(6)]]
+    assert script.received[3] == [1] and not board.errors() and not m.ff.valid
+
+
+def test_onewire_read_rom(khz):
+    from escmodels import OneWireDevice, crc8_maxim
+    rom = bytes([0x28, 0xAA, 0x01, 0x02, 0x03, 0x04, 0x05])
+    rom += bytes([crc8_maxim(rom)])
+    dev = OneWireDevice(1, rom, 1e6 / khz)
+    ms = khz
+    script = HostScript([(30, 3, 0x80000033)] + [(2 * ms + ms * 4 // 5 * i, 3, 0xFF) for i in range(8)],
+                        drain=[3], poll=500)
+    board = Board(dev, script)
+    m = Machine(build("onewire", khz), board=board)
+    script.machine = m
+    m.run(10 * ms, stop_when_idle=False)
+    got = script.received[3]
+    assert got[0] >> 8 == 1 and bytes(v & 0xFF for v in got[1:9]) == rom
+    assert dev.written[0] == 0x33 and not board.errors() and not m.ff.valid
+
+
+def test_ps2_device(khz):
+    from escmodels import Ps2Host
+    host = Ps2Host(4, 5, tick_ns=1e6 / khz)
+    board = Board(host)
+    m = Machine(build("ps2_device", khz), board=board)
+    acks = []
+    for code in (0x1C, 0x5A, 0x00, 0xFF):
+        m.host_rx_push(1, code)
+        m.run(khz * 26 // 25, stop_when_idle=False)               # 1.04 ms
+        acks.append(m.host_tx_pop(1))
+        m.run(1, stop_when_idle=False)
+    assert acks == [1] * 4 and host.bytes == [0x1C, 0x5A, 0x00, 0xFF]
+    assert not board.errors() and not m.ff.valid
+
+
+@pytest.mark.parametrize("stretch", [0, 37, 400])
+def test_i2c_fast_mode(stretch, khz):
+    """fSCL <= 400 kHz and every Fast-mode minimum, in nanoseconds, at the rated clock."""
+    from escmodels import I2cTarget
+    from test_firmware import i2c_cmd, scl_periods
+    tick = 1e6 / khz
+    target = I2cTarget(scl=2, sda=3, addr7=0x42, regs={5: 0x00, 6: 0x5C}, mode="fast",
+                       tick_ns=tick, stretch_ticks=stretch)
+    gap = (3500 + 40 * stretch) * khz // 25000
+    script = HostScript([(50, 0, i2c_cmd(0x42, 5, 0xA5, write=True)),
+                         (50 + gap, 0, i2c_cmd(0x42, 5, read=True)),
+                         (50 + 2 * gap, 0, i2c_cmd(0x42, 6, read=True))], drain=[0], poll=500)
+    board = Board(target, script)
+    m = Machine(build("i2c_ctrl", khz), board=board)
+    script.machine = m
+    m.run(50 + 3 * gap + 2000, stop_when_idle=False)
+    assert script.received[0] == [0x0000, 0x00A5, 0x005C] and target.regs[5] == 0xA5
+    assert not board.errors(), board.errors()
+    assert min(scl_periods(board, 2)) * tick >= 2500
+    assert not m.ff.valid
+
+
+@pytest.mark.parametrize("mode", ["standard", "fast"])
+def test_i2c_eeprom(mode, khz):
+    from escmodels import I2cController
+    from test_firmware import EEPROM_SCRIPT
+    image = build("i2c_eeprom", khz)
+    for a in range(256):
+        image.tape[a] = (a * 7 + 3) & 0xFF
+    ctl = I2cController(2, 3, EEPROM_SCRIPT, mode=mode, tick_ns=1e6 / khz)
+    board = Board(ctl)
+    m = Machine(image, board=board)
+    m.run((330_000 if mode == "standard" else 110_000) * khz // 25000, stop_when_idle=False)
+    r = ctl.results
+    assert [x["acks"] for x in r] == [[True] * 6, [True] * 3, [False], [True], [True] * 5, [True] * 3]
+    assert r[1]["data"] == [0xDE, 0xAD, 0xBE, 0xEF] and r[5]["data"] == [3]
+    assert not board.errors(), board.errors()
+    assert not m.ff.valid
+
+
+def test_can_tx(khz):
+    """250 kbit/s exactly: the receiver hard-synchronises once per frame, so any rate error
+    would show over the frame."""
+    from escmodels import CanBus
+    from test_firmware import CAN_FRAMES
+    bus = CanBus(0, 1, khz * 1000 / 250000)
+    board = Board(bus)
+    m = Machine(build("can_tx", khz), board=board)
+    acks = []
+    for ident, dlc, w1, w2 in CAN_FRAMES:
+        m.run(200, stop_when_idle=False)
+        for w in ((ident << 16) | dlc, w1, w2):
+            m.host_rx_push(0, w)
+            m.run(50, stop_when_idle=False)
+        m.run(40_000 * khz // 25000, stop_when_idle=False)
+        acks.append(m.host_tx_pop(0))
+        m.run(1, stop_when_idle=False)
+    assert acks == [1, 1, 1, 1] and len(bus.frames) == 4 and all(f["crc_ok"] for f in bus.frames)
+    assert not board.errors() and not m.ff.valid
+
+
+@pytest.mark.parametrize("mode", [0, 1, 2, 3])
+def test_spi_ctrl(mode, khz):
+    """Every mode, SCK at its configured 500 kHz (1 us half periods) at any clock."""
+    from escmodels import SpiTarget
+    tgt = SpiTarget(sck=4, mosi=5, miso=6, cs=7, mode=mode, reply=b"\x3C\xC3\x81")
+    script = HostScript([(20, 2, mode), (100, 2, 0x1A5), (110, 2, 0x05A),
+                         (2000 * khz // 25000, 2, 0x0F0)], drain=[2], poll=300)
+    board = Board(tgt, script)
+    m = Machine(build("spi_ctrl", khz), board=board)
+    script.machine = m
+    m.run(6000 * khz // 25000, stop_when_idle=False)
+    assert tgt.frames == [[0xA5, 0x5A], [0xF0]] and script.received[2] == [0x3C, 0xC3, 0x81]
+    # SCK inside frames (CS_n low); with CPOL = 1 the move to the idle level after the config
+    # word is one edge with CS_n high, which no target clocks on
+    cs = board.level(7)
+    e = [t for t in edges_of(board, 4) if cs[t] == 0]
+    assert min(b - a for a, b in zip(e, e[1:])) * 1e6 / khz >= 1000
+    assert not board.errors() and not m.ff.valid
+
+
+def test_jtag_idcode(khz):
+    from escmodels import JtagTap
+    tap = JtagTap(4, 5, 6, 7, idcode=0x4BA00477)
+    board = Board(tap)
+    m = Machine(build("jtag_idcode", khz), board=board)
+    got = []
+    for _ in range(2):
+        m.host_rx_push(2, 0)
+        m.run(6000 * khz // 25000, stop_when_idle=False)
+        got.append(m.host_tx_pop(2))
+        m.run(1, stop_when_idle=False)
+    e = edges_of(board, 4)
+    assert got == [0x4BA00477] * 2 and tap.state == "RTI"
+    assert min(b - a for a, b in zip(e, e[1:])) * 1e6 / khz >= 799     # TCK <= 625 kHz
+    assert not board.errors() and not m.ff.valid
+
+
+def test_swd_connect_and_read_dpidr(khz):
+    from escmodels import SwdTarget
+    from test_firmware import SWD, SWD_CONNECT_DPIDR, SWD_DPIDR, swclk_phases, swd_session
+    tgt = SwdTarget(4, 5, dpidr=0x2BA01477)
+    src = f'.equ swd_idcode.CLK_KHZ, {khz}\n.include "swd_idcode.asm"\n'
+    replies, board, m = swd_session(tgt, [(SWD_CONNECT_DPIDR,), (SWD_DPIDR,)], source=src,
+                                    per_cmd=60_000 * khz // 25000)
+    assert replies == [(1, 0x2BA01477)] * 2 and tgt.mode == "swd"
+    assert min(swclk_phases(board)) * 1e6 / khz >= 640                 # SWCLK <= 781 kHz
+    assert not board.errors() and not m.ff.valid and m.ctx[SWD].min_lead >= 3

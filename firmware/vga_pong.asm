@@ -18,6 +18,8 @@
 ; to meet the ball, so it misses when the ball comes too steeply. Hitting the ball with
 ; a paddle's end sends it off at an angle.
 
+.default CLK_KHZ, 25000                     ; the pixel clock
+.assert 25000 <= CLK_KHZ <= 25175, 640x480 needs a pixel clock of 25 to 25.175 MHz
 .default SYNC, 0
 .default VIDEO, 1
 

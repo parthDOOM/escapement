@@ -553,6 +553,44 @@ def case_quadrature():
     return Board(_Encoder(steps), host), host, check
 
 
+def modbus_tape(image):
+    for k in range(64):
+        image.tape[k] = 0x1000 + k
+
+
+def case_modbus():
+    """v1.6: Modbus RTU server: Write Multiple Registers, a read across them, an
+    exception; the write's notice to the host."""
+    from escmodels.modbus import ModbusClient, adu
+    reqs = [(adu(1, bytes([16, 0, 4, 0, 2, 4, 0xBE, 0xEF, 0x12, 0x34])), True),
+            (adu(1, bytes([3, 0, 3, 0, 4])), True), (adu(1, bytes([5, 0, 0, 0xFF, 0])), True)]
+    cl = ModbusClient(ro=1, di=0, de=2, ticks_per_bit=2.5e6 / 19200, requests=reqs,
+                      start=6000, turn=500)
+    host = HostScript([], drain=[0], poll=500)
+
+    def check(board, h):
+        out = [bytes(r["bytes"]) for r in cl.replies]
+        ok = (len(out) == 3 and out[1][:3] == bytes([1, 3, 8])
+              and out[1][3:11] == bytes.fromhex("1003beef12341006") and out[2][:3] == bytes([1, 0x85, 1])
+              and h.received[0] == [4 | 2 << 16])
+        return ([] if ok else [f"modbus {[o.hex() for o in out]} {h.received}"]) + board.errors()
+    return Board(cl, host), host, check
+
+
+def case_sbus():
+    """v1.6: S.BUS receiver: two frames, the second with the failsafe flag, decoded into
+    the tape under the sequence count; a notice per frame."""
+    from escmodels.sbus import SbusSource, encode
+    ch = [[(37 * k + 172 * f) & 0x7FF for k in range(16)] for f in range(2)]
+    src = SbusSource(0, 50, [(1000, encode(ch[0])), (35000, encode(ch[1], flags=0x08))])
+    host = HostScript([], drain=[0], poll=300)
+
+    def check(board, h):
+        ok = h.received[0] == [1, 2 | 0x08 << 16]
+        return ([] if ok else [f"sbus {h.received}"]) + board.errors()
+    return Board(src, host, pullups=0), host, check
+
+
 class _Square(Device):
     """A square wave on one pin from tick `start`: `period` ticks, high for `high`."""
 
@@ -573,6 +611,132 @@ def case_freq_meter():
         ok = len(r) >= 6 and set(zip(r[::2], r[1::2])) == {(2000, 600)}
         return ([] if ok else [f"freq_meter {r}"]) + board.errors()
     return Board(_Square(3, 250, 75, 400), host), host, check
+
+
+# v1.6 transmitters, each at a low clock (FW_EQU) so a frame fits a short run; the models
+# time in real time from the same clock, and the co-simulation compares every tick.
+def _ir_case(model, khz, code, want):
+    def case():
+        import escmodels
+        rx = getattr(escmodels, model)(0, tick_ns=1e6 / khz)
+        host = HostScript([(100, 0, code)], drain=[0], poll=500)
+
+        def check(board, h):
+            rx.finish()
+            got = [want(f) for f in rx.frames()]
+            return ([] if got == [code] else [f"{model} {got}"]) + board.errors()
+        return Board(rx, host, pullups=0), host, check
+    return case
+
+
+def case_ev1527():
+    """v1.6: a 24-bit EV1527 code through the OOK receiver model, at 2 MHz."""
+    from escmodels import Ev1527Receiver
+    rx = Ev1527Receiver(0, tick_ns=500)
+    host = HostScript([(100, 0, 0xABCDE5)], drain=[0], poll=500)
+
+    def check(board, h):
+        return ([] if rx.codes()[:1] == [0xABCDE5] else [f"ev1527 {rx.codes()}"]) + board.errors()
+    return Board(rx, host, pullups=0), host, check
+
+
+def case_dcc():
+    """v1.6: one DCC packet (address, instruction, check byte) to the decoder, at 4 MHz."""
+    from escmodels import DccDecoder
+    dec = DccDecoder(0, tick_ns=250)
+    host = HostScript([(100, 0, 0x03 | 0x74 << 8 | (0x03 ^ 0x74) << 16)], drain=[0], poll=500)
+
+    def check(board, h):
+        got = dec.packets()
+        ok = (got and got[0]["bytes"] == [0x03, 0x74, 0x77] and got[0]["check_ok"]
+              and not dec.violations)
+        return ([] if ok else [f"dcc {got} {dec.violations[:2]}"]) + board.errors()
+    return Board(dec, host, pullups=0), host, check
+
+
+def case_wiegand():
+    """v1.6: one Wiegand-26 card (facility 0x12, card 0x3456) on D0/D1, at 1 MHz."""
+    from escmodels import WiegandReceiver
+    rx = WiegandReceiver(0, 1, tick_ns=1000)
+    v = 0x12 << 16 | 0x3456
+    word = (bin(v >> 12).count("1") & 1) << 25 | v << 1 | (1 - (bin(v & 0xFFF).count("1") & 1))
+    host = HostScript([(100, 0, word)], drain=[0], poll=500)
+
+    def check(board, h):
+        rx.finish()
+        got = [WiegandReceiver.card26(b) for b in rx.frames]
+        ok = got == [(0x12, 0x3456)] and not rx.violations
+        return ([] if ok else [f"wiegand {got} {rx.violations[:2]}"]) + board.errors()
+    return Board(rx, host), host, check
+
+
+def case_lin():
+    """v1.6: one LIN frame (identifier 0x2C, two bytes, enhanced checksum) at 19200 baud,
+    at 1 MHz, against the responder-side model."""
+    from escmodels import LinReceiver
+    rx = LinReceiver(0, tick_ns=1000)
+    host = HostScript([(100, 0, 0x2C | 2 << 8), (104, 0, 0x3412), (2000, 0, 0)],
+                      drain=[0], poll=500)
+
+    def check(board, h):
+        rx.finish()
+        got = [(f["id"], f["data"]) for f in rx.frames]
+        ok = got == [(0x2C, [0x12, 0x34])] and not rx.violations and h.received[0] == [1]
+        return ([] if ok else [f"lin {got} {rx.violations[:2]} {h.received}"]) + board.errors()
+    return Board(rx, host), host, check
+
+
+def case_ws2812_lu():
+    """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
+    from escmodels import Ws2812Decoder
+    dec = Ws2812Decoder(0, tick_ns=1e6 / 12000, reset_us=280)
+    grb = [0x00FF00, 0x123456, 0xABCDEF]
+    data = b"".join(c.to_bytes(3, "big") for c in grb) + b"\0\0\0"
+    words = [int.from_bytes(data[i:i + 4], "big") for i in range(0, 9, 4)]
+    host = HostScript([(100 + 200 * i, 0, w) for i, w in enumerate([3] + words)], drain=[0], poll=500)
+
+    def check(board, h):
+        dec.finish()
+        ok = dec.frames == [grb] and not dec.violations and h.received[0] == [1]
+        return ([] if ok else [f"ws2812_lu {dec.frames} {dec.violations[:2]} {h.received}"]) + board.errors()
+    return Board(dec, host, pullups=0), host, check
+
+
+class _Pins(Device):
+    """Records the bank A levels every tick (an undriven pin reads low: pulled down)."""
+
+    def __init__(self):
+        self.lv = []
+
+    def step(self, t, bus):
+        self.lv.append(bus)
+        return 0, 0
+
+    def errors(self):
+        return []
+
+
+def case_servo():
+    """v1.6: eight servo channels at 1.5 MHz; channel 3 set to 2000 us from the host takes
+    effect in the second frame. Every pulse width is checked to the tick."""
+    pins = _Pins()
+    host = HostScript([(100, 0, 3 << 16 | (2000 - 500))])
+    khz = 1500
+
+    def check(board, h):
+        lv, errs = pins.lv, []
+        for ch in range(8):
+            ups = [t for t in range(1, len(lv)) if (lv[t] >> ch) & 1 and not (lv[t - 1] >> ch) & 1]
+            widths = []
+            for u in ups:
+                d = next((t for t in range(u, len(lv)) if not (lv[t] >> ch) & 1), None)
+                if d is not None:
+                    widths.append(d - u)
+            want = [1500 * khz // 1000, (2000 if ch == 3 else 1500) * khz // 1000]
+            if [abs(w - x) <= 2 for w, x in zip(widths, want)] != [True, True]:
+                errs.append(f"servo ch{ch} widths {widths} want {want}")
+        return errs + board.errors()
+    return Board(pins, host, pullups=0), host, check
 
 
 FIRMWARE_CASES = {
@@ -612,11 +776,31 @@ FIRMWARE_CASES = {
     "freq_meter": ("freq_meter.asm", 8000, case_freq_meter),
     "udp_tx": ("udp_tx.asm", 4500, case_udp_tx),
     "quadrature": ("quadrature.asm", 7000, case_quadrature),
+    "modbus": ("../test/cosim/modbus_cosim.asm", 125000, case_modbus),
+    "sbus": ("../test/cosim/sbus_cosim.asm", 65000, case_sbus),
+    "sirc_tx": ("sirc_tx.asm", 60000, _ir_case("SircReceiver", 2000, 0x15 | 0x01 << 7,
+                                                lambda f: f["address"] << 7 | f["command"])),
+    "rc5_tx": ("rc5_tx.asm", 60000, _ir_case("Rc5Receiver", 2000, 0b11 << 12 | 0x05 << 6 | 0x0C,
+                                              lambda f: f["start"] << 12 | f["toggle"] << 11
+                                              | f["address"] << 6 | f["command"])),
+    "jvc_tx": ("jvc_tx.asm", 85000, _ir_case("JvcReceiver", 2000, 0x59 | 0x35 << 8,
+                                              lambda f: f["address"] | f["command"] << 8)),
+    "ev1527_tx": ("ev1527_tx.asm", 90000, case_ev1527),
+    "dcc_tx": ("dcc_tx.asm", 40000, case_dcc),
+    "wiegand_tx": ("wiegand_tx.asm", 60000, case_wiegand),
+    "lin_tx": ("lin_tx.asm", 8000, case_lin),
+    "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
+    "servo": ("servo.asm", 75000, case_servo),
 }
-TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_tape}
+TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_tape,
+             "modbus": modbus_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 # parameters a case sets on its firmware's .defaults (a short gate for the meter)
-FW_EQU = {"freq_meter": {"N": 8, "PIN": 3}}
+FW_EQU = {"freq_meter": {"N": 8, "PIN": 3},
+          "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "jvc_tx": {"CLK_KHZ": 2000},
+          "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
+          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000},
+          "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500}}
 
 
 def fw_image(name, fw, firmware_dir):

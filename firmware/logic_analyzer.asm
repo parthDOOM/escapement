@@ -1,6 +1,8 @@
 ; Logic analyser: arm the capture unit and halt. The machine keeps running (contexts
 ; halted, tick counter alive), so every change of a watched pin is recorded into the
 ; tape as {levels[7:0], tick[23:0]} until the region fills (or forever in ring mode).
+; Times are ticks of whatever clock the chip runs at; the host converts them with that
+; clock (esctape records it in the capture), so the program is the same at any clock.
 ; The host STOPs, reads the capture status (READ_DBG sel 17) and the tape (READ_TAPE),
 ; and decodes it with sw/esctape. No pins are owned: observation only (v1.1, D-24).
 ; STREAM = 1 (v1.3): the host reads records during the run and acknowledges them

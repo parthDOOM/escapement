@@ -19,6 +19,8 @@
 .default FEED, 1
 .default DP, 0
 .default DM, 1
+.default CLK_KHZ, 24000
+.assert CLK_KHZ == 24000, USB low speed needs 16 ticks a bit at exactly 24 MHz (D-37)
 .default P, 16                    ; ticks per bit
 .equ TURN, 4 * P + 8              ; reply time after the end of the host's packet, ticks
 .equ ACKWAIT, 160 * P             ; our longest packet, the gap and the host's ACK

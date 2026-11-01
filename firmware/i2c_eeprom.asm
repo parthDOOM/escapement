@@ -8,7 +8,8 @@
 ; foreign address. The address pointer persists across transactions like a 24C02.
 ; Preload the memory with .tape (or WRITE_TAPE); read it back with READ_TAPE.
 ;
-; Timing, Standard and Fast mode (25 MHz, 1 tick = 40 ns):
+; Timing, Standard and Fast mode (ticks at 25 MHz, 40 ns; every response is faster in real
+; time at a faster clock, and the one minimum, SDA setup, is in ns):
 ;  * tmr is kept far in the future (ADDT FAR after every EMIT), so every WAITP is an
 ;    exact wait: it completes on the first 4-tick slot whose sync shows the edge.
 ;  * Each pin change is RDTIME; ADDI LAT; SETT; EMIT: deadline lead exactly 2 ticks
@@ -29,7 +30,8 @@
 .equ BUS, SCL | SDA
 .equ LAT, 14                    ; RDTIME..EMIT is 12 ticks: deadline lead 2
 .equ FAR, 0xFFFFFF              ; tmr this far ahead turns WAITP into an exact wait
-.equ SU, 8                      ; SDA set 8 ticks (320 ns) before SCL is released
+.default CLK_KHZ, 25000
+.equ SU, (320 * CLK_KHZ + 999999) // 1000000   ; SDA set 320 ns before SCL is released (8 at 25 MHz)
 
 .entry CTX, main
 .own SCL_PIN, CTX

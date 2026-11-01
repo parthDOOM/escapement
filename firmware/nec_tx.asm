@@ -28,11 +28,11 @@
 ; the frame can be played at another clock (the co-simulation runs it at 2.5 MHz).
 ;
 ; Limits: the carrier is quantised to whole ticks (37.99 kHz at 25 MHz); escert proves
-; CLK_KHZ from 2500 to 38000 (at 1.25 MHz the 33-tick carrier runs without a fault but is
-; beyond the checker's precision; above 38 MHz the gap from a burst's last edge to the next
-; burst outgrows 2^16 ticks). The host must drain the acks (two-word mailbox), or the
-; transmitter waits. SB-Projects gives 110 ms for the repeat period; Vishay's 108 ms is
-; used here.
+; CLK_KHZ from 2500 to 80000 (at 1.25 MHz the 33-tick carrier runs without a fault but is
+; beyond the checker's precision). Every space longer than a carrier period drains the
+; FIFO first, so no deadline is queued more than 2^16 ticks past the one before it. The
+; host must drain the acks (two-word mailbox), or the transmitter waits. SB-Projects
+; gives 110 ms for the repeat period; Vishay's 108 ms is used here.
 
 .default CTX, 0
 .default PIN, 0
@@ -110,11 +110,13 @@ bit:
     CALL  burst
     SHR   r1, 1                             ; C = next bit, LSB first
     JC    one
-    ADDT  BIT0 - NBIT * PERIOD
+    ADDT  BIT0 - NBIT * PERIOD - LEAD
     JMP   counted
 one:
-    ADDT  BIT1 - NBIT * PERIOD
+    ADDT  BIT1 - NBIT * PERIOD - LEAD
 counted:
+    WAITT                                   ; drained like the leader's space (a 1's space
+    ADDT  LEAD                              ; passes 2^16 ticks above 38 MHz)
     MOVI  r0, 1
     SUB   r3, r0
     JNZ   bit

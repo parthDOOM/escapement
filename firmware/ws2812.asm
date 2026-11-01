@@ -1,10 +1,11 @@
 ; WS2812B LED chain driver - a protocol the chip was never designed for, in firmware.
-; Context 3, data on pin 0 (push-pull). 25 MHz: T0H 10 ticks (0.4 us), T1H 20 ticks
-; (0.8 us), bit period 31 ticks (1.24 us).
+; Context 3, data on pin 0 (push-pull). T0H 0.4 us, T1H 0.8 us, bit period 1.24 us; at
+; 25 MHz 10, 20 and 31 ticks (at 33 MHz 13, 26 and 41).
 ;
-; One data bit = three events: rise at T, the DATA BIT ITSELF at T+10 (EMITX: a 1
-; keeps the line high, a 0 drops it), forced low at T+20. The pulse width is chosen
-; by the data with no branch. The loop is 7 instructions (28 ticks) per 31-tick bit.
+; One data bit = three events: rise at T, the DATA BIT ITSELF at T+T0H (EMITX: a 1
+; keeps the line high, a 0 drops it), forced low at T+T1H. The pulse width is chosen
+; by the data with no branch. The loop is 7 instructions (28 ticks) per bit (31 ticks
+; at 25 MHz).
 ; If the firmware ever fell behind, admission would reject the late edge and fault
 ; the context: a visible error instead of a silently corrupted LED colour.
 ;
@@ -13,7 +14,12 @@
 
 .default CTX, 3              ; module parameters
 .default PIN, 0
+.default CLK_KHZ, 25000
 .equ D, 1 << PIN
+.equ T0H, (2 * CLK_KHZ + 2500) // 5000      ; 0.4 us
+.equ T1H, (4 * CLK_KHZ + 2500) // 5000      ; 0.8 us
+.equ PER, (31 * CLK_KHZ + 12500) // 25000   ; 1.24 us
+.assert PER >= 28, the bit loop takes 28 ticks (CLK_KHZ >= 22178)
 
 .entry CTX, main
 .own   PIN, CTX
@@ -35,17 +41,17 @@ led:
     LDLC  24
 bit:
     EMIT  D, D, D            ; T     rise
-    ADDT  10
-    EMITX D, MSB, D          ; T+10  stay high for a 1, fall for a 0
-    ADDT  10
-    EMIT  D, 0, D            ; T+20  fall
-    ADDT  11                 ; next bit at T+31
+    ADDT  T0H
+    EMITX D, MSB, D          ; T+T0H stay high for a 1, fall for a 0
+    ADDT  T1H - T0H
+    EMIT  D, 0, D            ; T+T1H fall
+    ADDT  PER - T1H          ; next bit at T+PER
     DJNZ  bit
     ADD   r1, r2             ; next LED colour
     MOVI  r0, 1
     SUB   r3, r0
     JNZ   led
-    ADDT  2000               ; >= 80 us low: latch
+    ADDT  80 * CLK_KHZ // 1000 ; >= 80 us low: latch
     WAITT
     MOVI  r0, 1
     PUSH  r0

@@ -846,11 +846,23 @@ class Bringup:
             sig = self.read_sig()
             host.stop()
             run_us = io.ticks_diff(link.t_end, t_start)
+            if "phases" in e:
+                # A polling loop: registers read while it runs come from different points
+                # of the loop, so read them after STOP, when they hold still and match the
+                # digest; the pins, which the loop does not change, from before it.
+                after = self.read_sig()
+                after["uio"] = sig["uio"]
+                sig = after
             dg = host.read_dbg(0, 16)
             folds = e["folds"]
             m_max = (int(run_us * f_hi / 1000000 - e["t0"]) // e["period"] + 1) * len(folds)
             m = find_on_orbit(e["dg0"], folds, dg, max(m_max, 0))
             dg_ok = m is not None
+            if dg_ok and "phases" in e:       # the state m folds on; STOP halted it
+                ph = e["phases"][(m - 1) % len(e["phases"])]
+                e = dict(e)
+                e["ctx"] = [[2 if c[0] == 1 else c[0]] + c[1:] for c in ph[0]]
+                e["uio"] = ph[1]
             if dg_ok:
                 result = "digest 0x%08x = model at tick %d" % (dg, e["t0"] + m * e["period"]
                                                                 // len(folds))

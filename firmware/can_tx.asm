@@ -2,7 +2,7 @@
 ; the frame played out at exact ticks, the ACK slot sampled at 70% - a bus the design
 ; never names, with the tape as frame buffer (v1.1).
 ; Context 0; TXD on pin 0 (push-pull, 1 = recessive) to a transceiver, RXD on pin 1.
-; 250 kbit/s at 25 MHz (BIT = 100 ticks; J1939 rate). Single transmitter: no arbitration.
+; BAUD (250 kbit/s, the J1939 rate) at CLK_KHZ (25 MHz: BIT = 100 ticks). Single transmitter.
 ;
 ; Host: POP {id[10:0] << 16 | dlc}, POP data bytes 0..3 (byte 0 in [31:24]), POP bytes
 ; 4..7; the chip composes and sends the frame and PUSHes 1 if the ACK slot was dominant.
@@ -16,7 +16,9 @@
 .default CTX, 0
 .default TX_PIN, 0
 .default RX_PIN, 1
-.default BIT, 100
+.default CLK_KHZ, 25000
+.default BAUD, 250000
+.equ BIT, (CLK_KHZ * 1000 + BAUD // 2) // BAUD
 .equ TXM, 1 << TX_PIN
 .equ SAMP, (BIT * 7) // 10         ; sample point
 .equ F0, 8                         ; first frame bit; T[4..7] are run-breaking sentinels

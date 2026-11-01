@@ -1,8 +1,10 @@
-; UART TX, 8N1, 115200 baud at a 25 MHz core clock (217 ticks/bit; 0.0064% rate error).
+; UART TX, 8N1, BAUD (115200) at CLK_KHZ (25 MHz: 217 ticks/bit; 0.0064% rate error).
 ; Context 0 sends the bytes in TXDATA (low byte first) on pin 0, then halts.
 ; Exact-tick output: every bit edge is a DRIVE event at an absolute deadline.
 
-.equ BIT, 217
+.default CLK_KHZ, 25000
+.default BAUD, 115200
+.equ BIT, (CLK_KHZ * 1000 + BAUD // 2) // BAUD
 .default CTX, 0              ; module parameters (override with .equ uart_tx.CTX, ...)
 .default PIN, 0
 .equ TX, 1 << PIN

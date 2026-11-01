@@ -13,9 +13,10 @@
 ; next MISO bit goes out just after it, so MISO is ready for the next rising edge
 ; whichever level SCK idles at. Modes 1 and 2 (falling-edge sampling) are not supported.
 ;
-; Timing at 25 MHz (1 tick = 40 ns). SPI has no clock stretching, so every bit must be
-; finished before the next one starts. Each bit is two polls of the synchronised pins
-; (inputs lag the pads by 2 ticks):
+; Timing in ticks, from polls alone, so every limit below scales with the clock (40 ns
+; ticks at 25 MHz: SCK up to 416 kHz; 20 ns at 50 MHz: 833 kHz). SPI has no clock
+; stretching, so every bit must be finished before the next one starts. Each bit is
+; two polls of the synchronised pins (inputs lag the pads by 2 ticks):
 ;   lo  SCK low with CS_n low: GETP, TSTI, JZ (one pass if SCK is already low, else a
 ;       20-tick loop in lo_wait). CS_n high here is the end of the frame.
 ;   hi  SCK high or CS_n high: a 12-tick GETP loop, so a rising edge is seen 2..13 ticks

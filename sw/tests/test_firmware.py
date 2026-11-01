@@ -63,9 +63,10 @@ def test_i2c_fast_mode_write_then_read(stretch):
     periods = scl_periods(board, 2)
     assert min(periods) * TICK_NS >= 2500, f"fSCL above 400 kHz: min period {min(periods)} ticks"
     if stretch == 0:
-        # typical bit period must be close to the 400 kHz ceiling
+        # typical bit period close to the 400 kHz ceiling: 72 ticks (347 kHz) since v1.6,
+        # which watches for SCL's rise only once its release is due (certified at any clock)
         typical = sorted(periods)[len(periods) // 2]
-        assert typical <= 70, typical
+        assert typical <= 72, typical
     assert m.dbg_read(0, 14) >> 31 == 0
 
 

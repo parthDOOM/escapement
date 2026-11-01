@@ -1,4 +1,4 @@
-"""Escapement instruction-set simulator (cycle-by-cycle model of docs/11-SEMANTICS.md v1.0.1).
+"""Escapement instruction-set simulator (cycle-by-cycle model of docs/11-SEMANTICS.md v1.6.0).
 
 Written independently of the RTL; shares only the encoding tables (isa/isa.yaml via escasm).
 """

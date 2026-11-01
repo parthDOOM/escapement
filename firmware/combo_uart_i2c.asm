@@ -7,6 +7,10 @@
 ;   ctx 1  uart_rx   RX pin 1, 115200, pushes received bytes to the host
 ;   ctx 2  uart_tx   TX pin 0, 115200, sends "UK!" + newline, then halts
 
+.default CLK_KHZ, 25000                     ; one clock for every module below
+.equ uart_tx.CLK_KHZ, CLK_KHZ
+.equ uart_rx.CLK_KHZ, CLK_KHZ
+.equ i2c_ctrl.CLK_KHZ, CLK_KHZ
 .equ uart_tx.CTX, 2
 .equ uart_tx.PIN, 0
 

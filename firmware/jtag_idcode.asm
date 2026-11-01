@@ -1,7 +1,8 @@
 ; JTAG controller in firmware: reset the TAP, walk to Shift-DR, read the 32-bit IDCODE,
 ; return to Run-Test/Idle (IEEE 1149.1). Another bus the design never names.
 ; Context 2; TCK pin 4, TMS pin 5, TDI pin 6 (push-pull outputs), TDO pin 7 (input).
-; TCK = 625 kHz (40 ticks). Host: POP anything; the chip PUSHes the IDCODE.
+; TCK = TCK_KHZ (625 kHz: 40 ticks at 25 MHz). Host: POP anything; the chip PUSHes the
+; IDCODE.
 ;
 ; One TCK cycle from slot T: TCK low at T, TMS/TDI at T + 1 (EMITX from sh), TDO sampled
 ; at T + H - 1 (an exact-tick SAMPLE, while TDO is stable since the falling edge), TCK
@@ -16,7 +17,10 @@
 .equ TCK, 1 << TCK_PIN
 .equ TMS, 1 << TMS_PIN
 .equ TDI, 1 << TDI_PIN
-.equ H, 20
+.default CLK_KHZ, 25000
+.default TCK_KHZ, 625
+.equ H, (CLK_KHZ + 2 * TCK_KHZ - 1) // (2 * TCK_KHZ)   ; rounded up: TCK never above TCK_KHZ
+.assert H >= 3, the TCK timeline needs a half period of 3 ticks or more
 
 .entry CTX, main
 .own TCK_PIN, CTX

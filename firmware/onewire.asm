@@ -12,7 +12,8 @@
 .default CTX,    3           ; module parameters
 .default DQ_PIN, 1
 .equ DQ,     1 << DQ_PIN
-.equ US,     25              ; ticks per microsecond at 25 MHz
+.default CLK_KHZ, 25000
+.equ US,     CLK_KHZ // 1000 ; ticks per microsecond, rounded down (exact at whole MHz; 1% short at 33.333 MHz)
 
 .entry CTX, main
 .own   DQ_PIN, CTX

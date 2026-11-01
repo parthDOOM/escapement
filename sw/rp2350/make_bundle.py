@@ -58,9 +58,15 @@ CHUNK = 4096
 # (an all-zero frame is 11,775 ticks) repeat over more than MAX_PERIOD; CEC and DALI look
 # at the host every millisecond while the bus is idle (25,000 ticks). VGA Pong's lines
 # repeat every 800 ticks, but its game changes the picture every frame (420,000 ticks).
+# v1.6: the 10BASE-T transmitters send a link pulse every 16 ms (640,000 ticks at their
+# 40 MHz); the S.BUS receiver, on the demo board's pulled-up pins, sees an inverted line
+# held at a start bit, and keeps receiving (and counting) bad frames. The Modbus server
+# looks at the host every millisecond while the bus is idle (25,020 ticks), and the servo
+# driver's frames are 22 ms apart (550,000 ticks).
 # Bundled with kind "none": loaded, run and checked for faults only.
 NO_PREDICT = {"seven_seg.asm", "ws2812_gen.asm", "dmx512_tx.asm", "dshot_tx.asm", "sent_tx.asm",
-              "cec.asm", "dali.asm", "vga_pong.asm"}
+              "cec.asm", "dali.asm", "vga_pong.asm", "eth_tx.asm", "udp_tx.asm", "sbus_rx.asm",
+              "modbus_rtu.asm", "servo.asm"}
 # Variants: name -> (firmware, .equ overrides). v1.3: the logic analyser streaming a
 # 64-word ring to the host during the run (escapement_demo.stream).
 VARIANTS = {"logic_analyzer_stream": ("logic_analyzer.asm",
@@ -133,6 +139,12 @@ def _period(m: Recorder, history: dict) -> int | None:
     return None
 
 
+def _phase(m: Machine) -> list:
+    """The part of a snapshot a steady pattern cycles through: contexts and pins."""
+    out, oe = m.outputs()
+    return [[[x.state, x.pc] + list(x.r) for x in m.ctx], default_board(m.now, out, oe)]
+
+
 def find_on_orbit(dg0: int, folds: list[int], target: int, m_max: int) -> int | None:
     """Number of folds m <= m_max after which the orbit from dg0 reaches target."""
     d, n = dg0, len(folds)
@@ -160,12 +172,24 @@ def predict(image) -> dict:
             t0, dg0 = m.now, m.dg
             folds = [x for t, x in m.xs if t >= t0 - L]       # one period, in order
             snap = snapshot(m)
+            # The state after each fold of the next period: a program that polls in a loop
+            # of several instructions (the capture-unit readers) stops at any point of it,
+            # and the orbit index says which. Kept only where it varies.
+            phases, n0 = [], len(m.xs)
+            while m.now < t0 + L:
+                m.run(1, stop_when_idle=False)
+                while len(m.xs) > n0:
+                    n0 += 1
+                    phases.append(_phase(m))
             # Self-check: run on and find the new digest on the predicted orbit. A pattern
             # that breaks (e.g. a FIFO-full wait inside a slow protocol) is not steady.
             more = max(3 * L, 4 * CHUNK) + 1
-            m.run(more, stop_when_idle=False)
+            m.run(more - L, stop_when_idle=False)
             if find_on_orbit(dg0, folds, m.dg, (more // L + 1) * len(folds)) is not None:
-                return dict(kind="steady", t0=t0, dg0=dg0, period=L, folds=folds, **snap)
+                extra = {}
+                if len(phases) == len(folds) and any(ph != [snap["ctx"], snap["uio"]] for ph in phases):
+                    extra["phases"] = phases
+                return dict(kind="steady", t0=t0, dg0=dg0, period=L, folds=folds, **snap, **extra)
             history = {}
     return dict(kind="none", ticks=m.now, **snapshot(m))
 

@@ -16,9 +16,10 @@
 .default DATA_PIN, 5
 .equ CLKM, 1 << CLK_PIN
 .equ DATM, 1 << DATA_PIN
-.equ HALFB, 500                  ; 20 us
-.equ LOWB, 1000                  ; 40 us
-.equ BITT, 2000                  ; 80 us
+.default CLK_KHZ, 25000
+.equ HALFB, 20 * CLK_KHZ // 1000 ; 20 us
+.equ LOWB, 40 * CLK_KHZ // 1000  ; 40 us
+.equ BITT, 80 * CLK_KHZ // 1000  ; 80 us
 
 .entry CTX, main
 .own CLK_PIN, CTX
@@ -68,7 +69,7 @@ bit:
     ADDT  BITT - HALFB - LOWB
     DJNZ  bit
     EMIT  DATM, DATM, DATM       ; DATA released after the stop bit
-    ADDT  1250                   ; then >= 50 us idle before the next frame, and wait
+    ADDT  50 * CLK_KHZ // 1000   ; then >= 50 us idle before the next frame, and wait
     WAITT                        ; for it: the loop ran ahead of real time, and a new
     MOVI  r0, 1                  ; frame must not start under the queued old one
     PUSH  r0

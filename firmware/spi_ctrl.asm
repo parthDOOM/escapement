@@ -1,4 +1,4 @@
-; SPI controller, modes 0-3 selected at run time, MSB first, 500 kHz at 25 MHz.
+; SPI controller, modes 0-3 selected at run time, MSB first, SCK_KHZ (500 kHz) at CLK_KHZ.
 ; Context 2: SCK = pin 4, MOSI = pin 5, MISO = pin 6 (input), CS_n = pin 7.
 ;
 ; Host protocol (mailboxes):
@@ -6,7 +6,7 @@
 ;   then per byte: [7:0] byte to send, [8] keep CS_n low afterwards (multi-byte frame)
 ;   result per byte: [7:0] byte received on MISO
 ; Every SCK edge, MOSI change and MISO sample is an event at an absolute tick:
-; half-period H = 25 ticks (1 us). Same-context events need distinct ticks, so MOSI
+; half-period H (25 ticks at 25 MHz: 1 us). Same-context events need distinct ticks, so MOSI
 ; changes 1 tick after the shift edge and MISO is sampled 1 tick after the sample edge.
 ;
 ; Registers: r0 byte+flags, r1 SCK active level [7:0] + CPHA flag [8],
@@ -20,7 +20,10 @@
 .equ SCK,      1 << SCK_PIN
 .equ MOSI,     1 << MOSI_PIN
 .equ CS,       1 << CS_PIN
-.equ H,        25
+.default CLK_KHZ, 25000
+.default SCK_KHZ, 500
+.equ H,        (CLK_KHZ + 2 * SCK_KHZ - 1) // (2 * SCK_KHZ)   ; rounded up: SCK never above SCK_KHZ
+.assert H >= 3, the bit timeline needs a half period of 3 ticks or more
 
 .entry CTX, main
 .own   SCK_PIN, CTX
