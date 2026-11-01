@@ -22,3 +22,5 @@ from .dali import DaliController  # noqa: F401
 from .ir import DccDecoder, Ev1527Receiver, JvcReceiver, Rc5Receiver, SircReceiver  # noqa: F401
 from .lin import LinReceiver  # noqa: F401
 from .wiegand import WiegandReceiver  # noqa: F401
+from .modbus import ModbusClient, adu, crc16  # noqa: F401
+from .sbus import SbusSource  # noqa: F401
