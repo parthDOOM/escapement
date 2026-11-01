@@ -462,10 +462,19 @@ module esc_line (
   esc_icg icg_lu (.clk(clk), .en(lu_en), .gclk(lclk));
   wire lu_hold = 1'b0;
 `endif
+  // v1.6: the next stream word loads outside the start/kill/op priority below, from
+  // flip-flops only (mode, ld, ldn): a start never finds the unit in PEND or TX (a stop
+  // kills it first), and a word loaded at a kill or OFF is never read, since the next
+  // packet's prefetch refills nxt_q before its first word ends.
+  wire nx_we = (mode == PEND || mode == TX) & ld & ldn;
+  always @(posedge lclk or negedge rst_n) begin
+    if (!rst_n)                  nxt_q <= 32'd0;
+    else if (!lu_hold && nx_we)  nxt_q <= rdata;
+  end
   always @(posedge lclk or negedge rst_n) begin
     if (!rst_n) begin
       owned <= 1'b0; owner <= 2'd0; conf <= 1'b0; mode <= IDLE;
-      buf_q <= 32'd0; nxt_q <= 32'd0; ld <= 1'b0; ldn <= 1'b0; crc <= 32'd0;
+      buf_q <= 32'd0; ld <= 1'b0; ldn <= 1'b0; crc <= 32'd0;
       job <= 3'd0; cause <= 3'd0; count <= 9'd0;
       el <= 12'd0; acc <= 9'd0; ext <= 1'b0; rn <= 4'd0; rb <= 1'b0; kc <= 9'd0;
       pos <= 13'd0; cel <= 3'd0; sk <= 2'd0; seg <= 3'd0; lv <= 1'b1; xp <= 1'b1;
@@ -535,10 +544,7 @@ module esc_line (
           end
         end
         // ---------------------------------------------------------- PEND, TX
-        if ((mode == PEND || mode == TX) && ld) begin
-          if (ldn) nxt_q <= rdata;
-          else     buf_q <= rdata;
-        end
+        if ((mode == PEND || mode == TX) && ld && !ldn) buf_q <= rdata;
         if (tx_start) begin
           mode <= TX; job <= 3'd4; cause <= OK; count <= 9'd0; crc <= crc_start;
         end
