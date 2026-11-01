@@ -18,9 +18,10 @@
   "PL_TARGET_DENSITY_PCT": 56,
 
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
-  "//": "The value is in nanoseconds. Since v1.5 place and route and sign-off use 30 ns, the",
-  "//": "rated maximum (33 MHz, D-5); the default clock stays 40 ns == 25 MHz (info.yaml).",
-  "CLOCK_PERIOD": 30,
+  "//": "The value is in nanoseconds. Since v1.6 place and route and sign-off use 20 ns, the",
+  "//": "rated maximum (50 MHz, D-5; v1.5: 30 ns, 33 MHz); the default clock stays 40 ns ==",
+  "//": "25 MHz (info.yaml).",
+  "CLOCK_PERIOD": 20,
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
   "//": "v1.2: 0.2 after CTS (was 0.1), then a second hold repair after global routing.",
@@ -39,8 +40,11 @@
   "//": "long wires: slow-corner slack -2.1 ns on the commit-to-pin path. The margins make the",
   "//": "resizer upsize such paths ahead of routing. (Latch inputs are left out of the PnR setup",
   "//": "checks in escapement_pnr.sdc; with them, any positive margin looped without end.)",
-  "PL_RESIZER_SETUP_SLACK_MARGIN": 1.0,
-  "GRT_RESIZER_SETUP_SLACK_MARGIN": 2.0,
+  "//": "v1.6 (20 ns): 2.5 and 3 ns. Hold repair keeps this setup margin too, so with 1 and 2 ns",
+  "//": "it put 0.7-1 ns delay cells at the roots of paths that turned critical after routing",
+  "//": "(v16g: -0.67 ns at 20 ns); with 2.5 and 3 ns the layout meets 20 ns (v16i).",
+  "PL_RESIZER_SETUP_SLACK_MARGIN": 2.5,
+  "GRT_RESIZER_SETUP_SLACK_MARGIN": 3.0,
 
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",
   "RUN_LINTER": 1,
