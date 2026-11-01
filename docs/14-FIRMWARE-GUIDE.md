@@ -21,10 +21,14 @@ four queued events.
 
 The chip is rated up to 33 MHz (D-5). Programs that take their timing from `CLK_KHZ`
 rebuild for another clock by defining it before the include, for example
-`.equ nec_tx.CLK_KHZ, 33000` then `.include "nec_tx.asm"`; the 14 shipped ones all
-certify at 33 MHz, and all but `westminster` run against their bus models there
-(`sw/tests/test_rated_clock.py`). The other shipped programs count ticks of the 25 MHz
-default (`usb_hid` of USB's 24 MHz, D-37). Rerun
+`.equ nec_tx.CLK_KHZ, 33000` then `.include "nec_tx.asm"`. The 39 shipped ones all
+certify at 33, 33.333, 40 and 50 MHz (`sw/tests/test_escert.py`), and 24 of them run
+against their bus models at 33 and 50 MHz (`sw/tests/test_rated_clock.py`). Four are tied
+to one clock by their protocol and refuse any other with an `.assert`: `eth_tx` and
+`udp_tx` (10BASE-T, 40 MHz), `usb_hid` (USB low speed, 24 MHz, D-37) and `vga_pong` (its
+pixel clock, 25 to 25.175 MHz). The other six (`freq_meter`, `logic_analyzer`,
+`quadrature`, `replay`, `spi_target`, `spi_tx`) work in ticks of whatever clock the chip
+runs at. Rerun
 `python -m escert` after any rebuild: a delay that fits at one clock can outgrow a
 16-bit compare, ADDT's 24 bits or the 2^16-tick gap escert can bound at a faster one.
 
@@ -123,9 +127,11 @@ next: ADDT  FAR
       SEND  r0                ; exactly TURN after the host's packet
 ```
 
-**11. Keep the host out of the timed context.** escert cannot know that a `POP` after
-`RXREADY` never waits, so a timed loop that reads the mailbox cannot be certified, and a
-frame built while values arrive can mix two of them. Give the host its own context: it
+**11. Keep the host out of the timed context.** A `POP` waits for the host, so a timed
+loop may only pop where `RXREADY` has just seen a word: only the context itself pops its
+mailbox, so the word is still there, and escert (since v1.6) certifies that `POP` as not
+waiting (`servo` takes one update a frame this way). Even so, a frame built while values
+arrive can mix two of them. Give the host its own context: it
 takes words from the mailbox and stores them in the tape; the timed context reads the tape
 once per frame and waits on nothing but its own events. One `STT` is atomic, so a frame
 that fits in a word cannot mix values (`sent_tx`). For more, build the next frame in a

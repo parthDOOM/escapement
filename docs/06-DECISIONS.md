@@ -32,10 +32,10 @@ so the chip is rated for clocks up to 33 MHz; it meets timing up to 38.6 MHz at 
 corner and 61.3 MHz at the typical one (v1.4, rated 25 MHz: 28.6 and 45 MHz; v1.3: 35 and
 55 MHz) ([physical design](03-PHYSICAL-DESIGN.md#sign-off-results)). The shipped firmware is
 timed for 25 MHz, the clock `info.yaml` asks the Tiny Tapeout board for: VGA Pong uses the
-core clock as its pixel clock, the hand-written programs count ticks at 40 ns, and the USB
-firmware runs at 24 MHz (D-37). The 14 programs whose timing derives from `CLK_KHZ`
-rebuild for another clock: at 33 MHz each certifies and drives its bus model, the models
-timing every edge in 30.3 ns ticks (`test_rated_clock.py`). On the Tiny Tapeout demo board
+core clock as its pixel clock, and the USB firmware runs at 24 MHz (D-37). The programs
+whose timing derives from `CLK_KHZ` (14 in version 1.5, 39 since 1.6) rebuild for another
+clock: at 33 MHz each certifies, and those with a bus model drive it, the models timing
+every edge in 30.3 ns ticks (`test_rated_clock.py`). On the Tiny Tapeout demo board
 use exactly 33 MHz: its firmware divides the RP2040's clock (132 MHz, by 4), which gives 50%
 duty and no jitter. A request for 33.333 MHz finds no even divisor of an RP2040 clock up to
 its default 133 MHz, falls back to a fractional one, and so jitters, with cycles shorter than

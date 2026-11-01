@@ -84,6 +84,14 @@ the commit cycle, which the proofs check in every commit cycle. No program can t
 difference; the comparisons simply leave the path from the tick counter to the pins
 (D-43).
 
+**More of the commit decided ahead (v1.6).** Each FIFO also registers the kind and
+payload of the head it will have next, so a retiring DRIVE reaches the pins from
+flip-flops; and the stage before the commit decodes the instruction and reads the two
+operand registers of the context that commits next. A context's registers change only at
+its own commit, four edges earlier, or at the edge after it (an LDT's load), so the values
+read a cycle early are the commit cycle's values; the proofs check each register against
+its definition in every cycle that uses it.
+
 At 25 MHz the counter wraps after 171.8 s, and the admission horizon is 85.9 s (at the
 rated maximum of 33 MHz, 130.2 s and 65.1 s).
 

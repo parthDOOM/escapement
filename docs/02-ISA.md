@@ -178,17 +178,18 @@ a run is recorded with cause, subcode, context, PC and tick. Other contexts cont
 
 The assembler (`sw/escasm`) supports labels, expressions, `.equ`, and module directives:
 `.entry ctx, label` sets a context's entry point, `.own pin, ctx` assigns a pin, `.od pin`
-makes it open-drain, and `.include` with `.default` parameters links protocol modules
-into one image with a separate namespace each. `.bank ctx` puts a context on bank B;
-after it, that context's `.own j, ctx` names its pin j, which is B*j* (`.own B2, ctx` is
-the same). A bank B pin is push-pull and one-directional: drive it (an output on
-`uo_out`), or leave it unowned and read it (an input on `ui_in`). Released, it is high.
+makes it open-drain, and `.include` with `.default` parameters links protocol modules into
+one image with a separate namespace each. `.bank ctx` puts a context on bank B; after it,
+that context's `.own j, ctx` names its pin j, which is B*j* (`.own B2, ctx` is the same).
+A bank B pin is push-pull and one-directional: drive it (an output on `uo_out`), or leave
+it unowned and read it (an input on `ui_in`). Released, it is high.
 [`firmware/combo_two_banks.asm`](../firmware/combo_two_banks.asm) runs four unchanged
 modules on both banks at once. `.tape addr, words...` sets the tape's initial words, and
 `.tapeb addr, bytes...` packs bytes into words from `addr`, little-endian (USB
-descriptors, for instance). `.assert expr, message` stops the assembly unless `expr` is non-zero, so a
-module can state what it assumes about its parameters (v1.6; the 10BASE-T transmitter, for
-instance, needs `CLK_KHZ` = 40000).
+descriptors, for instance). `.assert expr, message` stops the assembly unless `expr` is
+non-zero (expressions may compare: `<`, `<=`, `==`, `!=`, `>=`, `>` give 1 or 0, and chain,
+as in `25000 <= CLK_KHZ <= 25175`), so a module can state what it assumes about its
+parameters (v1.6; the 10BASE-T transmitter, for instance, needs `CLK_KHZ` = 40000).
 
 UART transmit at 115,200 baud (217 ticks per bit at 25 MHz), from
 [`firmware/uart_tx.asm`](../firmware/uart_tx.asm):

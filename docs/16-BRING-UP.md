@@ -55,11 +55,14 @@ it was stopped.
 
 For example, `uart_tx` and `logic_analyzer` halt, and firmware that waits for host
 commands or for a bus peer (`i2c_ctrl`, `spi_ctrl`, `i2c_eeprom`, `uart_rx`, `usb_hid`,
-...) is `steady`. Seven never settle into a short repeating pattern and are `none`: the
-generated transmitters `dmx512_tx` and `ws2812_gen` re-anchor every packet, `seven_seg`
-waits 160 ms between frames, `dshot_tx` and `sent_tx` repeat over more than 8,192 ticks,
-and `cec` and `dali` look at the host every millisecond while the bus is idle.
-`westminster` (a 14 s tune) is not bundled. `make_bundle.py` prints the kind and the predicted digest for each.
+...) is `steady`. Thirteen never settle into a short repeating pattern and are `none`:
+the generated transmitters `dmx512_tx` and `ws2812_gen` re-anchor every packet,
+`seven_seg` waits 160 ms between frames, `dshot_tx` and `sent_tx` repeat over more than
+8,192 ticks, `cec`, `dali` and `modbus_rtu` look at the host every millisecond while the
+bus is idle, `vga_pong` changes its picture every frame, `eth_tx` and `udp_tx` send a link
+pulse every 16 ms, `servo` frames are 22 ms apart, and `sbus_rx`, whose input idles low,
+keeps receiving bad frames from the board's pulled-up pins. `westminster` (a 14 s tune)
+and the `replay` template are not bundled. `make_bundle.py` prints the kind and the predicted digest for each.
 Rebuild the bundles whenever a firmware, the assembler or the ISS changes: a stale
 bundle fails stage 5, as it should.
 
@@ -117,7 +120,7 @@ compare.
     ...
     uart_tx.asm            halt   ok    digest 0x63114ed9 model 0x63114ed9; min lead 0:9 (cert 9)
     usb_hid.asm            steady ok    digest 0x1bce2a0d = model at tick 183086; min lead 0:none (cert 1)
-[5] PASS  30 of 30 firmware match the model and their certificates
+[5] PASS  47 of 47 firmware match the model and their certificates
 [6] UART smoke test (optional) ...
     uart_tx.asm: RP UART received 55 4b 21 0a
 [6] PASS  1 UART smoke test(s) received exactly the model's bytes
@@ -266,7 +269,12 @@ START. Then, by kind:
 - `halt`: poll STATUS until no context is RUNNING, read the state, the digest and the
   first fault, and compare them with the model.
 - `steady`: wait until the run is past `t0`, read the state while the program waits,
-  STOP, read the digest and search the model's orbit.
+  STOP, read the digest and search the model's orbit. A program that polls in a loop
+  (v1.6: `freq_meter`, for instance) has a different state at each point of its pattern,
+  so its bundle carries the state at every fold of the period: the board reads the
+  registers after STOP (when a running context reads as halted) and compares them with
+  the state at the fold where the orbit search matched, and the pins with those read
+  before STOP.
 
 Each firmware prints one line; the stage fails if any firmware differs.
 

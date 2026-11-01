@@ -326,20 +326,19 @@ half duplex and runs one **job** at a time. Rationale and profiles:
 
 Bits not listed are ignored. Without `ext`, W3 and W4 are not read and the fields above
 take their **legacy values**: one cell, `p0 = 0`, `p1 = 1`, `clk = 0`, `poly_hi` not used,
-`prep = 0`, `eopl = 0`, `ilow = 0`. A configuration is **invalid** if it has more than one cell and
-`P_int < 2`, or it has one cell and `P_int < 8`, `S < 4` or `S ≥ P_int`.
+`prep = 0`, `eopl = 0`, `ilow = 0`. A configuration is **invalid** if it has more than one
+cell and `P_int < 2`, or it has one cell and `P_int < 8`, `S < 4` or `S ≥ P_int`.
 
-**CRC.** The register `crc` has 32 bits. A polynomial G of width w ≤ 32 is
-left-aligned in `poly32 = (G mod x^w) << (32 − w)`: with `ext`, `poly32 = poly_hi << 16 | poly`;
-without, `poly32 = poly << 16`, so a 16-bit field holds G written left-aligned in 16
-bits, `poly = (G mod x^w) << (16 − w)` (CRC-5/USB 0x2800, CRC-16/USB 0x8005, CRC-15/CAN
-0x8B32; CRC-32 as `poly_hi` 0x04C1, `poly` 0x1DB7). For `poly32 ≠ 0` the width is
-`w = 32 − ctz(poly32)` and the width mask is `M = (−(poly32 & −poly32)) mod 2^32`; the
-start value is `M` if `init_ones`, else 0. For `poly32 = 0` the start value is 0 and
-w = 0. A CRC bit b updates `crc <= ((crc << 1) mod 2^32) XOR ((crc[31] XOR b) ? poly32 : 0)`.
-A transmitted CRC is w bits; bit i (i = 0 first) is bit 31 − i of `inv ? ~crc : crc`.
-(Without `ext` the low 16 bits of `crc` stay 0, and its high half is the 16-bit register of
-version 1.4.)
+**CRC.** The register `crc` has 32 bits. A polynomial G of width w ≤ 32 is left-aligned in
+`poly32 = (G mod x^w) << (32 − w)`: with `ext`, `poly32 = poly_hi << 16 | poly`; without,
+`poly32 = poly << 16`, so a 16-bit field holds G written left-aligned in 16 bits, `poly =
+(G mod x^w) << (16 − w)` (CRC-5/USB 0x2800, CRC-16/USB 0x8005, CRC-15/CAN 0x8B32; CRC-32
+as `poly_hi` 0x04C1, `poly` 0x1DB7). For `poly32 ≠ 0` the width is `w = 32 − ctz(poly32)`
+and the width mask is `M = (−(poly32 & −poly32)) mod 2^32`; the start value is `M` if
+`init_ones`, else 0. For `poly32 = 0` the start value is 0 and w = 0. A CRC bit b updates
+`crc <= ((crc << 1) mod 2^32) XOR ((crc[31] XOR b) ? poly32 : 0)`. A transmitted CRC is w
+bits; bit i (i = 0 first) is bit 31 − i of `inv ? ~crc : crc`. (Without `ext` the low 16
+bits of `crc` stay 0, and its high half is the 16-bit register of version 1.4.)
 
 **The stream.** A job's tape data is a bit stream from word a. Stream bit j is bit
 `j mod 32` of `T[(a + ⌊j/32⌋) mod 256]` with `lsb`, and bit `31 − (j mod 32)` of it

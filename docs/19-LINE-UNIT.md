@@ -1,13 +1,14 @@
 # The line unit
 
-The line unit (v1.4) moves packets between the tape and the pins and does the line
-coding on the way: NRZI, bit stuffing, a sync prefix, a CRC (of any width up to 32 bits
-since v1.6), an end-of-packet, and clock recovery on receive. Since v1.6 each bit can be a
+The line unit (v1.4) moves packets between the tape and the pins and does the line coding
+on the way: NRZI, bit stuffing, a sync prefix, a CRC (of any width up to 32 bits since
+v1.6), an end-of-packet, and clock recovery on receive. Since v1.6 each bit can be a
 pattern of cells (Manchester, pulse-width codes) and the second pin can carry a clock, so
-10BASE-T Ethernet frames, SPI at 10 Mb/s and LED strips are configurations of it too. Firmware handles packets; the line
-unit handles bits. It keeps the chip's timing model: a packet starts as an event at an
-absolute deadline, and a reception reports the tick its packet ended, so a reply can
-be scheduled a fixed number of ticks after the host's packet, exact to the tick.
+10BASE-T Ethernet frames, SPI at 10 Mb/s and LED strips are configurations of it too.
+Firmware handles packets; the line unit handles bits. It keeps the chip's timing model: a
+packet starts as an event at an absolute deadline, and a reception reports the tick its
+packet ended, so a reply can be scheduled a fixed number of ticks after the host's packet,
+exact to the tick.
 
 The normative definition is [11-SEMANTICS §6.6](11-SEMANTICS.md#66-line-unit-v14-one-global).
 Status: v1.4 specification, simulator, firmware, timing certificates and RTL
@@ -202,7 +203,7 @@ boundary: one tick less and the simulator faults.
 | `sw/tests/test_escert.py` | 11 more | The certificate above, checked against measured leads; exact boundaries for CONFIG, CRC and reception waits; a CRC job of input-dependent length; the path after a dropped `SEND`; random programs on the line unit (wherever escert says CHECKED, the simulator never faults and measures no lead below the bound) |
 | `sw/tests/test_usbip.py` | 4 | The USB/IP bridge, with the test playing the kernel's side |
 | `sw/tests/test_line_ext.py`, `test_eth.py` | 6 + 1 | v1.6: a 10BASE-T frame decoded as 802.3 Manchester with its FCS checked against zlib's CRC-32, the link pulse, SPI sampled at the clock's rising edges, WS2812 through the LED model, the CRC-32 job, RECV with cells; `eth_tx.asm` sending link pulses and a frame from the host |
-| `make line-test` (`test/line/`) | 8 seeds | The line unit RTL against the simulator's model, every output on every cycle: configurations from USB-like, CAN-like and random profiles, and since v1.6 10BASE-T, SPI-clock, pulse-code and random extended ones, packets at offset clocks with jitter and glitches, noise, the unit's own pins read back, owner faults, stop and start, tape writes from elsewhere. 12 million cycles across 40 seeds with no difference; both builds (clock-gated and plain flip-flops) |
+| `make line-test` (`test/line/`) | 8 seeds | The line unit RTL against the simulator's model, every output on every cycle: configurations from USB-like, CAN-like and random profiles, and since v1.6 10BASE-T, SPI-clock, pulse-code and random extended ones, packets at offset clocks with jitter and glitches, noise, the unit's own pins read back, owner faults, stop and start, tape writes from elsewhere. On the v1.6 RTL, 8 million edges across 40 seeds with no difference on each build, clock-gated and plain flip-flops (v1.4: 12 million cycles across 40 seeds) |
 | `sw/tests/test_firmware.py` | 6 | `can_rx` against a bus model: every frame type, 40 random frames back to back from nodes 0.5% slow or fast, bad CRCs, error flags, DLC over 8, 500 kbit/s |
 | `make cosim` | 4 jobs more | The whole chip, RTL against simulator, tick for tick and the final state of every debug register: `usb_hid.asm` enumerating and sending key reports to the USB host model, `can_rx.asm` receiving standard, extended and remote frames back to back, 40 firmware-shaped line unit programs (receives, packets at end-tick deadlines, CRC jobs, GETL timeouts, owner LDT/STT in the unit's tape cycles, another context's traffic), and random programs with line unit instructions from any context |
 

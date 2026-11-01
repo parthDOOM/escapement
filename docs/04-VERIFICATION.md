@@ -35,12 +35,12 @@ digest, the capture state and all 256 tape words.
 | Random programs, version 1.0 machine | 1,000 | 67,370 | 0 |
 | Random programs with tape traffic, version 1.1 | 300 | 21,055 | 0 |
 | Random programs with pin bank B, version 1.2 | 1,000 | 66,991 | 0 |
-| Firmware programs with their bus models (26 cases, on the behavioural and the standard-cell builds) | 26 | — | 0 |
+| Firmware programs with their bus models: 43 cases covering 46 of the 49 programs, on the v1.6 RTL (behavioural build; v1.5's 26 cases also ran on the standard-cell build) | 43 | — | 0 |
 | Random programs with the host reading the tape during the run, version 1.3 | 60 | 7,598 words read | 0 |
 | Firmware-shaped line unit programs, version 1.4 (`test_v14_line_unit`) | 40 | 260,000 cycles | 0 |
 | The USB keyboard (`usb_hid.asm`) against the USB host model, version 1.4 | 1 | 70,000 cycles | 0 |
-| The line unit alone against the simulator's model, every output every cycle (`make line-test`) | 40 seeds | 12 million cycles | 0 |
-| Regression run (`make cosim`, 200 random programs plus all firmware) | 8 tests | 14,472 in the random test | 0 |
+| The line unit alone against the simulator's model, every output every cycle (`make line-test`), on the v1.6 RTL, clock-gated and plain flip-flop builds | 40 seeds | 8 million edges on each build | 0 |
+| Regression run (`make cosim`, 200 random programs plus the firmware cases) | 8 tests | 14,472 in the random test | 0 |
 
 Random programs come from a constrained generator (`test/cosim/progen.py`) that mixes
 every instruction class, deliberate faults, host mailbox traffic, and tape loads and
@@ -80,8 +80,8 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start or stop edge or one where it faults | Unbounded (PDR, with P2 for the lateness part of the last clause, below) |
 | L1 | The line unit (v1.4) claims only pins its owner owns; it is idle and unconfigured while stopped and once its owner has faulted; a CONFIG never completes at one of its owner's commit edges | Unbounded (PDR), as lemmas for P3, P5 and P8 |
 | H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction); H3 and H4 also by PDR in the core proof, as lemmas for P5 |
-| D1–D2 | (v1.5) Per context: the retire and late flags, registered in the cycle before, equal the deadline tests on the current head and the current tick | Unbounded (k-induction), in the per-context proof |
-| B1–B5 | (v1.5) The tests registered in the cycle before a commit (deadline ahead of the tick, timer reached, ahead of the FIFO tail, ahead of the open EXPECT window's end, and the lead saturated to 16 bits) equal their definitions on the commit cycle's state | Unbounded (k-induction, `esc_core.sby ahead`); assumed by the PDR tasks |
+| D1–D3 | Per context: the retire and late flags (v1.5), and the head entry's kind and payload (v1.6), registered in the cycle before, equal the deadline tests on the current head and the current tick, and the current head | Unbounded (k-induction), in the per-context proof |
+| B1–B9 | The values registered in the cycle before a commit equal their definitions on the commit cycle's state: the tests (v1.5: deadline ahead of the tick, timer reached, ahead of the FIFO tail, ahead of the open EXPECT window's end, and the lead saturated to 16 bits), and (v1.6) the decoded instruction and its legality (B6, B7) and the two operands (B8, B9) | Unbounded (k-induction, `esc_core.sby ahead`); assumed by the PDR tasks |
 | C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
 | C4 | In stream mode a capture drain never writes over a record the host has not acknowledged (v1.3) | Unbounded (PDR) |
 | G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
@@ -125,23 +125,26 @@ one core for version 1.3.
 **Tests decided a cycle early (v1.5, D-43).** Since version 1.5 the deadline tests are
 registers, computed in the cycle before they are used: the retire and late flags of each
 context's FIFO head (D1, D2), and the admission and timer tests of the context that
-commits next (B1–B5). Each is stated as an equality with its definition on the state of
-the cycle that uses it, so every other property reads exactly as before. B1–B5 are
-proved by k-induction in their own task (`sby -f esc_core.sby ahead`, in formal-quick),
-which keeps only those five labelled assertions: a commit follows at least three edges of
-an uninterrupted run, because the pipeline's valid bits clear on start and stop, and over
-those edges the registers are a delayed copy of their definitions. The task passes in
-seconds, and it has teeth: measuring the lead from the current tick instead of the next
-one fails with a trace, and computing the tests for the context committing now instead
-of next fails the induction step. Every other task (the PDR tasks, the bounded check and
-the covers) assumes B1–B5 instead of proving them. Bit-level PDR cannot use them otherwise: its invariant is a set of clauses over the
-flip-flops, and "this register equals a 32-bit comparison of those registers" has no
-compact clause form, even when it holds one edge after any state. Proved as PDR tasks,
-alone or grouped with helper lemmas, they had not converged after an hour. The assumption
-is sound because the `ahead` task proves them under the same environment. Asserted at
-every step of the bounded check, they doubled its time by depth 15; assumed, it reaches
-depth 16 in 569 s locally against 351 s for version 1.4, the rest being v1.5's added
-state.
+commits next (B1–B5). Version 1.6 registers more the same way: each FIFO's next head entry
+(D3), so a retiring DRIVE reaches the pins from flip-flops, and, in the stage before the
+commit, the decoded instruction (B6, B7) and the operands of the context that commits next
+(B8, B9). Each is stated as an equality with its definition on the state of the cycle that
+uses it, so every other property reads exactly as before. B1–B9 are proved by k-induction
+in their own task (`sby -f esc_core.sby ahead`, in formal-quick), which keeps only those
+labelled assertions: a commit follows at least three edges of an uninterrupted run,
+because the pipeline's valid bits clear on start and stop, and over those edges the
+registers are a delayed copy of their definitions. The task passes in seconds, and it has
+teeth: measuring the lead from the current tick instead of the next one fails with a
+trace, and computing the tests for the context committing now instead of next fails the
+induction step. Every other task (the PDR tasks, the bounded check and the covers) assumes
+B1–B9 instead of proving them. Bit-level PDR cannot use them otherwise: its invariant is a
+set of clauses over the flip-flops, and "this register equals a 32-bit comparison of those
+registers" has no compact clause form, even when it holds one edge after any state. Proved
+as PDR tasks, alone or grouped with helper lemmas, they had not converged after an hour.
+The assumption is sound because the `ahead` task proves them under the same environment.
+Asserted at every step of the bounded check, they doubled its time by depth 15; assumed,
+it reaches depth 16 in 569 s locally against 351 s for version 1.4, the rest being v1.5's
+added state.
 
 **Faults from the line unit.** A CONFIG that turns out invalid faults its owner when it
 completes, an edge where another context may commit. P8's commit clause is therefore
@@ -201,7 +204,9 @@ afterwards, as is every other input.
 the test suites that can see the mutated file, cheapest first, until one fails: the
 line unit lockstep (for `esc_line.v`), the lockstep co-simulation, the core unit tests, the
 host interface tests, the chip tests and the firmware-through-the-pins tests. A suite that
-hangs counts as a kill. The suites simulate the RTL with the standard-cell clock gates and
+hangs counts as a kill: one still running after three times its own time on the unmutated
+RTL, measured in the same run on the same machine (or after its fixed limit, if longer).
+The suites simulate the RTL with the standard-cell clock gates and
 latch banks (`CELLS=yes`), as it is hardened, so that a mutant of a latch bank's input is
 visible. Before any mutant is scored, every suite it needs must pass on the unmutated
 RTL: a suite that cannot run (a tool or model problem) would otherwise fail for every
@@ -278,7 +283,14 @@ models runs in CI. Its first run on v1.5 killed 699, proved 16 equivalent and ex
 one survived: START setting the FIFO's head to 1 instead of 0, whose equivalence proof
 was undecided in 30 minutes. It is excluded with its argument: the FIFO is a ring
 addressed only relative to the head, START empties it, and every read of a slot is
-gated by the count.
+gated by the count. The rerun with that exclusion reported 705 killed, 15 proved
+equivalent and 25 excluded, none surviving. Compared mutant by mutant, 20 mutants changed
+category between the two runs, every one through the pins suite running out of time, and
+7 of them were proved equivalent in one run and scored as killed by the timeout in the
+other: the fixed limit (40 minutes) was only about 1.3 times what the suite took unmutated
+on a CI runner with four jobs, so a busy runner, not a test, decided those. 20 of the
+rerun's 705 kills were such timeouts. Since v1.6 each suite's limit is three times its
+baseline time (above); counts from v1.6 on come from runs with that limit.
 
 **v1.4's holes, now closed.** The first v1.4 campaign, on the behavioural build, left 9
 survivors. Three showed holes, closed with directed co-simulation programs: a SEND into a
@@ -378,16 +390,29 @@ telemetry in simulation, and most are equal to the tick. `replay.asm` computes i
 deadlines from captured data, so it is checked by the replay tests and by the hardware's
 admission rules instead.
 
-**At the rated maximum clock (D-5).** The 14 programs whose timing derives from `CLK_KHZ`
-certify CHECKED rebuilt for 33 MHz and for 33.333 MHz, and each drives its bus model at
-33 MHz with the model timing every edge in 30.3 ns ticks (`test_rated_clock.py`; the
-14-second `westminster` tune is certified there and played at a hundredth of real time).
-Three needed changes, which leave their 25 MHz behaviour as it was. `nec_rx` measured in
+**At the rated maximum clock (D-5).** In version 1.5 the 14 programs whose timing derived
+from `CLK_KHZ` certified CHECKED rebuilt for 33 MHz and for 33.333 MHz, and each drove its
+bus model at 33 MHz with the model timing every edge in 30.3 ns ticks
+(`test_rated_clock.py`; the 14-second `westminster` tune is certified at that clock and
+played at a hundredth of real time in `test_firmware.py`). Since version 1.6, 39 programs
+derive their timing from `CLK_KHZ`: all certify at 33, 33.333, 40 and 50 MHz, and 24 drive
+their bus models at 33 and at 50 MHz. Converting them found two clocks rounded the fast
+way: JTAG's TCK and SWD's SWCLK half periods were rounded down, so at 33 MHz the clocks
+ran 2% and 0.6% above their stated rates; they now round up. At 25 MHz every converted
+program assembles to the same image as before except two, changed on purpose: `nec_tx`
+drains its queue before a 1's long space too (the same edges at 25 MHz), and `i2c_ctrl`
+waits for each scheduled SCL fall before re-anchoring its bit timeline and watches for
+SCL's rise only once its release is due, so every edge it schedules follows the previous
+one at any clock (the 25 MHz build had held by tick count alone). The second wait
+lengthens each bit: SCL runs at 347 kHz at 25 MHz instead of 368 kHz. Four programs are tied to one clock by
+their protocol (10BASE-T, USB low speed, VGA) and refuse any other with an `.assert`.
+In version 1.5, three needed changes, which leave their 25 MHz behaviour as it was. `nec_rx` measured in
 4-tick units, and its longest bound outgrew the 16-bit compare; its unit now doubles above
 25 MHz. `westminster`'s 0.65 s rest outgrew ADDT's 24 bits; it is added in two halves.
 `nec_tx`'s repeat code queued its stop burst more than 2^16 ticks after the leader's last
 edge, which escert could not bound (POSSIBLE): at 25 MHz the gap had been 56,214 ticks. It
-now drains the queue first, as the frame path always did, and certifies from 2.5 to 38 MHz.
+now drains the queue first, as the frame path always did, and certified from 2.5 to 38 MHz;
+since version 1.6 a 1's long space drains it too, and it certifies from 2.5 to 100 MHz.
 Both NEC programs rebuilt for 33 MHz also run a frame through the chip's pins, transmitter
 through an IR receiver model into the receiver, on the RTL and on the v15c netlist
 (`test_nec_loopback_at_33_mhz_on_chip`; 2.9 million cycles, 49 minutes on the netlist). That
