@@ -1,5 +1,5 @@
 /*
- * esc_line.v - the line unit (docs/11-SEMANTICS.md v1.4.0 section 6.6, D-33..D-37).
+ * esc_line.v - the line unit (docs/11-SEMANTICS.md v1.6.0 section 6.6, D-33..D-37).
  *
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0

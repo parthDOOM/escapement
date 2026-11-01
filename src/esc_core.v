@@ -1,12 +1,12 @@
 /*
- * esc_core.v - Escapement core: 4-context fixed-slot barrel, shared decode /
- * execute / admission in the commit stage, pins, synchronisers, first-fault
- * register and the verification observation ports.
+ * esc_core.v - Escapement core: 4-context fixed-slot barrel, shared execute /
+ * admission in the commit stage (decode and operand reads a stage earlier, v1.6), pins,
+ * synchronisers, first-fault register and the verification observation ports.
  *
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
  *
- * Normative semantics: docs/11-SEMANTICS.md v1.4.0 (section numbers below refer
+ * Normative semantics: docs/11-SEMANTICS.md v1.6.0 (section numbers below refer
  * to it). Encodings: isa/isa.yaml (decoder constants hand-copied).
  *
  * v1.1: the tape port (LDT/STT in the commit cycle; the capture unit esc_cap drains
@@ -24,7 +24,8 @@
  *   F  cycle t   : imem_addr = PC[now mod 4] (combinational); slot valid if the
  *                  context is RUNNING during t. SRAM samples the address at E_t.
  *   D  cycle t+1 : imem_rdata valid; registered into p2_insn at E_(t+1).
- *   X  cycle t+2 : p2_insn -> p3_insn at E_(t+2).
+ *   X  cycle t+2 : p2_insn -> p3_insn at E_(t+2); beside it (v1.6) the decode (d_op,
+ *                  illegal) and the operands of the context committing next (opa, opb).
  *   C  cycle t+3 : the instruction is evaluated combinationally from the state
  *                  during cycle t+3 and commits at E_(t+3). The committing
  *                  context is (now + 1) mod 4 (= (t+3) - 3).
@@ -321,7 +322,7 @@ module esc_core (
   // v1.6: the instruction is decoded in the X stage, from p2_insn, and registered beside
   // p3_insn (both load at every edge), so the commit cycle starts from flip-flops instead
   // of the opcode compare and legality trees. Equal to the decode of p3_insn in every
-  // cycle (formal, ahead_d1).
+  // cycle (formal, B6 and B7).
   wire [52:0] d_op_n    = onehot(p2_insn[31:24]);
   wire        illegal_n = illegal_of(p2_insn);
 
@@ -361,7 +362,7 @@ module esc_core (
   // v1.6: the operands likewise, from p2_insn's register fields: a context's registers
   // change only at its own commit, four edges back, or (an LDT's load) at the edge after
   // it, three back. Asserted equal to the commit cycle's reads in every commit cycle
-  // (formal, ahead_o1, ahead_o2).
+  // (formal, B8 and B9).
   wire [1:0]  n_rs    = d_op_n[I_EMITR] ? p2_insn[15:14] : p2_insn[21:20];
   wire [31:0] opa_n   = pick(p2_insn[23:22], c_r0[32*nq +: 32], c_r1[32*nq +: 32],
                              c_r2[32*nq +: 32], c_r3[32*nq +: 32]);
@@ -1097,13 +1098,13 @@ module esc_core (
   end
   wire [7:0] op = insn[31:24];
   always @(*) if (rst_n) begin
-    ahead_d1: `ESC_AHEAD (d_op == onehot(op));
-    ahead_d2: `ESC_AHEAD (illegal == illegal_of(insn));
+    ahead_b6: `ESC_AHEAD (d_op == onehot(op));
+    ahead_b7: `ESC_AHEAD (illegal == illegal_of(insn));
   end
   wire [1:0] f_rs = d_op[I_EMITR] ? insn[15:14] : insn[21:20];
   always @(*) if (rst_n && commit_valid) begin
-    ahead_o1: `ESC_AHEAD (opa == pick(f_rd, cs_r0, cs_r1, cs_r2, cs_r3));
-    ahead_o2: `ESC_AHEAD (opb == pick(f_rs, cs_r0, cs_r1, cs_r2, cs_r3));
+    ahead_b8: `ESC_AHEAD (opa == pick(f_rd, cs_r0, cs_r1, cs_r2, cs_r3));
+    ahead_b9: `ESC_AHEAD (opb == pick(f_rs, cs_r0, cs_r1, cs_r2, cs_r3));
   end
 `undef ESC_AHEAD
 
