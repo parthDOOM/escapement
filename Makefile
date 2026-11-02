@@ -24,7 +24,7 @@ help:
 	@echo "line-test  line unit RTL against the ISS model, every output every cycle (LINE_SEEDS, default 8)"
 	@echo "lint       Verilator lint of the core"
 	@echo "formal     all SymbiYosys proofs, with the unbounded core proof split over JOBS cores (72 min at 6 jobs)"
-	@echo "formal-quick  bounded core proof, cover, ahead, never-late, clock-gate and configuration proofs (~53 min, mostly the bounded check)"
+	@echo "formal-quick  bounded core proof, cover, ahead, never-late, clock-gate, configuration and line unit proofs (~53 min, mostly the bounded check)"
 	@echo "equiv      the gate-level netlist is sequentially equivalent to the RTL (yosys, ABC; ~4 min)"
 	@echo "mutation   RTL mutation campaign against the co-simulation (JOBS in parallel)"
 	@echo "harden     local LibreLane harden with the pinned CI toolchain (TAG=name)"
@@ -88,7 +88,8 @@ formal: formal-quick
 
 formal-quick:
 	cd formal && sby -f esc_core.sby bmc && sby -f esc_core.sby cover \
-	  && sby -f esc_core.sby ahead && sby -f esc_ctx.sby kind && sby -f esc_greg.sby && sby -f esc_lreg.sby && sby -f esc_host.sby
+	  && sby -f esc_core.sby ahead && sby -f esc_ctx.sby kind && sby -f esc_greg.sby && sby -f esc_lreg.sby && sby -f esc_host.sby \
+	  && sby -f esc_line.sby kind
 
 equiv:
 	bash formal/equiv.sh

@@ -436,7 +436,10 @@ module esc_line (
       end
     end
   end
-`ifdef FORMAL
+`ifdef ESC_LINE_CHECK
+  // v1.6's registered values and the lemmas they need are proved by k-induction in
+  // formal/esc_line.sby (esc_line_env.v), from the input rules esc_core proves (its
+  // LI assertions); esc_core's proofs leave them out (D-44).
   // the definitions the registered writes replace (section 6.6)
   wire [2:0] f_cn  = tx_cb ? cel + 3'd1 : 3'd0;
   wire       f_bl  = tx_cb ? lv : lv_nx;
@@ -650,11 +653,37 @@ module esc_line (
       end
     end
   end
-`ifdef FORMAL
+`ifdef ESC_LINE_CHECK
   // v1.6: a transmit boundary other than the first uses registered values equal to the
   // values of its own cycle (the timing argument above).
   always @(*) if (rst_n && mode == TX && tb_hit && lastc && !kill && !start && !anyop)
     assert (es_q == es_c && pb_q == pb_c && sl_q == sl_c);
+  // The transmit timer, as lemmas for the registered writes: a valid configuration has
+  // P >= 2 (n_valid); a cell runs el = 1..P, and one tick more (ext) when it carries.
+  always @(*) if (rst_n && (conf || mode != IDLE)) assert (owned);
+  always @(*) if (rst_n && conf && mode != CFG)
+    assert ((c_cells != 3'd0) ? (c_P >= 12'd2) : (c_P >= 12'd8 && c_S >= 12'd4 && c_S < c_P));
+  // a word read for the stream (not the next-word buffer) arrives while its bit 0 is next
+  always @(*) if (rst_n && mode == TX && ld && !ldn) assert (pos[4:0] == 5'd0);
+  // (a read without ext, requested at a boundary, is served at the owner's next commit
+  // cycle, within 4 cycles, so before the next boundary: P >= 8 without cells)
+  always @(*) if (rst_n && mode == TX && req && !reqn)
+    assert (!c_ext && es_c == 3'd2 && pos[4:0] == 5'd0
+            && {1'b0, el} + {11'd0, owner - 2'd1 - now[1:0]} <= 13'd4);
+  always @(*) if (rst_n && (mode == PEND || mode == TX)) assert (conf);
+  // (el is 12 bits: with P = 4095 the extra tick has el = 0)
+  always @(*) if (rst_n && mode == TX)
+    assert (ext ? (el == c_P + 12'd1 && acc[8]) : (el >= 12'd1 && el <= c_P));
+  // ... and for the first boundary: until it, a packet keeps the state its SEND set, and
+  // the segment and bit registered at the SEND equal their definitions on that state.
+  always @(*) if (rst_n && mode == PEND) begin
+    assert (seg == 3'd0 && pos == 13'd0 && rn == 4'd0 && !rb && lv && cel == 3'd0 && !abt
+            && !req && !reqn);
+    assert (es0_q == es0);
+    if (es0_q != 3'd2) assert (pbx_q == pb0);
+  end
+`endif
+`ifdef FORMAL
   // A CONFIG keeps its phase: it commits in an owner cycle c (now = owner - 1 mod 4) and
   // during cycle c+1+k it has el = k, so it completes at E_(c+9), never at one of the
   // owner's commit edges (the lemma for esc_core's P8 clause).

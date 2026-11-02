@@ -1,0 +1,29 @@
+# Assume-guarantee proof of the line unit's assertions for all time (formal/esc_line_env.v):
+# v1.6's registered transmit bit and pin writes against their definitions, with the lemmas
+# that make them inductive, the CONFIG slot lemma and the W0 latch contract, from the input
+# rules esc_core proves (its LI assertions). ESC_LINE_CHECK keeps v1.6's assertions in this
+# proof only; esc_core's proofs leave them out (D-44).
+#   kind : UNBOUNDED, by k-induction (seconds)
+#   bmc  : bounded from reset (the check that a weakened copy fails, docs/04)
+# Run: sby -f esc_line.sby kind | bmc
+[tasks]
+kind
+bmc
+
+[options]
+kind: mode prove
+kind: depth 16
+bmc: mode bmc
+bmc: depth 40
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL -DESC_LINE_CHECK esc_greg.v esc_line.v esc_line_env.v
+prep -top esc_line_env
+
+[files]
+../src/esc_line.v
+../src/esc_greg.v
+esc_line_env.v

@@ -1077,6 +1077,11 @@ module esc_core (
   // task assumes them: bit-level PDR cannot learn a 32-bit compare as an invariant (B1
   // alone ran past an hour), and asserted at every step they double the bounded check's
   // time by depth 15.
+  // the line unit's op inputs, as u_line is connected (for LI below)
+  wire        f_lsend    = cm_ok & d_op[I_SEND] & w_push;
+  wire        f_loff     = lu_cm & (l_op == 4'd0), f_lrecv = lu_cm & (l_op == 4'd1);
+  wire        f_lcrc     = lu_cm & (l_op == 4'd2), f_lcfg  = lu_cm & (l_op == 4'd3);
+  wire        f_lany     = f_lsend | f_loff | f_lrecv | f_lcrc | f_lcfg;
   wire [31:0] cs_tail    = c_tail[32*cctx +: 32];
   wire [31:0] cs_lee     = c_lee[32*cctx +: 32];
   wire [31:0] f_d_now    = cs_tmr - now;
@@ -1154,6 +1159,24 @@ module esc_core (
     if (lu_owned) assert ((lu_claimed & ~owned_by[8*lu_owner +: 8]) == 8'd0);  // lemma-group: faulted
     if (!run) assert (lu_mode == 3'd0 && !lu_conf);                             // lemma-group: faulted
     if (lu_owned && c_state[2*lu_owner +: 2] == 2'd3) assert (lu_mode == 3'd0 && !lu_conf);  // lemma-group: faulted
+    // LI (v1.6) what formal/esc_line_env.v assumes about the line unit's inputs, from
+    // which esc_line.sby proves the unit's registered values (D-44): one op at an edge,
+    // only a running context's commit (so in its commit cycle, D-41), the owner's (or a
+    // CONFIG taking an unowned unit), never while engaged (OFF excepted), RECV and CRC
+    // only when configured, SEND only with claimed pins; no fault kills the unit at an op
+    // edge, and a CONFIG completing invalid kills it unless start or stop does.
+    if (f_lany) begin
+      assert ({2'd0, f_lsend} + f_loff + f_lrecv + f_lcrc + f_lcfg == 3'd1);  // lemma-group: lineio
+      assert (run && !start && !stop && cctx == now[1:0] + 2'd1);  // lemma-group: lineio
+      if (f_lcfg) assert (!lu_owned || lu_owner == cctx);  // lemma-group: lineio
+      else        assert (lu_owned && lu_owner == cctx);  // lemma-group: lineio
+      if (!f_loff) assert (!lu_engaged);  // lemma-group: lineio
+      if (f_lrecv || f_lcrc) assert (lu_conf);  // lemma-group: lineio
+      if (f_lsend) assert (lu_claimed != 8'd0);  // lemma-group: lineio
+      assert ((fault_k & lu_sel) == 4'd0);  // lemma-group: commit
+    end
+    if (lu_owned && lu_cfgf && !start && !stop) assert ((fault_k & lu_sel) != 4'd0);  // lemma-group: lineio
+    if ((fault_k & lu_sel) != 4'd0) assert (run);  // lemma-group: lineio
     if (cm_ok && w_push) begin
       assert (f_ahd_now);
       if (cs_cnta != 3'd0) assert (f_ahd_tail);

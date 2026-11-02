@@ -1,7 +1,7 @@
 name: formal
 
-# Every SymbiYosys proof (docs/04-VERIFICATION.md): formal-quick (bounded core, cover,
-# never late per context, clock gates, configuration), then the unbounded core proof with
+# Every SymbiYosys proof (docs/04-VERIFICATION.md): formal-quick (bounded core, cover, ahead,
+# never late per context, clock gates, latches, configuration, line unit), then the unbounded core proof with
 # one PDR task per assertion. The result goes to the results page on the site.
 
 on:
