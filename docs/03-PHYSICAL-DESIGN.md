@@ -8,32 +8,44 @@ with the reasoning for each setting in its comments and in
 
 ## Sign-off results
 
-Version 1.5 (tests decided a cycle early, D-43), harden `v15c` (local, `scripts/local-harden.sh`):
+Version 1.6 (decode, operands and pin writes a stage earlier, D-44), harden `v16s` (local,
+`scripts/local-harden.sh`):
 
 | | |
 | --- | --- |
 | Die | 1289.28 × 710.64 µm (916,214 µm²) |
-| Standard cells | 28,961 (433,985 µm²); storage: 2,037 flip-flops and 2,365 latches, plus 80 clock-gate latches |
+| Standard cells | 32,239 (491,350 µm²); storage: 2,391 flip-flops and 2,365 latches, plus 82 clock-gate latches |
 | Macros | 2 × `RM_IHPSG13_1P_256x32_c2_bm_bist` (98,977 µm²) |
-| Utilisation | 59.5% |
-| Clock | Placed, routed and signed off at 30 ns: rated up to 33 MHz; 25 MHz by default (D-5) |
-| Setup | No violations at any corner at 30 ns. The latch banks' inputs borrow time (D-40) and report 0 slack; at 40 ns the worst path into a flip-flop has +14.13 ns (slow), +23.73 ns (typical), +29.41 ns (fast) |
-| Hold | No violations. Worst slack: fast +0.157 ns, typical +0.290 ns, slow +0.478 ns |
-| Hold buffers | 1,523 after clock-tree synthesis (margin 0.2 ns), 72 after global routing |
-| Routing | 2.21 m of wire, 242,715 vias; global-route overflow 83; detailed-route DRC 0 |
+| Utilisation | 65.9% |
+| Clock | Placed, routed and signed off at 20 ns: rated up to 50 MHz; 25 MHz by default (D-5) |
+| Setup | No violations at any corner at 20 ns. The latch banks' inputs borrow time (D-40) and report 0 slack; the worst path into a flip-flop has +0.31 ns (slow), +7.62 ns (typical), +11.74 ns (fast) |
+| Hold | No violations. Worst slack: fast +0.126 ns, typical +0.293 ns, slow +0.529 ns |
+| Hold buffers | 2,148 after clock-tree synthesis (margin 0.2 ns), 1 after global routing |
+| Routing | 2.33 m of wire, 272,825 vias; global-route overflow 666; detailed-route DRC 0 |
 | LVS | Clean (0 errors, 0 net or device differences) |
 | DRC | Clean (KLayout SG13CMOS5L deck in the Tiny Tapeout precheck) |
-| Antenna | 0 violations (52 diodes) |
-| IR drop | 0.19 mV worst |
-| Power (static estimate) | 2.68 mW at 25 MHz; workload measurements in [power](15-POWER.md) |
+| Antenna | 0 violations (33 diodes) |
+| IR drop | 0.57 mV worst (ground; supply 0.31 mV), at 20 ns |
+| Power (static estimate) | 3.09 mW at 25 MHz, 6.17 mW at 50 MHz; workload measurements in [power](15-POWER.md) |
 | Precheck | Tiny Tapeout precheck (tt-support-tools `d66cf17`) passes, including KLayout SG13CMOS5L DRC |
-| Gate level | The chip-level (7) and pin (8, one of them NEC rebuilt for 33 MHz) test suites pass on the final netlist (zero-delay simulation: function, not timing); the netlist is proved equivalent to the RTL |
-| Reproduction | A second harden of the committed `src/config.json`, with no overrides, gives the same netlist (sha256 `2b8e5f5b…`), the same value for every flow metric and the same GDS geometry (KLayout's layout diff: 0 differences); GitHub Actions' harden runs on push |
+| Gate level | The chip-level (7) and pin (9, among them the NEC loopback rebuilt for 33 and for 50 MHz) test suites pass on the final netlist (zero-delay simulation: function, not timing); the netlist is proved equivalent to the RTL ([two steps](04-VERIFICATION.md#rtl-to-netlist-equivalence)) |
+| Reproduction | A second harden of the committed `src/config.json`, with no overrides, gives the same netlist (sha256 `f5bcfa00…`), the same value for every flow metric and the same GDS geometry (KLayout's layout diff: 0 differences); GitHub Actions' harden runs on push |
 
-Version 1.5 adds 28 flip-flops (each FIFO's retire and late flags, the core's four test
-flags and its 16-bit lead) and 989 cells. A layout of the same RTL without the second
-design repair after global routing (`v15a`) had 235 more cells than v1.4; the other 754 are
-that repair's buffers and resized gates (`RUN_POST_GRT_DESIGN_REPAIR`, below).
+Version 1.6 adds 354 flip-flops (the registered decode and operands, each FIFO's registered
+next head, the line unit's registered pin writes, its next-word buffer and 32-bit CRC) and
+3,278 cells; the hold repair after clock-tree synthesis inserts 2,148 buffers (v1.5: 1,523),
+and the one after global routing 1 (v1.5: 72). Getting it
+to close at 20 ns took nine trial layouts (D-44): the post-CTS hold repair judges setup slack
+from placement estimates, and with setup margins of 1 and 2 ns it put delay cells at the
+start of paths that became critical after routing; with 2.5 ns (placement) and 3 ns (global
+routing) it leaves them alone.
+
+Version 1.5 (tests decided a cycle early, D-43), harden `v15c`, reproduced with the same
+netlist (sha256 `2b8e5f5b…`): 28,961 cells (433,985 µm²), 59.5%, signed off at 30 ns (rated
+33 MHz); at 40 ns the worst path into a flip-flop had +14.13 ns (slow), +23.73 ns (typical),
++29.41 ns (fast); fast-corner hold +0.157 ns, 1,523 hold buffers, global-route overflow 83,
+2.21 m of wire, static power 2.68 mW. It added 28 flip-flops and 989 cells; 754 of those were
+the second design repair after global routing (`RUN_POST_GRT_DESIGN_REPAIR`, below).
 
 Version 1.4 (line unit, latch banks), harden `v14i`, reproduced by the GitHub Actions harden
 (run 39623762996) with the same netlist (sha256 `661e5608…`): 27,972 cells (422,057 µm²),
@@ -66,61 +78,61 @@ hold buffers after global routing (see below). The GitHub Actions harden of vers
 netlist (sha256 `54236b4f…`).
 
 Corners: `nom_slow_1p08V_125C`, `nom_typ_1p20V_25C`, `nom_fast_1p32V_m40C`. The
-remaining design-rule warnings in v1.5 are 18 max-slew pins at the slow corner and 26
-max-capacitance pins (v1.4: 163 nets and 41). Version 1.5 repairs slew, capacitance and long
-wires a second time after global routing, on its wire estimates, with 30% margins for the
-detours detailed routing adds (`RUN_POST_GRT_DESIGN_REPAIR`); the same RTL laid out without
-it (`v15a`) had 242 and 34. What is left is mostly at the SRAM macros' pins, whose limits are
-the edges of the macro's timing tables: eleven address and data inputs above the 0.595 ns
-input slew limit (worst 1.13 ns) and the 26 capacitance warnings, all data outputs above
-0.064 pF (worst 0.18 pF). The other seven slew pins are on three logic nets, each within
-0.25 ns of the 2.5 ns limit. None of them costs timing: at 40 ns every path through any of
-them has at least 23.4 ns of setup slack, except one that arrives at a clock-gate latch of
-the line unit 1.0 ns before the latch opens and could borrow 19.9 ns more. The 108
-max-fanout warnings (v1.4: 101) are against the template's limit of 10 loads, and the nets
-behind them meet their slew limits.
+remaining design-rule warnings in v1.6 are 25 max-slew pins at the slow corner and 22
+max-capacitance pins (v1.5: 18 and 26; v1.4: 163 nets and 41). Slew, capacitance and long
+wires are repaired a second time after global routing, on its wire estimates, with 30%
+margins for the detours detailed routing adds (`RUN_POST_GRT_DESIGN_REPAIR`). Of the slew
+pins, nine are SRAM address and data inputs above the macro's 0.595 ns input slew limit
+(worst 0.97 ns), the edge of its timing table, as in v1.5. The other 16 are four logic nets
+that detailed routing took 2.2 to 3.4 times their bounding box (one of 273 µm became 932 µm,
+170 µm of it on Metal1), so the repair's estimate fell short: worst 3.35 ns against the
+2.5 ns limit (a minimum-size NOR3 driving two loads). LibreLane's flow has no repair step
+after detailed routing. Of the capacitance warnings, 21 are SRAM data outputs above 0.064 pF
+(worst 0.21 pF), and one is a buffer at 0.305 pF against 0.300 pF. None of them costs timing
+or function: at 20 ns every path through the four logic nets has at least 8.25 ns of setup
+slack, the SRAM inputs keep at least 3.94 ns, and the buffer feeds the input of a latch that
+borrows time. The 146 max-fanout warnings (v1.5: 108) are against the template's limit of
+10 loads, and the nets behind them meet their slew limits.
 
-**Frequency headroom.** 33 MHz is the rating at the slow corner with margin to spare (D-5),
-not the limit of the layout. Static timing analysis of the final v15c (v1.5) netlist with
-its extracted parasitics (OpenSTA, the sign-off constraints with the latches modelled, the
-period shortened and the 20% I/O delays scaled with it) finds the shortest period at which
-setup still holds, latch inputs included (a latch input that borrows time reports 0 slack;
-past its limit, negative):
+**Frequency headroom.** Static timing analysis of the final v16s netlist with its extracted
+parasitics (OpenSTA, the sign-off constraints with the latches modelled, the period
+shortened and the 20% I/O delays scaled with it) finds the shortest period at which setup
+still holds, latch inputs included (a latch input that borrows time reports 0 slack; past its
+limit, negative):
 
-| Corner | Shortest passing period | Clock | Fails at | v1.4 (v14i) |
-| --- | ---: | ---: | ---: | ---: |
-| Slow, 1.08 V, 125 °C | 25.9 ns | 38.6 MHz | 25.8 ns | 28.6 MHz |
-| Typical, 1.20 V, 25 °C | 16.3 ns | 61.3 MHz | 16.2 ns | 45 MHz |
-| Fast, 1.32 V, −40 °C | 10.6 ns | 94.3 MHz | 10.5 ns | 70 MHz |
+| Corner | Shortest passing period | Clock | Fails at | v1.5 (v15c) | v1.4 (v14i) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Slow, 1.08 V, 125 °C | 19.7 ns | 50.8 MHz | 19.6 ns | 38.6 MHz | 28.6 MHz |
+| Typical, 1.20 V, 25 °C | 12.4 ns | 80.6 MHz | 12.3 ns | 61.3 MHz | 45 MHz |
+| Fast, 1.32 V, −40 °C | 8.3 ns | 120.5 MHz | 8.2 ns | 94.3 MHz | 70 MHz |
 
-The rating keeps 16% at the slow corner, and the 25 MHz default 54% (v1.4, rated 25 MHz:
-14%). v1.4's limit was a single-cycle path
-from a context's tick counter through the deadline comparison and the retire and fault
-logic to a pin's output register (`now` to `pin_val`, 34.4 ns at the slow corner), and the
-committing instruction's admission tests reached the same fault logic as late. Version 1.5
-decides both a cycle early (D-43). Its limit is now the decode of the instruction itself:
-from the fetched instruction register to a pin's output register (`insn` to `pin_val`, 51
-cells, 25.5 ns at the slow corner), in which three minimum-size AND-OR-invert gates take
-2.1, 1.7 and 1.4 ns. Hold slack does not depend on the period.
-Firmware takes the tick length as a constant (`CLK_KHZ` in the timing tables, and the tick
-counts in hand-written programs), so a faster board clock needs only rebuilt firmware, not a
-new chip. These figures leave out the Tiny Tapeout multiplexer and pads, whose delays the
-flow does not model (the Tiny Tapeout clock specification gives 66 MHz).
+The rating keeps 1.5% at the slow corner (v1.5, rated 33 MHz: 16%), and the 25 MHz default
+half the period. At 20 ns the worst path into a flip-flop at the slow corner runs from the
+host interface's registered START to the line unit's tape write data (`start` to
+`lu_pwdata`, 33 cells), and it starts with a 0.98 ns delay cell that the hold repair placed.
+v1.4's limit was a single-cycle path from a context's tick counter through the deadline
+comparison to a pin's output register (34.4 ns); version 1.5 decided those tests a cycle
+early (D-43), and its limit became the decode of the instruction (`insn` to `pin_val`, 51
+cells, 25.5 ns); version 1.6 decodes in the stage before, reads the operands a cycle ahead
+and registers the pin writes (D-44). Hold slack does not depend on the period. Firmware takes
+the tick length as a constant (`CLK_KHZ` in the timing tables, and the tick counts in
+hand-written programs), so a faster board clock needs only rebuilt firmware, not a new chip.
+These figures leave out the Tiny Tapeout multiplexer and pads, whose delays the flow does not
+model (the Tiny Tapeout clock specification gives 66 MHz). They limit the clock a board can
+use, not whether the chip can be made.
 
-Layout effort alone did not move v1.4 this far: a trial harden of the v1.4 RTL with a 32 ns
-target (`v14j`) ended with its limiting path at −0.42 ns at the slow corner, about 30.5 MHz.
-Version 1.5 is placed, routed and signed off at 30 ns, so it is rated up to 33 MHz. The
+Version 1.6 is placed, routed and signed off at 20 ns, so it is rated up to 50 MHz. The
 shipped firmware still runs at 25 MHz: VGA Pong uses the core clock as its pixel clock
 (VGA's is 25.175 MHz), and the hand-written programs count 40 ns ticks (D-5).
 
-At 30 ns the checks other than setup hold too, at all three corners: minimum pulse width
-(at least 14.5 ns to spare, the SRAM clock pins included), the clock gates, and setup and
-hold at the SRAM inputs (12.5 ns setup slack at the slow corner, hold at least +0.33 ns).
-A clock that is high for 40% or 60% of the period instead of half gives the same setup and
-hold slack at the slow and fast corners. The Tiny Tapeout demo board should be set to
-exactly 33 MHz, which its RP2040 makes without jitter (132 MHz divided by 4); a request for
-33.333 MHz gets a fractional divider unless the RP2040 is overclocked, and its jitter could
-shorten a cycle below 30 ns (D-5).
+At 20 ns the checks other than setup hold too, at all three corners: minimum pulse width
+(at least 9.40 ns to spare, the SRAM clock pins included), the clock gates, and setup and
+hold at the SRAM inputs (3.94 ns setup slack at the slow corner, hold at least +0.171 ns).
+A clock that is high for 40% or 60% of the period instead of half passes setup, hold and
+minimum pulse width at all three corners. The Tiny Tapeout demo board should be set to
+exactly 50 MHz, which its RP2040 makes without jitter (100 MHz divided by 2), or 33 MHz
+(132 MHz divided by 4); a clock it can only make with a fractional divider jitters, and a
+short cycle could fall below the 20 ns the layout is signed off at (D-5).
 
 `scripts/frequency-headroom.sh RUN_DIR` reruns the sweep behind the table on a harden run
 of `scripts/local-harden.sh` ([toolchain](05-TOOLCHAIN.md#local-hardening)).
@@ -167,7 +179,8 @@ after detailed routing, and decap cells carry Metal1 power plates that the route
 saw; they shorted signal wires to power. Filler cells carry Metal1 only on their rails,
 and every logic cell's Metal1 is fully described in its LEF (checked against the GDS for
 all 84 cells used, [`scripts/m1_fill_overlap.py`](../scripts/m1_fill_overlap.py)). The
-design has no decap capacitance, which is acceptable at 25 MHz with a 0.12 mV IR drop.
+design has no decap capacitance, which is acceptable with an IR drop of at most 0.57 mV at
+20 ns (v1.6).
 
 Other routing settings:
 

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { css, fit, useResize, useThemeTick } from "../lib/util";
 
-// docs/15-POWER.md: the first v1.1 netlist, and v1.5 as built (at 25 MHz)
-const ROWS: [string, number, number][] = [["Sending UART", 8.61, 3.18], ["Logic analyser", 8.45, 2.87], ["Stopped", 7.99, 2.53]];
+// docs/15-POWER.md: the first v1.1 netlist, and v1.6 as built (at 25 MHz)
+const ROWS: [string, number, number][] = [["Sending UART", 8.61, 3.60], ["Logic analyser", 8.45, 3.29], ["Stopped", 7.99, 2.93]];
 const MAX = 9;
 
 export function Power() {
@@ -40,16 +40,18 @@ const VERSIONS = [
     what: "The line unit: USB and CAN on the pins, coded in hardware. Registers became latches, so the larger design takes less area than v1.3." },
   { v: "v1.5", date: "31 Oct", cells: 28961, util: 59.5,
     what: "Deadline tests decided a cycle early: the slow-corner limit rises from 28.6 to 38.6 MHz, so the chip is rated up to 33 MHz." },
+  { v: "v1.6", date: "2 Nov", cells: 32239, util: 65.9,
+    what: "Decode, operands and pin writes a stage earlier: signed off at 20 ns, so the chip is rated up to 50 MHz. 10BASE-T transmit runs inside the rating." },
 ];
 
 /** Cells of each adopted layout on a labelled axis (the changes are a few thousand cells
- *  on about 26,000, which bars from zero hide), with the six versions in matching columns
+ *  on about 26,000, which bars from zero hide), with the seven versions in matching columns
  *  below; on a phone the columns become a vertical timeline. */
 export function History() {
   const ref = useRef<HTMLCanvasElement>(null);
   const [sel, setSel] = useState(VERSIONS.length - 1);
   const theme = useThemeTick();
-  const LO = 22000, HI = 30000;
+  const LO = 22000, HI = 34000;
   const draw = () => {
     const c = ref.current;
     if (!c) return;

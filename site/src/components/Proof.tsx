@@ -50,15 +50,15 @@ export function ProofTable() {
           <tr><td>Random programs against the model, three campaigns</td><td className="num">2,300</td><td>0 mismatches</td></tr>
           <tr><td>Commits compared tick by tick in those campaigns</td><td className="num">155,416</td><td>0 mismatches</td></tr>
           <tr><td>Random programs with the host reading the tape during the run</td><td className="num">60</td><td>7,598 words, 0 mismatches</td></tr>
-          <tr><td>Firmware cases with independent bus models, RTL against the model</td><td className="num">26</td><td>0 mismatches</td></tr>
-          <tr><td>Line unit against its model, every output every cycle</td><td className="num">12 million cycles</td><td>0 mismatches</td></tr>
+          <tr><td>Firmware cases with independent bus models, RTL against the model</td><td className="num">43</td><td>0 mismatches</td></tr>
+          <tr><td>Line unit against its model, every output every cycle, two builds</td><td className="num">8 million edges each</td><td>0 mismatches</td></tr>
           <tr><td>Planted RTL faults (mutants), v1.4 campaign on the standard-cell models</td><td className="num">710</td><td>653 caught, 19 proved equivalent, 38 excluded, 0 surviving</td></tr>
           <tr><td>Planted faults at every site of v1.5's new logic</td><td className="num">103</td><td>97 caught, 5 proved equivalent, 1 excluded, 0 surviving</td></tr>
           <tr><td>Timing certificates against measured leads (26 cases, 31 contexts)</td><td className="num">31</td><td>28 exact, 0 below</td></tr>
           <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 MHz</td><td className="num">685</td><td>pass</td></tr>
           <tr><td>Chip tests on the final gate-level netlist</td><td className="num">7</td><td>pass</td></tr>
-          <tr><td>Firmware through the pins on the final netlist, NEC at 33 MHz included</td><td className="num">8</td><td>pass</td></tr>
-          <tr><td>Netlist against RTL, sequential equivalence</td><td className="num">332 bits</td><td>proved</td></tr>
+          <tr><td>Firmware through the pins on the final netlist, NEC at 33 and 50 MHz included</td><td className="num">9</td><td>pass</td></tr>
+          <tr><td>Netlist against RTL, sequential equivalence (two steps since v1.6)</td><td className="num">332 bits</td><td>proved</td></tr>
         </tbody>
       </table>
     </div>

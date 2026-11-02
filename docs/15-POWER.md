@@ -51,7 +51,8 @@ from two allowed cells, instantiated by name (`sg13cmos5l_dllrq_1`,
 68 gates covered about 2,600 flops in v1.1, 17 per context: r0–r3, sh, tmr, lee, ish, the
 first-failure record, the four FIFO entries and the four mailbox words. In v1.4, 80 gates
 cover about 3,150 of the 4,374 storage cells, and 2,365 of those are latches (below); v1.5's
-28 added flip-flops are ungated, so its final netlist has 3,151 of 4,402 behind a gate. Each enable is
+28 added flip-flops are ungated, so its final netlist has 3,151 of 4,402 behind a gate, and
+v1.6's has 3,292 of 4,756 (927 of its 2,391 flip-flops, and every latch). Each enable is
 exactly the condition under which the old always block assigned the bank, with the same
 priority (reset, then start, then that edge's effects). So the change is invisible
 architecturally:
@@ -121,13 +122,21 @@ estimate, which LibreLane prints in its power report.
 | v1.2: pin bank B (D-31), hold margin 0.2 ns | 25,399 | 58.3% | 1,515 | 2.48 mW | 3.01 mW | 2.67 mW | 2.30 mW |
 | v1.3: streaming capture (D-32) | 25,383 | 58.9% | 1,614 | 2.57 mW | 3.11 mW | 2.77 mW | 2.39 mW |
 | v1.4: line unit (D-33), latch banks (D-40, D-41) | 27,461 | 57.4% | 1,453 | 2.64 mW | 3.13 mW | 2.82 mW | 2.48 mW |
-| **v1.5: tests a cycle early (D-43)** | **27,726** | **57.6%** | **1,523** | 2.68 mW | **3.18 mW** | **2.87 mW** | **2.53 mW** |
-| change, before → v1.5 | −14% | | −66% | −65% | **−63%** | **−66%** | **−68%** |
+| v1.5: tests a cycle early (D-43) | 27,726 | 57.6% | 1,523 | 2.68 mW | 3.18 mW | 2.87 mW | 2.53 mW |
+| **v1.6: decode and operands a stage earlier, 50 MHz layout** | **30,752** | **63.3%** | **2,148** | 3.09 mW | **3.60 mW** | **3.29 mW** | **2.93 mW** |
+| change, before → v1.6 | −5% | | −52% | −59% | **−58%** | **−61%** | **−63%** |
 
-n/m = not measured. The workload columns use the exact SRAM count below. Version 1.5 adds
-28 flip-flops and costs 0.04–0.05 mW (2%) in every workload. Its layout is placed and
-routed for a 30 ns clock, and OpenSTA takes the clock pins' activity from the constraints'
-clock, not from the simulation, so v1.5 is measured with that clock set back to 40 ns.
+n/m = not measured. The workload columns use the exact SRAM count below. Version 1.6 costs
+0.40–0.42 mW (13–16%) in every workload, nearly all of it in the flip-flop and clock rows.
+It has 2,391 flip-flops against v1.5's 2,037, and 213 of the 354 new ones see every clock
+edge (1,464 free-running against 1,251), mostly the registered decode and first operand (84)
+and the event FIFOs' registered heads (104: drive mask, value and enable, and the event
+kind); the other 141 sit behind clock gates. That is the price of the shorter cycle: at
+50 MHz the same work takes half the time. The layout is placed and routed for a 20 ns clock
+(v1.5: 30 ns), and OpenSTA takes the clock pins' activity from the constraints' clock, not
+from the simulation, so both are measured with that clock set back to 40 ns. At 20 ns
+OpenSTA's static estimate is 6.17 mW. Version 1.5 adds 28 flip-flops and costs 0.04–0.05 mW
+(2%) in every workload.
 Version 1.4
 adds the line unit, 2,600 cells, and costs 1–4% over v1.3: the unit sits behind a clock
 gate that closes while it is idle, and the latch banks (D-40) replace flip-flops whose

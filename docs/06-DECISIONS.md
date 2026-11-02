@@ -26,21 +26,22 @@ branch-free. CRC-15 and bit stuffing for CAN run in firmware at 250 kbit/s. Vers
 adds one exception, and keeps it protocol-neutral: a configurable line unit for the bit
 work that four instructions per bit cannot do (D-33).
 
-**D-5 Clock: up to 33 MHz, 25 MHz by default.** Frequencies are quoted at the slow corner
-(1.08 V, 125 °C), not the typical one. Since version 1.5 the layout is signed off at 30 ns,
-so the chip is rated for clocks up to 33 MHz; it meets timing up to 38.6 MHz at the slow
-corner and 61.3 MHz at the typical one (v1.4, rated 25 MHz: 28.6 and 45 MHz; v1.3: 35 and
-55 MHz) ([physical design](03-PHYSICAL-DESIGN.md#sign-off-results)). The shipped firmware is
-timed for 25 MHz, the clock `info.yaml` asks the Tiny Tapeout board for: VGA Pong uses the
-core clock as its pixel clock, and the USB firmware runs at 24 MHz (D-37). The programs
-whose timing derives from `CLK_KHZ` (14 in version 1.5, 39 since 1.6) rebuild for another
-clock: at 33 MHz each certifies, and those with a bus model drive it, the models timing
-every edge in 30.3 ns ticks (`test_rated_clock.py`). On the Tiny Tapeout demo board
-use exactly 33 MHz: its firmware divides the RP2040's clock (132 MHz, by 4), which gives 50%
-duty and no jitter. A request for 33.333 MHz finds no even divisor of an RP2040 clock up to
-its default 133 MHz, falls back to a fractional one, and so jitters, with cycles shorter than
-the 30 ns the layout is signed off at (it is exact only with the RP2040 overclocked,
-`max_rp2040_freq=200_000_000`, divided by 6).
+**D-5 Clock: up to 50 MHz, 25 MHz by default.** Frequencies are quoted at the slow corner
+(1.08 V, 125 °C), not the typical one. Since version 1.6 the layout is signed off at 20 ns,
+so the chip is rated for clocks up to 50 MHz; it meets timing up to 50.8 MHz at the slow
+corner and 80.6 MHz at the typical one (v1.5, rated 33 MHz: 38.6 and 61.3 MHz; v1.4, rated
+25 MHz: 28.6 and 45 MHz) ([physical design](03-PHYSICAL-DESIGN.md#sign-off-results)). The
+margin at the slow corner is small (1.5%), and the 25 MHz default keeps half the period
+spare. The shipped firmware is timed for 25 MHz, the clock `info.yaml` asks the Tiny
+Tapeout board for: VGA Pong uses the core clock as its pixel clock, the USB firmware runs at
+24 MHz (D-37) and the 10BASE-T firmware at 40 MHz. The programs whose timing derives from
+`CLK_KHZ` (14 in version 1.5, 39 since 1.6) rebuild for another clock: at 33 and at 50 MHz
+each certifies, and those with a bus model drive it, the models timing every edge in the
+rated tick (`test_rated_clock.py`). On the Tiny Tapeout demo board use exactly 50 MHz (its
+firmware runs the RP2040 at 100 MHz and divides by 2) or 33 MHz (132 MHz by 4): both give 50%
+duty and no jitter. A request for a clock that no even divisor of an RP2040 clock up to its
+default 133 MHz makes, such as 33.333 MHz, falls back to a fractional divider and jitters, with
+some cycles shorter than the request.
 
 **D-9 Event model.** Per-context FIFOs of DRIVE, EXPECT and SAMPLE entries with absolute
 deadlines, strict ordering within half the counter range, and visible rejection. An
@@ -261,6 +262,37 @@ other property reads as before. It costs 28 flip-flops and 2% power. The layout,
 off at 30 ns, meets timing at the slow corner up to 38.6 MHz (v1.4: 28.6 MHz; a v1.4 layout
 aimed at 32 ns reached about 30.5 MHz), and the limit is now the decode of the instruction
 itself. The rating rises from 25 to 33 MHz (D-5).
+
+**D-44 Decode, operands and pin writes a stage earlier (v1.6).** After D-43 the slow-corner
+limit was the decode of the committing instruction (`insn` to a pin's output register, 51
+cells), then the pin-output logic and the line unit. Version 1.6 moves each of them into
+the cycle before, where its inputs already settle: the instruction is decoded in the X
+stage into a one-hot register (`d_op`, legality with it), the operands are read from the
+register banks a cycle ahead (`opa`, `opb`), each FIFO registers the kind and payload of the
+head it will have next, and the line unit decides a transmit boundary's pin writes, and the
+bit that starts it, a cycle ahead into flip-flops. As in D-43 each register is stated as an
+equality with its definition in every cycle that uses it (B6–B9, the FIFO's D1–D3, the line
+unit's L2, proved by k-induction on the unit with the core proving its input rules,
+[verification](04-VERIFICATION.md)), so no other property changes and no program can tell. It costs 354 flip-flops and 13–16% power at 25 MHz
+([power](15-POWER.md)). The layout is signed off at 20 ns and meets timing at the slow corner
+up to 50.8 MHz; the rating rises from 33 to 50 MHz (D-5). Getting a 20 ns layout took nine
+trial hardens: the post-CTS hold repair, judging setup slack from placement estimates, put
+delay cells at the roots of paths that became critical after routing until the resizer's
+setup margins were raised to 2.5 ns (placement) and 3 ns (global routing).
+
+**D-45 The netlist proof in two steps, not a recoding switch (v1.6).** Synthesis recodes the
+line unit's state registers `sk`, `noted` and `es0_q` one-hot; with v1.6's registers the
+one-step equivalence proof no longer closes (it ends undecided, with no difference found).
+An `fsm_encoding "none"` attribute would keep the netlist one-to-one with the RTL, but it
+changes the netlist, and its layout (`v16t`) stopped at the disconnected-pin check: clock-tree
+synthesis had dropped the clock input of one clock gate. That is OpenROAD issue #9816, fixed
+upstream in March 2026 but not in the OpenROAD that LibreLane 3.1.0.dev3 pins: when two clock
+gates' sinks have the same centre, CTS moves both gates there and keeps one. The signed-off
+layout (`v16s`) does not have the collision, so the proof takes two steps instead:
+`esc_line` against `esc_line` after synthesis's FSM pass, then the netlist against the RTL
+with that module ([verification](04-VERIFICATION.md#rtl-to-netlist-equivalence)). Every
+committed layout must also pass LibreLane's disconnected-pin check, which is what caught
+the bug.
 
 ## Power and timing margin
 

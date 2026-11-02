@@ -19,9 +19,9 @@ event, otherwise the context faults (ADMIT) and its pins release. An admitted ev
 happens exactly on its tick. Firmware therefore runs **ahead** of real time, by up to
 four queued events.
 
-The chip is rated up to 33 MHz (D-5). Programs that take their timing from `CLK_KHZ`
+The chip is rated up to 50 MHz (D-5). Programs that take their timing from `CLK_KHZ`
 rebuild for another clock by defining it before the include, for example
-`.equ nec_tx.CLK_KHZ, 33000` then `.include "nec_tx.asm"`. The 39 shipped ones all
+`.equ nec_tx.CLK_KHZ, 50000` then `.include "nec_tx.asm"`. The 39 shipped ones all
 certify at 33, 33.333, 40 and 50 MHz (`sw/tests/test_escert.py`), and 24 of them run
 against their bus models at 33 and 50 MHz (`sw/tests/test_rated_clock.py`). Four are tied
 to one clock by their protocol and refuse any other with an `.assert`: `eth_tx` and

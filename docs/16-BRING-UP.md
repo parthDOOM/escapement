@@ -347,7 +347,8 @@ From the tt-micropython-firmware source (section 9):
 - The project clock is a PWM output of the RP. `clock_project_PWM(hz)` picks an RP system
   clock that divides to `hz` with an even PWM divisor. For 25 MHz its search settles on a
   100 MHz system clock divided by 4, so the clock is exact with a 50% duty cycle; for
-  33 MHz, the rated maximum (D-5), on 132 MHz divided by 4, also exact. Where no RP clock
+  50 MHz, the rated maximum (D-5), on the same 100 MHz divided by 2, and for 33 MHz on
+  132 MHz divided by 4, both exact. Where no RP clock
   divides exactly, it uses the closest fractional divider and prints `freq_jitter_free=`,
   as for 33.333 MHz. The limit is half the maximum RP clock: 133 MHz by default, raised
   automatically to twice the request (up to 250 MHz) for requests above 66.5 MHz, so up

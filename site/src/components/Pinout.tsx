@@ -49,7 +49,7 @@ export default function Pinout() {
       <div className="arch-key">
         {Object.values(KIND).map(([v, n]) => <span key={n}><i style={{ background: `var(${v})` }} />{n}</span>)}
       </div>
-      <figcaption>Hover a pin to see what it does. Plus the clock (25 MHz by default, rated up to 33 MHz), reset and enable that every Tiny Tapeout design gets. Four wires carry
+      <figcaption>Hover a pin to see what it does. Plus the clock (25 MHz by default, rated up to 50 MHz), reset and enable that every Tiny Tapeout design gets. Four wires carry
         the host link and two report status; the other 18 are protocol pins.</figcaption>
     </figure>
   );

@@ -93,7 +93,7 @@ read a cycle early are the commit cycle's values; the proofs check each register
 its definition in every cycle that uses it.
 
 At 25 MHz the counter wraps after 171.8 s, and the admission horizon is 85.9 s (at the
-rated maximum of 33 MHz, 130.2 s and 65.1 s).
+rated maximum of 50 MHz, 85.9 s and 42.9 s).
 
 ## Telemetry and faults
 

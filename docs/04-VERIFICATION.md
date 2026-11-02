@@ -79,6 +79,7 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | P7 | Fixed slot timing: a commit belongs to the context that owns that slot | Unbounded (PDR) |
 | P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start or stop edge or one where it faults | Unbounded (PDR, with P2 for the lateness part of the last clause, below) |
 | L1 | The line unit (v1.4) claims only pins its owner owns; it is idle and unconfigured while stopped and once its owner has faulted; a CONFIG never completes at one of its owner's commit edges | Unbounded (PDR), as lemmas for P3, P5 and P8 |
+| L2 | (v1.6) The line unit's pin writes and transmit bit, registered in the cycle before a boundary, equal their definitions at the boundary; with the lemmas that make this inductive (a configuration in use is valid, the cell timer's range, a packet's state before its first boundary, when a stream word arrives) | Unbounded (k-induction, `esc_line.sby`), assume-guarantee: the core proves the unit's input rules (LI, PDR) |
 | H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction); H3 and H4 also by PDR in the core proof, as lemmas for P5 |
 | D1–D3 | Per context: the retire and late flags (v1.5), and the head entry's kind and payload (v1.6), registered in the cycle before, equal the deadline tests on the current head and the current tick, and the current head | Unbounded (k-induction), in the per-context proof |
 | B1–B9 | The values registered in the cycle before a commit equal their definitions on the commit cycle's state: the tests (v1.5: deadline ahead of the tick, timer reached, ahead of the FIFO tail, ahead of the open EXPECT window's end, and the lead saturated to 16 bits), and (v1.6) the decoded instruction and its legality (B6, B7) and the two operands (B8, B9) | Unbounded (k-induction, `esc_core.sby ahead`); assumed by the PDR tasks |
@@ -161,6 +162,22 @@ registers, or the host's mailbox word, which the host holds for the cycle after 
 (M1). G4 has teeth: a latch fed straight from the write data, the design rejected in
 v1.1, fails at the first step.
 
+**The line unit's registered values (v1.6, D-44).** To fit in 20 ns the line unit decides
+a boundary's pin writes and transmit bit in the cycle before it. L2 says the registered
+values equal what the unit would compute at the boundary itself. Inside the core proof,
+PDR did not converge on it (one task ran out of memory after an hour), so it is proved
+like P2, in two parts. `formal/esc_line.sby` proves L2 for the unit alone by k-induction,
+in seconds, assuming only the rules the core follows when it drives the unit's inputs:
+one operation at an edge, from a running context in its own commit cycle, from the
+owner (or a CONFIG taking a free unit), never while the unit is busy, SEND only with
+claimed pins, and no fault kills the unit at an operation's edge. The core proves those
+rules (LI, two PDR tasks, under 20 s together), with no line unit assertion assumed, so
+the argument is not circular. Induction needed the lemmas listed with L2: without them it
+starts from states the unit never reaches, such as a cell timer far beyond its period.
+L2 has teeth: the boundary flag registered a cycle late fails at step 16, the pin value
+built from the current cell instead of the next at step 25, and the first bit taken from
+the wrong end of the prefix at step 15.
+
 **Vacuity guards.** A cover task reaches the precondition of every property, including
 capture overflow, region full, ring wrap, a drain and a push with two records staged,
 and (v1.4) the line unit driving its pins, receiving, and a CONFIG faulting its owner. The clock-gate proof has teeth: a naive `clk & en` gate fails G3 at the first
@@ -170,9 +187,8 @@ step.
 
 The proofs above are about the RTL; the chip is built from the netlist that synthesis,
 placement and routing produce. `make equiv` proves that the two are the same machine:
-the final netlist of the version 1.4 harden (sha256 `661e5608…`, the netlist CI's harden
-also produced) is sequentially equivalent to the RTL in `src/`, for every input sequence
-after reset.
+the final netlist of the version 1.6 harden (`v16s`, sha256 `f5bcfa00…`) is sequentially
+equivalent to the RTL in `src/`, for every input sequence after reset.
 
 Both designs are flattened and placed side by side in a miter that feeds them the same
 pins, the same SRAM read data and the same clock, and compares all 24 chip outputs and
@@ -180,16 +196,52 @@ every SRAM input (address, data, enables, 332 bits in all) on every step. ABC's 
 searches 19 steps for a difference, then matches the RTL's registers with the netlist's by
 signal correspondence and closes the proof by induction. Nothing is matched by name, so
 the netlist's renamed registers need no mapping, nor do the registers that reset to one
-in the RTL and that synthesis builds as reset-to-zero flip-flops with inverters. The proof
-takes about 4 minutes (245 s for version 1.4). The version 1.1 release netlist (sha256
-`1c9004ee…`) and the version 1.3 netlist (`54236b4f…`) pass the same proof. In version 1.4
-the latch banks are the standard-cell latches in both designs (the RTL is read with the
-standard-cell define, as it is hardened), so the proof covers them as logic too.
+in the RTL and that synthesis builds as reset-to-zero flip-flops with inverters. The latch
+banks are the standard-cell latches in both designs (the RTL is read with the standard-cell
+define, as it is hardened), so the proof covers them as logic too.
 
-**The check has teeth.** Two faults injected into the netlist are both found: a NAND
-in the `uio_oe[0]` path turned into a NOR fails at the first compared step, and the MISO
-shift register's bit 6 wired to bit 5's input fails at step 21, about ten clock cycles
-after reset.
+**Two steps since version 1.6.** Synthesis recodes three small state machines of the line
+unit (`sk`, `noted` and `es0_q` in `esc_line.v`) one-hot, so three of the netlist's registers
+have no single partner in the RTL. Up to version 1.5 signal correspondence closed that
+anyway (v1.5 already had `noted` recoded); with version 1.6's extra registers it no longer
+does, and the one-step proof of the v1.6 netlist ended undecided after 86 minutes, with no
+difference found. Applying only synthesis's FSM pass to the RTL reproduces this (undecided
+after 56 minutes), and the same flow without the FSM pass proves in 198 s, so the recoding
+is the whole cause. The proof therefore takes two steps:
+
+1. `esc_line` alone is sequentially equivalent to `esc_line` after synthesis's FSM pass
+   (the same miter at module level: 20 outputs, 151 bits; 7 s);
+2. the netlist is sequentially equivalent to the RTL with that `esc_line` in place
+   (332 bits; 228 s).
+
+A module equivalent at every output from reset, for every input sequence, changes nothing
+around it (every flip-flop and latch bank resets asynchronously, so nothing it outputs
+during reset is kept), so together the netlist is equivalent to the RTL. `formal/equiv.sh`
+runs both steps (about 4 minutes); with a second RTL tree instead of a netlist (the
+mutation campaign) it runs the one direct proof, as before. Telling synthesis not to
+recode (`fsm_encoding "none"`) would have kept one step, but it changes the netlist, and
+the layout it gave (`v16t`) was cut short by an OpenROAD clock-tree bug that disconnects a
+clock gate (D-45). The version 1.4 netlist (sha256 `661e5608…`, 245 s), the version 1.3
+netlist (`54236b4f…`) and the version 1.1 release netlist (`1c9004ee…`) passed the one-step
+proof.
+
+**The check has teeth.** Faults injected into the v16s netlist are found by the proof
+itself: the output stage of `uio_oe[0]` with two of its gate's inputs swapped fails at the
+first compared step (37 s), and the MISO shift register's bit 6 wired to bit 5's input
+fails at step 17 (38 s). Step 1 has its own: `esc_line`'s CONFIG step counter made to skip a
+step on the recoded side fails at step 9.
+
+Faults deep in the line unit need more than a search from reset can reach: the host must
+configure a context and start it, the program must configure the line unit, and the unit
+must send. In the whole-chip miter a bounded search did not reach the CONFIG step counter's
+bit 1 wired to bit 0's input, or the bit position's bit 3 wired to bit 2's, within 75 steps.
+So the same miter was also run as a simulation of one concrete session. Both SRAM macros are
+modelled as memories holding a small program that configures the line unit from the tape and
+sends 64 bits in a loop, and the host resets the chip, writes the configuration and starts
+it. The CONFIG fault makes the two copies differ a few cycles after START, on the tape
+address; the bit-position fault does so eight bits into the first SEND. The unfaulted
+netlist shows no difference over the same 1,000 cycles, while its pins change 166 times.
+A difference in the miter is a counterexample, so the proof cannot pass with either fault.
 
 **Scope.** The SRAM macros are hard IP and are not compared, only everything around
 them. Cell behaviour comes from the functions in the PDK's liberty file, so this is a
@@ -413,10 +465,11 @@ In version 1.5, three needed changes, which leave their 25 MHz behaviour as it w
 edge, which escert could not bound (POSSIBLE): at 25 MHz the gap had been 56,214 ticks. It
 now drains the queue first, as the frame path always did, and certified from 2.5 to 38 MHz;
 since version 1.6 a 1's long space drains it too, and it certifies from 2.5 to 100 MHz.
-Both NEC programs rebuilt for 33 MHz also run a frame through the chip's pins, transmitter
-through an IR receiver model into the receiver, on the RTL and on the v15c netlist
-(`test_nec_loopback_at_33_mhz_on_chip`; 2.9 million cycles, 49 minutes on the netlist). That
-simulation is functional; the 30 ns timing of the same netlist is the static analysis in
+Both NEC programs rebuilt for 33 MHz and for 50 MHz also run a frame through the chip's
+pins, transmitter through an IR receiver model into the receiver, on the RTL and on the
+v16s netlist (`test_nec_loopback_at_33_mhz_on_chip`, `test_nec_loopback_at_50_mhz_on_chip`;
+47 and 71 minutes on the netlist). That simulation is functional; the 20 ns timing of the
+same netlist is the static analysis in
 [physical design](03-PHYSICAL-DESIGN.md#sign-off-results).
 
 **The checker found real bugs.** It refuted the I2C controller's stuck-bus timeout,
@@ -556,7 +609,7 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | Co-simulation (`make cosim`) | 8 | Pass |
 | Host interface (`make host-test`) | 16 | Pass |
 | Core unit tests (`make unit-test`) | 33 | Pass |
-| Newer firmware (SWD, SPI target, NEC, NEC rebuilt for 33 MHz, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 8 | Pass on the RTL and on the final netlist |
+| Newer firmware (SWD, SPI target, NEC, NEC rebuilt for 33 and for 50 MHz, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 9 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 
@@ -565,7 +618,7 @@ the protocol on the pins, and compare the execution digest with the simulator's
 prediction. On the gate-level netlist, an equal digest means the gates executed exactly
 the commits, register values and pin changes of the model. Gate-level simulation is
 zero-delay: it shows that the gates compute what the RTL computes, not how fast. Timing,
-at the rated 30 ns and at the default 40 ns, comes from static analysis of the routed
+at the rated 20 ns and at the default 40 ns, comes from static analysis of the routed
 netlist with extracted parasitics at three corners ([physical design](03-PHYSICAL-DESIGN.md)).
 
 ## Limits

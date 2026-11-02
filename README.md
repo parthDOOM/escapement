@@ -116,24 +116,34 @@ it, and escert proves every reply leaves exactly 72 ticks after the host's packe
 ([line unit](docs/19-LINE-UNIT.md)). A CAN 2.0A and 2.0B receiver uses it too: clock
 recovery, destuffing and a CRC-15 check on every frame of a bus.
 
-**Version 1.5: deadline tests a cycle early.** Each FIFO and the core decide their 32-bit
+**Version 1.5: deadline tests a cycle early** ([release v1.5](https://github.com/parthDOOM/escapement/releases/tag/v1.5)).
+Each FIFO and the core decide their 32-bit
 deadline and admission tests in the cycle before they are used, so the comparisons leave
 the path from the tick counter to the pins; no program can tell the difference, and the
 proofs check each registered test against its definition in every cycle that uses it. The
-layout meets timing up to 38.6 MHz at the slow corner, 61.3 MHz at the typical one and
-94.3 MHz at the fast one (v1.4: 28.6, 45 and 70 MHz; layout effort alone took v1.4 to about
-30.5 MHz at the slow corner), for 28 more flip-flops and 2% more power. Signed off at
-30 ns, the chip is rated for clocks up to 33 MHz; the shipped firmware runs at 25 MHz
-(D-5, D-43).
+layout meets timing up to 38.6 MHz at the slow corner (v1.4: 28.6 MHz), for 28 more
+flip-flops and 2% more power. Signed off at 30 ns, the chip is rated for clocks up to
+33 MHz (D-43).
+
+**Version 1.6: 50 MHz.** The instruction is decoded a stage earlier, its operands are read a
+cycle ahead, each FIFO registers its next head, and the line unit decides a transmit
+boundary's pin writes a cycle ahead; as in v1.5 each register is proved equal to its
+definition wherever it is used. Signed off at 20 ns, the chip is rated for clocks up to
+50 MHz; the layout meets timing up to 50.8 MHz at the slow corner, 80.6 MHz at the typical
+one and 120.5 MHz at the fast one, for 354 more flip-flops and 13–16% more power at 25 MHz
+(D-5, D-44). The shipped firmware runs at 25 MHz, and the 39 programs that take their timing
+from `CLK_KHZ` rebuild and certify at 50 MHz; 10BASE-T transmit (40 MHz) now runs inside the
+rating. The line unit gains symbol coding, CRC-32 and a next-word buffer, used by CAN
+transmit, WS2812, SPI at line rate and two 10BASE-T transmitters.
 
 ## Results
 
 | | |
 | --- | --- |
 | Process | IHP SG13CMOS5L (130 nm), Tiny Tapeout, **6×4 tiles** (1289.28 × 710.64 µm) |
-| Clock | Rated up to 33 MHz at the slow corner (1.08 V, 125 °C), 25 MHz by default; the layout meets timing up to 38.6 MHz there, 61.3 MHz at the typical corner (1.20 V, 25 °C) and 94.3 MHz at the fast one ([frequency headroom](docs/03-PHYSICAL-DESIGN.md#sign-off-results)) |
-| Physical | 28,961 cells and two SRAM macros, 59.5% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes; the netlist is proved equivalent to the RTL and passes the chip and pin tests |
-| Power | 3.2 mW sending UART, 2.5 mW stopped (typical corner, 25 MHz) |
+| Clock | Rated up to 50 MHz at the slow corner (1.08 V, 125 °C), 25 MHz by default; the layout meets timing up to 50.8 MHz there, 80.6 MHz at the typical corner (1.20 V, 25 °C) and 120.5 MHz at the fast one; signed off at 20 ns on every corner, with a 40/60% duty cycle too ([frequency headroom](docs/03-PHYSICAL-DESIGN.md#sign-off-results)) |
+| Physical | 32,239 cells and two SRAM macros, 65.9% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes; the netlist is proved equivalent to the RTL and passes the chip and pin tests; a second harden reproduces it bit for bit |
+| Power | 3.6 mW sending UART, 2.9 mW stopped (typical corner, 25 MHz) |
 | Firmware | 49 programs (seven for the line unit: the USB keyboard and the CAN receiver since v1.4, and since v1.6 a CAN transmitter, an LED string, SPI at line rate and two 10BASE-T transmitters), eleven of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs); of 237 timing bugs planted in 28 of them, escert rejects 73, and none of the 164 it certifies faults under a randomised input search ([certificates](docs/04-VERIFICATION.md#planted-timing-bugs)) |
 | Verification | ISS and RTL agree tick for tick on random programs and on 46 of the 49 programs with their bus models (VGA Pong runs on the chip's pins instead, the replay template has no trace of its own, and the 14 s Westminster tune plays only on the ISS); "never late" proved for all time; 653 of 710 RTL mutants killed and none surviving (19 proved equivalent, 38 excluded with a written argument) in the v1.4 campaign on the standard-cell models, and all 103 mutants at every site of v1.5's new logic killed (97), proved equivalent (5) or excluded (1); the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 | Hardware | Not yet run on hardware: the first hardware would be the Tiny Tapeout chip, if the design is selected for fabrication. The bring-up script is rehearsed against a simulated demo board with 22 injected faults ([bring-up](docs/16-BRING-UP.md)), and FPGA bitstreams for the Tang Nano 20K and ULX3S are built and meet 25 MHz after routing ([FPGA build](fpga/README.md)) |
