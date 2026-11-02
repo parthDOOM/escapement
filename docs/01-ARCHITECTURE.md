@@ -203,7 +203,7 @@ domain through 2-flop synchronisers, so the design has a single clock domain. SC
 at up to f_clk / 8. Commands load and verify both memories, configure contexts and pins,
 start and stop runs, move words through per-context mailboxes (two 32-bit entries each
 way), and read any debug register ([host protocol](12-HOST-PROTOCOL.md)). `uo[1]` is the
-interrupt line and `uo[2]` shows that the core is running.
+interrupt line (any context's IRQ pending, or a recorded fault) and `uo[2]` shows that the core is running.
 
 ## Power structure
 

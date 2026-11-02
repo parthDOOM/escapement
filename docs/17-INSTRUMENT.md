@@ -48,8 +48,8 @@ through a pseudo-terminal, and checks the waveform it writes, edge for edge.
 A capture file (`.json`) keeps the record words as the chip wrote them, with the clock
 they were taken at and the pin names. On the demo board that clock is the one the board
 is running: 25 MHz by default, or a `clock_frequency` in the `[tt_um_escapement]`
-section of the board's `config.ini`, up to the rated 33 MHz (D-5; use exactly
-33000000). `stream()` and the SUMP bridge read it back from the board, and the PC tools
+section of the board's `config.ini`, up to the rated 50 MHz (D-5; use exactly
+50000000 or 33000000). `stream()` and the SUMP bridge read it back from the board, and the PC tools
 rescale a capture taken at another clock (`esclearn` learns in 25 MHz ticks). The host tools write it; on a PC
 
 ```
@@ -83,7 +83,7 @@ refused by the chip at admission: it faults instead of driving an edge late.
 
 - **One bank, eight channels per capture.** The record has eight level bits; bank B
   shows as channels 0 to 4.
-- **Resolution and latency.** One tick (40 ns at 25 MHz, 30.3 ns at 33 MHz). Inputs pass a two-flop
+- **Resolution and latency.** One tick (40 ns at 25 MHz, 20 ns at 50 MHz). Inputs pass a two-flop
   synchroniser, so a record's tick is two ticks after the pin changed, the same for
   every edge. Pulses shorter than a tick can be missed.
 - **Bursts and the sustained rate.** The capture unit takes a change every tick. A burst
@@ -93,7 +93,7 @@ refused by the chip at admission: it faults instead of driving an edge late.
   call, about 4 µs per SPI bit) reads about 7,000 records per second. It has not yet been
   measured on a board.
 - **Stopped capture** holds at most 256 records, and the ring mode keeps only the newest.
-- **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz, 0.51 s at 33 MHz), at most 256 records, and
+- **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz, 0.34 s at 50 MHz), at most 256 records, and
   needs about 40 ticks between records.
 - **PulseView.** Up to 4 Mi samples and 16,384 records per capture; trigger stage 0
   only, in parallel mode; no run-length encoding. A capture waits for its trigger as long

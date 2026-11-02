@@ -2,8 +2,12 @@
 
 Programs are assembly text (assembled by escasm), so every generated case is a
 readable, replayable artifact. Generation is deterministic in the seed.
-The generator deliberately produces faults (ADMIT subcodes, ILLEGAL words, PC_RANGE)
-and waits, not only "nice" programs: agreement on failure behaviour is the point.
+The generator deliberately produces faults (every ADMIT subcode, ILLEGAL words) and
+waits, not only "nice" programs: agreement on failure behaviour is the point. (PC_RANGE
+needs code at PC 255: the directed case stt_faults_do_not_write in test_cosim.py.)
+v1.6: a third of the seeds also call subroutines and use the host mailboxes (PUSH, POP,
+RXREADY, TXREADY), from a third generator, with a host (make_host) that pushes and drains;
+every other seed keeps its earlier program.
 v1.2: some contexts use pin bank B, and capture may watch it. Those choices come from a
 second generator, so a seed that picks no bank B context yields its v1.1 program.
 """
@@ -130,14 +134,58 @@ def _line_op(rng: random.Random, nasty: bool) -> list[str]:
     return val(v) + [f"    LINE {reg}"]                                    # ILLEGAL (nasty)
 
 
+def _mbx_op(rng: random.Random, nasty: bool, subs: list[str], k: int, new_label) -> list[str]:
+    """v1.6: a subroutine call or a mailbox instruction. A bare POP on an empty RX mailbox
+    or PUSH on a full TX mailbox waits for the host; READY tests skip the wait instead."""
+    r, reg = rng.random(), _reg(rng)
+    if r < 0.2:
+        return [f"    PUSH {reg}"]
+    if r < 0.38:
+        return [f"    POP {reg}"]
+    if r < 0.64:
+        lbl = new_label()
+        test, op = ("RXREADY", f"POP {reg}") if r < 0.52 else ("TXREADY", f"PUSH {reg}")
+        return [f"    {test}", f"    JZ {lbl}", f"    {op}", f"{lbl}:"]
+    if r < 0.7:
+        return [f"    {rng.choice(['RXREADY', 'TXREADY'])}"]
+    if r < 0.97 or not nasty:
+        subs.append(f"c{k}_S{len(subs)}")
+        return [f"    CALL {subs[-1]}"]
+    return ["    RET"]                              # with no CALL: to the reset link
+
+
+def _subroutine(rng: random.Random, name: str, owned: list[int], nasty: bool) -> list[str]:
+    """A subroutine body, placed after the context's last HALT: a few data, timer, event
+    and mailbox instructions, then RET (in nasty seeds sometimes a nested CALL first,
+    which overwrites the one link register)."""
+    lines = [f"{name}:"]
+    for _ in range(rng.randrange(1, 4)):
+        r, reg = rng.random(), _reg(rng)
+        if r < 0.4:
+            lines.append(f"    {rng.choice(DATA_R)} {reg}, {_reg(rng)}")
+        elif r < 0.6:
+            lines.append(f"    ADDT {rng.randrange(1, 60)}")
+        elif r < 0.8 and owned:
+            m = 1 << rng.choice(owned)
+            lines.append(f"    EMIT 0x{m:02x}, 0x{rng.randrange(256) & m:02x}, 0x{m:02x}")
+        else:
+            lines.append(f"    {rng.choice(['PUSH', 'POP'])} {reg}")
+    if nasty and rng.random() < 0.1:
+        lines.append(f"    CALL {name}")
+    lines.append("    RET")
+    return lines
+
+
 def gen_context(rng: random.Random, k: int, owned: list[int], length: int,
                 nasty: bool = True, capt_bank: float = 0.0,
-                lu: random.Random | None = None, lu_rate: float = 0.0) -> list[str]:
+                lu: random.Random | None = None, lu_rate: float = 0.0,
+                mb: random.Random | None = None, mb_rate: float = 0.0) -> list[str]:
     lines = [f"ctx{k}_start:"]
     if lu is not None and lu_rate > 0.1:          # the line unit's intended owner
         lines += [f"    MOVI r3, {LU_CFG}", "    MOVHI r3, 0x3000", "    LINE r3"]
     label_n = 0
     pending_forward: list[str] = []
+    subs: list[str] = []
 
     def new_label() -> str:
         nonlocal label_n
@@ -165,6 +213,8 @@ def gen_context(rng: random.Random, k: int, owned: list[int], length: int,
             lines.append(f"{pending_forward.pop()}:")
         if lu is not None and lu.random() < lu_rate:   # v1.4 line unit (own generator)
             lines += _line_op(lu, nasty)
+        if mb is not None and mb.random() < mb_rate:   # v1.6 subroutines, mailboxes
+            lines += _mbx_op(mb, nasty, subs, k, new_label)
         if rng.random() < 0.10:                    # v1.1 tape / capture / GETI-wait
             ops = _tape_op(rng, nasty, capt_bank)
             lines += ops
@@ -237,6 +287,8 @@ def gen_context(rng: random.Random, k: int, owned: list[int], length: int,
     for lbl in pending_forward:
         lines.append(f"{lbl}:")
     lines.append("    HALT")
+    for name in subs:
+        lines += _subroutine(mb, name, owned, nasty)
     return lines
 
 
@@ -282,13 +334,36 @@ def gen_program(seed: int) -> str:
     use_lu = rngl.random() < 0.35
     if use_lu:
         out += lu_blocks(rngl, owned, ctxs[0])
+    # v1.6: a third of the seeds call subroutines and use the mailboxes (a fourth generator)
+    rngm = random.Random(seed * 15485863 + 0x16)
+    use_mb = rngm.random() < MBX_SHARE
     body: list[str] = []
     for k in ctxs:
         length = rng.randrange(8, max(9, budget // (n_ctx * 2)))
         body += gen_context(rng, k, owned[k], length, nasty, capt_bank,
-                            rngl if use_lu else None, 0.25 if k == ctxs[0] else 0.02)
+                            rngl if use_lu else None, 0.25 if k == ctxs[0] else 0.02,
+                            rngm if use_mb else None, 0.08)
     # Keep inside 256 words: trim (by context) if the assembler would overflow.
     return "\n".join(out + body) + "\n"
+
+
+MBX_SHARE = 0.35
+
+
+def make_host(seed: int):
+    """v1.6: for a seed whose program uses the mailboxes, a factory for its host (twins
+    for the ISS and the RTL): words pushed into the RX mailboxes at random ticks, at most
+    one per context per tick, and every TX mailbox drained every `poll` ticks. None for
+    the other seeds."""
+    if not random.Random(seed * 15485863 + 0x16).random() < MBX_SHARE:
+        return None
+    from escmodels import HostScript
+    rng = random.Random(seed * 31 + 0x40)
+    n = rng.choice([0, 2, 8, 30, 120])
+    when = {(rng.randrange(1, 4000), rng.randrange(4)) for _ in range(n)}
+    pushes = sorted((t, k, rng.randrange(1 << 32)) for t, k in when)
+    drain, poll = [k for k in range(4) if rng.random() < 0.8], rng.choice([1, 3, 17, 100, 600])
+    return lambda: HostScript(list(pushes), drain=drain, poll=poll)
 
 
 def gen_lu_program(seed: int) -> str:

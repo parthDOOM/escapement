@@ -32,7 +32,7 @@ are firmware. None of them is in the hardware.
 IR remote: it records the waveform, the host works out the protocol's timing table from
 the recording and generates firmware with a timing certificate, and the chip sends new
 messages in that protocol, such as a command the remote never sent. It is tested on
-twelve real recordings against sigrok's own decoders, and run end to end on the RTL
+twelve real recordings, five of them against sigrok's own decoders, and run end to end on the RTL
 ([record it, speak it](docs/20-LEARN.md)).
 
 **VGA Pong.** The same five bank B pins drive a VGA monitor at 640x480 and 60 Hz, and
@@ -50,8 +50,8 @@ ever late, and the chip's own telemetry meets the bound exactly
    happens exactly at its deadline or is refused at enqueue, never late. A new protocol,
    or a device nobody planned for, is a new program, not a respin.
 2. **Pay only for work.** A register bank that is not written does not see the clock, and
-   a memory that is not read is not selected. Sending UART costs 3.2 mW, and a stopped
-   chip 2.5 mW (typical corner, measured on gate-level workloads; [power](docs/15-POWER.md)).
+   a memory that is not read is not selected. Sending UART costs 3.6 mW, and a stopped
+   chip 2.9 mW (typical corner, measured on gate-level workloads; [power](docs/15-POWER.md)).
    A logic-analyser capture runs with no instruction fetches at all.
 3. **Every claim has a second, mechanical check.** Formal proofs, lockstep co-simulation
    of the RTL against a separate Python model, mutation testing, static timing
@@ -100,10 +100,11 @@ flowchart LR
   maximum queue occupancy, so a static timing certificate can be checked against the
   hardware. The bring-up script checks every firmware's certificate against the chip's
   telemetry. In the lockstep co-simulation with bus models, the measured lead equals the
-  certified bound to the tick in 28 of 31 contexts and is never below it. Contexts reach
+  certified bound to the tick in 39 of the 46 contexts that queue events, and is never below it. Contexts reach
   one another only through pins, tape and mailbox data, which escert treats as unknown
   inputs, so certificates compose: firmware certified one context at a time stays
-  certified running together, on disjoint pins.
+  certified running together, on disjoint pins and tape words, with at most one context on
+  the line unit.
 - **Execution digest.** A 32-bit signature of every commit, register write and pin
   change in a run, readable over SPI and predicted by the reference model.
 
@@ -131,7 +132,7 @@ boundary's pin writes a cycle ahead; as in v1.5 each register is proved equal to
 definition wherever it is used. Signed off at 20 ns, the chip is rated for clocks up to
 50 MHz; the layout meets timing up to 50.8 MHz at the slow corner, 80.6 MHz at the typical
 one and 120.5 MHz at the fast one, for 354 more flip-flops and 13–16% more power at 25 MHz
-(D-5, D-44). The shipped firmware runs at 25 MHz, and the 39 programs that take their timing
+(D-5, D-44). The shipped firmware runs at 25 MHz (USB at 24 MHz and 10BASE-T at 40 MHz, which their protocols fix), and the 39 programs that take their timing
 from `CLK_KHZ` rebuild and certify at 50 MHz; 10BASE-T transmit (40 MHz) now runs inside the
 rating. The line unit gains symbol coding, CRC-32 and a next-word buffer, used by CAN
 transmit, WS2812, SPI at line rate and two 10BASE-T transmitters.
@@ -145,7 +146,7 @@ transmit, WS2812, SPI at line rate and two 10BASE-T transmitters.
 | Physical | 32,239 cells and two SRAM macros, 65.9% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes; the netlist is proved equivalent to the RTL and passes the chip and pin tests; a second harden reproduces it bit for bit |
 | Power | 3.6 mW sending UART, 2.9 mW stopped (typical corner, 25 MHz) |
 | Firmware | 49 programs (seven for the line unit: the USB keyboard and the CAN receiver since v1.4, and since v1.6 a CAN transmitter, an LED string, SPI at line rate and two 10BASE-T transmitters), eleven of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs); of 394 timing bugs planted in 45 of them, escert rejects 117, and none of the 277 it certifies faults under a randomised input search ([certificates](docs/04-VERIFICATION.md#planted-timing-bugs)) |
-| Verification | ISS and RTL agree tick for tick on random programs and on 46 of the 49 programs with their bus models (VGA Pong runs on the chip's pins instead, the replay template has no trace of its own, and the 14 s Westminster tune plays only on the ISS); "never late" proved for all time; 653 of 710 RTL mutants killed and none surviving (19 proved equivalent, 38 excluded with a written argument) in the v1.4 campaign on the standard-cell models, and all 103 mutants at every site of v1.5's new logic killed (97), proved equivalent (5) or excluded (1); the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
+| Verification | ISS and RTL agree tick for tick on random programs and on 46 of the 49 programs, 45 with their bus models and the logic analyser streaming to the host (VGA Pong runs on the chip's pins instead, the replay template has no trace of its own, and the 14 s Westminster tune plays only on the ISS); "never late" proved for all time; 653 of 710 RTL mutants killed and none surviving (19 proved equivalent, 38 excluded with a written argument) in the v1.4 campaign on the standard-cell models, and all 103 mutants at every site of v1.5's new logic killed (97), proved equivalent (5) or excluded (1); the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
 | Hardware | Not yet run on hardware: the first hardware would be the Tiny Tapeout chip, if the design is selected for fabrication. The bring-up script is rehearsed against a simulated demo board with 22 injected faults ([bring-up](docs/16-BRING-UP.md)), and FPGA bitstreams for the Tang Nano 20K and ULX3S are built and meet 25 MHz after routing ([FPGA build](fpga/README.md)) |
 
 Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),

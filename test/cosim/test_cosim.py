@@ -27,7 +27,8 @@ from esciss.machine import no_board_b
 
 from escmodels import Board, HostScript
 from fw_cases import FIRMWARE_CASES, fw_image
-from progen import gen_lu_program, gen_program, loopback_board, lu_board, make_board, make_board_b
+from progen import (gen_lu_program, gen_program, loopback_board, lu_board, make_board, make_board_b,
+                    make_host)
 
 REPO = Path(__file__).resolve().parents[2]
 MAX_TICKS = int(os.environ.get("COSIM_MAX_TICKS", "4000"))
@@ -160,13 +161,14 @@ async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b, ta
     for t in range(n_cycles + 1):
         await FallingEdge(dut.clk)  # mid-cycle t: registered outputs are stable
         dut.start.value = 0
-        # host side of the mailboxes: strobes during cycle t take effect at E_t
+        # host side of the mailboxes: strobes during cycle t take effect at E_t, so only in
+        # the n_cycles cycles the ISS ran (cycle n_cycles is sampled, its edge is not run)
         push_mask, push_data, pop_mask = 0, 0, 0
-        while pushes and pushes[0][0] <= t:
+        while pushes and pushes[0][0] <= t < n_cycles:
             _, ctx, word = pushes.pop(0)
             push_mask |= 1 << ctx
             push_data |= (word & 0xFFFFFFFF) << (32 * ctx)
-        if host and host.drain and t % host.poll == 0:
+        if host and host.drain and t < n_cycles and t % host.poll == 0:
             empty = int(dut.mbx_tx_empty.value)
             data = int(dut.mbx_tx_data.value)
             for k in host.drain:
@@ -323,7 +325,8 @@ async def test_directed_firmware(dut):
 
 @cocotb.test()
 async def test_random_programs(dut):
-    """Constrained-random programs (with deliberate faults) on random boards."""
+    """Constrained-random programs (with deliberate faults) on random boards; since v1.6 a
+    third of them call subroutines and use the mailboxes, with a host (progen.make_host)."""
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
     seeds = int(os.environ.get("COSIM_SEEDS", "200"))
     seed0 = int(os.environ.get("COSIM_SEED0", "1"))
@@ -336,13 +339,21 @@ async def test_random_programs(dut):
         except AsmError:
             skipped += 1  # e.g. generated program exceeded 256 words
             continue
-        errs, m = await cosim_one(dut, f"seed{seed}", image, make_board(seed),
-                                  board_b=make_board_b(seed))
+        board, kw = make_board(seed), {}
+        if (host := make_host(seed)) is not None:  # the ISS steps its host beside the board
+            iss_host, pins = host(), board
+            def board(t, o, oe, pins=pins, iss_host=iss_host):
+                if t >= 0:
+                    iss_host.step(t, None)
+                return pins(t, o, oe)
+            kw = {"iss_host": iss_host, "rtl_host": host(), "rtl_board": pins}
+        errs, m = await cosim_one(dut, f"seed{seed}", image, board,
+                                  board_b=make_board_b(seed), **kw)
         commits += len(m.commits)
         cycles += len(m.pins)
         if errs:
             failures.append(seed)
-            out_dir.mkdir(exist_ok=True)
+            out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / f"seed{seed}.asm").write_text(src)
             (out_dir / f"seed{seed}.txt").write_text("\n".join(errs))
             if len(failures) >= 5:
@@ -740,7 +751,7 @@ async def test_v14_line_unit(dut):
                                   max_ticks=6000, stop_when_idle=False)
         if errs:
             failures.append(seed)
-            out_dir.mkdir(exist_ok=True)
+            out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / f"lu{seed}.asm").write_text(src)
             (out_dir / f"lu{seed}.txt").write_text("\n".join(errs))
             if len(failures) >= 3:

@@ -10,7 +10,7 @@ refused, with the reason, and can still be replayed unchanged (`esctape.build_re
 ```text
 python -m esclearn capture.sr                          # what it found, frame by frame
 python -m esclearn capture.sr -o remote.yaml           # the timing table (escgen's format)
-python -m esclearn capture.sr --send 42ff00 -o remote.yaml --check
+python -m esclearn capture.sr --send 10ff00 -o remote.yaml --check
 python -m escgen remote.yaml --out firmware/           # firmware, refused unless CHECKED
 ```
 
@@ -46,8 +46,8 @@ To send a command the remote never sent, give the address and the new command; t
 check byte is recomputed:
 
 ```text
-$ python -m esclearn tests/data/sigrok/nec_all.sr --send 42ff00 -o remote.yaml --check --clk-khz 2500
-send 0xbd42ff00 (check bytes recomputed)
+$ python -m esclearn tests/data/sigrok/nec_all.sr --send 10ff00 -o remote.yaml --check --clk-khz 2500
+send 0xef10ff00 (check bytes recomputed)
 table: remote.yaml (source constant)
 check: 3 frame(s) regenerated on the ISS, worst duration error 5.40% (750 ticks), decoded back: yes
 ```
@@ -69,7 +69,7 @@ symbols:
   stop:   [[{OUT: 0}, M2]]
   gap:    [[{OUT: 1}, GAP]]
 frame: [{bits: 32, order: lsb, choose: [zero, one]}]
-source: {kind: constant, words: [3175284480]}
+source: {kind: constant, words: [4010868480]}
 packet: {before: [leader], after: [stop, gap]}
 ```
 

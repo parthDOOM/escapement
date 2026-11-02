@@ -2,7 +2,8 @@
 
 The programmer's view of the Escapement instruction set, version 1.4. Versions 1.2 and
 1.3 add no instructions (pin bank B, and the CAPT bank and stream bits); 1.4 adds the
-line unit and its instructions `SEND`, `LINE` and `GETL`. Encodings come
+line unit and its instructions `SEND`, `LINE` and `GETL`; 1.5 and 1.6 add none (1.6 extends
+the line unit's configuration, below). Encodings come
 from [`isa/isa.yaml`](../isa/isa.yaml), the single source for the assembler, the
 simulator and the RTL decoder. The exact, cycle-level semantics are in
 [11-SEMANTICS](11-SEMANTICS.md) §7; where this page is shorter, that page is the
@@ -142,7 +143,7 @@ whose CONFIG commits owns it; the others fault ADMIT/OWNER if they use it.
 
 | Op | Instruction | Format | Effect |
 | --- | --- | --- | --- |
-| 3C | `LINE rs` **W** | RS | `rs[31:28]`: 0 OFF, 1 RECV into word `rs[7:0]` (limit `rs[12:8]` bytes), 2 CRC over `rs[15:8]` bits from word `rs[7:0]`, 3 CONFIG from three words at `rs[7:0]`; waits while a job runs (not OFF) |
+| 3C | `LINE rs` **W** | RS | `rs[31:28]`: 0 OFF, 1 RECV into word `rs[7:0]` (limit `rs[12:8]` bytes), 2 CRC over `rs[15:8]` bits from word `rs[7:0]`, 3 CONFIG from three words at `rs[7:0]` (five if W2 bit 25 is set, v1.6); waits while a job runs (not OFF) |
 | 3D | `GETL rd` **W** | RD | when the job has ended: rd = status, `tmr` = its end tick, Z = 1; if `tmr` comes first: rd = status, Z = 0 |
 
 ## Admission and faults

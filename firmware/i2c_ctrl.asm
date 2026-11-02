@@ -35,7 +35,7 @@
 .equ SDA,     1 << SDA_PIN
 .equ BOTH,    SCL | SDA
 .default CLK_KHZ, 25000
-.assert CLK_KHZ >= 23000, Fast-mode at 400 kHz needs a clock of 23 MHz or more (escert)
+.assert CLK_KHZ >= 23000, Fast-mode at 400 kHz needs about 23 MHz (escert certifies it from 22917 kHz)
 .equ T_DAT,   (400 * CLK_KHZ + 999999) // 1000000     ; 400 ns
 .equ T_HI,    (800 * CLK_KHZ + 999999) // 1000000     ; 0.8 us
 .equ T_LOW0,  (1440 * CLK_KHZ + 999999) // 1000000    ; 1.44 us

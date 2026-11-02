@@ -31,7 +31,7 @@
 | [NXP UM10204, I2C-bus specification, rev. 7](https://www.nxp.com/docs/en/user-guide/UM10204.pdf) | I2C timing, open-drain behaviour, clock stretching |
 | [USB 2.0 specification](https://www.usb.org/document-library/usb-20-specification) | Low-speed signalling, packet fields, CRC-5 and CRC-16, turnaround (`usb_hid`, the USB host model) |
 | ISO 11898-1 (CAN data link layer) | Frame format, bit stuffing, CRC-15 polynomial 0x4599 (`can_tx`, `can_rx`, the CAN models) |
-| [Arm Debug Interface ADIv5.2, ARM IHI 0031G](https://developer.arm.com/documentation/ihi0031/latest) | SWD packets, turnaround, ACK and parity (`swd_idcode`, the SW-DP model) |
+| [Arm Debug Interface ADIv5.2, ARM IHI 0031G](https://support.arm.com/documentation/ihi0031/latest) | SWD packets, turnaround, ACK and parity (`swd_idcode`, the SW-DP model) |
 | [Vishay, Data Formats for IR Remote Control, doc. 80071](https://www.vishay.com/docs/80071/dataform.pdf) and [SB-Projects, NEC protocol](https://www.sbprojects.net/knowledge/ir/nec.php) | NEC carrier, burst and slot timing (`nec_tx`, `nec_rx`, `nec_tx_gen`) |
 | [ESTA, ANSI E1.11-2008 (DMX512-A)](https://tsp.esta.org/tsp/documents/published_docs.php) | DMX break, mark-after-break and slot timing (`dmx512_tx`, the DMX model) |
 | [Linux, `drivers/media/cec/core/cec-pin.c`](https://github.com/torvalds/linux/blob/master/drivers/media/cec/core/cec-pin.c) | HDMI-CEC bit timing and receive windows (`cec`, the CEC device model) |

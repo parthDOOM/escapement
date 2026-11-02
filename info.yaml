@@ -46,7 +46,7 @@ pinout:
 
   # Outputs
   uo[0]: "HOST_MISO"
-  uo[1]: "IRQ"
+  uo[1]: "IRQ_OR_FAULT"
   uo[2]: "RUN"
   uo[3]: "B0_OUT"
   uo[4]: "B1_OUT"

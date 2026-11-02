@@ -84,11 +84,11 @@ export default function App() {
                 <a className="icon-btn" href="#inside">How it works</a>
               </div>
               <div className="facts">
-                <div><b>40 ns</b><span>one tick at 25 MHz, rated to 33</span></div>
+                <div><b>40 ns</b><span>one tick at 25 MHz, rated to 50</span></div>
                 <div><b>4</b><span>programs running at once</span></div>
                 <div><b>13</b><span>protocol pins, two banks</span></div>
-                <div><b>32</b><span>firmware programs</span></div>
-                <div><b>3.2 mW</b><span>sending UART</span></div>
+                <div><b>49</b><span>firmware programs</span></div>
+                <div><b>3.6 mW</b><span>sending UART</span></div>
                 <div><b>0</b><span>late edges, for any program, for all time</span></div>
               </div>
             </div>
@@ -301,19 +301,20 @@ export default function App() {
                   overflow from 5,276 to 76. Version 1.4 adds the line unit in the same area: most registers became
                   latches, 44% smaller than flip-flops, and the design ended smaller than version 1.3. Version 1.5
                   decides each deadline test a cycle before the commit that needs it, which moves the slow-corner
-                  limit from 28.6 to 38.6 MHz; it is laid out for a 30 ns clock and rated up to 33 MHz.</p>
-                <p>To save power, register banks that are not being written do not see the clock: 80 clock gates cover
-                  about 3,150 of the 4,402 storage cells, and each memory is selected only on the cycles that read
+                  limit from 28.6 to 38.6 MHz. Version 1.6 decodes each instruction, reads its operands and decides
+                  its pin writes a stage earlier: it is laid out for a 20 ns clock and rated up to 50 MHz.</p>
+                <p>To save power, register banks that are not being written do not see the clock: 82 clock gates cover
+                  3,292 of the 4,756 storage cells, and each memory is selected only on the cycles that read
                   it.</p>
               </div>
             </div>
 
             <div className="stats" style={{ marginTop: "3rem" }} aria-label="Sign-off results">
-              <div><b>28,961</b><span>standard cells</span></div>
-              <div><b>59.5%</b><span>utilisation</span></div>
-              <div><b>2.21 m</b><span>of wire</span></div>
-              <div><b>38.6 MHz</b><span>clock limit, slow corner (rated 33)</span></div>
-              <div><b>+0.157 ns</b><span>worst hold slack, fast corner</span></div>
+              <div><b>32,239</b><span>standard cells</span></div>
+              <div><b>65.9%</b><span>utilisation</span></div>
+              <div><b>2.33 m</b><span>of wire</span></div>
+              <div><b>50.8 MHz</b><span>clock limit, slow corner (rated 50)</span></div>
+              <div><b>+0.126 ns</b><span>worst hold slack, fast corner</span></div>
               <div><b>0</b><span>DRC, LVS and antenna errors</span></div>
             </div>
 

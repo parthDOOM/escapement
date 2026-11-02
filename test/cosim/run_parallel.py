@@ -56,7 +56,7 @@ def build() -> str:
 
 
 def run(job: str, test_filter: str, seed0: int, seeds: int,
-        firmware: str = "") -> tuple[str, int, int, str]:
+        firmware: str = "") -> tuple[str, int, int, str, str]:
     env = dict(os.environ, PWD=str(HERE), COCOTB_TEST_FILTER=test_filter,
                COCOTB_PLUSARGS="+nodump", COSIM_SEED0=str(seed0), COSIM_SEEDS=str(seeds),
                COSIM_FIRMWARE=firmware, COSIM_OUT=str(HERE / "cosim_failures" / job))
@@ -65,9 +65,11 @@ def run(job: str, test_filter: str, seed0: int, seeds: int,
     r = subprocess.run(cmd, cwd=HERE, env=env, capture_output=True, text=True)
     out = r.stdout + r.stderr
     m = re.search(r"TESTS=(\d+) PASS=(\d+) FAIL=(\d+)", out)
+    s = re.search(r"random: (\d+) programs, (\d+) commits, (\d+) cycles, (\d+) skipped", out)
+    summary = s.group(0) if s else ""
     if not m:
-        return job, 0, 1, out[-3000:]
-    return job, int(m.group(2)), int(m.group(3)), out[-3000:] if int(m.group(3)) else ""
+        return job, 0, 1, out[-3000:], summary
+    return job, int(m.group(2)), int(m.group(3)), out[-3000:] if int(m.group(3)) else "", summary
 
 
 def main() -> int:
@@ -95,13 +97,17 @@ def main() -> int:
     with ThreadPoolExecutor(max_workers=max(args.jobs, len(FIXED))) as pool:
         results = list(pool.map(lambda w: run(*w), work))
 
-    failed = 0
-    for job, passed, fails, tail in results:
-        print(f"{job:28s} pass={passed} fail={fails}")
+    failed, total = 0, [0, 0, 0, 0]
+    for job, passed, fails, tail, summary in results:
+        print(f"{job:28s} pass={passed} fail={fails}" + (f"  ({summary})" if summary else ""))
+        for i, v in enumerate(re.findall(r"\d+", summary)):
+            total[i] += int(v)
         if fails:
             failed += fails
             print(tail)
-    print(f"\n{args.seeds} random programs in {n} jobs + directed and firmware tests: "
+    print(f"\nrandom test: {total[0]} programs, {total[1]} commits, {total[2]} cycles, "
+          f"{total[3]} skipped (longer than the 256-word program memory)")
+    print(f"{args.seeds} random programs in {n} jobs + directed and firmware tests: "
           f"{'PASS' if not failed else 'FAIL'}")
     return 1 if failed else 0
 

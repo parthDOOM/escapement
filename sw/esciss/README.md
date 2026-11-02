@@ -1,6 +1,6 @@
 # esciss: Escapement instruction-set simulator
 
-This is a cycle-by-cycle Python model of `docs/11-SEMANTICS.md` (v1.4.0). It is
+This is a cycle-by-cycle Python model of `docs/11-SEMANTICS.md` (v1.6.0). It is
 written independently of the RTL for N-version comparison. Only the encoding tables are
 shared, via `escasm.load_isa()` reading `isa/isa.yaml`. All behaviour is hand-written
 from the semantics document.

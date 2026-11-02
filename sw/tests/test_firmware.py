@@ -454,12 +454,12 @@ def test_swd_fastest_clock_h14():
     from escasm import assemble
     from escert import certify
     from escmodels import SwdTarget
-    src = (FW / "swd_idcode.asm").read_text().replace(".default H, 16", ".default H, 14")
+    src = ".equ H, 14\n" + (FW / "swd_idcode.asm").read_text()   # .default never overrides
     assert certify(assemble(src, base_dir=FW))[0].status == "CHECKED"
     tgt = SwdTarget(4, 5, dpidr=0x0BC12477)
     replies, board, m = swd_session(tgt, [(SWD_CONNECT_DPIDR,)], source=src)
     assert replies == [(1, 0x0BC12477)] and not board.errors()
-    assert swclk_phases(board) >= (14, 14)
+    assert swclk_phases(board) == (14, 14)
 
 
 def test_swd_target_model_flags_contention():

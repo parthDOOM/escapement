@@ -93,10 +93,9 @@ def test_shipped_firmware_is_certified_and_telemetry_agrees(fw):
         assert m.ctx[c.ctx].min_lead >= c.min_lead, (str(c), m.ctx[c.ctx].min_lead)
 
 
-# D-5: the chip is signed off at 30 ns. Every program whose timing derives from CLK_KHZ,
-# rebuilt for 33 MHz (the demo board's jitter-free clock) or 33.333 MHz, still assembles
-# and certifies (test_rated_clock runs each at 33 MHz); v1.6: and at 40 and 50 MHz, the
-# clocks a faster rating would use. Four programs are tied to one clock by their protocol
+# D-5: the chip is signed off at 20 ns (v1.6; v1.5: 30 ns). Every program whose timing
+# derives from CLK_KHZ, rebuilt for 33 MHz (the demo board's jitter-free clock), 33.333 MHz,
+# 40 MHz or 50 MHz (the rating), still assembles and certifies. Four programs are tied to one clock by their protocol
 # (an .assert): 10BASE-T at 40 MHz, USB low speed at 24 MHz, VGA at its pixel clock.
 FIXED_CLOCK = {"eth_tx": 40000, "udp_tx": 40000, "usb_hid": 24000, "vga_pong": 25000}
 CLK_33 = sorted(p.stem for p in FW.glob("*.asm")
@@ -114,7 +113,7 @@ def test_fixed_clock_firmware_certifies_at_its_clock_and_refuses_50_mhz(fw):
 
 @pytest.mark.parametrize("khz", [33000, 33333, 40000, 50000])
 @pytest.mark.parametrize("fw", CLK_33)
-def test_clock_parameterised_firmware_certifies_at_33_mhz(fw, khz):
+def test_clock_parameterised_firmware_certifies_at_33_to_50_mhz(fw, khz):
     image = assemble(f'.equ {fw}.CLK_KHZ, {khz}\n.include "{fw}.asm"\n', base_dir=FW)
     certs = certify(image)
     assert certs and all(c.status == "CHECKED" for c in certs), [str(c) for c in certs]
@@ -135,7 +134,9 @@ def test_a_ret_reaches_only_its_own_contexts_calls():
 def test_historic_i2c_timeout_bug_is_refuted_with_a_witness():
     """The stuck-bus handler once used ADDI r1, 8 before its release EMIT (lead -4):
     escert proved the violation and the ISS reproduced it as ADMIT/PAST."""
-    src = (FW / "i2c_ctrl.asm").read_text().replace("ADDI  r1, 14", "ADDI  r1, 8")
+    src = (FW / "i2c_ctrl.asm").read_text()
+    assert src.count("ADDI  r1, 14") == 1
+    src = src.replace("ADDI  r1, 14", "ADDI  r1, 8")
     certs = certify(assemble(src, base_dir=FW), witness_trials=20)
     assert certs[0].status == "REFUTED"
     assert certs[0].findings[0].kind == "PAST"
@@ -148,7 +149,9 @@ def test_historic_ps2_back_to_back_bug_is_refuted():
     (no wait after the stop bit): escert flags ORDER at the frame start and the burst
     witness search reproduces the ADMIT fault on the ISS."""
     src = (FW / "ps2_device.asm").read_text()
-    src = src.replace("    ADDT  1250", "    ; ADDT  1250").replace("    WAITT     ", "    ; WAITT   ")
+    addt = "    ADDT  50 * CLK_KHZ // 1000"
+    assert src.count(addt) == 1 and src.count("    WAITT     ") == 1
+    src = src.replace(addt, "    ; " + addt[4:]).replace("    WAITT     ", "    ; WAITT   ")
     c = certify(assemble(src, base_dir=FW), witness_trials=10)[0]
     assert c.status == "REFUTED" and c.witness["pc"] == c.findings[0].pc, str(c)
 
@@ -156,7 +159,9 @@ def test_historic_ps2_back_to_back_bug_is_refuted():
 def test_historic_jtag_reanchor_bug_is_refuted():
     """jtag_idcode.asm once re-anchored the next request on RDTIME while its last TCK
     events were still queued: ORDER, reproduced by the burst witness search."""
-    src = (FW / "jtag_idcode.asm").read_text().replace("    WAITT     ", "    ; WAITT   ")
+    src = (FW / "jtag_idcode.asm").read_text()
+    assert src.count("    WAITT     ") == 1
+    src = src.replace("    WAITT     ", "    ; WAITT   ")
     c = certify(assemble(src, base_dir=FW), witness_trials=10)[0]
     assert c.status == "REFUTED" and c.findings[0].kind == "ORDER", str(c)
 
@@ -257,7 +262,9 @@ def test_usb_hid_replies_are_certified_exact_and_on_time():
 
 
 def test_a_short_turnaround_is_reported_as_a_possible_drop():
-    src = (FW / "usb_hid.asm").read_text().replace(".equ TURN, 4 * P + 8", ".equ TURN, 3 * P")
+    src = (FW / "usb_hid.asm").read_text()
+    assert src.count(".equ TURN, 4 * P + 8") == 1
+    src = src.replace(".equ TURN, 4 * P + 8", ".equ TURN, 3 * P")
     c = certify(assemble(src, base_dir=FW))[0]
     assert c.status == "CHECKED" and not c.replies_on_time, str(c)
 
@@ -265,8 +272,9 @@ def test_a_short_turnaround_is_reported_as_a_possible_drop():
 def test_redispatching_an_old_packet_is_reported():
     """Back to GETL with the receiver not re-armed: GETL returns the old packet's end and a
     reply from it would be late. (usb_hid did this after a corrupt SETUP stage.)"""
-    src = (FW / "usb_hid.asm").read_text().replace(
-        "    JNZ   arm                     ; corrupt", "    JNZ   next                    ; corrupt")
+    src = (FW / "usb_hid.asm").read_text()
+    assert src.count("    JNZ   arm                     ; corrupt") == 1
+    src = src.replace("    JNZ   arm                     ; corrupt", "    JNZ   next                    ; corrupt")
     c = certify(assemble(src, base_dir=FW))[0]
     assert not c.replies_on_time, str(c)
 

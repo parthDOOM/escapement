@@ -78,7 +78,7 @@ MUTANTS = {
     # ---- v1.1 tape port and LDT/STT (sec. 7.6)
     "tape_no_imm": ("esc_core.v", "(opb[7:0] + f_imm16[7:0])", "opb[7:0]",
                     "tape address ignores imm8"),
-    "stt_ignores_outcome": ("esc_core.v", "(cm_ok & (op == OP_STT))", "(commit_valid & (op == OP_STT))",
+    "stt_ignores_outcome": ("esc_core.v", "(cm_ok & d_op[I_STT])", "(commit_valid & d_op[I_STT])",
                             "STT writes even when it faults (ILLEGAL/PC_RANGE)"),
     "ldt_no_forward": ("esc_core.v", "(ld_v && ld_rd == 2'd0) ? tape_rdata : ", "",
                        "observation record of LDT r0 shows the stale value"),
@@ -175,7 +175,8 @@ MUTANTS = {
     # ---- v1.5 tests decided one cycle early
     "due_one_late": ("esc_ctx.v", "wire [31:0] n_diff  = now_n - n_dl;", "wire [31:0] n_diff  = now - n_dl;",
                      "every event retires one tick after its deadline"),
-    "due_wrong_head": ("esc_ctx.v", "case (head + {1'b0, due})", "case (head)",
+    "due_wrong_head": ("esc_ctx.v", "case (head + {1'b0, due})\n      2'd0:    n_dl",
+                       "case (head)\n      2'd0:    n_dl",
                        "the entry behind a retiring head is never tested"),
     "due_pushed_lead": ("esc_ctx.v", "(push & (w_lead16 == 16'd1))", "(push & (w_lead16 == 16'd0))",
                         "an event pushed into an empty FIFO with lead 1 never retires"),

@@ -81,7 +81,7 @@ and CRC-8/MAXIM-DOW.
 **Clock.** USB low speed allows 25 ns of jitter per data transition (USB 2.0, TDDJ1). At
 25 MHz a bit is 16⅔ ticks, and the 1/256-tick period makes edges land up to 40 ns early,
 so the USB firmware runs at 24 MHz, where a bit is exactly 16 ticks. The chip itself runs
-at 25 MHz by default and is rated up to 33 MHz.
+at 25 MHz by default and is rated up to 50 MHz.
 
 ## A USB keyboard
 
@@ -199,7 +199,7 @@ boundary: one tick less and the simulator faults.
 | Suite | Tests | What |
 | --- | ---: | --- |
 | `sw/tests/test_line.py` | 117 | Every rule of §6.6 on the simulator: configuration timing and faults, waveforms against an independent USB model written from the USB 2.0 text, packets of 0 to 8 bytes, stuffing including after the CRC, fractional bit periods, reception at ±5% clock and with jitter, truncated SYNC, dribble bits, stuffing errors, keep-alives, resets, CAN frames through the CAN bus model, late `SEND`s dropped |
-| `sw/tests/test_usb_hid.py` | 72 | The keyboard against a reactive USB host model that checks every device packet (EOP, stuffing, CRC, turnaround) and flags a device that drives the bus unasked: enumeration with exact descriptors, host clock ±1.5% and ±5%, random host gaps down to 2 bit times, keep-alives, `wLength` from 0 to 65535 around every packet boundary, standard and class requests, lost and corrupted handshakes, corrupted tokens and data, foreign addresses, bus reset at every stage, 10 ms resets with keep-alives every millisecond, long report sequences, glitches, hostile traffic |
+| `sw/tests/test_usb_hid.py` | 74 | The keyboard against a reactive USB host model that checks every device packet (EOP, stuffing, CRC, turnaround) and flags a device that drives the bus unasked: enumeration with exact descriptors, host clock ±1.5% and ±5%, random host gaps down to 2 bit times, keep-alives, `wLength` from 0 to 65535 around every packet boundary, standard and class requests, lost and corrupted handshakes, corrupted tokens and data, foreign addresses, bus reset at every stage, 10 ms resets with keep-alives every millisecond, long report sequences, glitches, hostile traffic |
 | `sw/tests/test_escert.py` | 19 more | The certificate above, checked against measured leads; exact boundaries for CONFIG, CRC and reception waits; a CRC job of input-dependent length; the path after a dropped `SEND`; ownership (v1.6: a `SEND` one tick before the first CONFIG completes, OFF, use before any CONFIG, no `tx_pins`); random programs on the line unit, with operands from the tape and from `MOVI`/`MOVHI` (wherever escert says CHECKED, the simulator never faults and measures no lead below the bound; every OWNER fault is flagged) |
 | `sw/tests/test_usbip.py` | 4 | The USB/IP bridge, with the test playing the kernel's side |
 | `sw/tests/test_line_ext.py`, `test_eth.py` | 6 + 1 | v1.6: a 10BASE-T frame decoded as 802.3 Manchester with its FCS checked against zlib's CRC-32, the link pulse, SPI sampled at the clock's rising edges, WS2812 through the LED model, the CRC-32 job, RECV with cells; `eth_tx.asm` sending link pulses and a frame from the host |
@@ -207,8 +207,12 @@ boundary: one tick less and the simulator faults.
 | `sw/tests/test_firmware.py` | 6 | `can_rx` against a bus model: every frame type, 40 random frames back to back from nodes 0.5% slow or fast, bad CRCs, error flags, DLC over 8, 500 kbit/s |
 | `make cosim` | 4 jobs more | The whole chip, RTL against simulator, tick for tick and the final state of every debug register: `usb_hid.asm` enumerating and sending key reports to the USB host model, `can_rx.asm` receiving standard, extended and remote frames back to back, 40 firmware-shaped line unit programs (receives, packets at end-tick deadlines, CRC jobs, GETL timeouts, owner LDT/STT in the unit's tape cycles, another context's traffic), and random programs with line unit instructions from any context |
 
-Planted bugs check that these tests can fail: 18 in the line unit model, 28 in the
-firmware and 9 in escert's line unit analysis, all caught. The tests and the
+Planted bugs check that these tests can fail. During v1.4's development, 18 bugs planted by
+hand in the line unit model, 28 in the firmware and 9 in escert's line unit analysis were
+all caught; that campaign was not kept as a script. The planted bugs that can be rerun are
+the RTL mutants of `esc_line.v` in the mutation campaign (`make mutation`), and the timing
+bugs `make fw-mutants` plants in the seven line unit programs (54 of the 394; none
+certified and then faulting). The tests and the
 certificate found real problems that earlier tests had passed: the firmware missed a
 token sent two bit times after the host's ACK on a transfer's last packet, could send a
 report with a stale data toggle after a reset, and went back to wait without re-arming

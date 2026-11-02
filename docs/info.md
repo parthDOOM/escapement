@@ -25,7 +25,12 @@ EEPROM are all firmware.
 
 A line unit does the per-bit work of packet protocols (NRZI, bit stuffing, CRCs, clock
 recovery) for one context: firmware on it acts as a low-speed USB keyboard (run the chip
-at 24 MHz for USB) and receives every frame of a CAN bus.
+at 24 MHz for USB), receives every frame of a CAN bus, and transmits CAN, WS2812 LED
+strings, SPI at line rate and 10BASE-T Ethernet frames (at 40 MHz).
+
+The design clock is 25 MHz; the layout is signed off at 20 ns, so the chip is rated for
+clocks up to 50 MHz. On the demo board use a clock the RP2040 makes without jitter (25, 33 and 50 MHz
+all are; see `docs/16-BRING-UP.md`).
 
 A host loads programs and reads results over an SPI port on `ui[2:0]` / `uo[0]`. After a
 run, one register holds a 32-bit digest of everything the run did, which the reference

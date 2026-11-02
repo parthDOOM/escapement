@@ -8,8 +8,8 @@ and a 5-bit READ_DBG select that reaches the digest and capture registers (sel 1
 Version 1.2 adds four optional WRITE_CFG bytes for pin bank B
 ([11-SEMANTICS](11-SEMANTICS.md) §5). Version 1.3 lets READ_TAPE run during a run and
 adds TAPE_ACK (0x15), for streaming capture ([11-SEMANTICS](11-SEMANTICS.md) §6.5).
-Version 1.4 changes no command and still reports protocol version 8: its line unit is
-used from firmware, and the host sees it only through READ_DBG selects 21, 25 and 26.
+Versions 1.4 to 1.6 change no command and still report protocol version 8: the line unit
+is used from firmware, and the host sees it only through READ_DBG selects 21, 25 and 26.
 
 ## Physical layer
 
@@ -50,7 +50,7 @@ is the status byte**:
 | 6 | IRQ pending on any context |
 | 5 | first-fault register valid |
 | 4 | host error (sticky; see CLEAR_ERR) |
-| 3:0 | protocol version: `0x8` (v1.3 and v1.4; v1.2 chips report `0x7`, v1.1 `0x6`, v1.0 `0x5`) |
+| 3:0 | protocol version: `0x8` (v1.3 to v1.6; v1.2 chips report `0x7`, v1.1 `0x6`, v1.0 `0x5`) |
 
 Raising CS_n ends the frame at any point; a partial word is discarded. Bytes after the
 end of a command's payload are ignored (response 0x00). An unknown command sets host

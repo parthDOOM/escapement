@@ -26,10 +26,10 @@ Version 1.6 (decode, operands and pin writes a stage earlier, D-44), harden `v16
 | DRC | Clean (KLayout SG13CMOS5L deck in the Tiny Tapeout precheck) |
 | Antenna | 0 violations (33 diodes) |
 | IR drop | 0.57 mV worst (ground; supply 0.31 mV), at 20 ns |
-| Power (static estimate) | 3.09 mW at 25 MHz, 6.17 mW at 50 MHz; workload measurements in [power](15-POWER.md) |
+| Power (static estimate) | 3.09 mW at 25 MHz, 6.17 mW at 50 MHz (OpenSTA's default activity, typical corner, after clock-tree synthesis, as in [power](15-POWER.md); the routed run's own report at 20 ns: 6.63 mW); workload measurements in [power](15-POWER.md) |
 | Precheck | Tiny Tapeout precheck (tt-support-tools `d66cf17`) passes, including KLayout SG13CMOS5L DRC |
 | Gate level | The chip-level (7) and pin (9, among them the NEC loopback rebuilt for 33 and for 50 MHz) test suites pass on the final netlist (zero-delay simulation: function, not timing); the netlist is proved equivalent to the RTL ([two steps](04-VERIFICATION.md#rtl-to-netlist-equivalence)) |
-| Reproduction | A second harden of the committed `src/config.json`, with no overrides, gives the same netlist (sha256 `f5bcfa00…`), the same value for every flow metric and the same GDS geometry (KLayout's layout diff: 0 differences); GitHub Actions' harden runs on push |
+| Reproduction | A second harden of the committed `src/config.json`, with no overrides, gives the same netlist (sha256 `f5bcfa00…`), the same value for every flow metric and the same GDS geometry (KLayout's layout diff: 0 differences; `scripts/compare-runs.sh`); GitHub Actions' harden runs on push |
 
 Version 1.6 adds 354 flip-flops (the registered decode and operands, each FIFO's registered
 next head, the line unit's registered pin writes, its next-word buffer and 32-bit CRC) and
@@ -94,6 +94,19 @@ slack, the SRAM inputs keep at least 3.94 ns, and the buffer feeds the input of 
 borrows time. The 146 max-fanout warnings (v1.5: 108) are against the template's limit of
 10 loads, and the nets behind them meet their slew limits.
 
+The flow logs carry other warnings, none of them a defect. Synthesis has none. The two
+repair steps after global routing each print `EST` "missing route to pin" until OpenROAD's
+limit of 1,000 messages: the parasitic estimate has no global route into the SRAM macros'
+pins or to the design's output ports at the block edge (`uo_out`, `uio_out`, `uio_oe`).
+Detailed routing prints 93 `DRT` warnings: 86 "term has no pins on routing grid", all SRAM
+macro pins, which the router reaches off the grid, and 7 that it skips the PDK's
+`LEF58_ENCLOSURE` rules without a cut class, rules the KLayout sign-off DRC in the precheck
+does check. LVS (0 differences) and DRC (0) show every pin connected and every rule met.
+Global routing reports congestion (the overflow of 666 above), which detailed routing
+resolves with no violations, and the resizer reports setup it could not repair on placement
+and global-route estimates; sign-off timing on the extracted parasitics has no violation at
+any corner.
+
 **Frequency headroom.** Static timing analysis of the final v16s netlist with its extracted
 parasitics (OpenSTA, the sign-off constraints with the latches modelled, the period
 shortened and the 20% I/O delays scaled with it) finds the shortest period at which setup
@@ -129,7 +142,8 @@ At 20 ns the checks other than setup hold too, at all three corners: minimum pul
 (at least 9.40 ns to spare, the SRAM clock pins included), the clock gates, and setup and
 hold at the SRAM inputs (3.94 ns setup slack at the slow corner, hold at least +0.171 ns).
 A clock that is high for 40% or 60% of the period instead of half passes setup, hold and
-minimum pulse width at all three corners. The Tiny Tapeout demo board should be set to
+minimum pulse width at all three corners (`DUTY=40 scripts/frequency-headroom.sh runs/v16s
+slow:20 typ:20 fast:20`, and `DUTY=60`). The Tiny Tapeout demo board should be set to
 exactly 50 MHz, which its RP2040 makes without jitter (100 MHz divided by 2), or 33 MHz
 (132 MHz divided by 4); a clock it can only make with a fractional divider jitters, and a
 short cycle could fall below the 20 ns the layout is signed off at (D-5).

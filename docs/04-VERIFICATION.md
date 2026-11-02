@@ -32,26 +32,34 @@ digest, the capture state and all 256 tape words.
 
 | Campaign | Programs | Commits | Mismatches |
 | --- | ---: | ---: | ---: |
-| Random programs, version 1.0 machine | 1,000 | 67,370 | 0 |
-| Random programs with tape traffic, version 1.1 | 300 | 21,055 | 0 |
-| Random programs with pin bank B, version 1.2 | 1,000 | 66,991 | 0 |
-| Firmware programs with their bus models: 43 cases covering 46 of the 49 programs, on the v1.6 RTL, behavioural and standard-cell builds | 43 | — | 0 |
+| Random programs, version 1.0 machine (before this repository's history, which starts at v1.1) | 1,000 | 67,370 | 0 |
+| Random programs with tape traffic, version 1.1 (seeds 1 to 300) | 300 | 21,055 | 0 |
+| Random programs with pin bank B, version 1.2 (rerun at 683bc92, seeds 1 to 1,000) | 1,000 | 68,666 | 0 |
+| Random programs, version 1.6 generator, on the v1.6 RTL (seeds 1 to 1,000; 36 longer than the program memory are skipped; `run_parallel.py --seeds 1000`) | 964 | 111,491 | 0 |
+| Firmware programs with their bus models: 43 cases covering 45 of the 49 programs (the logic analyser runs in the streaming-capture case), on the v1.6 RTL, behavioural and standard-cell builds | 43 | — | 0 |
 | Random programs with the host reading the tape during the run, version 1.3 | 60 | 7,598 words read | 0 |
-| Firmware-shaped line unit programs, version 1.4 (`test_v14_line_unit`) | 40 | 260,000 cycles | 0 |
+| Firmware-shaped line unit programs, version 1.4 (`test_v14_line_unit`) | 40 | 61,738 (240,000 cycles) | 0 |
 | The USB keyboard (`usb_hid.asm`) against the USB host model, version 1.4 | 1 | 70,000 cycles | 0 |
 | The line unit alone against the simulator's model, every output every cycle (`make line-test`), on the v1.6 RTL, clock-gated and plain flip-flop builds | 40 seeds | 8 million edges on each build | 0 |
-| Regression run (`make cosim`, 200 random programs plus the firmware cases) | 8 tests | 14,472 in the random test | 0 |
+| Regression run (`make cosim`, 200 seeds plus the directed and firmware cases), behavioural and standard-cell builds | 8 tests | 19,720 in the random test (191 programs; 9 too long, skipped) | 0 |
 
 Random programs come from a constrained generator (`test/cosim/progen.py`) that mixes
-every instruction class, deliberate faults, host mailbox traffic, and tape loads and
-stores that collide with capture drains. Since version 1.2 it also puts contexts on pin
-bank B, owns and drives bank B pins, and points the capture unit at either bank, each on
-a random board for both banks: in the version 1.2 campaign, 520 programs configure a
-bank B context and 187 change a bank B output. A program with no bank B context is the
-same program as in version 1.1, so the earlier campaigns still apply. Since version 1.4 a
-third of the seeds also use the line unit, from a generator of their own, so every other
-seed keeps its earlier program: one context configures the unit and issues receives,
-packets, CRC jobs, GETL waits and OFF, and the other contexts try the same and fault.
+the data, branch, timer, event, tape, capture and line unit instructions, deliberate
+faults (every ADMIT subcode and ILLEGAL words), and tape loads and stores that collide with
+capture drains. A program longer than the 256-word program memory is skipped (counted in
+the test's summary line). Since version 1.2 it also puts contexts on pin bank B, owns and
+drives bank B pins, and points the capture unit at either bank, each on a random board for
+both banks: in the version 1.2 campaign (seeds 1 to 1,000), 516 programs configure a bank B
+context and 183 change a bank B output. A program with no bank B context is the same
+program as in version 1.1, so the earlier campaigns still apply. Since version 1.4 a third
+of the seeds also use the line unit, from a generator of their own, so every other seed
+keeps its earlier program: one context configures the unit and issues receives, packets,
+CRC jobs, GETL waits and OFF, and the other contexts try the same and fault. Since version
+1.6 a third of the seeds, chosen independently by a generator of their own, also call
+subroutines and use the mailboxes (`CALL`, `RET`, `PUSH`, `POP`, `RXREADY`, `TXREADY`), with a host that pushes words
+at random ticks and drains the transmit mailboxes at a random rate (337 of the 964 programs
+of seeds 1 to 1,000); before that those six instructions were compared only in the firmware
+and directed cases.
 
 The line unit has two more checks of its own. `make line-test` replays random stimulus
 that follows the core's rules into `src/esc_line.v` alone and compares every output with
@@ -86,7 +94,7 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
 | C4 | In stream mode a capture drain never writes over a record the host has not acknowledged (v1.3) | Unbounded (PDR) |
 | G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
-| G4–G5 | (v1.4) A latch bank equals an enable flip-flop at every instant whenever its input is the written value registered at the write edge (G4); every latch bank's input is that value (G5), and the host holds a mailbox word for a cycle after its push (M1) | Unbounded: G4 by k-induction with an unconstrained clock; G5 in the core proof (PDR); M1 on the host interface (PDR) |
+| G4–G5 | (v1.4) A latch bank equals an enable flip-flop at every instant whenever its input is the written value registered at the write edge (G4); every latch bank's input is that value (G5), and the host holds a mailbox word for a cycle after its push (M1) | Unbounded: G4 by k-induction with an unconstrained clock (`formal/esc_lreg_env.v`, its L1 and L2); G5 in the core proof (PDR; the D-40 contract assertions in `src/esc_ctx.v`); M1 on the host interface (PDR) |
 | S1 | The configuration the core runs with (enabled contexts, entry points, pin ownership, open-drain pins, pin banks) never changes during a run | Unbounded (PDR), on the host interface |
 
 **Assumptions.** The core proofs assume two things about their environment: reset at
@@ -265,15 +273,16 @@ visible. Before any mutant is scored, every suite it needs must pass on the unmu
 RTL: a suite that cannot run (a tool or model problem) would otherwise fail for every
 mutant and read as kills.
 
-The campaign has 745 mutants across the whole RTL, the line unit included. Seventy are
-written by hand, each aimed at one feature (below). The other 675 are generated
+The campaign has 872 mutants across the whole RTL, the line unit included (745 before
+v1.6). Seventy are written by hand, each aimed at one feature (below). The other 802 are
+generated
 (`test/mutation/generate.py`):
 every synthesisable line outside the formal blocks is scanned for classic fault sites
 (a comparison or logic operator swapped, an inversion dropped, an arithmetic operator
 swapped, a constant changed, an `if` condition negated, a register that keeps its value
 instead of taking an assignment), and a site is chosen when a hash of its file, operator
 and line text falls under a fixed rate (30%), so editing one line changes only that line's
-mutants. `--rate 1` takes every site, 2,189 mutants in all; that run is too long for CI
+mutants. `--rate 1` takes every site, 2,592 mutants in all; that run is too long for CI
 and is made locally, on lines that change.
 
 A mutant that every suite misses is then checked formally against the original RTL with
@@ -331,7 +340,7 @@ generated sites (`--rate 1`) on the lines v1.5 changed in `esc_ctx.v` and `esc_c
 mutants: 97 killed, 5 proved equivalent, 1 excluded (`late_q` keeping its value, when it is
 never set because no head is ever late: argument P2), none surviving. Five survived a first
 run; the core unit tests `test_timer_range_edges`, `test_lead_saturates` and the no-fault
-check in `test_stop` kill four of them. The whole 745-mutant campaign on the standard-cell
+check in `test_stop` kill four of them. The whole campaign (745 mutants then) on the standard-cell
 models runs in CI. Its first run on v1.5 killed 699, proved 16 equivalent and excluded 29;
 one survived: START setting the FIFO's head to 1 instead of 0, whose equivalence proof
 was undecided in 30 minutes. It is excluded with its argument: the FIFO is a ring
@@ -448,8 +457,9 @@ from `CLK_KHZ` certified CHECKED rebuilt for 33 MHz and for 33.333 MHz, and each
 bus model at 33 MHz with the model timing every edge in 30.3 ns ticks
 (`test_rated_clock.py`; the 14-second `westminster` tune is certified at that clock and
 played at a hundredth of real time in `test_firmware.py`). Since version 1.6, 39 programs
-derive their timing from `CLK_KHZ`: all certify at 33, 33.333, 40 and 50 MHz, and 24 drive
-their bus models at 33 and at 50 MHz. Converting them found two clocks rounded the fast
+derive their timing from `CLK_KHZ`: all certify at 33, 33.333, 40 and 50 MHz, and 36 drive
+their bus models at 33 and at 50 MHz (the other three: the two combined images, whose modules
+run on their own, and `westminster`). Converting them found two clocks rounded the fast
 way: JTAG's TCK and SWD's SWCLK half periods were rounded down, so at 33 MHz the clocks
 ran 2% and 0.6% above their stated rates; they now round up. At 25 MHz every converted
 program assembles to the same image as before except two, changed on purpose: `nec_tx`
@@ -540,8 +550,9 @@ are absent.
 Certificates compose. Each context issues in fixed barrel slots, so another context can
 reach it only through data: pins, tape and mailboxes, which escert already treats as
 unknown inputs. Firmware certified one context at a time therefore stays certified when
-the contexts run together, as long as they own disjoint pins and none writes tape words
-that another reads as constants. The two combined images in the table certify and
+the contexts run together, as long as they own disjoint pins, none writes tape words
+that another reads as constants, and at most one uses the line unit (there is one, and the
+first context to configure it owns it; escert flags a second user in a combined image). The two combined images in the table certify and
 measure context by context.
 
 Building the table found one imprecision in escert. Its completeness check sent a RET to
@@ -617,13 +628,13 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | SENT (SAE J2716) sensor, with or without a pause pulse | `sent_tx` | Receiver model that calibrates from the sync pulse and checks the recommended CRC-4 (and the CRC against polynomial division); frames back to back to the tick, values changing mid-run never mixing frames |
 | HDMI-CEC adapter: follower and initiator | `cec` | CEC device model with the Linux cec-pin timing windows: acknowledgement of its own address only, broadcast never driven, sending with arbitration (lost to a simultaneous start, then retried), retries after a refusal, a host-set logical address |
 | DALI control gear (IEC 62386-102 commands and queries) | `dali` | Controller model at nominal and ±10% bit timing: levels, OFF, RECALL, queries answered 7.5 ms after the forward frame on the half-bit grid; other addresses, groups, broadcast |
-| USB 1.1 low-speed HID keyboard on the line unit (v1.4) | `usb_hid` | Reactive USB host model from the USB 2.0 text that checks every device packet and its turnaround: enumeration, lost and corrupted handshakes, corrupt tokens and data, bus resets at every stage, host clock ±5%, hostile traffic (72 tests); and the Linux kernel itself, which enumerates the simulated chip over USB/IP and receives typed text |
+| USB 1.1 low-speed HID keyboard on the line unit (v1.4) | `usb_hid` | Reactive USB host model from the USB 2.0 text that checks every device packet and its turnaround: enumeration, lost and corrupted handshakes, corrupt tokens and data, bus resets at every stage, host clock ±5%, hostile traffic (74 tests); and the Linux kernel itself, which enumerates the simulated chip over USB/IP and receives typed text |
 
 ## Test suites
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 950 | Pass (7 need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 974 | Pass (7 need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |

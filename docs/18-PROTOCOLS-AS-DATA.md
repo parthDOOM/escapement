@@ -76,7 +76,7 @@ Against the hand-written programs for the same protocols:
 | --- | --- | --- |
 | UART | `uart_tx`: 20 words, certified lead ≥ 9 ticks | `uart_tx_gen`: 18 words, ≥ 9 |
 | WS2812 | `ws2812`: 28 words, ≥ 5 | `ws2812_gen`: 29 words, ≥ 5 |
-| NEC | `nec_tx`: 69 words, ≥ 9 | `nec_tx_gen`: 42 words, ≥ 9 |
+| NEC | `nec_tx`: 73 words, ≥ 9 | `nec_tx_gen`: 42 words, ≥ 9 |
 
 The generated WS2812 bit loop is the hand-written one instruction for instruction
 (seven instructions in a 31-tick bit). The hand-written programs do more around the

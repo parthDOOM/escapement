@@ -20,9 +20,9 @@ Yosys synthesis of the whole chip (`fpga/estimate.sh`, OSS CAD Suite 2026-10-04 
 
 | Family | Logic | Flip-flops | Block RAM | Boards that fit |
 | --- | ---: | ---: | --- | --- |
-| Xilinx 7-series | about 7,900 LUTs | about 4,400 | 2 RAMB18 | Artix-7 35T and larger (Digilent Basys 3, Arty A7, Nexys A7, Cmod A7-35T); Spartan-7 25 |
-| Lattice ECP5 | about 11,300 LUT4 (CCU2C counted as two) | 4,216 | 2 DP16KD | LFE5U-25F and larger (ULX3S, OrangeCrab 25F) |
-| Lattice iCE40 | about 9,700 LUT4 | about 4,200 | 4 RAM40 | none: the UP5K (5,280) and HX8K (7,680) are too small |
+| Xilinx 7-series | about 8,800 LUTs | about 4,800 | 2 RAMB18 | Artix-7 35T and larger (Digilent Basys 3, Arty A7, Nexys A7, Cmod A7-35T); Spartan-7 25 |
+| Lattice ECP5 | about 12,400 LUT4 (CCU2C counted as two) | 4,598 | 2 DP16KD | LFE5U-25F and larger (ULX3S, OrangeCrab 25F) |
+| Lattice iCE40 | about 11,100 LUT4 | about 4,600 | 4 RAM40 | none: the UP5K (5,280) and HX8K (7,680) are too small |
 
 ## Bitstreams
 
@@ -37,13 +37,14 @@ openFPGALoader -b tangnano20k fpga/build/tangnano20k/escapement.fs
 
 | Board | Logic | Flip-flops | Block RAM | Clock after routing |
 | --- | ---: | ---: | ---: | ---: |
-| Sipeed Tang Nano 20K (GW2AR-18) | 11,839 of 20,736 LUT4 (57%), 1,048 ALU | 4,216 (27%) | 2 of 46 | 47.1 MHz |
-| Radiona ULX3S 25F (LFE5U-25F) | 11,425 of 24,288 (47%) | 4,216 (17%) | 2 of 56 | 30.5 MHz |
-| Radiona ULX3S 85F (LFE5U-85F) | 11,425 of 83,640 (13%) | 4,216 (5%) | 2 of 208 | 34.0 MHz |
+| Sipeed Tang Nano 20K (GW2AR-18) | 13,350 of 20,736 LUT4 (64%), 1,118 ALU | 4,598 (29%) | 2 of 46 | 54.4 MHz |
+| Radiona ULX3S 25F (LFE5U-25F) | 12,274 of 24,288 (50%) | 4,598 (18%) | 2 of 56 | 38.7 MHz |
+| Radiona ULX3S 85F (LFE5U-85F) | 12,274 of 83,640 (14%) | 4,598 (5%) | 2 of 208 | 37.5 MHz |
 
 All three meet 25 MHz, and so 24 MHz for the USB firmware, with no place-and-route
-warnings (OSS CAD Suite 2026-10-04: Yosys 0.69+190, nextpnr 0.11.1-47). The 12F is a
-25F die: nextpnr builds it, at 95% of its rated 12k LUTs. The Tang Nano 20K takes about
+warnings (OSS CAD Suite 2026-10-04: Yosys 0.69+190, nextpnr 0.11.1-47). Since v1.6 the design
+no longer fits the 12F's rated 12k LUTs (it needs 12,274); nextpnr still builds it, because
+the 12F is a 25F die, but use a 25F or larger. The Tang Nano 20K takes about
 11 minutes, the ULX3S a few.
 
 The bitstreams are built and timed but not yet run on a board.

@@ -421,3 +421,189 @@ def test_swd_connect_and_read_dpidr(khz):
     assert replies == [(1, 0x2BA01477)] * 2 and tgt.mode == "swd"
     assert min(swclk_phases(board)) * 1e6 / khz >= 640                 # SWCLK <= 781 kHz
     assert not board.errors() and not m.ff.valid and m.ctx[SWD].min_lead >= 3
+
+
+# The programs the co-simulation runs at a low clock of their own (test/cosim/fw_cases.py:
+# the line unit's CAN and WS2812, and the newer buses), here at each rated clock against
+# the same bus models with the same checks. The models time in real time from the clock,
+# the host's pushes keep their real time, and each run lasts as long in real time as the
+# co-simulation's. (combo_uart_i2c and combo_two_banks only include modules run above.)
+def _rated_ir(model, code, want):
+    def case(khz):
+        import escmodels
+        rx = getattr(escmodels, model)(0, tick_ns=1e6 / khz)
+
+        def check(board, h):
+            rx.finish()
+            got = [want(f) for f in rx.frames()]
+            return [] if got == [code] else [f"{model} {got}"]
+        return Board(rx, pullups=0), [(100, 0, code)], check
+    return case
+
+
+def _rated_ev1527(khz):
+    from escmodels import Ev1527Receiver
+    rx = Ev1527Receiver(0, tick_ns=1e6 / khz)
+    return (Board(rx, pullups=0), [(100, 0, 0xABCDE5)],
+            lambda board, h: [] if rx.codes()[:1] == [0xABCDE5] else [f"ev1527 {rx.codes()}"])
+
+
+def _rated_dcc(khz):
+    from escmodels import DccDecoder
+    dec = DccDecoder(0, tick_ns=1e6 / khz)
+
+    def check(board, h):
+        got = dec.packets()
+        ok = got and got[0]["bytes"] == [0x03, 0x74, 0x77] and got[0]["check_ok"] and not dec.violations
+        return [] if ok else [f"dcc {got} {dec.violations[:2]}"]
+    return Board(dec, pullups=0), [(100, 0, 0x03 | 0x74 << 8 | (0x03 ^ 0x74) << 16)], check
+
+
+def _rated_wiegand(khz):
+    from escmodels import WiegandReceiver
+    rx = WiegandReceiver(0, 1, tick_ns=1e6 / khz)
+    v = 0x12 << 16 | 0x3456
+    word = (bin(v >> 12).count("1") & 1) << 25 | v << 1 | (1 - (bin(v & 0xFFF).count("1") & 1))
+
+    def check(board, h):
+        rx.finish()
+        got = [WiegandReceiver.card26(b) for b in rx.frames]
+        return [] if got == [(0x12, 0x3456)] and not rx.violations else [f"wiegand {got} {rx.violations[:2]}"]
+    return Board(rx), [(100, 0, word)], check
+
+
+def _rated_lin(khz):
+    from escmodels import LinReceiver
+    rx = LinReceiver(0, tick_ns=1e6 / khz)
+
+    def check(board, h):
+        rx.finish()
+        got = [(f["id"], f["data"]) for f in rx.frames]
+        ok = got == [(0x2C, [0x12, 0x34])] and not rx.violations and h.received[0] == [1]
+        return [] if ok else [f"lin {got} {rx.violations[:2]} {h.received}"]
+    return Board(rx), [(100, 0, 0x2C | 2 << 8), (104, 0, 0x3412), (2 * khz, 0, 0)], check
+
+
+def _rated_ws2812_lu(khz):
+    dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
+    grb = [0x00FF00, 0x123456, 0xABCDEF]
+    data = b"".join(c.to_bytes(3, "big") for c in grb) + b"\0\0\0"
+    words = [int.from_bytes(data[i:i + 4], "big") for i in range(0, 9, 4)]
+
+    def check(board, h):
+        dec.finish()
+        ok = dec.frames == [grb] and not dec.violations and h.received[0] == [1]
+        return [] if ok else [f"ws2812_lu {dec.frames} {dec.violations[:2]} {h.received}"]
+    return Board(dec, pullups=0), [(100 + 200 * i, 0, w) for i, w in enumerate([3] + words)], check
+
+
+def _rated_can_tx_lu(khz):
+    from escmodels import CanBus
+    us = khz // 1000
+    bus = CanBus(0, 1, us)                              # 1 Mbit/s: a bit is a microsecond
+    pushes = [(24 * us, 0, (0x123 << 16) | 2), (26 * us, 0, 0xDEAD0000), (28 * us, 0, 0),
+              (160 * us, 0, (0x7FF << 16) | 8), (162 * us, 0, 0x01234567), (164 * us, 0, 0x89ABCDEF)]
+
+    def check(board, h):
+        f = bus.frames
+        ok = ([(x["id"], x["data"]) for x in f] == [(0x123, [0xDE, 0xAD]),
+                                                     (0x7FF, [1, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF])]
+              and all(x["crc_ok"] for x in f) and h.received[0] == [1, 1])
+        return [] if ok else [f"can_tx_lu {f} {h.received}"]
+    return Board(bus), pushes, check
+
+
+def _rated_modbus(khz):
+    from escmodels.modbus import ModbusClient, adu
+    reqs = [(adu(1, bytes([16, 0, 4, 0, 2, 4, 0xBE, 0xEF, 0x12, 0x34])), True),
+            (adu(1, bytes([3, 0, 3, 0, 4])), True), (adu(1, bytes([5, 0, 0, 0xFF, 0])), True)]
+    cl = ModbusClient(ro=1, di=0, de=2, ticks_per_bit=khz * 1000 / 19200, requests=reqs,
+                      start=khz * 12 // 5, turn=khz // 5)       # 2.4 ms, 0.2 ms
+
+    def check(board, h):
+        out = [bytes(r["bytes"]) for r in cl.replies]
+        ok = (len(out) == 3 and out[1][:3] == bytes([1, 3, 8])
+              and out[1][3:11] == bytes.fromhex("1003beef12341006") and out[2][:3] == bytes([1, 0x85, 1])
+              and h.received[0] == [4 | 2 << 16])
+        return [] if ok else [f"modbus {[o.hex() for o in out]} {h.received}"]
+    return Board(cl), [], check
+
+
+def _rated_sbus(khz):
+    from escmodels.sbus import SbusSource, encode
+    ch = [[(37 * k + 172 * f) & 0x7FF for k in range(16)] for f in range(2)]
+    src = SbusSource(0, khz / 100, [(khz // 5, encode(ch[0])), (7 * khz, encode(ch[1], flags=0x08))])
+    return (Board(src, pullups=0), [],
+            lambda board, h: [] if h.received[0] == [1, 2 | 0x08 << 16] else [f"sbus {h.received}"])
+
+
+class _Levels:
+    """Bank A levels every tick."""
+
+    def __init__(self):
+        self.lv = []
+
+    def step(self, t, bus):
+        self.lv.append(bus)
+        return 0, 0
+
+    def errors(self):
+        return []
+
+
+def _rated_servo(khz):
+    pins = _Levels()
+
+    def check(board, h):
+        lv, errs = pins.lv, []
+        for ch in range(8):
+            ups = [t for t in range(1, len(lv)) if (lv[t] >> ch) & 1 and not (lv[t - 1] >> ch) & 1]
+            widths = [next((t for t in range(u, len(lv)) if not (lv[t] >> ch) & 1), u) - u for u in ups]
+            want = [1500 * khz // 1000, (2000 if ch == 3 else 1500) * khz // 1000]
+            if [abs(w - x) <= 2 for w, x in zip(widths, want)] != [True, True]:
+                errs.append(f"servo ch{ch} widths {widths} want {want}")
+        return errs
+    return Board(pins, pullups=0), [(100, 0, 3 << 16 | (2000 - 500))], check
+
+
+def _modbus_tape(image):
+    for k in range(64):
+        image.tape[k] = 0x1000 + k
+
+
+# name -> (case, run length in microseconds, tape preparation)
+RATED_CASES = {
+    "sirc_tx": (_rated_ir("SircReceiver", 0x15 | 0x01 << 7, lambda f: f["address"] << 7 | f["command"]),
+                30_000, None),
+    "rc5_tx": (_rated_ir("Rc5Receiver", 0b11 << 12 | 0x05 << 6 | 0x0C,
+                         lambda f: f["start"] << 12 | f["toggle"] << 11 | f["address"] << 6 | f["command"]),
+               30_000, None),
+    "jvc_tx": (_rated_ir("JvcReceiver", 0x59 | 0x35 << 8, lambda f: f["address"] | f["command"] << 8),
+               42_500, None),
+    "ev1527_tx": (_rated_ev1527, 45_000, None),
+    "dcc_tx": (_rated_dcc, 10_000, None),
+    "wiegand_tx": (_rated_wiegand, 60_000, None),
+    "lin_tx": (_rated_lin, 8_000, None),
+    "ws2812_lu": (_rated_ws2812_lu, 700, None),
+    "can_tx_lu": (_rated_can_tx_lu, 320, None),
+    "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),
+    "sbus_rx": (_rated_sbus, 13_000, None),
+    "servo": (_rated_servo, 50_000, None),
+}
+
+
+@pytest.mark.parametrize("name", sorted(RATED_CASES))
+def test_bus_model_at_the_rated_clock(name, khz):
+    case, run_us, prep = RATED_CASES[name]
+    image = build(name, khz)
+    if prep:
+        prep(image)
+    board, pushes, check = case(khz)
+    host = HostScript(pushes, drain=[0], poll=khz // 50)  # the TX mailbox every 20 us
+    board.devices.append(host)
+    m = Machine(image, board=board)
+    host.machine = m
+    m.run(run_us * khz // 1000, stop_when_idle=False)
+    errs = check(board, host) + board.errors()
+    assert not errs, errs
+    assert not m.ff.valid, m.ff

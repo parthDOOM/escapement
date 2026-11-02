@@ -4,7 +4,8 @@
 // step (multiclock). dq is a flip-flop that loads a free value dn at every rising edge of
 // clk, so it changes only there, as every dq in the design does (each is a function of
 // flip-flops); the one contract is that dn is d whenever en is high, i.e. after an edge
-// that writes the bank, dq is the d of that edge. Proved for all time (k-induction):
+// that writes the bank, dq is the d of that edge. Proved for all time (k-induction; G4 in
+// docs/04-VERIFICATION.md, whose G5 is the dq contract asserted in src/esc_ctx.v):
 //   L1 the latch bank equals a plain enable flip-flop at every step, so also while its
 //      latches are transparent: they then copy dq, which already is the written value;
 //   L2 (the inductive strengthening) while the gated clock is high, dq is that value.

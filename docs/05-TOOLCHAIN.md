@@ -74,8 +74,10 @@ CI wall time.
 
 | Script | Purpose |
 | --- | --- |
-| `scripts/frequency-headroom.sh` | Shortest passing clock period per corner: OpenSTA on a run's final netlist and parasitics with the sign-off constraints |
+| `scripts/frequency-headroom.sh` | Shortest passing clock period per corner: OpenSTA on a run's final netlist and parasitics with the sign-off constraints, with minimum pulse width; `DUTY=40` (or 60) checks a clock that is not high for exactly half the period |
+| `scripts/compare-runs.sh` | Two harden runs compared: netlist and GDS sha256, every flow metric, and GDS geometry (KLayout's layout diff) |
 | `scripts/power-workload.sh` | Workload power: gate-level simulation of three workloads, activity into OpenSTA |
+| `scripts/clock_gating.py` | Flip-flops and latches behind a clock gate in a final netlist, each clock pin traced to the clock port or a gate |
 | `scripts/sram_energy.py` | SRAM energy counted edge by edge from a VCD, using the macro liberty's per-state energies |
 | `scripts/power_vcd.tcl` | OpenSTA power report from a VCD |
 | `scripts/hold_sweep.tcl` | Hold endpoints against clock-uncertainty settings on a post-CTS database |
@@ -87,8 +89,8 @@ CI wall time.
 ## FPGA build
 
 [`fpga/`](../fpga/README.md) builds the same RTL for an FPGA, with plain flip-flops
-(`ESC_NO_CG`) and a block-RAM model of the SRAM macro: about 7,900 LUTs on a Xilinx
-7-series part, so an Artix-7 35T board is enough. `fpga/estimate.sh` gives the size for
+(`ESC_NO_CG`) and a block-RAM model of the SRAM macro: about 8,800 LUTs on a Xilinx
+7-series part (v1.6), so an Artix-7 35T board is enough. `fpga/estimate.sh` gives the size for
 Xilinx, ECP5 and iCE40 with Yosys. `fpga/build.sh` places and routes it for the Sipeed
 Tang Nano 20K and the ULX3S with yosys and nextpnr; both meet 25 MHz.
 
