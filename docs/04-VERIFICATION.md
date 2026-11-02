@@ -35,7 +35,7 @@ digest, the capture state and all 256 tape words.
 | Random programs, version 1.0 machine | 1,000 | 67,370 | 0 |
 | Random programs with tape traffic, version 1.1 | 300 | 21,055 | 0 |
 | Random programs with pin bank B, version 1.2 | 1,000 | 66,991 | 0 |
-| Firmware programs with their bus models: 43 cases covering 46 of the 49 programs, on the v1.6 RTL (behavioural build; v1.5's 26 cases also ran on the standard-cell build) | 43 | — | 0 |
+| Firmware programs with their bus models: 43 cases covering 46 of the 49 programs, on the v1.6 RTL, behavioural and standard-cell builds | 43 | — | 0 |
 | Random programs with the host reading the tape during the run, version 1.3 | 60 | 7,598 words read | 0 |
 | Firmware-shaped line unit programs, version 1.4 (`test_v14_line_unit`) | 40 | 260,000 cycles | 0 |
 | The USB keyboard (`usb_hid.asm`) against the USB host model, version 1.4 | 1 | 70,000 cycles | 0 |
@@ -116,10 +116,11 @@ needs a lemma can take far longer split than together. Assertions tagged with th
 both rest on H4, and together with H3 and H4 they prove in two minutes. Alone, P5's did
 not finish in two hours, and P3's ran past the three-hour limit on the CI runner. Since
 version 1.4 the line unit's L1 lemmas join that group (five minutes), and P8's commit
-clause is proved with the CONFIG phase lemma. For version 1.5, with 6 jobs, the 28 core
-tasks (19 minutes) and the separate proofs (bounded check, covers, the `ahead` task,
-context, clock-gate and latch-bank banks, host interface: 53 minutes, 42 of them the
-bounded check) all pass in 72 minutes of wall time (v1.4: 27 tasks, 58 minutes). The
+clause is proved with the CONFIG phase lemma. For version 1.6, with 2 jobs, the 29 core
+tasks (20 minutes; the slowest 20 minutes alone) and the separate proofs (bounded check,
+covers, the `ahead` task, context, clock-gate and latch-bank banks, host interface, line
+unit: 61 minutes, 50 of them the bounded check) all pass in 81 minutes of wall time
+(v1.5 with 6 jobs: 28 tasks, 72 minutes; v1.4: 27 tasks, 58 minutes). The
 single task (`sby -f esc_core.sby pdr`, all assertions together) passed in 34 minutes on
 one core for version 1.3.
 
@@ -488,6 +489,17 @@ context runs on the simulator without an admission fault and with telemetry at o
 the bound. That test found two checker bugs before release, and the chip's telemetry
 caught a third on the first run.
 
+The planted timing bugs (below) found a fourth in v1.6. escert let a `SEND` wait for a
+running CONFIG, but the chip checks ownership first (SEMANTICS §6.2, §7.7). A `SEND`,
+RECV or CRC before the context's first CONFIG completes, or after an OFF, faults
+ADMIT/OWNER instead. With the ADDT before `udp_tx`'s first `GETL` deleted, the `GETL` timed
+out at once, and the `SEND` committed one tick before the extended CONFIG completed. The
+random line-unit programs missed this because each loaded its operand with an `LDT`,
+which waits on the CONFIG's tape reads. escert now tracks whether the unit is configured,
+and an owner `LDT` or `STT` during the first CONFIG commits exactly in the slot after it.
+New tests cover the boundary tick, OFF, use before any CONFIG and a configuration without
+`tx_pins`, plus random line-unit programs with operands from `MOVI`/`MOVHI`.
+
 ### Certificates against measurements
 
 `test/cosim/proof_table.py` (`make proof-table`) sets every certified bound beside the
@@ -495,16 +507,21 @@ leads the implementations measure, so each certificate is tested on every run in
 trusted. A measured lead below its bound is a bug in escert or in whatever measured it,
 and fails the table.
 
-Result on 2026-10-26, the 26 co-simulation cases with their bus models and host traffic
-(36 contexts); rerun 2026-10-31 on v1.5, with the changed NEC firmware: the same counts:
+Result on 2026-11-02 (v1.6): the 43 co-simulation cases with their bus models and host
+traffic (53 contexts). In v1.5 there were 26 cases and 36 contexts; 31 measured a lead,
+28 of them exactly the bound.
 
 | | Contexts |
 | --- | ---: |
-| Queued events, so a lead was measured | 31 |
-| Measured lead equal to the certified bound, to the tick | 28 |
-| Measured lead above the bound (`ws2812` 8 against 5, `ws2812_gen` 6 against 5, `usb_hid` 12 against 1) | 3 |
+| Queued events, so a lead was measured | 46 |
+| Measured lead equal to the certified bound, to the tick | 39 |
+| Measured lead above the bound (`ws2812` 8 against 5, `ws2812_gen` 6 against 5, `usb_hid` 12 against 1; on the line unit, `can_tx_lu` 17, `eth_tx` 13, `udp_tx` 13 and `ws2812_lu` 20, each against 1) | 7 |
 | Measured lead below the bound | 0 |
 | RTL lead or digest different from the ISS's | 0 |
+
+A `SEND` that is late is dropped rather than faulted. Where escert cannot rule out such a
+drop, the lead it proves for an admitted `SEND` is only 1 tick. Hence the four line-unit
+bounds of 1.
 
 The RTL columns come from the co-simulation itself: with `COSIM_PROOF_OUT=file`,
 `test_cosim.py` records the RTL's telemetry and digest for each firmware, and `--rtl file`
@@ -514,10 +531,11 @@ event a tick closer to its deadline than escert's worst case would fail it.
 The table also runs every shipped firmware on the ISS in the demo board's environment,
 with nothing on the Pmods: the environment in which bring-up stage 5 checks the same
 bounds on the chip and writes `proof.json` for `--board`
-([bring-up](16-BRING-UP.md#stage-5-firmware-digests)). There, 30 contexts queue events
-(v1.5, VGA Pong included), 21 measure exactly their bound and none is below it. The other nine are looser (`i2c_ctrl`
-33 against 2, for example) because the inputs that produce the worst case, such as a
-device on the bus, are absent.
+([bring-up](16-BRING-UP.md#stage-5-firmware-digests)). There, of 57 contexts in 48
+programs, 43 queue events (v1.6). Of those, 32 measure exactly their bound and none is
+below it; v1.5 had 30 and 21. The other 11 are looser (`i2c_ctrl` 33 against 2, for
+example), because the inputs that produce the worst case, such as a device on the bus,
+are absent.
 
 Certificates compose. Each context issues in fixed barrel slots, so another context can
 reach it only through data: pins, tape and mailboxes, which escert already treats as
@@ -540,27 +558,30 @@ deleted, an ADDT's delay cut to a quarter, or a conditional branch inverted. Eac
 is certified, and a certified mutant is then attacked with escert's randomised input
 search on the ISS: a fault there would mean escert certified a program that can fault.
 
-Result on 2026-10-31, 237 mutants in 28 programs, 12 input searches each. Mutants are
-chosen by hashing each program's source lines and the searches are seeded, so
-`make fw-mutants` on the same firmware prints this table exactly (rerun on the changed
-programs: identical, mutant by mutant). Editing a program changes its mutants: the v1.5
-changes to `nec_rx`, `nec_tx` and `westminster` replaced their 33 mutants with 28.
+Mutants are chosen by hashing each program's source lines and the searches are seeded,
+so `make fw-mutants` on the same firmware prints the same table exactly; editing a
+program changes its mutants. The first run on v1.6's 45 programs found one CHECKED mutant
+that faulted: `udp_tx` without the ADDT at its line 73, the escert bug described above.
+With escert fixed, that mutant is REFUTED. Result on 2026-11-02, 394 mutants, 12 input
+searches each (v1.5 on 2026-10-31: 237 mutants in 28 programs, none CHECKED and
+faulting):
 
 | escert's answer | Mutants |
 | --- | ---: |
-| REFUTED: a fault, reproduced on the ISS with concrete inputs | 53 |
-| NOT_PROVEN: a fault not excluded, and none found by the search | 20 |
-| CHECKED: no admission fault for any input | 164 |
+| REFUTED: a fault, reproduced on the ISS with concrete inputs | 88 |
+| NOT_PROVEN: a fault not excluded, and none found by the search | 29 |
+| CHECKED: no admission fault for any input | 277 |
 | CHECKED, yet the search made it fault | **0** |
 
 A CHECKED mutant is a change that keeps every deadline admissible, which escert is right
-to accept: it proves timing, not protocol correctness. All 47 inverted branches are of
-this kind (escert already follows both directions of a branch whose flag depends on
-inputs, so inverting one leaves the same timed paths), and so are 67 of the 80 shortened
-delays. Ten of the 20 NOT_PROVEN mutants violate a rule in every state escert holds at
-the flagged instruction, for example a lead of exactly −24 ticks in `cec` without one of
-its ADDTs: they fault if that instruction is reachable, and the random search did not
-reach it. NOT_PROVEN is never counted as safe; such firmware carries no certificate.
+to accept: it proves timing, not protocol correctness. Of the 92 inverted branches, 91
+are of this kind: escert already follows both directions of a branch whose flag depends
+on inputs, so inverting one leaves the same timed paths. The remaining one, in `servo`,
+is NOT_PROVEN. Of the 122 shortened delays, 102 are certified. Fifteen of the 29
+NOT_PROVEN mutants violate a rule in every state escert holds at the flagged
+instruction, for example a lead of exactly −24 ticks in `cec` without one of its ADDTs:
+they fault if that instruction is reachable, and the random search did not reach it.
+NOT_PROVEN is never counted as safe; such firmware carries no certificate.
 
 ## Protocol coverage
 
@@ -602,7 +623,7 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 MHz | 685 | Pass (7 need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 950 | Pass (7 need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
@@ -662,7 +683,7 @@ make pin-test bringup-test                                       # newer firmwar
 make gl-test gl-pin-test                                         # the same chip-level checks on the gate-level netlist
 CELLS=yes make test cosim-parallel                               # the RTL with the real clock-gate and latch cells
 make formal-quick                                                # bounded core proof, cover, ahead, never-late, clock gate, latch bank, host
-make formal JOBS=8                                               # adds the unbounded core proof (72 min for v1.5 at 6 jobs)
+make formal JOBS=8                                               # adds the unbounded core proof (81 min for v1.6 at 2 jobs)
 make equiv                                                       # final netlist equals the RTL (~4 min)
 CELLS=yes make mutation JOBS=8                                   # mutation campaign, 8 mutants at a time (hours; CI: 16 shards of ~2 h)
 ```

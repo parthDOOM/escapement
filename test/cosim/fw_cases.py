@@ -564,8 +564,8 @@ def case_modbus():
     from escmodels.modbus import ModbusClient, adu
     reqs = [(adu(1, bytes([16, 0, 4, 0, 2, 4, 0xBE, 0xEF, 0x12, 0x34])), True),
             (adu(1, bytes([3, 0, 3, 0, 4])), True), (adu(1, bytes([5, 0, 0, 0xFF, 0])), True)]
-    cl = ModbusClient(ro=1, di=0, de=2, ticks_per_bit=2.5e6 / 19200, requests=reqs,
-                      start=6000, turn=500)
+    cl = ModbusClient(ro=1, di=0, de=2, ticks_per_bit=3e6 / 19200, requests=reqs,
+                      start=7200, turn=600)
     host = HostScript([], drain=[0], poll=500)
 
     def check(board, h):
@@ -776,7 +776,7 @@ FIRMWARE_CASES = {
     "freq_meter": ("freq_meter.asm", 8000, case_freq_meter),
     "udp_tx": ("udp_tx.asm", 4500, case_udp_tx),
     "quadrature": ("quadrature.asm", 7000, case_quadrature),
-    "modbus": ("../test/cosim/modbus_cosim.asm", 125000, case_modbus),
+    "modbus": ("../test/cosim/modbus_cosim.asm", 150000, case_modbus),
     "sbus": ("../test/cosim/sbus_cosim.asm", 65000, case_sbus),
     "sirc_tx": ("sirc_tx.asm", 60000, _ir_case("SircReceiver", 2000, 0x15 | 0x01 << 7,
                                                 lambda f: f["address"] << 7 | f["command"])),

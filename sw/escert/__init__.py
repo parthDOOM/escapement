@@ -9,8 +9,12 @@ Line unit (v1.4). The zone also holds `lue`, the end tick of the unit's current 
 job, `lua`, the tick the receiver was last armed, and `ge`, the end tick the last GETL
 returned. The unit is abstracted as idle, armed (a reception may be under way: its end
 is an input), own (a job the program started: CONFIG ends at c + 9, CRC at c + nb, a
-packet after its deadline) or unknown. GETL completes in the first slot after the job's
-end, or at its timeout. SEND is an event that is dropped (Z = 0) instead of faulting
+packet after its deadline) or unknown. Ownership is tracked too: a LINE, GETL or SEND
+before the context's first CONFIG commits faults OWNER, and RECV, CRC and SEND do until
+that CONFIG completes, or after an OFF until the next CONFIG does (the check comes before
+the wait for the running job); SEND needs a
+configuration with tx_pins (in a block not read as constant, its image value). GETL
+completes in the first slot after the job's end, or at its timeout. SEND is an event that is dropped (Z = 0) instead of faulting
 when late, so a late reply is never a fault; escert reports reply timing separately:
 
     for every SEND, on paths where the line was quiet while the firmware was busy
@@ -204,18 +208,20 @@ class St:
     stale: bool = False              # the line was busy while the firmware was not waiting
     zrx: bool = False                # v1.6: Z is RXREADY's (the RX mailbox is empty)
     rxne: bool = False               # v1.6: the RX mailbox holds a word (POP will not wait)
+    cf: int = 0                      # line unit: 0 not the owner, 1 the first CONFIG ends
+                                     # at lue, 2 configured, 3 unconfigured by an OFF
 
     def copy(self) -> "St":
         return St(self.z.copy(), list(self.reg), list(self.fifo), self.lc, self.zf,
-                  self.lr, self.lee, self.lu, self.stale, self.zrx, self.rxne)
+                  self.lr, self.lee, self.lu, self.stale, self.zrx, self.rxne, self.cf)
 
     def key(self, pc: int):
         consts = tuple(r if (r[0] == "const" and r[1] == r[2]) else (r[0],) for r in self.reg)
         return (pc, self.lc, self.zf, tuple(k for _, k in self.fifo), consts, self.lee,
-                self.lu, self.stale, self.zrx, self.rxne)
+                self.lu, self.stale, self.zrx, self.rxne, self.cf)
 
     def coarse_key(self, pc: int):
-        return (pc, tuple(k for _, k in self.fifo), self.lee, self.lu, self.stale)
+        return (pc, tuple(k for _, k in self.fifo), self.lee, self.lu, self.stale, self.cf)
 
     def free_slot(self) -> int:
         used = {s for s, _ in self.fifo}
@@ -245,7 +251,7 @@ def join_st(a: St, b: St, widen: bool) -> St:
     return St(z, reg, list(a.fifo), a.lc if a.lc == b.lc else None,
               a.zf if a.zf == b.zf else None, a.lr | b.lr, a.lee or b.lee,
               a.lu if a.lu == b.lu else "top", a.stale or b.stale,
-              a.zrx and b.zrx, a.rxne and b.rxne)
+              a.zrx and b.zrx, a.rxne and b.rxne, a.cf)        # (cf is in both keys)
 
 
 def rename_fifo(s: St, slots: list) -> Zone:
@@ -686,7 +692,8 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     consts = const_tape(image) if lu_ctx else {}
     early, early_pcs = const_tape_before_stores(image, ctx) if lu_ctx else ({}, set())
     lu_users = [k for k, en in enumerate(image.ctx_enable) if en and _uses_line(image, k)]
-    claimed = [0, False]                         # pins a CONFIG claims; unknown config seen
+    claimed = [0, False, False]                  # pins a CONFIG claims; unknown config seen;
+                                                 # a CONFIG without tx_pins seen
     emit_masks: set = set()
     init = St(z0, [("const", 0, 0) if i in tracked else ("top",) for i in range(4)], [], 0, 0,
               frozenset({0}), False)
@@ -708,6 +715,27 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     def flag(pc, kind, note=""):
         if not any(f.pc == pc and f.kind == kind for f in cert.findings):
             cert.findings.append(Finding(pc, kind, note))
+
+    def lu_owned(pc, s, need_cfg):
+        """sec. 7.7, 6.2: a LINE (not CONFIG), GETL or SEND before this context's first
+        CONFIG commits faults ADMIT/OWNER, and so do RECV, CRC and SEND while the unit is
+        unconfigured: checked at the commit, before any wait for a running job. Returns
+        the state in which the check passes, or None."""
+        if s.cf == 0:
+            flag(pc, "OWNER", "the line unit before this context's CONFIG")
+            return None
+        if not need_cfg or s.cf == 2:
+            return s
+        if s.cf == 3:
+            flag(pc, "OWNER", "the line unit unconfigured since an OFF")
+            return None
+        if s.copy().z.constrain(NOW, LUE, 0):           # the first CONFIG still running
+            flag(pc, "OWNER", "the line unit before its first CONFIG completes")
+        t = s.copy()
+        if not t.z.constrain(LUE, NOW, -1):
+            return None
+        t.cf = 2
+        return t
 
     def push(pc: int, s: St) -> None:
         if not 0 <= pc <= 255:
@@ -947,6 +975,18 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             s.zf = None
         elif name == "HALT":
             continue
+        elif name in ("LDT", "STT") and lu_ctx and s.cf == 1:
+            # the first CONFIG reads the tape in each owner slot up to its end (sec. 6.6),
+            # so an access tried while it runs commits in the slot after: lue + 3
+            t = s.copy()
+            if t.z.constrain(NOW, LUE, 0):
+                t.z.assign(NOW, LUE, 3)
+                t.cf = 2
+                go(t, nxt)
+            t = s.copy()
+            if t.z.constrain(LUE, NOW, -1):                  # it has ended: no access left
+                t.cf = 2
+                go(t, nxt)
         elif name in ("LDT", "STT") and lu_ctx:
             for lo, hi, stale in _port_waits(s.lu):
                 t = s.copy()
@@ -965,8 +1005,13 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             if op is not None and op > 3:
                 flag(pc, "ILLEGAL", f"LINE operation {op}")
                 continue
-            if op == 0:                                  # OFF: no wait
-                s.lu = "idle"
+            if op != 3:
+                s = lu_owned(pc, s, op != 0)
+                if s is None:
+                    continue
+            if op == 0:                                  # OFF: no wait; the unit is left
+                s.lu = "idle"                            # unconfigured (sec. 6.6)
+                s.cf = 3
                 go(s, nxt)
                 continue
             for t in _lu_wait(s):
@@ -985,17 +1030,20 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                     t.z.constrain(NOW, LUE, -crc_nb[0])
                 elif op == 3:                            # CONFIG: complete at E_(c+9)
                     t.lu = "own"                         # (v1.6: E_(c+17) with ext)
+                    t.cf = 2 if t.cf in (1, 2) else 1    # (a running one ended: it waited)
                     a = v & 0xFF
                     src = consts if consts else (early if pc in early_pcs else {})
                     blk = [src.get((a + i) & 0xFF) for i in range(3)]
                     if None in blk:
-                        claimed[1] = True
+                        claimed[1] = True                # (tx_pins: the image's W0)
+                        claimed[2] = claimed[2] or not (image.tape[a] >> 20) & 1
                         t.z.free(LUE)                    # ext unknown: c+9 .. c+17
                         t.z.constrain(LUE, NOW, 17)
                         t.z.constrain(NOW, LUE, -9)
                     else:
                         from esciss.line import Cfg
                         claimed[0] |= Cfg(*blk).claimed()
+                        claimed[2] = claimed[2] or not Cfg(*blk).tx_pins
                         t.z.assign(LUE, NOW, 17 if (blk[2] >> 25) & 1 else 9)
                 else:
                     t.lu = "top"
@@ -1006,6 +1054,9 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                 go(t, nxt)
             continue
         elif name == "GETL":
+            s = lu_owned(pc, s, False)
+            if s is None:
+                continue
             setreg(f["rd"], ("top",))
             if s.lu == "armed" and not s.stale:
                 w = s.z.diff(NOW, LUA)[1]
@@ -1071,6 +1122,9 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             else:
                 splits = [s]
             for s1 in splits:
+                s1 = lu_owned(pc, s1, True)
+                if s1 is None:
+                    continue
                 for t in _lu_wait(s1):
                     lo, hi = t.z.diff(TMR, NOW)
                     late = lo < 1 or hi >= HALF
@@ -1165,6 +1219,9 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     for epc, mask in sorted(emit_masks):           # sec. 6.2 step 3: claimed pins
         if lu_ctx and (claimed[1] or mask & claimed[0]):
             flag(epc, "OWNER", "may drive a pin the line unit claims")
+    for spc in sorted(cert.sends):                 # sec. 6.2 step 3: SEND needs tx_pins
+        if claimed[2]:
+            flag(spc, "OWNER", "the line unit may be configured without tx_pins")
     missed = sorted(_cfg_events(image, ctx) - visited_events)
     if missed:
         flag(missed[0], "INCOMPLETE", f"event sites never analysed: {missed[:8]}")

@@ -49,7 +49,7 @@ def lead(v: int) -> str:
 
 
 def bound(c) -> str:
-    return str(int(c.min_lead)) if c.min_lead != float("inf") else "inf"
+    return str(int(c.min_lead)) if abs(c.min_lead) != float("inf") else f"{c.min_lead}"
 
 
 def judge(c, measured: int) -> str | None:
