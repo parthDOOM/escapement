@@ -24,11 +24,15 @@ from pathlib import Path
 QUICK = [
     ("esc_core_bmc", "Core properties, bounded to 20 steps"),
     ("esc_core_cover", "Core cover: each property's precondition is reachable"),
+    ("esc_core_ahead", "B1-B9 values registered a cycle early (k-induction)"),
     ("esc_ctx_kind", "P2 never late, per context (k-induction)"),
     ("esc_greg_prove", "G1-G3 clock-gated banks (k-induction)"),
     ("esc_greg_cover", "Clock-gate cover"),
+    ("esc_lreg_prove", "G4 latch banks (k-induction)"),
+    ("esc_lreg_cover", "Latch bank cover"),
     ("esc_host_prove", "S1 configuration frozen during a run (PDR)"),
     ("esc_host_cover", "Host interface cover"),
+    ("esc_line_kind", "L2 line unit's registered values (k-induction)"),
 ]
 
 
@@ -94,9 +98,10 @@ def cert(args):
 
 def equiv(args):
     text = Path(args[0]).read_text(errors="replace")
-    m = re.search(r"miter: (\d+) outputs \((\d+) bits\)", text)
-    ok = "Networks are equivalent" in text and "PASS:" in text
-    detail = (f"sequentially equivalent; {m.group(2)} output bits compared" if m else "") if ok else "not proved"
+    found = re.findall(r"miter: (\d+) outputs \((\d+) bits\)", text)  # the last: the chip
+    m = found[-1] if found else None
+    ok = re.search(r"PASS: \S+ is sequentially equivalent to the RTL", text) is not None
+    detail = (f"sequentially equivalent; {m[1]} output bits compared" if m else "") if ok else "not proved"
     return {"name": "Netlist equals RTL", "status": "pass" if ok else "fail", "detail": detail}
 
 

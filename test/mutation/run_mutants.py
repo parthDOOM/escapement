@@ -436,7 +436,7 @@ def equivalent(src: Path, work: Path) -> tuple[bool, str]:
     except subprocess.TimeoutExpired:
         subprocess.run(["pkill", "-f", str(work / "equiv")], capture_output=True)
         return False, f"equivalence: undecided in {EQUIV_LIMIT // 60} min"
-    if r.returncode == 0 and "PASS:" in r.stdout:
+    if r.returncode == 0 and "is sequentially equivalent to the RTL" in r.stdout:
         return True, "equivalence: proved"
     log = work / "equiv" / "dprove.log"
     text = log.read_text(errors="replace") if log.exists() else ""
