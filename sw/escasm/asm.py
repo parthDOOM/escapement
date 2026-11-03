@@ -15,6 +15,8 @@ Syntax (one statement per line; `;` or `#` starts a comment):
     .od pin                     bank A pin `pin` is open-drain
     .bank ctx                   context `ctx` uses bank B (v1.2); put it before that
                                 context's .own lines
+    .pair ctx                   context `ctx` also takes the slot of context ctx ^ 2, which
+                                must not be enabled (v1.7)
 
 Operands: registers r0..r3; integers (123, 0x7B, 0b1111011); labels and .equ names;
 `LSB`/`MSB` for dir; `HOLD`/`ARRIVE` for mode; `+ - * << >> | & ~ ( )` expressions.
@@ -78,6 +80,8 @@ class Image:
     tape_used: list[int] = field(default_factory=list)   # addresses set by .tape
     # v1.2: contexts whose logical pins are bank B
     ctx_bank: list[bool] = field(default_factory=lambda: [False] * 4)
+    # v1.7: contexts that also take their partner's slot (context k ^ 2, which is off)
+    ctx_pair: list[bool] = field(default_factory=lambda: [False] * 4)
 
     def __post_init__(self) -> None:
         # images from v1.1 tools describe 8 pins; bank B pins are then unowned
@@ -110,6 +114,10 @@ class Image:
         return sum(1 << k for k, b in enumerate(self.ctx_bank) if b)
 
     @property
+    def ctx_pair_mask(self) -> int:
+        return sum(1 << k for k, p in enumerate(self.ctx_pair) if p)
+
+    @property
     def uses_bank_b(self) -> bool:
         return any(self.ctx_bank) or any(self.pin_owned[8:])
 
@@ -118,7 +126,7 @@ class Image:
             "words": [f"{w:08x}" for w in self.words],
             "entry_pcs": self.entry_pcs, "ctx_enable": self.ctx_enable,
             "pin_owned": self.pin_owned, "pin_owner": self.pin_owner, "pin_od": self.pin_od,
-            "ctx_bank": self.ctx_bank, "symbols": self.symbols, "used_words": self.used_words,
+            "ctx_bank": self.ctx_bank, "ctx_pair": self.ctx_pair, "symbols": self.symbols, "used_words": self.used_words,
             "tape": {f"{a}": f"{self.tape[a]:08x}" for a in self.tape_used},
         }, indent=1)
 
@@ -131,7 +139,7 @@ class Image:
         return cls([int(w, 16) for w in d["words"]], d["entry_pcs"], d["ctx_enable"],
                    d["pin_owned"], d["pin_owner"], d["pin_od"], d.get("symbols", {}),
                    [], d.get("used_words", 0), tape, sorted(int(a) for a in d.get("tape", {})),
-                   d.get("ctx_bank", [False] * 4))
+                   d.get("ctx_bank", [False] * 4), d.get("ctx_pair", [False] * 4))
 
 
 _ALLOWED_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant, ast.Name,
@@ -261,6 +269,7 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
         owner = [0] * 13
         od = [False] * 8
         bank = [False] * isa.contexts
+        pair = [False] * isa.contexts
         owns_seen: set[int] = set()
         tape: dict[int, int] = {}
         listing: list[str] = []
@@ -364,6 +373,11 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
                 if ctx in owns_seen and not bank[ctx]:
                     raise AsmError(f"{where}: .bank {ctx} after a .own for context {ctx}")
                 bank[ctx] = True
+            elif directive == ".pair":
+                ctx = ev(ops[0])
+                if len(ops) != 1 or not 0 <= ctx < isa.contexts:
+                    raise AsmError(f"{where}: .pair ctx (0..3)")
+                pair[ctx] = True
             elif directive.startswith("."):
                 raise AsmError(f"{where}: unknown directive '{head}'")
             else:
@@ -384,10 +398,13 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
             name = f"B{p - 8}" if p >= 8 else str(p)
             raise AsmError(f"pin {name} is owned by context {owner[p]}, which uses bank "
                            f"{'B' if bank[owner[p]] else 'A'}")
+    for k in range(isa.contexts):       # a pair takes a slot that no enabled context uses
+        if pair[k] and enable[k ^ 2]:
+            raise AsmError(f".pair {k}: context {k ^ 2} is enabled (its slot is not free)")
     image_words = [words.get(a, 0) for a in range(isa.imem_words)]
     return Image(image_words, entry, enable, owned, owner, od,
                  {k: v for k, v in symbols.items()}, listing, len(words),
-                 [tape.get(a, 0) for a in range(256)], sorted(tape), bank)
+                 [tape.get(a, 0) for a in range(256)], sorted(tape), bank, pair)
 
 
 def assemble_file(path: str | Path, isa: ISA | None = None) -> Image:

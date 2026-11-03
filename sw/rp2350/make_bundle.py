@@ -231,7 +231,8 @@ def bundle(fw: Path, name: str | None = None, overrides: dict | None = None) -> 
         "words": image.words[: (max(used) + 1) if used else 0],
         "tape": {str(a): image.tape[a] for a in image.tape_used},
         "cfg": [image.ctx_enable_mask, image.entry_pcs_packed, image.pin_owned_mask,
-                image.pin_owner_packed, image.pin_od_mask, image.ctx_bank_mask],
+                image.pin_owner_packed, image.pin_od_mask, image.ctx_bank_mask,
+                image.ctx_pair_mask],
         "expect": predict(image) if fw.name not in NO_PREDICT else no_prediction(image),
         "cert": [[c.ctx, c.status, None if c.min_lead == float("inf") else int(c.min_lead)]
                  for c in certify(image)],

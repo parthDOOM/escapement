@@ -5,7 +5,8 @@
 #   kind  : UNBOUNDED safety by k-induction (fails if the properties are not k-inductive)
 #   ahead : UNBOUNDED, by k-induction, of the labelled assertions only (ahead_b1-b9: v1.5's
 #           registered tests B1-B5, v1.6's X-stage decode B6-B7 and registered operands
-#           B8-B9), which every other task assumes; the other assertions are removed
+#           B8-B9; v1.7: B0, the slot registers), which every other task assumes; the
+#           other assertions are removed
 [tasks]
 bmc
 cover

@@ -269,6 +269,12 @@ module esc_core (
   wire [1:0]  lu_owner;
   wire [2:0]  lu_mode;
   wire [7:0]  lu_claimed, lu_paddr, lu_rel, lu_drv, lu_dval;
+  // v1.7 (timing): the owner's bank, registered. ctx_bank is static during a run and the
+  // owner changes only at a CONFIG that takes the unit (and at start); the unit uses its
+  // view and pins no earlier than that CONFIG's completion, 9 cycles on, so a copy one
+  // cycle behind is never seen (formal: lu_bank below). Off the high-fanout ctx_bank and
+  // lu_owner nets, the line unit's input view and pin writes start from one flop.
+  reg         lu_bank;
   wire [31:0] lu_status, lu_e, lu_pwdata;
   wire        lu_mine   = lu_owned & (lu_owner == cctx);     // the committing context owns it
   wire [7:0]  claimed_c = lu_mine ? lu_claimed : 8'd0;
@@ -707,7 +713,7 @@ module esc_core (
   wire lu_cm = cm_ok & d_op[I_LINE];
   esc_line u_line (
       .clk(clk), .rst_n(rst_n), .start(start), .now(now),
-      .view(vsync[8*lu_owner +: 8]), .owns(owned_by[8*lu_owner +: 8]),
+      .view(lu_bank ? {3'd0, s2[12:8]} : s2[7:0]), .owns(owned_by[8*lu_owner +: 8]),
       .op_send(cm_ok & d_op[I_SEND] & w_push),
       .op_off(lu_cm & (l_op == 4'd0)), .op_recv(lu_cm & (l_op == 4'd1)),
       .op_crc(lu_cm & (l_op == 4'd2)), .op_cfg(lu_cm & (l_op == 4'd3)),
@@ -900,9 +906,9 @@ module esc_core (
     end
     for (pk = 0; pk < 4; pk = pk + 1)
       if (fault_k[pk]) oe_n = oe_n & ~pown[13*pk +: 13];
-    oe_n  = oe_n & ~to_phys(ctx_bank[lu_owner], lu_rel);
-    lm    = to_phys(ctx_bank[lu_owner], lu_drv);
-    val_n = (val_n & ~lm) | (to_phys(ctx_bank[lu_owner], lu_dval) & lm);
+    oe_n  = oe_n & ~to_phys(lu_bank, lu_rel);
+    lm    = to_phys(lu_bank, lu_drv);
+    val_n = (val_n & ~lm) | (to_phys(lu_bank, lu_dval) & lm);
     oe_n  = lu_doe ? (oe_n | lm) : (oe_n & ~lm);
   end
 
@@ -940,7 +946,7 @@ module esc_core (
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       run <= 1'b0; now <= 32'd0; sq <= 2'd1; cq <= 2'd1; nq <= 2'd2; fq <= 2'd0;
-      p1_spc <= 8'd0; p2_spc <= 8'd0; p3ok <= 1'b1;
+      p1_spc <= 8'd0; p2_spc <= 8'd0; p3ok <= 1'b1; lu_bank <= 1'b0;
       pin_val <= 13'd0; pin_oe <= 13'd0;
       s1 <= 13'd0; s2 <= 13'd0;
       p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
@@ -964,6 +970,7 @@ module esc_core (
       opa     <= opa_n;
       opb     <= opb_n;
       p1_spc  <= f_pc;
+      lu_bank <= ctx_bank[lu_owner];
       p2_spc  <= p1_spc;
       p3ok    <= x_ok;
       if (start || stop) begin
@@ -1117,6 +1124,7 @@ module esc_core (
       assume ($stable(pin_owner));
       assume ($stable(pin_od));
       assume ($stable(ctx_bank));
+      assume ($stable(ctx_pair));
     end
 
   // v1.5 B1-B5: the deadline tests registered in the cycle before a commit are their
@@ -1161,6 +1169,12 @@ module esc_core (
     ahead_b8: `ESC_AHEAD (opa == pick(f_rd, cs_r0, cs_r1, cs_r2, cs_r3));
     ahead_b9: `ESC_AHEAD (opb == pick(f_rs, cs_r0, cs_r1, cs_r2, cs_r3));
   end
+  // D-41: the committing-context register counts with now during a run; v1.7: the slot
+  // counter does, and the commit, X and fetch registers hold their slots' owners. B0 is
+  // proved with B1-B9 (the `ahead` task); B8-B9 are not 8-inductive without it.
+  always @(*) if (rst_n && run)
+    ahead_b0: `ESC_AHEAD (sq == now[1:0] + 2'd1 && cq == own(sq, pair_on)
+                         && nq == own(sq + 2'd1, pair_on) && fq == own(now[1:0], pair_on));
 `undef ESC_AHEAD
 
   // driven(p): physical pin p is away from its released level (bank A: output enabled;
@@ -1177,8 +1191,8 @@ module esc_core (
 `ifndef ESC_CORE_PDR
     assert (c_late == 4'd0);
 `endif
-    // D-41: the committing-context register counts with now during a run
-    if (run) assert (cctx == now[1:0] + 2'd1);
+    // v1.7: with no context paired, the fetch is v1.6's (never a guessed PC)
+    if (run && pair_on == 4'd0) assert (!f_chain && fq == now[1:0]);
     for (fk = 0; fk < 4; fk = fk + 1)
       // P4 FIFO occupancy bounded (§6).
       assert (c_cnt[3*fk +: 3] <= 3'd4);
@@ -1209,6 +1223,8 @@ module esc_core (
     if (lu_owned) assert ((lu_claimed & ~owned_by[8*lu_owner +: 8]) == 8'd0);  // lemma-group: faulted
     if (!run) assert (lu_mode == 3'd0 && !lu_conf);                             // lemma-group: faulted
     if (lu_owned && c_state[2*lu_owner +: 2] == 2'd3) assert (lu_mode == 3'd0 && !lu_conf);  // lemma-group: faulted
+    // v1.7 lu_bank: unowned, the unit claims, drives and releases nothing
+    if (!lu_owned) assert (lu_claimed == 8'd0 && lu_drv == 8'd0 && lu_rel == 8'd0);  // lemma-group: lubank
     // LI (v1.6) what formal/esc_line_env.v assumes about the line unit's inputs, from
     // which esc_line.sby proves the unit's registered values (D-44): one op at an edge,
     // only a running context's commit (so in its commit cycle, D-41), the owner's (or a
@@ -1217,7 +1233,7 @@ module esc_core (
     // edge, and a CONFIG completing invalid kills it unless start or stop does.
     if (f_lany) begin
       assert ({2'd0, f_lsend} + f_loff + f_lrecv + f_lcrc + f_lcfg == 3'd1);  // lemma-group: lineio
-      assert (run && !start && !stop && cctx == now[1:0] + 2'd1);  // lemma-group: lineio
+      assert (run && !start && !stop && cctx == own(now[1:0] + 2'd1, pair_on));  // lemma-group: lineio
       if (f_lcfg) assert (!lu_owned || lu_owner == cctx);  // lemma-group: lineio
       else        assert (lu_owned && lu_owner == cctx);  // lemma-group: lineio
       if (!f_loff) assert (!lu_engaged);  // lemma-group: lineio
@@ -1252,11 +1268,23 @@ module esc_core (
     if (fault_k != 4'd0) assert (run && !start && !stop);
   end
 
-  // P7 fixed slot timing: a commit observed during cycle c+1 belongs to ctx (c+1) mod 4,
-  // and only enabled contexts ever commit (§3).
+  // v1.7 lu_bank: the registered bank is the owner's once the unit has been owned for a
+  // cycle of the run; in the cycle after a CONFIG takes the unit (the only other owned
+  // cycle), the unit is loading that CONFIG and uses neither its view nor its pins.
+  always @(posedge clk)
+    if (f_past_valid && rst_n && $past(rst_n) && run && lu_owned) begin
+      if ($past(run) && $past(lu_owned) && !$past(start))
+        assert (lu_bank == ctx_bank[lu_owner]);  // lemma-group: lubank
+      else
+        assert (lu_mode == 3'd1 && lu_drv == 8'd0 && lu_rel == 8'd0);  // lemma-group: lubank
+    end
+
+  // P7 fixed slot timing: a commit observed during cycle c+1 belongs to the owner of slot
+  // (c+1) mod 4 (v1.6: context (c+1) mod 4; v1.7: its partner when that one is paired and
+  // it is off), and only enabled contexts ever commit (§3).
   always @(posedge clk)
     if (f_past_valid && rst_n && $past(rst_n) && dbg_commit_valid && run && $past(run)) begin
-      assert (dbg_commit_ctx == now[1:0]);
+      assert (dbg_commit_ctx == own(now[1:0], pair_on));
       assert (ctx_enable[dbg_commit_ctx]);
     end
 
@@ -1274,7 +1302,11 @@ module esc_core (
     cover (lu_drv != 8'd0);                       // v1.4: the line unit drives its pins
     cover (lu_mode == 3'd5);                      // ... receives a packet
     cover (lu_fltc);                              // ... a CONFIG faults its owner
+    cover (cm_ok && f_chain && pair_on != 4'd0);  // v1.7: a commit while a guessed fetch is made
   end
+  always @(posedge clk)                           // v1.7: a commit in a partner's slot
+    if (f_past_valid && rst_n && run && $past(run))
+      cover (dbg_commit_valid && dbg_commit_ctx != now[1:0]);
 `endif
 
 endmodule

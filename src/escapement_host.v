@@ -71,7 +71,7 @@ module escapement_host (
                    C_START = 8'h20, C_STOP = 8'h21,
                    C_READ_DBG = 8'h30, C_MBX_PUSH = 8'h40, C_MBX_POP = 8'h41,
                    C_IRQ_CLEAR = 8'h50, C_CLEAR_ERR = 8'h51, C_IGNORE = 8'hFF;
-  localparam [3:0] VERSION = 4'h8;
+  localparam [3:0] VERSION = 4'h9;            // v1.7: WRITE_CFG byte 10 bits 7:4
 
   // ---------------------------------------------------------------- synchronisers
   reg [1:0] cs_s, sck_s, mosi_s;

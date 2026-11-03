@@ -566,3 +566,80 @@ def test_pop_after_rxready_saw_a_word_does_not_wait():
     assert [c.status for c in certify(bad)] != ["CHECKED"]
     plain = assemble(".entry 0, main\n.own 0, 0\nmain:\n ADDT 64\n EMIT 1, 1, 1\n" + tail[6:])
     assert [c.status for c in certify(plain)] != ["CHECKED"]
+
+
+# ----------------------------------------------------------------------------- pair mode (v1.7)
+
+
+def _paired(image):
+    """Pair every enabled context whose partner (k ^ 2) is off."""
+    en = image.ctx_enable
+    image.ctx_pair = [bool(en[k]) and not en[k ^ 2] for k in range(4)]
+    return image
+
+
+@pytest.mark.parametrize("fw", sorted(SHIPPED))
+def test_pair_shipped_firmware_is_certified_and_telemetry_agrees(fw):
+    image = _paired(assemble_file(FW / fw))
+    if not any(image.ctx_pair):
+        pytest.skip("no context has a free partner slot")
+    certs = certify(image)
+    board_f, pushes, ticks, _ = SHIPPED[fw]
+    m = Machine(image, board=board_f())
+    Pusher(pushes).drive(m, ticks)
+    for c in certs:
+        assert c.status == "CHECKED", str(c)
+        assert c.min_lead >= 1
+        assert m.ctx[c.ctx].min_lead >= c.min_lead, (str(c), m.ctx[c.ctx].min_lead)
+
+
+def test_pair_bounds_on_straight_line_code():
+    """Paired, a context commits every 2 ticks from cycle min(k, k ^ 2) + 3, and the
+    instruction after an LDT 4 ticks later: exact bounds. WAITT completes in the first of
+    the context's slots >= tmr; escert keeps the whole slot period (tmr .. tmr + 1 paired,
+    tmr + 3 unpaired), so its bound there is below the measured lead by up to 3 (1)."""
+    progs = {
+        "plain": " ADDT 40\n NOP\n EMIT 1, 1, 1\n HALT\n",
+        "ldt": " ADDT 40\n LDT r0, r3, 0\n EMIT 1, 1, 1\n HALT\n",
+        "waitt": " ADDT 41\n WAITT\n ADDT 20\n EMIT 1, 1, 1\n HALT\n",
+    }
+    # context 2: first commit at tick 5, or 3 paired (slot 0 comes first)
+    # name -> ((bound, measured) unpaired, (bound, measured) paired)
+    want = {"plain": ((40 - 13, 40 - 13), (40 - 7, 40 - 7)),
+            "ldt": ((40 - 13, 40 - 13), (40 - 9, 40 - 9)),
+            "waitt": ((61 - 52, 61 - 49), (61 - 46, 61 - 45))}
+    for name, body in progs.items():
+        src = f".entry 2, s\n.own 0, 2\ns:\n{body}"
+        for pair, (bound, lead) in zip((False, True), want[name]):
+            image = assemble((".pair 2\n" if pair else "") + src)
+            c = certify(image)[0]
+            m = Machine(image)
+            m.run(400)
+            got = (c.status, c.min_lead, m.ctx[2].min_lead)
+            assert got == ("CHECKED", bound, lead), (name, pair, str(c), got)
+
+
+def test_pair_needs_a_free_partner_slot():
+    with pytest.raises(AsmError, match="is enabled"):
+        assemble(".entry 0, s\n.entry 2, s\n.pair 0\ns: HALT\n")
+
+
+def test_pair_random_programs_checked_implies_no_admit_fault():
+    proved_contexts = 0
+    for seed in range(1, SEEDS + 1):
+        try:
+            image = _paired(assemble(gen_program(seed)))
+        except AsmError:
+            continue
+        certs = [c for c in certify(image) if c.status == "CHECKED" and c.events]
+        if not certs or not any(image.ctx_pair):
+            continue
+        m = Machine(image, board=make_board(seed))
+        m.run(4000)
+        for c in certs:
+            proved_contexts += image.ctx_pair[c.ctx]
+            f = m.ff
+            assert not (f.valid and f.ctx == c.ctx and f.cause == ADMIT), (seed, str(c))
+            if m.ctx[c.ctx].min_lead != 0xFFFF:
+                assert m.ctx[c.ctx].min_lead >= c.min_lead, (seed, str(c), m.ctx[c.ctx].min_lead)
+    assert proved_contexts > 20, proved_contexts

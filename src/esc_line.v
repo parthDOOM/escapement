@@ -684,10 +684,11 @@ module esc_line (
   end
 `endif
 `ifdef FORMAL
-  // A CONFIG keeps its phase: it commits in an owner cycle c (now = owner - 1 mod 4) and
-  // during cycle c+1+k it has el = k, so it completes at E_(c+9), never at one of the
-  // owner's commit edges (the lemma for esc_core's P8 clause).
-  always @(*) if (rst_n && mode == CFG) assert (now[1:0] - el[1:0] == owner);  // lemma-group: commit
+  // A CONFIG keeps its phase: it commits in an owner cycle c (now = owner - 1 mod 4; v1.7
+  // pair mode: or owner ^ 2 - 1, the same parity) and during cycle c+1+k it has el = k, so
+  // it completes at E_(c+9) (or E_(c+17)), of the other parity, never at one of the owner's
+  // commit edges (the lemma for esc_core's P8 clause).
+  always @(*) if (rst_n && mode == CFG) assert ((now[0] ^ el[0]) == owner[0]);  // lemma-group: commit
   // D-40, W0's latch contract: the buffer does not change at the edge W0 is written
   reg f_pv = 1'b0;
   always @(posedge clk) f_pv <= 1'b1;

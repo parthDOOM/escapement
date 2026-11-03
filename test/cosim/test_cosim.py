@@ -27,8 +27,8 @@ from esciss.machine import no_board_b
 
 from escmodels import Board, HostScript
 from fw_cases import FIRMWARE_CASES, fw_image
-from progen import (gen_lu_program, gen_program, loopback_board, lu_board, make_board, make_board_b,
-                    make_host)
+from progen import (gen_lu_program, gen_program, loopback_board, lu_board, lu_board_b, make_board,
+                    make_board_b, make_host)
 
 REPO = Path(__file__).resolve().parents[2]
 MAX_TICKS = int(os.environ.get("COSIM_MAX_TICKS", "4000"))
@@ -61,7 +61,7 @@ async def reset_and_load(dut, image):
     dut.pin_owner.value = image.pin_owner_packed
     dut.pin_od.value = image.pin_od_mask
     dut.ctx_bank.value = image.ctx_bank_mask
-    dut.ctx_pair.value = getattr(image, "ctx_pair_mask", 0)
+    dut.ctx_pair.value = image.ctx_pair_mask
     for _ in range(4):  # uio_in = 0 so both synchroniser stages are 0 at start
         await FallingEdge(dut.clk)
 
@@ -430,7 +430,7 @@ async def test_pair_random(dut):
         pair = [int(bool(en[k]) and not en[k ^ 2]) for k in range(4)]
         if not any(pair):
             continue
-        image.ctx_pair, image.ctx_pair_mask = pair, sum(p << k for k, p in enumerate(pair))
+        image.ctx_pair = [bool(p) for p in pair]
         board, kw = make_board(seed), {}
         if (host := make_host(seed)) is not None:
             iss_host, pins = host(), board
@@ -806,3 +806,31 @@ async def test_v14_line_unit(dut):
                 break
     dut._log.info(f"line unit: {seeds} programs, {len(failures)} mismatching {failures}")
     assert not failures, f"mismatching line unit seeds: {failures} (see {out_dir}/)"
+
+
+@cocotb.test()
+async def test_v17_line_unit_bank_b(dut):
+    """The line unit owned by a bank B context (progen.gen_lu_program(bank_b=True)): its
+    view and pin writes go through the owner's bank (v1.7: a registered copy, lu_bank).
+    COSIM_LUB_SEEDS programs (default 30); at least a third must drive bank B."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    seeds = int(os.environ.get("COSIM_LUB_SEEDS", "30"))
+    seed0 = int(os.environ.get("COSIM_SEED0", "1"))
+    out_dir = Path(os.environ.get("COSIM_OUT", "cosim_failures"))
+    failures, drove = [], 0
+    for seed in range(seed0, seed0 + seeds):
+        src = gen_lu_program(seed, bank_b=True)
+        errs, m = await cosim_one(dut, f"lub{seed}", assemble(src), lu_board(seed),
+                                  max_ticks=6000, stop_when_idle=False, board_b=lu_board_b(seed))
+        drove += any(p["ob"] != 0x1F for p in m.pins)
+        if errs:
+            failures.append(seed)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / f"lub{seed}.asm").write_text(src)
+            (out_dir / f"lub{seed}.txt").write_text("\n".join(errs))
+            if len(failures) >= 3:
+                break
+    dut._log.info(f"line unit bank B: {seeds} programs, {drove} drove bank B, "
+                  f"{len(failures)} mismatching {failures}")
+    assert not failures, f"mismatching line unit bank B seeds: {failures} (see {out_dir}/)"
+    assert 3 * drove >= seeds, f"only {drove} of {seeds} programs drove bank B"

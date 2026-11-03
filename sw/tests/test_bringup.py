@@ -151,6 +151,7 @@ FAULTS = [
     ("MOSI stuck high", {"mosi_stuck": 1}, {}, 2, "MOSI (ui[2]) is stuck high"),
     ("v1.0 chip", {"version": 5}, {}, 2, "protocol version 5"),
     ("v1.1 chip", {"version": 6}, {}, 2, "protocol version 6"),
+    ("v1.6 chip", {"version": 8}, {}, 2, "protocol version 8"),
     ("bit-bang too fast", {}, {"op_ns": 100}, 2, "one pin write takes 100 ns"),
     ("program SRAM address bit 3 stuck", {"mem_faults": {0: {"addr_stuck": (3, 0)}}}, {}, 3,
      "program SRAM, address in data pattern: 128 of 256 words wrong; address bit(s) 3 "

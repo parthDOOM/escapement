@@ -676,7 +676,14 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     z0 = Zone()
     # Context k fetches first in run cycle k and commits at tick k + 3 (sec. 3), while
     # tmr starts at 0: the first instruction sees lead tmr - now = -(k + 3).
-    first = ctx + 3
+    # v1.7 pair mode: a paired context also has slot k ^ 2, so its first fetch is in cycle
+    # min(k, k ^ 2); it then commits every 2 ticks, except that the instruction after an
+    # LDT is not fetched early (4) and a wait that is not a WAITT retries every 4 (its early
+    # fetch of pc + 1 is discarded), so only WAITT and the step to the next instruction
+    # use the 2-tick period.
+    paired = bool(getattr(image, "ctx_pair", [False] * 4)[ctx]) and not image.ctx_enable[ctx ^ 2]
+    step = 2 if paired else SLOT
+    first = (min(ctx, ctx ^ 2) if paired else ctx) + 3
     z0.d[TMR][NOW], z0.d[NOW][TMR] = -first, first
     tracked = timing_regs(image)
     live_at = _liveness(image, ctx)
@@ -791,7 +798,8 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
 
         def go(s2: St, to: int, wlo: float = 0, whi: float = 0) -> None:
             t = s2.copy()
-            _advance(t, wlo + SLOT, whi + SLOT)
+            d = SLOT if name == "LDT" else step
+            _advance(t, wlo + d, whi + d)
             push(to, t)
 
         # v1.6: whether Z holds RXREADY's answer (anything else that writes Z ends it)
@@ -928,14 +936,14 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             go(s, nxt)
         elif name == "WAITT":
             lo, hi = s.z.diff(TMR, NOW)              # lead
-            # completes at the first slot c' >= tmr: c' - tmr in [0, 3], or now if passed
+            # completes at the first slot c' >= tmr: c' - tmr in [0, step - 1], or now if passed
             t = s.copy()
             if t.z.constrain(TMR, NOW, 0):           # tmr <= now: immediate
                 go(t, nxt)
             t = s.copy()
-            if t.z.constrain(NOW, TMR, -1):          # tmr > now: wait until tmr..tmr+3
+            if t.z.constrain(NOW, TMR, -1):          # tmr > now: wait until tmr..tmr+step-1
                 t.z.assign(NOW, TMR, 0)
-                _advance(t, 0, 3)
+                _advance(t, 0, step - 1)
                 for i, r in enumerate(t.reg):
                     pass
                 go(t, nxt)

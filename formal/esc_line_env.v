@@ -8,8 +8,9 @@
  * k-induction (`sby -f esc_line.sby kind`, seconds), from what esc_core guarantees about
  * the unit's inputs:
  *   - `now` starts anywhere at each start and advances by exactly 1 per cycle of a run;
- *   - at most one op commits at an edge, only in a run, and only in its context's commit
- *     cycle (now[1:0] == ctx - 1, sec. 3); every op but a CONFIG is the owner's, and a
+ *   - at most one op commits at an edge, only in a run, and only in a commit cycle of its
+ *     context (now[1:0] == ctx - 1, sec. 3, or, v1.7 pair mode, ctx ^ 2 - 1: assumed as
+ *     now[0] != ctx[0], which covers both); every op but a CONFIG is the owner's, and a
  *     CONFIG is the owner's or takes an unowned unit (sec. 7.7 admission);
  *   - SEND, RECV, CRC and CONFIG commit only while the unit is not engaged; RECV and CRC
  *     only when configured, SEND only with claimed pins (the admission rules);
@@ -80,7 +81,7 @@ module esc_line_env (
     assume ({2'd0, op_send} + op_off + op_recv + op_crc + op_cfg <= 3'd1);
     if (anyop) begin
       assume (run && !start && !stop && !(fault & run));
-      assume (now[1:0] == op_ctx - 2'd1);
+      assume (now[0] != op_ctx[0]);          // v1.7: its own or its partner's commit cycle
       if (op_cfg) assume (!owned || op_ctx == owner);
       else assume (owned && op_ctx == owner);
     end

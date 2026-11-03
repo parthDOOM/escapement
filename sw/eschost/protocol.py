@@ -6,7 +6,7 @@
 # frame and returns the MISO bytes. Host (sync) and AsyncHost (async transports, e.g.
 # cocotb) both execute the same plans, so there is one encoding of the protocol.
 
-VERSION = 0x8
+VERSION = 0x9                 # v1.7: WRITE_CFG byte 10 bits 7:4 (pair mode)
 STATUS, WRITE_IMEM, READ_IMEM, WRITE_CFG = 0x00, 0x10, 0x11, 0x12
 WRITE_TAPE, READ_TAPE, TAPE_ACK = 0x13, 0x14, 0x15
 START, STOP, READ_DBG, MBX_PUSH, MBX_POP = 0x20, 0x21, 0x30, 0x40, 0x41
@@ -29,6 +29,14 @@ def parse_status(byte):
 
 def _st(r):
     return parse_status(r[0])
+
+
+def check_pair(image, st):
+    """v1.7: a paired image needs a chip that pairs (protocol version 9); an older chip
+    ignores the bits, would run it unpaired, and its timing certificate would not hold."""
+    if getattr(image, "ctx_pair_mask", 0) and st["version"] < 9:
+        raise IOError("image uses pair mode, chip reports protocol version %d (needs 9)"
+                      % st["version"])
 
 
 def plan_status():
@@ -89,14 +97,15 @@ def stream_chunks(base, lim, rptr, ptr):
     return runs
 
 
-def plan_write_cfg(ctx_enable, entry_pcs, pin_owned, pin_owner, pin_od, ctx_bank=0):
+def plan_write_cfg(ctx_enable, entry_pcs, pin_owned, pin_owner, pin_od, ctx_bank=0, ctx_pair=0):
     # Always the 13-byte v1.2 frame: a v1.1 chip ignores bytes after the ninth, and a
-    # v1.2 chip never keeps a previous program's bank B settings.
+    # v1.2 chip never keeps a previous program's bank B settings. v1.7: byte 10 bits 7:4 are
+    # the pair-mode contexts (an older chip ignores them).
     e = entry_pcs
     return bytes((WRITE_CFG, ctx_enable & 0xF, e & 0xFF, (e >> 8) & 0xFF, (e >> 16) & 0xFF,
                   (e >> 24) & 0xFF, pin_owned & 0xFF, (pin_owner >> 8) & 0xFF,
                   pin_owner & 0xFF, pin_od & 0xFF,
-                  ctx_bank & 0xF, (pin_owned >> 8) & 0x1F, (pin_owner >> 24) & 0x3,
+                  (ctx_bank & 0xF) | (ctx_pair & 0xF) << 4, (pin_owned >> 8) & 0x1F, (pin_owner >> 24) & 0x3,
                   (pin_owner >> 16) & 0xFF)), _st
 
 
@@ -183,7 +192,7 @@ class Host:
         return run
 
     def load(self, image, verify=True):
-        self.stop()
+        check_pair(image, self.stop())
         n = image_extent(image)
         self.write_imem(0, image.words[:n])
         if verify:
@@ -198,7 +207,7 @@ class Host:
                 raise IOError("tape verify failed")
         self.write_cfg(image.ctx_enable_mask, image.entry_pcs_packed, image.pin_owned_mask,
                        image.pin_owner_packed, image.pin_od_mask,
-                       getattr(image, "ctx_bank_mask", 0))
+                       getattr(image, "ctx_bank_mask", 0), getattr(image, "ctx_pair_mask", 0))
         return n
 
     def stream_poll(self, base, lim, rptr, retries=3):
@@ -238,7 +247,7 @@ class AsyncHost:
         return run
 
     async def load(self, image, verify=True):
-        await self.stop()
+        check_pair(image, await self.stop())
         n = image_extent(image)
         await self.write_imem(0, image.words[:n])
         if verify:
@@ -253,7 +262,8 @@ class AsyncHost:
                 raise IOError("tape verify failed")
         await self.write_cfg(image.ctx_enable_mask, image.entry_pcs_packed,
                              image.pin_owned_mask, image.pin_owner_packed, image.pin_od_mask,
-                             getattr(image, "ctx_bank_mask", 0))
+                             getattr(image, "ctx_bank_mask", 0),
+                             getattr(image, "ctx_pair_mask", 0))
         return n
 
     async def stream_poll(self, base, lim, rptr, retries=3):
