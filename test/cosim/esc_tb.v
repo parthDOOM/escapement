@@ -21,6 +21,7 @@ module esc_tb (
     input  wire [25:0]  pin_owner,
     input  wire [7:0]   pin_od,
     input  wire [3:0]   ctx_bank,
+    input  wire [3:0]   ctx_pair,      // v1.7
     // program load (only while not running)
     input  wire         load_we,
     input  wire         load_space,
@@ -113,7 +114,7 @@ module esc_tb (
   esc_core u_core (
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
-      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
+      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
       .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
       .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ib_in), .ob_out(ob_out),
       .running(running), .ctx_state(ctx_state),

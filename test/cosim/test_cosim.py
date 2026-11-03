@@ -39,7 +39,7 @@ async def reset_and_load(dut, image):
     dut.rst_n.value = 0
     for sig in ("start", "stop", "load_we", "load_space", "load_addr", "load_data", "uio_in",
                 "mbx_rx_push", "mbx_rx_data", "mbx_tx_pop", "dbg_sel_ctx", "dbg_sel", "irq_clear",
-                "ctx_enable", "entry_pcs", "pin_owned", "pin_owner", "pin_od", "ctx_bank",
+                "ctx_enable", "entry_pcs", "pin_owned", "pin_owner", "pin_od", "ctx_bank", "ctx_pair",
                 "ib_in", "hrd_req", "hrd_addr", "tape_ack", "tape_ack_v"):
         getattr(dut, sig).value = 0
     for _ in range(4):
@@ -61,6 +61,7 @@ async def reset_and_load(dut, image):
     dut.pin_owner.value = image.pin_owner_packed
     dut.pin_od.value = image.pin_od_mask
     dut.ctx_bank.value = image.ctx_bank_mask
+    dut.ctx_pair.value = getattr(image, "ctx_pair_mask", 0)
     for _ in range(4):  # uio_in = 0 so both synchroniser stages are 0 at start
         await FallingEdge(dut.clk)
 
@@ -411,6 +412,49 @@ async def test_firmware_with_bus_models(dut):
 # the RTL survived the random campaign (test/mutation/run_mutants.py).
 
 V11_LDT8 = "\n".join(["LDT r1, r2, 0"] * 8)
+@cocotb.test()
+async def test_pair_random(dut):
+    """v1.7 pair mode: the random programs again, each context whose partner (k^2) is off
+    now paired, so it issues every other cycle with guessed fetches."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    seeds = int(os.environ.get("COSIM_PAIR_SEEDS", "200"))
+    out_dir = Path(os.environ.get("COSIM_OUT", "cosim_failures"))
+    failures, runs, commits = [], 0, 0
+    for seed in range(1, 1 + seeds):
+        src = gen_program(seed)
+        try:
+            image = assemble(src)
+        except AsmError:
+            continue
+        en = image.ctx_enable
+        pair = [int(bool(en[k]) and not en[k ^ 2]) for k in range(4)]
+        if not any(pair):
+            continue
+        image.ctx_pair, image.ctx_pair_mask = pair, sum(p << k for k, p in enumerate(pair))
+        board, kw = make_board(seed), {}
+        if (host := make_host(seed)) is not None:
+            iss_host, pins = host(), board
+            def board(t, o, oe, pins=pins, iss_host=iss_host):
+                if t >= 0:
+                    iss_host.step(t, None)
+                return pins(t, o, oe)
+            kw = {"iss_host": iss_host, "rtl_host": host(), "rtl_board": pins}
+        errs, m = await cosim_one(dut, f"pair{seed}", image, board,
+                                  board_b=make_board_b(seed), **kw)
+        runs += 1
+        commits += len(m.commits)
+        if errs:
+            failures.append(seed)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / f"pair{seed}.asm").write_text(src)
+            (out_dir / f"pair{seed}.txt").write_text("\n".join(errs))
+            if len(failures) >= 5:
+                break
+    dut._log.info(f"pair: {runs} programs, {commits} commits, {len(failures)} mismatching "
+                  f"{failures}")
+    assert not failures, f"mismatching seeds: {failures} (see {out_dir}/)"
+
+
 V11_DIRECTED = {
     # staging overflow: every port cycle busy (4 contexts of LDTs), inputs toggle each tick
     "cap_overflow": (f"""

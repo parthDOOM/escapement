@@ -282,8 +282,12 @@ class LineUnit:
 
     def access_scheduled(self, t: int) -> bool:
         """The LU uses the tape port in cycle t for an access requested at an earlier edge:
-        CONFIG words 1 and 2, CRC words from 1, SEND words from 1, RECV writes."""
-        if not owner_cycle(t, self.owner):
+        CONFIG words 1 and 2, CRC words from 1, SEND words from 1, RECV writes.
+
+        CONFIG and CRC reads keep the slot of the LINE that started them (every 4 ticks
+        after it); SEND and RECV words move in the owner's own slot (v1.7: a paired owner's
+        LINE may commit in its partner's slot, which is also its commit cycle)."""
+        if self.owner is None:
             return False
         if self.mode == CFG:
             return t in self._cfg_reads()
@@ -291,7 +295,7 @@ class LineUnit:
             m, rem = divmod(t - self.crc_c, 32)
             return rem == 0 and m >= 1 and 32 * m < self.crc_nb
         if self.mode in (TX, RX):
-            return self.req is not None and t >= self.req.earliest
+            return owner_cycle(t, self.owner) and self.req is not None and t >= self.req.earliest
         return False
 
     def _cfg_ext(self) -> bool:

@@ -49,6 +49,7 @@ module esc_core (
     input  wire [25:0]  pin_owner,
     input  wire [7:0]   pin_od,        // bank A only
     input  wire [3:0]   ctx_bank,      // v1.2: context k's logical pins are bank B
+    input  wire [3:0]   ctx_pair,      // v1.7: context k also takes slot k^2 when context k^2 is off
     // instruction memory
     output wire [7:0]   imem_addr,
     output wire         imem_re,       // D-29: this slot's fetch will be used (else no read)
@@ -164,6 +165,8 @@ module esc_core (
   reg [12:0] pin_val, pin_oe;          // physical pins (sec. 5)
   reg [12:0] s1, s2;
   reg        p1v, p2v, p3v;
+  reg  [7:0] p1_spc, p2_spc;           // v1.7: the PC each instruction was fetched from
+  reg        p3ok;                     // v1.7: ... equal to its context's PC in X
   reg [31:0] p2_insn, p3_insn;
   reg [52:0] d_op;                     // v1.6: decode of p3_insn, registered (below)
   reg        illegal;
@@ -202,7 +205,16 @@ module esc_core (
   // The committing context, (now + 1) mod 4 during a run, is a register that counts with
   // now. While stopped no commit happens, and it holds the context the host's debug reads
   // of selects 0-8 select instead (v1.4, D-41); `run` stays off this path.
-  reg  [1:0]  cq;
+  // v1.7 pair mode: slot s belongs to context s, except that it belongs to context s^2 (its
+  // partner) when that one is paired and s is off. sq counts the slots as cq did; cq, nq
+  // and fq hold the owners of the commit, X and fetch slots, each a register, so the commit
+  // stage's context selects start from flip-flops as before. With no pair, cq = sq,
+  // nq = sq + 1 and fq = now mod 4, as in v1.6.
+  wire [3:0]  pair_on = ctx_pair & ~{ctx_enable[1:0], ctx_enable[3:2]};
+  function [1:0] own(input [1:0] s, input [3:0] pr);
+    own = pr[s ^ 2'd2] ? (s ^ 2'd2) : s;
+  endfunction
+  reg  [1:0]  sq, cq, nq, fq;
   wire [1:0]  cctx    = cq;
   wire [31:0] insn    = p3_insn;
 
@@ -357,7 +369,6 @@ module esc_core (
   // are the same in the commit cycle, and c is then now + 1 (a commit needs a run and no
   // start or stop at the edge between). Registered here; asserted equal to the definitions
   // in every commit cycle (formal, below).
-  wire [1:0]  nq      = cq + 2'd1;
   wire [31:0] n_tmr   = c_tmr[32*nq +: 32];
   // v1.6: the operands likewise, from p2_insn's register fields: a context's registers
   // change only at its own commit, four edges back, or (an LDT's load) at the edge after
@@ -617,7 +628,9 @@ module esc_core (
     w_z_we = (z_src != 3'd0);
   end
 
-  wire commit_valid = run & p3v & (cs_state == ST_RUN) & ~start & ~stop;
+  // v1.7: p3ok, registered in X, says the instruction was fetched from its context's PC
+  // as of X, which no commit changes before this one (pair mode: a guessed fetch).
+  wire commit_valid = run & p3v & p3ok & (cs_state == ST_RUN) & ~start & ~stop;
   wire cm_ok        = commit_valid & (outcome == OC_C);
 
   // ------------------------------------------------------------------ tape port (v1.1)
@@ -824,8 +837,28 @@ module esc_core (
   assign fault_valid  = ff_valid;
 
   // ------------------------------------------------------------------ fetch
-  assign imem_addr = c_pc[8*now[1:0] +: 8];
-  wire   f_valid   = run & (c_state[2*now[1:0] +: 2] == ST_RUN);
+  // v1.7: a paired context fetches its next instruction while the one before it is in X
+  // (fq == nq). The X instruction's state is final then (its predecessor committed at the
+  // edge before), so its branch resolves exactly; a wait-class instruction is guessed to
+  // complete, except WAITT (rch_x is exact) and HALT (its own PC). A wrong guess costs a
+  // bubble (p3ok), never a wrong commit. After an LDT, whose load lands an edge after it
+  // commits, the slot is skipped so X never reads a register before the load.
+  wire [7:0]  x_pc   = c_pc[8*nq +: 8];
+  wire        x_ok    = p2v & (p2_spc == x_pc);
+  wire        x_z     = c_z[nq], x_c = c_c[nq];
+  wire [15:0] x_lc    = c_lc[16*nq +: 16];
+  wire [7:0]  x_lr    = c_lr[8*nq +: 8];
+  wire        rch_x   = (nd_now == 32'd0) | (nd_now[31] & (nd_now[30:0] != 31'd0));
+  wire        x_jump  = d_op_n[I_JMP] | d_op_n[I_CALL] | (d_op_n[I_JZ] & x_z)
+                      | (d_op_n[I_JNZ] & ~x_z) | (d_op_n[I_JC] & x_c) | (d_op_n[I_JNC] & ~x_c)
+                      | (d_op_n[I_DJNZ] & (x_lc != 16'd1));
+  wire        x_stay  = d_op_n[I_HALT] | (d_op_n[I_WAITT] & ~rch_x);
+  wire [7:0]  x_npc   = x_jump ? p2_insn[7:0] : d_op_n[I_RET] ? x_lr : x_stay ? x_pc
+                      : x_pc + 8'd1;
+  wire        f_chain = x_ok & (nq == fq);           // only a paired context, 2 slots apart
+  wire [7:0]  f_pc    = f_chain ? x_npc : c_pc[8*fq +: 8];
+  assign imem_addr = f_pc;
+  wire   f_valid   = run & (c_state[2*fq +: 2] == ST_RUN) & ~(f_chain & d_op_n[I_LDT]);
   // A slot whose context is not RUNNING is never committed (p3v), so its instruction need
   // not be read: a program with one context leaves the program store idle 3 cycles in 4,
   // and a halted chip leaves it idle. p2_insn then reloads the held read data, unused.
@@ -906,7 +939,8 @@ module esc_core (
   // ------------------------------------------------------------------ sequential
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      run <= 1'b0; now <= 32'd0; cq <= 2'd1;
+      run <= 1'b0; now <= 32'd0; sq <= 2'd1; cq <= 2'd1; nq <= 2'd2; fq <= 2'd0;
+      p1_spc <= 8'd0; p2_spc <= 8'd0; p3ok <= 1'b1;
       pin_val <= 13'd0; pin_oe <= 13'd0;
       s1 <= 13'd0; s2 <= 13'd0;
       p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
@@ -929,6 +963,9 @@ module esc_core (
       illegal <= illegal_n;
       opa     <= opa_n;
       opb     <= opb_n;
+      p1_spc  <= f_pc;
+      p2_spc  <= p1_spc;
+      p3ok    <= x_ok;
       if (start || stop) begin
         p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
       end else begin
@@ -942,9 +979,22 @@ module esc_core (
       dbg_commit_insn    <= insn;
       dbg_commit_outcome <= outcome;
 
-      if (start)            cq <= START_NOW[1:0] + 2'd1;
-      else if (run && !stop) cq <= cq + 2'd1;
-      else                  cq <= dbg_sel_ctx;
+      if (start) begin
+        sq <= START_NOW[1:0] + 2'd1;
+        cq <= own(START_NOW[1:0] + 2'd1, pair_on);
+        nq <= own(START_NOW[1:0] + 2'd2, pair_on);
+        fq <= own(START_NOW[1:0], pair_on);
+      end else if (run && !stop) begin
+        sq <= sq + 2'd1;
+        cq <= own(sq + 2'd1, pair_on);
+        nq <= own(sq + 2'd2, pair_on);
+        fq <= own(now_n[1:0], pair_on);
+      end else begin
+        sq <= dbg_sel_ctx;
+        cq <= dbg_sel_ctx;
+        nq <= dbg_sel_ctx + 2'd1;
+        fq <= now[1:0];
+      end
       if (start) begin
         run <= 1'b1; now <= START_NOW;
         pin_val <= 13'd0; pin_oe <= 13'd0;

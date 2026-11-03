@@ -181,7 +181,7 @@ class Context:
     # EXPECT admission history (§6.2 step 6)
     expect_admitted: bool = False
     last_expect_end: int = 0
-    inflight: Optional[InFlight] = None
+    inflight: list[InFlight] = field(default_factory=list)   # v1.7: two when paired
 
 
 @dataclass
@@ -323,6 +323,9 @@ class Machine:
         del self.pin_owned[N_PHYS:], self.pin_owner[N_PHYS:]
         self.pin_od = [bool(o) for o in image.pin_od]
         self.ctx_bank = [int(bool(b)) for b in getattr(image, "ctx_bank", [0] * N_CTX)]
+        # v1.7 pair mode: context k also takes its partner's slot k^2 when that one is off
+        pair = list(getattr(image, "ctx_pair", [0] * N_CTX)) + [0] * N_CTX
+        self.pair_on = [bool(pair[k]) and not self.ctx_enable[k ^ 2] for k in range(N_CTX)]
         # observation records (§10)
         self.commits: list[dict] = []
         self.pins: list[dict] = []
@@ -574,12 +577,41 @@ class Machine:
 
     # ------------------------------------------------------------------ §3 fetch
 
+    def _owner(self, s: int) -> int:
+        """v1.7: the context of slot s (mod 4): s, or its partner s^2 when that one is paired."""
+        s %= N_CTX
+        return s ^ 2 if self.pair_on[s ^ 2] else s
+
     def _fetch(self, t: int) -> None:
-        """§3: a RUNNING context k fetches PC_k in cycles t = k (mod 4)."""
-        k = t % N_CTX
+        """§3: a RUNNING context fetches in its slots, t = k (mod 4) (and k ^ 2 if paired).
+
+        v1.7: a paired context fetches while its previous instruction is one cycle from
+        committing. If that instruction was fetched from the context's PC, the fetch uses
+        its next PC as computed from the state during t (exact for branches, RET, HALT and
+        WAITT; PC + 1 otherwise), and after an LDT the slot is skipped (§3)."""
+        k = self._owner(t)
         x = self.ctx[k]
-        if x.state == RUNNING:
-            x.inflight = InFlight(x.pc, self.imem[x.pc], t + 3)
+        if x.state != RUNNING:
+            return
+        pc = x.pc
+        prev = [fl for fl in x.inflight if fl.commit_tick == t + 1]
+        if prev and prev[0].pc == x.pc:
+            word = prev[0].insn
+            info = ISA.by_op.get((word >> 24) & 0xFF)
+            name = info.name if info is not None else ""
+            if name == "LDT":
+                return
+            if (name in ("JMP", "CALL") or (name == "JZ" and x.z) or (name == "JNZ" and not x.z)
+                    or (name == "JC" and x.c) or (name == "JNC" and not x.c)
+                    or (name == "DJNZ" and x.lc != 1)):
+                pc = word & 0xFF
+            elif name == "RET":
+                pc = x.lr
+            elif name == "HALT" or (name == "WAITT" and not reached((t + 1) & M32, x.tmr)):
+                pc = x.pc
+            else:
+                pc = (x.pc + 1) & 0xFF
+        x.inflight.append(InFlight(pc, self.imem[pc], t + 3))
 
     # ------------------------------------------------------------------ edge E_t
 
@@ -599,14 +631,16 @@ class Machine:
 
         # ---- plan: the commit at E_t, context j = (t - 3) mod 4 (§3)
         commit: Optional[Commit] = None
-        j = (t - 3) % N_CTX
+        j = self._owner(t - 3)
         xj = self.ctx[j]
-        fl = xj.inflight
-        if fl is not None and fl.commit_tick == t:
-            xj.inflight = None
+        due = [f for f in xj.inflight if f.commit_tick == t]
+        if due:
+            fl = due[0]
+            xj.inflight.remove(fl)
             # SPEC-Q 1: an instruction whose context is no longer RUNNING during its
             # commit cycle (only possible after LATE_HEAD) is discarded, like §9 Stop.
-            if xj.state == RUNNING:
+            # v1.7: so is one fetched from a PC that is not the context's (a wrong guess).
+            if xj.state == RUNNING and fl.pc == xj.pc:
                 commit = self._commit(j, fl, tm, views[j], plans[j])
 
         # ---- apply
@@ -703,7 +737,7 @@ class Machine:
                 x.state = HALTED
             x.fifo.clear()
             x.chk.active = False
-            x.inflight = None
+            x.inflight = []
         self.oe = 0
         self.run_flag = False
         self._stop_pending = False

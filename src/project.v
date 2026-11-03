@@ -31,6 +31,7 @@ module tt_um_escapement (
   wire [12:0]  pin_owned;
   wire [7:0]   pin_od, ctx_state;
   wire [3:0]   ctx_bank;
+  wire [3:0]   ctx_pair;
   wire [4:0]   ob_out;
   wire [25:0]  pin_owner;
   wire         host_mem_we, host_mem_space, host_mem_re;
@@ -48,7 +49,7 @@ module tt_um_escapement (
       .clk(clk), .rst_n(rst_n),
       .cs_n_pin(ui_in[0]), .sck_pin(ui_in[1]), .mosi_pin(ui_in[2]), .miso(miso),
       .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
-      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
+      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
       .irq_clear(irq_clear),
       .running(running), .ctx_state(ctx_state), .irq_pending(irq_pending),
       .fault_valid(fault_valid),
@@ -99,7 +100,7 @@ module tt_um_escapement (
   esc_core u_core (
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
-      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
+      .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
       .imem_addr(core_imem_addr), .imem_re(core_imem_re), .imem_rdata(imem_rdata),
       .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ui_in[7:3]), .ob_out(ob_out),
       .running(running), .ctx_state(ctx_state),

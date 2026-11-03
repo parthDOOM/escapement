@@ -35,6 +35,7 @@ module escapement_host (
     output reg  [25:0]  pin_owner,
     output reg  [7:0]   pin_od,
     output reg  [3:0]   ctx_bank,
+    output reg  [3:0]   ctx_pair,      // v1.7: WRITE_CFG byte 10 bits 7:4
     output reg  [3:0]   irq_clear,
     input  wire         running,
     input  wire [7:0]   ctx_state,
@@ -163,7 +164,7 @@ module escapement_host (
       host_err <= 1'b0;
       start <= 1'b0; stop <= 1'b0; irq_clear <= 4'd0;
       ctx_enable <= 4'd0; entry_pcs <= 32'd0; pin_owned <= 13'd0; pin_owner <= 26'd0;
-      pin_od <= 8'd0; ctx_bank <= 4'd0;
+      pin_od <= 8'd0; ctx_bank <= 4'd0; ctx_pair <= 4'd0;
       mem_we <= 1'b0; mem_addr <= 8'd0; mem_wdata <= 32'd0; mem_space <= 1'b0;
       dbg_ctx <= 2'd0; dbg_sel <= 5'd0;
       mbx_rx_push <= 4'd0; mbx_tx_pop <= 4'd0;
@@ -261,7 +262,7 @@ module escapement_host (
                   4'd8: pin_owner[7:0]   <= rx_byte;
                   4'd9: pin_od           <= rx_byte;
                   // v1.2 bank B; a 9-byte WRITE_CFG leaves these unchanged
-                  4'd10: ctx_bank          <= rx_byte[3:0];
+                  4'd10: begin ctx_bank <= rx_byte[3:0]; ctx_pair <= rx_byte[7:4]; end
                   4'd11: pin_owned[12:8]   <= rx_byte[4:0];
                   4'd12: pin_owner[25:24]  <= rx_byte[1:0];
                   4'd13: pin_owner[23:16]  <= rx_byte;
