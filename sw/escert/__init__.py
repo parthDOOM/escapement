@@ -678,9 +678,9 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     # tmr starts at 0: the first instruction sees lead tmr - now = -(k + 3).
     # v1.7 pair mode: a paired context also has slot k ^ 2, so its first fetch is in cycle
     # min(k, k ^ 2); it then commits every 2 ticks, except that the instruction after an
-    # LDT is not fetched early (4) and a wait that is not a WAITT retries every 4 (its early
-    # fetch of pc + 1 is discarded), so only WAITT and the step to the next instruction
-    # use the 2-tick period.
+    # LDT is not fetched early (4) and a wait retries every 4 (its early fetch of pc + 1 is
+    # discarded), so only the step to the next instruction uses the 2-tick period; the
+    # wait windows (WAITT tmr..tmr+3, ...) are v1.6's.
     paired = bool(getattr(image, "ctx_pair", [False] * 4)[ctx]) and not image.ctx_enable[ctx ^ 2]
     step = 2 if paired else SLOT
     first = (min(ctx, ctx ^ 2) if paired else ctx) + 3
@@ -936,14 +936,14 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             go(s, nxt)
         elif name == "WAITT":
             lo, hi = s.z.diff(TMR, NOW)              # lead
-            # completes at the first slot c' >= tmr: c' - tmr in [0, step - 1], or now if passed
+            # completes at the first slot c' >= tmr: c' - tmr in [0, 3], or now if passed
             t = s.copy()
             if t.z.constrain(TMR, NOW, 0):           # tmr <= now: immediate
                 go(t, nxt)
             t = s.copy()
-            if t.z.constrain(NOW, TMR, -1):          # tmr > now: wait until tmr..tmr+step-1
+            if t.z.constrain(NOW, TMR, -1):          # tmr > now: wait until tmr..tmr+3
                 t.z.assign(NOW, TMR, 0)
-                _advance(t, 0, step - 1)
+                _advance(t, 0, 3)
                 for i, r in enumerate(t.reg):
                     pass
                 go(t, nxt)

@@ -587,8 +587,8 @@ class Machine:
 
         v1.7: a paired context fetches while its previous instruction is one cycle from
         committing. If that instruction was fetched from the context's PC, the fetch uses
-        its next PC as computed from the state during t (exact for branches, RET, HALT and
-        WAITT; PC + 1 otherwise), and after an LDT the slot is skipped (§3)."""
+        its next PC as computed from the state during t (exact for branches, RET and HALT;
+        PC + 1 otherwise, WAITT included), and after an LDT the slot is skipped (§3)."""
         k = self._owner(t)
         x = self.ctx[k]
         if x.state != RUNNING:
@@ -607,7 +607,7 @@ class Machine:
                 pc = word & 0xFF
             elif name == "RET":
                 pc = x.lr
-            elif name == "HALT" or (name == "WAITT" and not reached((t + 1) & M32, x.tmr)):
+            elif name == "HALT":
                 pc = x.pc
             else:
                 pc = (x.pc + 1) & 0xFF

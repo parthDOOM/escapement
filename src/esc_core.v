@@ -846,7 +846,8 @@ module esc_core (
   // v1.7: a paired context fetches its next instruction while the one before it is in X
   // (fq == nq). The X instruction's state is final then (its predecessor committed at the
   // edge before), so its branch resolves exactly; a wait-class instruction is guessed to
-  // complete, except WAITT (rch_x is exact) and HALT (its own PC). A wrong guess costs a
+  // complete, except HALT (its own PC). (WAITT too: its reached test, a 32-bit compare on
+  // now, would sit on the program store's address path.) A wrong guess costs a
   // bubble (p3ok), never a wrong commit. After an LDT, whose load lands an edge after it
   // commits, the slot is skipped so X never reads a register before the load.
   wire [7:0]  x_pc   = c_pc[8*nq +: 8];
@@ -854,11 +855,10 @@ module esc_core (
   wire        x_z     = c_z[nq], x_c = c_c[nq];
   wire [15:0] x_lc    = c_lc[16*nq +: 16];
   wire [7:0]  x_lr    = c_lr[8*nq +: 8];
-  wire        rch_x   = (nd_now == 32'd0) | (nd_now[31] & (nd_now[30:0] != 31'd0));
   wire        x_jump  = d_op_n[I_JMP] | d_op_n[I_CALL] | (d_op_n[I_JZ] & x_z)
                       | (d_op_n[I_JNZ] & ~x_z) | (d_op_n[I_JC] & x_c) | (d_op_n[I_JNC] & ~x_c)
                       | (d_op_n[I_DJNZ] & (x_lc != 16'd1));
-  wire        x_stay  = d_op_n[I_HALT] | (d_op_n[I_WAITT] & ~rch_x);
+  wire        x_stay  = d_op_n[I_HALT];
   wire [7:0]  x_npc   = x_jump ? p2_insn[7:0] : d_op_n[I_RET] ? x_lr : x_stay ? x_pc
                       : x_pc + 8'd1;
   wire        f_chain = x_ok & (nq == fq);           // only a paired context, 2 slots apart

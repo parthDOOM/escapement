@@ -595,9 +595,10 @@ def test_pair_shipped_firmware_is_certified_and_telemetry_agrees(fw):
 
 def test_pair_bounds_on_straight_line_code():
     """Paired, a context commits every 2 ticks from cycle min(k, k ^ 2) + 3, and the
-    instruction after an LDT 4 ticks later: exact bounds. WAITT completes in the first of
-    the context's slots >= tmr; escert keeps the whole slot period (tmr .. tmr + 1 paired,
-    tmr + 3 unpaired), so its bound there is below the measured lead by up to 3 (1)."""
+    instruction after an LDT 4 ticks later: exact bounds. A WAITT that waits retries every
+    4 ticks from its first try, paired or not (its early fetch of pc + 1 is discarded);
+    escert keeps the whole window tmr .. tmr + 3, so its bound there is below the measured
+    lead by up to 3."""
     progs = {
         "plain": " ADDT 40\n NOP\n EMIT 1, 1, 1\n HALT\n",
         "ldt": " ADDT 40\n LDT r0, r3, 0\n EMIT 1, 1, 1\n HALT\n",
@@ -607,7 +608,7 @@ def test_pair_bounds_on_straight_line_code():
     # name -> ((bound, measured) unpaired, (bound, measured) paired)
     want = {"plain": ((40 - 13, 40 - 13), (40 - 7, 40 - 7)),
             "ldt": ((40 - 13, 40 - 13), (40 - 9, 40 - 9)),
-            "waitt": ((61 - 52, 61 - 49), (61 - 46, 61 - 45))}
+            "waitt": ((61 - 52, 61 - 49), (61 - 48, 61 - 45))}
     for name, body in progs.items():
         src = f".entry 2, s\n.own 0, 2\ns:\n{body}"
         for pair, (bound, lead) in zip((False, True), want[name]):
