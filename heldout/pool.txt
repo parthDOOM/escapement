@@ -1,0 +1,29 @@
+# Escapement held-out pool (2026-11-04). None of these is in firmware/ as of v1.6.
+# Eight are drawn at random from this pool and sealed (sha-256 of salt + list) before any
+# of them is written. Each drawn protocol is then written from its public specification,
+# certified by escert, co-simulated against an independent model, and run on the FPGA
+# bench; every outcome, failures included, is published when the list is opened.
+1  MIL-STD-1553B remote terminal (Manchester II, 1 Mbit/s)
+2  I2S transmitter (Philips format, 16-bit stereo)
+3  SDI-12 sensor (1200 baud, break and marking)
+4  MDIO, IEEE 802.3 clause 22 manager
+5  ISO 7816-3 smart card reader, T=0, ATR
+6  S/PDIF transmitter (IEC 60958, biphase mark)
+7  HDLC framing (flags, bit stuffing, CRC-16/X.25)
+8  SMBus host with PEC (CRC-8)
+9  Microwire, 93C46 EEPROM read and write
+10 DMX512 receiver
+11 MIDI receiver (31,250 baud, running status)
+12 TM1637 LED display driver (two-wire, not I2C)
+13 HD44780 LCD, 4-bit parallel interface
+14 DHT22 temperature and humidity sensor (one wire)
+15 SSI absolute encoder (synchronous serial interface)
+16 BiSS-C encoder interface
+17 KNX TP1 (9600 bit/s, bit coding and ack)
+18 IO-Link device, COM1 (4.8 kbit/s)
+19 PS/2 host (keyboard side reversed: the chip is the host)
+20 Nintendo 64 / GameCube controller (joybus, 4 us bits)
+21 SNES controller (latch and shift)
+22 Philips RC-MM infrared
+23 Profibus DP framing on RS-485 (11-bit characters)
+24 M-Bus (meter bus) slave, EN 13757-2 framing

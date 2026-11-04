@@ -33,10 +33,14 @@ def rand_ext(rng, w2, w3=None, w4=None):
             rng.getrandbits(32) if w4 is None else w4)
 
 
-def rand_cfg(rng):
-    """(w0, w1, w2, w3, w4) from a profile."""
-    prof = rng.choice(["usb", "usb", "can", "can", "rand", "rand", "rand", "bad",
+def rand_cfg(rng, force=None):
+    """(w0, w1, w2, w3, w4) from a profile (`force`: always that one; without it the
+    random stream is the same as before forced runs existed)."""
+    prof = force or rng.choice(["usb", "usb", "can", "can", "rand", "rand", "rand", "bad",
                        "eth", "spi", "pulse", "xrand", "xrand"])
+    canmon = prof == "canmon"                # (forced only) can with S = P - 1, F = 0
+    if canmon:
+        prof = "can"
     if prof == "eth":                          # 10BASE-T: Manchester half-bits, CRC-32, TP_IDL
         d, n = rng.sample(range(8), 2)
         w0 = (d | n << 3 | 1 << 9 | 1 << 11 | rng.choice([1, 3]) << 16 | rng.randint(0, 1) << 18
@@ -79,6 +83,8 @@ def rand_cfg(rng):
     P = rng.choice([8, 8, 9, 10, 12, 16, 16, 20, 33]) if rng.random() < 0.9 else rng.randint(8, 70)
     F = rng.choice([0, 0, rng.randint(0, 255), 255, 128])
     S = rng.randint(4, P - 1)
+    if canmon:                                 # the monitor samples in the cycle before a boundary
+        S, F = P - 1, 0
     if prof == "usb":
         d, n = rng.sample(range(8), 2)
         w0 = (d | n << 3 | 1 << 9 | 1 << 10 | 1 << 11 | 6 << 12 | rng.randint(0, 3) << 16
@@ -245,6 +251,7 @@ def scheduled_addr(lu: LineUnit, t: int):
 
 def main():
     seed, edges, out = int(sys.argv[1]), int(sys.argv[2]), Path(sys.argv[3])
+    force = sys.argv[4] if len(sys.argv) > 4 else None    # a profile for every config block
     out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
     tape = [rng.getrandbits(32) for _ in range(256)]
@@ -262,7 +269,7 @@ def main():
     # config blocks in the tape: refreshed now and then
     def new_cfg_block():
         a = rng.randint(0, 255)
-        w = rand_cfg(rng)
+        w = rand_cfg(rng, force)
         for i in range(5):
             tape[(a + i) & 0xFF] = w[i]
         return a

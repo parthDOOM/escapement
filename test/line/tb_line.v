@@ -1,6 +1,10 @@
 // Lockstep testbench for the line unit (src/esc_line.v): replays lockstep.py vectors and
 // compares every output with the ISS's, every cycle. The tape is modelled here as the
 // core's synchronous SRAM. W1..W4 load early during a CONFIG (no debug select shows them).
+// +stray=S (S > 0): in a quarter of the edges where the unit reads nothing, a read of a random
+// word changes rdata, as a host READ_TAPE or another context's LDT does in the cycles the
+// unit leaves the port free (tape_busy low): the unit must take read data only in the cycle
+// after a read of its own.
 `timescale 1ns/1ps
 `default_nettype none
 module tb_line;
@@ -29,7 +33,7 @@ module tb_line;
     .flt_config(flt_config), .send_rd(send_rd), .port(port), .port_we(port_we), .port_addr(port_addr),
     .port_wdata(port_wdata), .rel_m(rel_m), .drv_m(drv_m), .drv_val(drv_val), .drv_oe(drv_oe));
 
-  integer fd, n, line_no, errors;
+  integer fd, n, line_no, errors, stray, sseed, strays, rnd;
   reg [8*512-1:0] vecfile, tapefile;
   wire commit_rd = (op == 3'd5) | ((op == 3'd4) && opv[15:8] != 8'd0) | ((op == 3'd1) && send_rd);
 
@@ -44,6 +48,8 @@ module tb_line;
   initial begin
     if (!$value$plusargs("vec=%s", vecfile)) vecfile = "vec.txt";
     if (!$value$plusargs("tape=%s", tapefile)) tapefile = "tape.hex";
+    if (!$value$plusargs("stray=%d", stray)) stray = 0;
+    strays = 0; sseed = stray;                         // $random rewrites its seed
     $readmemh(tapefile, mem);
     fd = $fopen(vecfile, "r");
     errors = 0; line_no = 0;
@@ -96,12 +102,16 @@ module tb_line;
         #4 clk = 1;
         if (port && !port_we && !stop) rdata <= mem[port_addr];
         else if (commit_rd && !kill && !start) rdata <= mem[opv[7:0]];
+        else if (stray > 0 && !(port && !stop)) begin   // not in the unit's own write cycles
+          rnd = $random(sseed);
+          if (rnd[1:0] == 2'd0) begin rdata <= mem[rnd[15:8]]; strays = strays + 1; end
+        end
         if (port && port_we && !stop && !start) mem[port_addr] <= port_wdata;
         if (ewe) mem[eaddr] <= edata;
         #5 clk = 0;
       end
     end
-    $display("%0d edges, %0d errors", line_no, errors);
+    $display("%0d edges, %0d errors, %0d stray reads", line_no, errors, strays);
     $finish;
   end
 endmodule

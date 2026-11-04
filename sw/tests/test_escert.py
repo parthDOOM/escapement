@@ -119,6 +119,23 @@ def test_clock_parameterised_firmware_certifies_at_33_to_50_mhz(fw, khz):
     assert certs and all(c.status == "CHECKED" for c in certs), [str(c) for c in certs]
 
 
+# The lowest clock each program's own .assert admits (kHz). escert must certify there, and
+# 1 kHz less must not assemble: a guard looser than escert once let ws2812 build at 22.2
+# to 23.8 MHz, where escert finds a possible late edge (PER >= 28 checked only the bit
+# loop, not the work between LEDs).
+FLOOR_ASSERTS = {"i2c_ctrl": 23000, "ws2812": 23791, "servo": 1346, "swd_idcode": 20313,
+                 "sbus_rx": 3950, "ws2812_lu": 12000}
+
+
+@pytest.mark.parametrize("fw, khz", sorted(FLOOR_ASSERTS.items()))
+def test_clock_floor_assert_is_no_looser_than_escert(fw, khz):
+    src = f'.equ {fw}.CLK_KHZ, {{}}\n.include "{fw}.asm"\n'
+    certs = certify(assemble(src.format(khz), base_dir=FW))
+    assert certs and all(c.status == "CHECKED" for c in certs), [str(c) for c in certs]
+    with pytest.raises(AsmError, match="assertion failed"):
+        assemble(src.format(khz - 1), base_dir=FW)
+
+
 def test_concurrent_image_certifies_every_context():
     certs = certify(assemble_file(FW / "combo_uart_i2c.asm"))
     assert [c.status for c in certs] == ["CHECKED"] * 3

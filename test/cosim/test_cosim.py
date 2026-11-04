@@ -289,6 +289,10 @@ async def cosim_one(dut, name, image, board, max_ticks=MAX_TICKS, rtl_board=None
     all_commits, rtl_commits, rtl_pins, rtl_final = await run_rtl(
         dut, image, rtl_board or board, n_cycles, rtl_host, rtl_board_b or board_b, rtl_tape)
     errs = compare(name, image, m, rtl_commits, rtl_pins, rtl_final, dut._log)
+    if not m.commits and not all_commits:
+        # two empty runs agree trivially: a case that commits nothing is broken, not passed
+        errs.append("nothing compared: neither the ISS nor the RTL committed an instruction")
+        dut._log.error(f"[{name}] {errs[-1]}")
     if rtl_out is not None:
         rtl_out.update(rtl_final)
     if rtl_tape is not None:

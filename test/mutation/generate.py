@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generated RTL mutants for the mutation campaign (run_mutants.py).
 
-Every synthesisable line of the RTL, outside comments, `ifdef FORMAL` blocks, port lists
-and parameter definitions, is scanned for mutation sites. Each site is one classic fault:
+Every synthesisable line of the RTL, outside comments, verification-only `ifdef blocks
+(FORMAL and the formal-only macros in VERIFY_ONLY), port lists and parameter definitions, is scanned for mutation sites. Each site is one classic fault:
 
     rel    == and != swapped; < becomes <=; > becomes >=; >= becomes >
     logic  && and || swapped
@@ -30,6 +30,8 @@ FILES = ["esc_core.v", "esc_ctx.v", "esc_cap.v", "esc_line.v", "esc_greg.v", "es
          "escapement_sram.v", "project.v"]
 RATE = 0.30            # fraction of all sites taken; about 400 mutants on v1.3
 SALT = "escapement-mutation-1"
+# macros only formal/*.sby define: code under `ifdef of one of them is never synthesised
+VERIFY_ONLY = {"FORMAL", "FORMAL_ANYNOW", "ESC_LINE_CHECK", "ESC_AHEAD_CHECK", "ESC_CORE_PDR", "ESC_LREG_FORMAL"}
 
 SKIP_LINE = re.compile(r"^\s*(module|endmodule|input|output|inout|parameter|localparam|`|function|endfunction|"
                        r"task|endtask|genvar|integer|initial|always|\$|\);|\)\s*;)|\bfor\s*\(|_unused|"
@@ -66,7 +68,7 @@ def bracket_mask(code: str) -> list[bool]:
 
 
 def usable_lines(text: str):
-    """(lineno, line) of synthesisable code: no block comments, no FORMAL sections."""
+    """(lineno, line) of synthesisable code: no block comments, no verification-only sections."""
     in_block, stack = False, []
     for n, line in enumerate(text.splitlines(), 1):
         s = line.strip()
@@ -79,11 +81,11 @@ def usable_lines(text: str):
             continue
         m = re.match(r"`(ifdef|ifndef)\s+(\w+)", s)
         if m:
-            stack.append(m.group(2) == "FORMAL" if m.group(1) == "ifdef" else False)
+            stack.append(m.group(2) in VERIFY_ONLY if m.group(1) == "ifdef" else False)
             continue
         if s.startswith("`else"):
             if stack:
-                stack[-1] = False   # the else branch of an `ifdef FORMAL is synthesised
+                stack[-1] = False   # the else branch of a verification-only `ifdef is synthesised
             continue
         if s.startswith("`endif"):
             if stack:

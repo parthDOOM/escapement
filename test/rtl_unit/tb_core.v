@@ -77,6 +77,9 @@ module tb_core ();
       .tape_addr(tape_addr), .tape_re(tape_re), .tape_we(tape_we), .tape_wdata(tape_wdata),
       .tape_rdata(tape_rdata), .tape_busy(tape_busy), .tape_host_we(tl_we),
       .tape_ack(t_ack), .tape_ack_v(t_ack_v));
+  // Decode probe: the core's own legality function on any word (test_reserved_bits).
+  reg  [31:0] probe_insn = 32'd0;
+  wire        probe_illegal = u_core.illegal_of(probe_insn);
   escapement_sram u_tape (
       .clk(clk), .rst_n(rst_n),
       .addr(tl_we ? tl_addr : tape_addr), .re(tape_busy ? tape_re : 1'b0),

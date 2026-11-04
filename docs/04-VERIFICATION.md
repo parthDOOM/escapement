@@ -273,16 +273,27 @@ visible. Before any mutant is scored, every suite it needs must pass on the unmu
 RTL: a suite that cannot run (a tool or model problem) would otherwise fail for every
 mutant and read as kills.
 
-The campaign has 872 mutants across the whole RTL, the line unit included (745 before
-v1.6). Seventy are written by hand, each aimed at one feature (below). The other 802 are
+The harness checks itself as well (v1.6). After the baseline, each suite must fail on a
+**canary**, a fault it is known to see, and the equivalence check must prove a rewrite that
+changes nothing and refute one that changes an output, so a suite or a proof that can only
+say yes is caught before any mutant is scored. Every kill stores its **evidence**, the failing
+tests and the first assertion or mismatch, and a **kill audit** reruns a sample of kills with
+the killing suite alone and reads that evidence. A final **reconcile** checks that every
+selected mutant has exactly one result, that every kill names a suite and every exclusion
+has its argument. The line unit lockstep counts its own replayed edges and the stray tape
+reads it makes, and fails a run that replays fewer edges than it generated or makes none.
+
+The campaign has 836 mutants across the whole RTL, the line unit included (745 before
+v1.6). Seventy are written by hand, each aimed at one feature (below). The other 766 are
 generated
 (`test/mutation/generate.py`):
-every synthesisable line outside the formal blocks is scanned for classic fault sites
+every synthesisable line outside the verification-only blocks (`ifdef FORMAL` and the
+other macros only `formal/*.sby` defines) is scanned for classic fault sites
 (a comparison or logic operator swapped, an inversion dropped, an arithmetic operator
 swapped, a constant changed, an `if` condition negated, a register that keeps its value
 instead of taking an assignment), and a site is chosen when a hash of its file, operator
 and line text falls under a fixed rate (30%), so editing one line changes only that line's
-mutants. `--rate 1` takes every site, 2,592 mutants in all; that run is too long for CI
+mutants. `--rate 1` takes every site, 2,507 mutants in all; that run is too long for CI
 and is made locally, on lines that change.
 
 A mutant that every suite misses is then checked formally against the original RTL with
@@ -321,6 +332,56 @@ slot counter (a stale field, a wrong context, swapped fields, slots one context 
 and the original nineteen: inverted comparisons, off-by-one deadlines and pointers, a
 dropped polynomial term in the digest, a missing GETI wait, broken tape forwarding,
 capture rule changes and clock-gate enable errors.
+
+**Result (v1.6, every site on the lines v1.6 changed): 626 mutants, none surviving.** The
+campaign took every generated site on the lines v1.6 changed in `esc_core.v`, `esc_ctx.v`
+and `esc_line.v`, 230 at the default rate and 479 more at `--rate 1`, less 85 in
+verification-only blocks that the generator no longer mutates, and the two hand-written
+mutants moved onto v1.6's code. It ran locally on the standard-cell models, as CI runs
+mutants.
+
+| Outcome | Mutants |
+| --- | ---: |
+| Killed by the line unit lockstep | 355 |
+| Killed by the lockstep co-simulation | 160 |
+| Killed by the core unit tests | 41 |
+| Proved equivalent (`formal/equiv.sh`) | 22 |
+| Excluded, each with its written argument in `run_mutants.py` | 48 |
+
+No kill is a timeout. The kill audit reran 46 kills alone, 15 per suite and two chosen for
+dying within five seconds: 44 failed with an assertion or a mismatch against the reference.
+The two fast ones fail every co-simulation test because their LDT write strobe fires in
+almost every cycle and fills the registers with the tape's undefined read data, so the
+testbench stops on a non-0/1 value rather than at a comparison. That is a real difference
+(silicon would load arbitrary words where the simulator keeps defined values), found by X
+propagation.
+
+*What the survivors found.* Seven mutants survived the campaign without being equivalent.
+Each changed a line unit pin, port or status output in a case the line unit lockstep reached
+too rarely: the mutation harness ran that suite with 4 seeds where `make line-test` runs 8,
+and three cases need a configuration the random mix almost never builds. The harness now
+runs the suite exactly as `make line-test` does, and the suite ends with three profiled runs
+in which every configuration comes from one profile: 10BASE-T (an end-of-packet symbol of two
+cells after a 0 bit), SPI-like (an empty packet in a differential configuration without
+end-of-packet symbols) and CAN with the abort monitor sampling in the cycle before a
+boundary (S = P − 1). Seeds 1–8 drive exactly the stimulus they drove before, so no earlier
+kill changes. With that, all seven are killed: four by seeds 6 and 7 (the prefetch of a
+last word of one bit, the end-of-packet level after a configuration without `ext`, the second
+pin's idle level after a CONFIG, and the drive enable of an empty packet) and three only by
+the profiled runs (the symbol kind of an end-of-packet cell, the first segment of an empty
+packet, and the abort monitor's prediction). Every excluded line unit mutant was then run
+through the strengthened suite as well; none is killed by it.
+
+*The 48 exclusions* did not decide within the proof's 30 minutes and change no behaviour by
+argument: 30 change a value that is always written again before anything reads it (reset,
+START, kill, end-of-packet and CONFIG values: the core's operand registers, line unit
+registers read only in the transmit or receive modes or by a later job, and the CRC's low
+half, which no output shows); 6 add a
+tape read whose data nothing takes; 4 change the FIFO's head or ring position before
+anything reads through it; 4 change a value that gives the same result in every reachable
+state (a segment past the last, the next symbol's kind, a mode that is already IDLE);
+3 load the next-word buffer with a word that is overwritten before it is read; and 1 acts
+only when a FIFO head is past its deadline, which P2 proves never happens.
 
 **Result (v1.4): 653 of 653 scored mutants killed, none surviving.**
 

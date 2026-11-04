@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -236,7 +237,7 @@ EXCLUDED = {
     "esc_core_rel_b808cdef": P2,       # esc_core.v:491 cs_late suppression
     "esc_core_cond_6ee4183d": P2,      # esc_core.v:666 late_ctx priority
     "esc_core_const_f8680ed1": P2,     # esc_core.v:776 first-fault record of LATE_HEAD
-    "esc_ctx_stuck_dd1c44ac": P2,      # esc_ctx.v:328 late_q never set (it is never set anyway)
+    "esc_ctx_stuck_d10249cd": P2,      # esc_ctx.v:328 late_q never set (it is never set anyway)
     "escapement_sram_const_6c8bc178": "A_DLY is the SRAM macro's delay-select tie (must be 1); it has no "
                                       "function in any model, and the macro model flags any other value",
     "escapement_sram_const_8907efe9": "A_BIST_REN is read only in the macro's BIST mode, which A_BIST_EN = 0 "
@@ -271,20 +272,20 @@ EXCLUDED = {
     # an extra tape read: the SRAM holds its read data until the next read, and every consumer
     # takes it only in the cycle after a read of its own (an LDT's result through ld_v, the line
     # unit's words through ld and cfg_done); a write wins over a read in the same cycle
-    "esc_core_bit_51bc08b7": "an extra tape read in the commit cycle of a SEND or LINE that reads nothing "
+    "esc_core_bit_7f724999": "an extra tape read in the commit cycle of a SEND or LINE that reads nothing "
                              "(OFF, RECV, an empty CRC job): read data is taken only after a read of its own",
-    "esc_core_bit_8fe3751e": "an extra tape read in STT cycles (the write wins) and in cycles that decode an "
+    "esc_core_bit_e2dd9694": "an extra tape read in STT cycles (the write wins) and in cycles that decode an "
                              "LDT without committing it: read data is taken only after a read of its own",
-    "esc_core_bit_ebbc1fa1": "an extra tape read in SEND and LINE commit cycles that do not complete (WAIT): read "
+    "esc_core_bit_76bf3f7c": "an extra tape read in SEND and LINE commit cycles that do not complete (WAIT): read "
                              "data is taken only after a read of its own",
     "esc_core_const_3b43f805": "ld_ctx is read only with ld_v (the LDT write-back and q_ldk), and every cycle that "
                                "sets ld_v loads ld_ctx: its reset value is never read",
     "esc_core_const_ab23e9a0": "with dcs_ok set at reset the first read of select 0 of context 0 returns the "
                                "cached 0 (dbg_cs and its tag reset to 0) instead of reloading r0, which is 0 from "
                                "reset until the first START; a run clears dcs_ok",
-    "esc_line_const_1cc7dbd4": "buf_q is loaded before every read: from the tape when a CONFIG, a CRC job or a "
+    "esc_line_const_7268434e": "buf_q is loaded before every read: from the tape when a CONFIG, a CRC job or a "
                                "packet with data starts, and cleared when a reception starts",
-    "esc_line_const_fdd2c4ea": "req is read only in TX (tx_rd) and RX (rx_wr); TX is entered only through PEND, "
+    "esc_line_const_19efdba1": "req is read only in TX (tx_rd) and RX (rx_wr); TX is entered only through PEND, "
                                "whose SEND clears req, and a reception start clears it: START's value is unread",
     "esc_line_const_2b577159": "req after OFF: read only in TX and RX, both entered through a SEND or a reception "
                                "start, which clear it",
@@ -295,24 +296,139 @@ EXCLUDED = {
                              "committing context is never the owner then, so < and <= never differ",
     "esc_core_stuck_6acae8c8": "dcs_ok never set: dbg_cs reloads at every stopped cycle instead of on a new "
                                "select, loading the value it holds (power, not function)",
-    "esc_line_const_fccc419c": "req at reset: read only in TX and RX, entered through a SEND or a reception start, "
+    "esc_line_const_dee5a8c3": "req at reset: read only in TX and RX, entered through a SEND or a reception start, "
                                "which clear it",
-    "esc_line_const_81d1cd0b": "req after a packet ends: read only in TX and RX, entered through a SEND or a "
+    "esc_line_const_1f89dc5f": "req after a packet ends: read only in TX and RX, entered through a SEND or a "
                                "reception start, which clear it",
-    "esc_line_const_a94c624a": "seg is read only in TX (eseg), and the SEND that enters PEND sets it to 0",
-    "esc_line_const_ddcb06f4": "mon is read only in TX (tx_mon), and the SEND that enters PEND clears it",
+    "esc_line_const_2fbce3b2": "seg is read only in TX (eseg), and the SEND that enters PEND sets it to 0",
+    "esc_line_const_4bca0710": "mon is read only in TX (tx_mon), and the SEND that enters PEND clears it",
     "esc_line_const_c59b623f": "mon left set after a monitor sample: el reaches the sample point once per bit, and "
                                "the next boundary sets mon again (a line bit) or clears it (the end); EOP symbols, "
                                "which keep it, exist only with diff, where the monitor is off",
     "esc_line_const_575cb32a": "stor is read only in RX mode (through rx_smp), and every entry to RX sets it to 1, "
                                "so its reset value is never read",
-    "esc_line_const_f5ce76cf": "rb is read only while the stuffing run rn is nonzero (push(), and sb through due, "
+    "esc_line_const_77af8c64": "rb is read only while the stuffing run rn is nonzero (push(), and sb through due, "
                                "which needs rn >= N > 0); SEND sets rn to 0, and the first bit loads rb",
     "esc_line_const_437dd9b7": "rb is read only while the stuffing run rn is nonzero (push(), and sb through due, "
                                "which needs rn >= N > 0); the start of a reception sets rn to 0, and the first "
                                "bit loads rb",
+    # v1.6 core and context (used only where the equivalence proof is undecided)
+    "esc_core_const_f4a3ecbd": "z_src 5 is no case of the Z mux: as with 4, w_z keeps its preset and w_z_we "
+                               "(z_src != 0) is set",
+    "esc_core_const_2755ed32": "z_src 5 is no case of the Z mux: as with 4, w_z keeps its preset and w_z_we "
+                               "(z_src != 0) is set",
+    "esc_core_bit_33d58375": "an extra tape read in the commit cycle of a SEND that reads no stream word: read "
+                             "data is taken only after a read of its own (lu_rd_c acts only with lu_cmc)",
+    "esc_core_bit_ef1d2c41": "an extra tape read in the commit cycle of a SEND or LINE that reads nothing: read "
+                             "data is taken only after a read of its own (lu_rd_c acts only with lu_cmc)",
+    "esc_core_const_936aafc6": "the decode registers reload at every edge, so their reset values live one cycle; "
+                               "they are read only through commit_valid (run, p3v), clear until a START, which "
+                               "takes a whole SPI frame",
+    "esc_core_const_26218697": "the decode registers reload at every edge, so their reset values live one cycle; "
+                               "they are read only through commit_valid (run, p3v), clear until a START, which "
+                               "takes a whole SPI frame",
+    "esc_core_const_91f32f2c": "the operand registers reload at every edge, so their reset values live one cycle; "
+                               "they are read only through commit_valid (run, p3v), clear until a START, which "
+                               "takes a whole SPI frame",
+    "esc_core_const_5ca4b979": "the operand registers reload at every edge, so their reset values live one cycle; "
+                               "they are read only through commit_valid (run, p3v), clear until a START, which "
+                               "takes a whole SPI frame",
+    "esc_ctx_const_d6ce0679": "h_q is read only while the FIFO is not empty (D3), and the push into an empty FIFO "
+                              "loads it (h_n takes the pushed entry); reset leaves the FIFO empty",
+    "esc_ctx_const_cff87bc8": "h_q is read only while the FIFO is not empty (D3), and the push into an empty FIFO "
+                              "loads it (h_n takes the pushed entry); START empties the FIFO",
+    # v1.6 reset values in the line unit (the clock gate and START leave these): no op reaches
+    # the unit before a run, and START clears ld, ldn, req, reqn, fin, crc, job, cause and count
+    "esc_line_const_a2b612e3": "ld set at reset opens the unit's clock for one idle edge, which clears it and "
+                               "rewrites es_q, pb_q, sl_q and dq_*: those are read only in TX, and the SEND edge "
+                               "that leads there rewrites them",
+    "esc_line_const_f6e9ae9b": "crc's reset value lives until START clears it; before a run only status shows crc, as "
+                               "crc[31:16], which 32'd1 does not change",
+    "esc_line_const_056a859a": "lv is read only in TX (levels, monitor) and RX (NRZI reference), and both entries set "
+                               "it: the SEND that enters PEND and the start of a reception",
+    "esc_line_const_259e56f7": "pos is read only in PEND and TX (bit index, segment ends, the TX read address), "
+                               "directly or through es_q/pb_q/sl_q, and the SEND that enters PEND sets it to 0",
+    "esc_line_const_f2ede909": "cel is read only in TX (lastc, the next cell's levels, dq_val, which drives only "
+                               "after a TX edge set dq_go), and the SEND that enters PEND sets it to 0",
+    "esc_line_const_75ae91da": "sk is read only in TX (the next cell's levels, dq_val, which drives only after a TX "
+                               "edge set dq_go), and the PEND to TX edge (tx_start, a boundary) loads it from k_s",
+    "esc_line_const_4a93e9bf": "reqn acts only with tx_rd (ldn), which needs TX and req, and the SEND that enters "
+                               "PEND clears it, as START does",
+    "esc_line_const_fd86d304": "abt is read only at TX boundaries and in TX's dq_val (tx_start, tx_bnd, the monitor), "
+                               "and the SEND that enters PEND clears it",
+    "esc_line_const_7a29a77f": "pbx_q is read only through v0, the pins at tx_start (PEND), and the SEND that enters "
+                               "PEND loads it (pbx_v)",
+    "esc_line_const_4da28994": "es0_q is read only through b0, k0 and v0, the pins at tx_start (PEND), and the SEND "
+                               "that enters PEND loads it (es0_v)",
+    "esc_line_const_4cd3abe2": "ld set by START: START leaves the unit IDLE, where ld acts only on pb_q (through sbit) "
+                               "and the clock enable (an edge that rewrites es_q, pb_q, sl_q, dq_*); the CONFIG words, "
+                               "buf_q and nxt_q load only in CFG, CRCM, PEND, TX; pb_q and the rest are read only in "
+                               "TX, and the edge that leaves IDLE rewrites ld, as in a2b612e3",
+    "esc_line_const_0aaa2d36": "reqn set by START: reqn acts only with tx_rd (ldn), which needs TX, and the SEND "
+                               "that enters PEND (the only way to TX) clears it, as in 4a93e9bf",
+    "esc_line_const_1e1a90fe": "crc set to 1 by START: status shows crc[31:16], 0 either way; the other bits are read "
+                               "only in CRCM (crc_b), TX (crcx, crc_nx) and RX (crc_nx), and every entry loads crc "
+                               "first (op_crc: crc_start or crc_w, which in IDLE comes from crc_start; tx_start; "
+                               "arm_go)",
+    "esc_line_const_6d12954f": "cel set to 1 by the SEND: cel is read only in TX (lastc, and through lc_n and sym_n "
+                               "only dq_*, which drive only after a TX edge set dq_go), and the PEND to TX edge "
+                               "(tx_start, a boundary) sets it to 0; only the formal PEND lemma (cel == 0) sees it",
+    "esc_line_stuck_b6827db4": "mode kept at rx_none (a RECV with cells > 1): a RECV commits only while the unit is "
+                               "not engaged (LI, proved in esc_core), so in IDLE or ARM; ARM is entered only by a "
+                               "RECV with cells = 0, and cells (W3, with ext in W2) changes only in CFG, which "
+                               "leaves ARM, so at rx_none mode is already IDLE",
+    "esc_line_const_b48f6a1b": "reqn set at the end of a packet (t_end, mode IDLE): as 0aaa2d36 (only tx_rd, in TX, "
+                               "reads it, and the SEND that enters PEND clears it)",
+    "esc_line_const_51138270": "mon set at the end of a packet (t_end, mode IDLE): mon is read only in TX (tx_mon), "
+                               "and the SEND that enters PEND clears it",
+    "esc_line_const_18738a78": "xf's low half 1 instead of 0: xf feeds only crc_w, which only writes crc (a CRC job "
+                               "with the wire flag); crc[15:0] is never seen: status shows crc[31:16], and CRCM, TX "
+                               "and RX load crc on entry (as 1e1a90fe)",
+    "esc_line_bit_620516ec": "tln = ~abt_n & due & (es_c <= 3): tln only selects kn = tln ? 0 : k_s, and k_s is 0 "
+                             "whenever t_line holds. dq_* drive only after a TX cycle set dq_go, so they come from "
+                             "the cycle before a boundary, where es_q == es_c (L2) and tx_start is 0 (PEND sets no "
+                             "dq_go), and abt_n implies abt. The mutated tln differs only with tln = 1 (a line or "
+                             "stuff bit next, no abort), where t_line = 1, k_s = 0 and kn = 0 either way",
+    "esc_line_bit_eaccbc7a": "send_rd set for every ext SEND, also one with no stream bits: the core then reads "
+                             "the tape in that SEND's commit cycle, which is busy for the SEND anyway (lu_tb), and the "
+                             "read data is taken only after a read of its own (as esc_core_bit_33d58375); in the unit "
+                             "ld = 1 in PEND loads buf_q, which a packet without stream bits never reads, and every "
+                             "next job reloads it (RECV clears it, CONFIG, CRC and SEND load it from their own reads)",
+    "esc_line_not_53d6b93e": "tln = abt_n & (...): as 620516ec, tln only selects kn = tln ? 0 : k_s; kn reaches "
+                             "dq_* only at a symbol boundary with ten = 0, so abt_n = 0, where the mutated tln is 0 "
+                             "and the original tln equals t_line (es_q == es_c, L2), and then k_s = 0: kn = 0 "
+                             "either way",
+    "esc_line_const_99e92063": "seg = eseg + 2 (6) after the last end-of-packet symbol: seg is read only through "
+                               "first_seg(seg, sen), which gives 5 (the end) for any seg above 4, as for 5",
+    "esc_line_const_bc3559fc": "pos = 1 after the last end-of-packet symbol: the next boundary ends the packet (or "
+                               "inserts a stuff bit, which reads no pos), nothing reads pos in IDLE, and the SEND "
+                               "that enters PEND sets it to 0",
+    "esc_line_const_dbb16f8e": "crc set to 1 by a CONFIG without init: as 1e1a90fe (status shows crc[31:16], 0 either "
+                               "way; CRCM, TX and RX load crc on entry)",
+    # the kill branch leaves the unit IDLE, as START does, keeping the rest of its state
+    "esc_line_const_76aabe1d": "reqn set by a kill: as 0aaa2d36 (only tx_rd reads it, and the SEND that enters "
+                               "PEND clears it)",
+    "esc_line_const_f61f5137": "req set by a kill: req is read only in TX (tx_rd) and RX (rx_wr); the SEND that "
+                               "enters PEND (the only way to TX) and arm_go (the only way to RX) clear it, and "
+                               "ARM, CFG and CRCM do not read it",
+    "esc_line_const_1f631023": "ld set by a kill: as 4cd3abe2 (IDLE, one more clock edge that rewrites only es_q, "
+                               "pb_q, sl_q, dq_* and ld, ldn; dq_* drive only in TX after dq_go, the others are read "
+                               "only at TX boundaries, and the edge that leaves IDLE rewrites ld)",
+    # v1.6 next-word buffer: nxt_q is read only at bit 31 of an ext word with bits to come
+    # (buf_q <= nxt_q), and such a word had its prefetch at bit 15 (pos + 17 < nb), whose read
+    # loads nxt_q within 5 cycles, at least 32 before bit 31 (P >= 2): any other load of
+    # nxt_q is overwritten before it is read. (The write enable's other mutants die in the
+    # line suite since tb_line.v makes stray tape reads, v1.6.)
+    "esc_line_const_b76e9314": "nxt_q's reset value: overwritten by the bit-15 prefetch before bit 31 reads it",
+    "esc_line_rel_2d72ab9c": "mode != PEND also loads nxt_q after a prefetch read whose edge ended the packet "
+                             "(OFF, CONFIG, RECV, CRC): the next read needs a new packet's own prefetch",
+    "esc_line_bit_9ab735b4": "ld | ldn also loads nxt_q with a packet's first word, with every word of a packet "
+                             "without ext (which never reads it), and after a prefetch read whose edge ended the "
+                             "packet: bit 31 reads it only after the bit-15 prefetch",
     # v1.5 (undecided by the 30-minute equivalence proof since the head tests became registers)
-    "esc_ctx_const_1b7ca694": "the FIFO is a ring addressed only relative to head (wr_idx, tail_idx, GETI's rel, "
+    "esc_ctx_const_8ab6a6d1": "head's reset value lives until START sets it: nothing is pushed before a run, and "
+                              "with the FIFO empty every read of a slot is gated off by the count",
+    "esc_ctx_const_3be0d007": "the FIFO is a ring addressed only relative to head (wr_idx, tail_idx, GETI's rel, "
                               "the next head's tests), START empties it, and every read of a slot is gated by the "
                               "count (n_keep, rel < cnt, due, the core's tail tests under cs_cnta != 0): the slot "
                               "a run starts from changes no output",
@@ -380,13 +496,15 @@ def apply(m: Mutant, src: Path) -> str | None:
     return None
 
 
-def run_suite(suite: str, src: Path, work: Path, seeds: int) -> str:
+def run_suite(suite: str, src: Path, work: Path, seeds: int, limit: float | None = None) -> str:
     """'pass', 'fail', 'timeout' or 'compile-error' for one suite on the mutated tree."""
-    d, extra, limit = SUITES[suite]
-    limit = max(limit, TIMEOUT_FACTOR * BASE_SECS.get(suite, 0))
+    d, extra, fixed = SUITES[suite]
+    limit = limit or max(fixed, TIMEOUT_FACTOR * BASE_SECS.get(suite, 0))
     cwd = REPO / d
     if suite == "line":
-        cmd = [sys.executable, str(cwd / "run.py"), "--src", str(src), "--seeds", "4", "--jobs", "1"]
+        # as `make line-test` runs it: 8 seeds and the profiled runs (v1.6: it ran 4 seeds and no
+        # profiled run, which let esc_line_const_68ee4056 and esc_line_stuck_8d8db8fe through)
+        cmd = [sys.executable, str(cwd / "run.py"), "--src", str(src), "--seeds", "8", "--jobs", "1"]
         try:
             r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=limit)
         except subprocess.TimeoutExpired:
@@ -448,6 +566,87 @@ def equivalent(src: Path, work: Path) -> tuple[bool, str]:
     return False, f"equivalence: check did not run (exit {r.returncode})"
 
 
+def kill_evidence(suite: str, work: Path) -> str:
+    """What a failing suite reported, so a kill can be audited: the failing tests and the
+    first assertion (cocotb), or the failing seeds and first mismatch (line lockstep). A kill
+    with no assertion and no mismatch (a crash) says so."""
+    log = work / f"{suite}.log"
+    text = log.read_text(errors="replace") if log.exists() else ""
+    if suite == "line":
+        keep = [ln.strip() for ln in text.splitlines()
+                if re.match(r"seed \d+: \d+ errors", ln.strip()) or re.match(r"line \d+ t=", ln.strip())]
+    else:
+        fails = [ln.split()[1] for ln in text.splitlines()
+                 if ln.strip().startswith("**") and " FAIL " in ln and "TESTS=" not in ln]
+        first = next((ln.strip() for ln in text.splitlines()
+                      if "AssertionError" in ln or "assert " in ln.lower() and "Error" in ln), "")
+        keep = ([f"failed: {', '.join(fails)}"] if fails else []) + ([first] if first else [])
+    return " | ".join(keep)[:400] or "no assertion or mismatch in the log (a crash or abort)"
+
+
+# Canaries (v1.6). Before any mutant is scored, each suite must catch a fault it is known
+# to see, and the equivalence check must prove a rewrite that changes nothing and refute one
+# that changes an output. The baseline shows a suite can pass; a canary shows it can fail
+# for the right reason, and the proof can say both yes and no. (2026-11: the proof's tools
+# were off PATH for a whole local run; every survivor read "check did not run" and nothing
+# else complained.)
+CANARY = {   # suite -> (file, old, new): a fault that suite must catch
+    "line": ("esc_line.v", "drv_m = claimed; drv_val = dq_val;", "drv_m = claimed; drv_val = ~dq_val;"),
+    "cosim": ("esc_core.v", "w_rd_data = {16'd0, f_imm16};", "w_rd_data = {16'd0, ~f_imm16};"),
+    "unit": ("esc_core.v", "w_rd_data = {16'd0, f_imm16};", "w_rd_data = {16'd0, ~f_imm16};"),
+    "host": ("escapement_host.v", "localparam [3:0] VERSION = 4'h8;", "localparam [3:0] VERSION = 4'h7;"),
+    "chip": ("escapement_host.v", "localparam [3:0] VERSION = 4'h8;", "localparam [3:0] VERSION = 4'h7;"),
+    "pins": ("project.v", "assign uo_out = {ob_out, running, |irq_pending | fault_valid, miso};",
+             "assign uo_out = {ob_out, running, |irq_pending | fault_valid, ~miso};"),
+}
+CANARY_SAME = ("esc_line.v", "else if (!lu_hold && nx_we)  nxt_q <= rdata;",
+               "else if (nx_we && !lu_hold)  nxt_q <= rdata;")        # must be proved equivalent
+CANARY_DIFF = CANARY["pins"]                                           # must be refuted
+
+
+def canaries(suites: set[str], seeds: int, root: Path, jobs: int, do_equiv: bool) -> bool:
+    def one(name, f, old, new, check):
+        work = root / f"canary_{name}"
+        src = work / "src"
+        shutil.copytree(REPO / "src", src)
+        bad = apply(Mutant(name, f, old, new, name, "curated"), src)
+        if bad:
+            return name, False, f"the canary did not apply ({bad})"
+        return (name,) + check(src, work)
+
+    def caught(s):
+        return lambda src, work: ((r := run_suite(s, src, work, seeds)) == "fail",
+                                  f"{r}: {kill_evidence(s, work) if r == 'fail' else ''}")
+    tasks = [(f"suite_{s}",) + CANARY[s] + (caught(s),) for s in sorted(suites)]
+    if do_equiv:
+        tasks.append(("equiv_same",) + CANARY_SAME + (lambda src, work: equivalent(src, work),))
+        tasks.append(("equiv_diff",) + CANARY_DIFF +
+                     (lambda src, work: ((n := equivalent(src, work)[1]).endswith("(a test hole)"), n),))
+    with ThreadPoolExecutor(max(1, min(jobs, len(tasks)))) as pool:
+        got = list(pool.map(lambda t: one(*t), tasks))
+    for name, ok, note in got:
+        print(f"canary {name:12s} {'ok' if ok else 'FAILED'}  {note}", flush=True)
+    return all(ok for _, ok, _ in got)
+
+
+def reconcile(ids: list[str], rows: list[dict]) -> list[str]:
+    """Problems that would make a campaign's counts wrong: a mutant with no final result or
+    with two, a result for a mutant not in the list, a kill with no suite, an exclusion with
+    no written argument, a survivor."""
+    probs, seen = [], Counter(r["id"] for r in rows)
+    probs += [f"{i}: {n} results" for i, n in seen.items() if n > 1]
+    probs += [f"{i}: no result" for i in ids if i not in seen]
+    probs += [f"{i}: not in the mutant list" for i in seen if i not in set(ids)]
+    for r in rows:
+        if r["result"] == "KILLED" and not r.get("killed_by"):
+            probs.append(f"{r['id']}: killed by no suite")
+        elif r["result"] == "EXCLUDED" and r["id"] not in EXCLUDED:
+            probs.append(f"{r['id']}: excluded with no argument in EXCLUDED")
+        elif r["result"] not in ("KILLED", "EQUIVALENT", "EXCLUDED"):
+            probs.append(f"{r['id']}: {r['result']} {r.get('note') or ''}")
+    return probs
+
+
 def run_one(m: Mutant, seeds: int, root: Path, do_equiv: bool) -> dict:
     t0 = time.time()
     work = root / m.id
@@ -466,6 +665,7 @@ def run_one(m: Mutant, seeds: int, root: Path, do_equiv: bool) -> dict:
             break
         if r in ("fail", "timeout"):
             result, killed_by = "KILLED", suite + (" (timeout)" if r == "timeout" else "")
+            res["evidence"] = kill_evidence(suite, work) if r == "fail" else "timeout"
             break
     note = None
     if result == "SURVIVED" and m.id in EXCLUDED:
@@ -486,8 +686,10 @@ def baseline(suites: set[str], seeds: int, root: Path, jobs: int) -> bool:
     src = root / "baseline" / "src"
     shutil.copytree(REPO / "src", src)
     def timed(s):
+        # the baseline only measures, so it gets TIMEOUT_FACTOR times the fixed limit: the
+        # pins suite takes ~1,840 s on a quiet machine, and a busy one ran it past 2,400 s
         t0 = time.time()
-        r = run_suite(s, src, root / "baseline", seeds)
+        r = run_suite(s, src, root / "baseline", seeds, limit=TIMEOUT_FACTOR * SUITES[s][2])
         BASE_SECS[s] = time.time() - t0
         return r
     with ThreadPoolExecutor(max(1, min(jobs, len(suites)))) as pool:
@@ -495,8 +697,10 @@ def baseline(suites: set[str], seeds: int, root: Path, jobs: int) -> bool:
     for s, r in sorted(got.items()):
         limit = max(SUITES[s][2], TIMEOUT_FACTOR * BASE_SECS[s])
         print(f"baseline {s:6s} {r}  {BASE_SECS[s]:.0f} s, limit per mutant {limit:.0f} s", flush=True)
-        if r != "pass":
-            print("".join((root / "baseline" / f"{s}.log").read_text().splitlines(True)[-60:]), flush=True)
+        log = root / "baseline" / f"{s}.log"
+        if r != "pass":              # a suite that timed out wrote no log
+            print("".join(log.read_text().splitlines(True)[-60:]) if log.exists()
+                  else f"(no {s}.log: the suite {r})", flush=True)
     return all(r == "pass" for r in got.values())
 
 
@@ -531,6 +735,11 @@ def main() -> int:
     ap.add_argument("--recheck", action="store_true",
                     help="with --progress: rerun only the equivalence check of the survivors it holds")
     ap.add_argument("--list", action="store_true", help="list the mutants and exit")
+    ap.add_argument("--no-canary", action="store_true", help="skip the canaries after the baseline")
+    ap.add_argument("--canaries-only", action="store_true",
+                    help="run the baseline and the canaries of the selected mutants' suites, then exit")
+    ap.add_argument("--reconcile", action="store_true",
+                    help="check that every selected mutant has exactly one final result in --progress")
     ap.add_argument("--rate", type=float, default=generate.RATE,
                     help=f"fraction of the generated sites taken (default {generate.RATE}; 1 takes every site)")
     args = ap.parse_args()
@@ -539,13 +748,26 @@ def main() -> int:
         prog = Path(args.progress)
         rows = [json.loads(line) for line in prog.read_text().splitlines() if line.strip()]
         byid = {m.id: m for m in all_mutants(args.rate)}
-        todo = [r for r in rows if r["result"] == "SURVIVED" and r["id"] in byid and not r.get("rechecked")]
+        # a proof first; an argued exclusion only where the proof is undecided (as in a run).
+        # Survivors whose proof already ran out of time are not proved again.
+        tried = [r for r in rows if r["result"] == "SURVIVED" and r["id"] in EXCLUDED
+                 and (r.get("note") or "").startswith("equivalence: undecided")]
+        for r in tried:
+            r.update({"result": "EXCLUDED", "note": EXCLUDED[r["id"]]})
+            print(f"{'EXCLUDED':13s} {r['id']:34s} (proof undecided earlier)  {r['desc']}", flush=True)
+        if tried:
+            prog.write_text("".join(json.dumps(x) + "\n" for x in rows))
+        todo = [r for r in rows if r["result"] == "SURVIVED" and r["id"] in byid and not r.get("rechecked")
+                and not (r.get("note") or "").startswith("equivalence: undecided")]
         print(f"rechecking {len(todo)} survivors, {args.jobs} at a time", flush=True)
         with tempfile.TemporaryDirectory(prefix="escmut_") as td, ThreadPoolExecutor(max(1, args.jobs)) as pool:
             futs = {pool.submit(recheck_one, byid[r["id"]], Path(td)): r for r in todo}
             for f in as_completed(futs):
                 r = futs[f]
                 r.update(f.result())
+                if r["result"] == "SURVIVED" and r["id"] in EXCLUDED \
+                        and r["note"].startswith("equivalence: undecided"):
+                    r.update({"result": "EXCLUDED", "note": EXCLUDED[r["id"]]})
                 r["rechecked"] = True
                 print(f"{r['result']:13s} {r['id']:34s} {r['note']}  {r['desc']}", flush=True)
                 prog.write_text("".join(json.dumps(x) + "\n" for x in rows))   # keep each result
@@ -561,6 +783,12 @@ def main() -> int:
     if args.shard:
         i, n = map(int, args.shard.split("/"))
         ms = ms[i::n]
+    if args.reconcile:
+        rows = [json.loads(line) for line in Path(args.progress).read_text().splitlines() if line.strip()]
+        probs = reconcile([m.id for m in ms], rows)
+        print("\n".join(probs) if probs else f"{len(ms)} mutants, each with one final result")
+        print(Counter(r["result"] for r in rows if r["id"] in {m.id for m in ms}))
+        return 1 if probs else 0
     if args.list:
         for m in ms:
             print(f"{m.id:34s} {m.desc}")
@@ -580,9 +808,16 @@ def main() -> int:
     jobs = max(1, min(args.jobs, len(ms) or 1))
     print(f"{len(ms)} mutants, {jobs} at a time", flush=True)
     with tempfile.TemporaryDirectory(prefix="escmut_") as td, ThreadPoolExecutor(jobs) as pool:
-        if ms and not args.no_baseline and                 not baseline({s for m in ms for s in PIPELINE.get(m.file, CORE_PIPELINE)}, args.seeds, Path(td), jobs):
+        need = {s for m in (ms or all_mutants(args.rate)) for s in PIPELINE.get(m.file, CORE_PIPELINE)}
+        if (ms or args.canaries_only) and not args.no_baseline and not baseline(need, args.seeds, Path(td), jobs):
             print("the unmutated RTL fails a suite: no mutant is scored")
             return 2
+        if (ms or args.canaries_only) and not args.no_canary \
+                and not canaries(need, args.seeds, Path(td), jobs, not args.no_equiv):
+            print("a canary was not caught: the suites or the proof cannot be trusted, no mutant is scored")
+            return 2
+        if args.canaries_only:
+            return 0
         futs = [pool.submit(run_one, m, args.seeds, Path(td), not args.no_equiv) for m in ms]
         for f in as_completed(futs):
             r = f.result()

@@ -19,7 +19,7 @@
 .equ T0H, (2 * CLK_KHZ + 2500) // 5000      ; 0.4 us
 .equ T1H, (4 * CLK_KHZ + 2500) // 5000      ; 0.8 us
 .equ PER, (31 * CLK_KHZ + 12500) // 25000   ; 1.24 us
-.assert PER >= 28, the bit loop takes 28 ticks (CLK_KHZ >= 22178)
+.assert PER >= 30, 28 ticks a bit plus the work between LEDs: escert certifies from PER 30 (CLK_KHZ >= 23791)
 
 .entry CTX, main
 .own   PIN, CTX

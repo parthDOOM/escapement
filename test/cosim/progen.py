@@ -279,7 +279,9 @@ def gen_context(rng: random.Random, k: int, owned: list[int], length: int,
         elif r < 0.97:
             lines.append("    NOP")
         elif r < 0.985:
-            # Raw word: random valid opcode with random payload, or pure garbage.
+            # Raw word, uniform over all 2^32: mostly unknown opcodes or reserved bits set
+            # (ILLEGAL). Each opcode comes up in about one raw word in 256, so the reserved
+            # bits of every opcode are checked in test/rtl_unit (test_reserved_bits_*).
             lines.append(f"    .word 0x{rng.randrange(1 << 32):08x}")
         else:
             lines.append("    HALT")

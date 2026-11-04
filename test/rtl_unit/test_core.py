@@ -581,6 +581,75 @@ async def test_illegal(dut):
         assert env.trace[-1]["state"] == 0xFF
 
 
+def _iss_illegal(word):
+    """The ISS's decode (reserved bits from isa/isa.yaml's field lists, not from the RTL)."""
+    from esciss.decode import decode
+    return decode(word) is None
+
+
+@cocotb.test()
+async def test_reserved_bits_decode(dut):
+    """The core's legality function against the ISS for all 256 opcode values, each with
+    payload 0, every single payload bit, all payload bits and 16 random payloads."""
+    import random
+    rng = random.Random(7)
+    env = await new_env(dut)
+    bad = []
+    for op in range(256):
+        payloads = [0, 0xFFFFFF] + [1 << b for b in range(24)] + \
+                   [rng.randrange(1 << 24) for _ in range(16)]
+        for p in payloads:
+            w = (op << 24) | p
+            env.dut.probe_insn.value = w
+            await Timer(1, unit="ns")
+            if iv(env.dut.probe_illegal) != _iss_illegal(w):
+                bad.append(f"{w:#010x}: core {iv(env.dut.probe_illegal)}, iss {int(_iss_illegal(w))}")
+    assert not bad, f"{len(bad)} words decode differently, first: {bad[:8]}"
+
+
+@cocotb.test()
+async def test_reserved_bits_fault(dut):
+    """End to end: every word the ISS calls ILLEGAL because of one reserved bit (879, over
+    the 53 opcodes) and every unknown opcode (203) faults ILLEGAL at its first commit, four
+    contexts at a time. Words that differ only in a reserved bit are otherwise never run:
+    the random programs draw raw words uniformly, about one in 256 per opcode."""
+    from esciss.decode import ISA
+    words = [(op << 24) | (1 << b) for op in sorted(ISA.by_op) for b in range(24)
+             if _iss_illegal((op << 24) | (1 << b))]
+    words += [op << 24 for op in range(256) if op not in ISA.by_op]
+    assert len(words) == 879 + 203
+    env = await new_env(dut)
+    d = env.dut
+    # configuration of four contexts at pc 0-3, from the assembler
+    img = assemble("\n".join(f".entry {k}, w{k}" for k in range(4)) + "\n" +
+                   "\n".join(f"w{k}: .word 0" for k in range(4)))
+    for i in range(0, len(words), 4):
+        batch = (words[i:i + 4] + words[:4])[:4]
+        d.stop.value = 1
+        await FallingEdge(d.clk)
+        d.stop.value = 0
+        d.ld_en.value = 1
+        for a, w in enumerate(batch):     # only pc 0-3 run: each context faults at once
+            d.ld_addr.value = a
+            d.ld_data.value = w
+            d.ld_we.value = 1
+            await FallingEdge(d.clk)
+        d.ld_we.value = 0
+        d.ld_en.value = 0
+        d.ctx_enable.value = img.ctx_enable_mask
+        d.entry_pcs.value = img.entry_pcs_packed
+        await FallingEdge(d.clk)
+        d.start.value = 1
+        await FallingEdge(d.clk)
+        d.start.value = 0
+        env.trace = []
+        await env.run(8, full=False)
+        got = [(c["c"], c["ctx"], c["pc"], c["oc"], c["insn"]) for c in env.commits()]
+        assert got == [(k + 3, k, k, F, batch[k]) for k in range(4)], \
+            f"batch {[hex(w) for w in batch]}: {got}"
+        assert await env.rd(14) == ff_word(ILLEGAL, 0, 0, 0), [hex(w) for w in batch]
+
+
 # --------------------------------------------------------------------------- sec. 7.4
 @cocotb.test()
 async def test_emitx_emitr(dut):
@@ -1108,10 +1177,12 @@ async def test_logic_zero_flag(dut):
 # --------------------------------------------------------------------------- sec. 7 PC_RANGE
 @cocotb.test()
 async def test_taken_branch_at_255(dut):
-    """A taken JC, JNC or DJNZ at PC 255 is not sequential, so it must not fault PC_RANGE
-    (test_pc_range covers JMP and a not-taken JZ)."""
+    """A taken JZ, JNZ, JC, JNC or DJNZ at PC 255 is not sequential, so it must not fault
+    PC_RANGE (test_pc_range covers JMP and a not-taken JZ)."""
     env = await new_env(dut)
     cases = [
+        ("s: CMPI r0, 0\nJMP b", "b: JZ t"),       # 0 == 0: Z = 1, taken
+        ("s: NOP\nJMP b", "b: JNZ t"),             # Z = 0 after start, taken
         ("s: CMPI r0, 1\nJMP b", "b: JC t"),       # 0 < 1: C = 1, taken
         ("s: NOP\nJMP b", "b: JNC t"),             # C = 0 after start, taken
         ("s: LDLC 2\nJMP b", "b: DJNZ t"),         # lc 2 -> 1, taken

@@ -9,8 +9,8 @@ against real devices before silicon. Two substitutions, both with the chip's beh
   with the macro wrapper's timing contract (a read gives its word from the next cycle and
   holds it; a write cycle reads nothing; a write wins over a read).
 
-The FPGA build passes the chip tests (7) and the firmware-through-the-pins tests (5)
-in simulation, each against the reference model's execution digest: with `src/` copied,
+The FPGA build passes the chip tests (7) and the firmware-through-the-pins tests (9, on the
+v1.6 RTL) in simulation, each against the reference model's execution digest: with `src/` copied,
 `escapement_sram.v` replaced by this model and `ESC_NO_CG` defined, run `make` and
 `make COCOTB_TEST_MODULES=test_firmware_pins` in `test/` with `SRC_DIR` set to the copy.
 
