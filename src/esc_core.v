@@ -105,6 +105,13 @@ module esc_core (
     input  wire         tape_host_we,  // v1.3: the host writes the tape this cycle (stopped only)
     input  wire         tape_ack,      // v1.3: TAPE_ACK, the host's new capture rptr
     input  wire [7:0]   tape_ack_v
+`ifdef ESC_NI
+    // formal only (formal/esc_ni.sby): each context's architectural state, the pins and the
+    // fetch slot owner, for the non-interference miter of two cores
+    , output wire [1279:0] f_ctx_obs,
+    output wire [25:0]   f_pins,
+    output wire [1:0]    f_fq
+`endif
 );
 
   // ------------------------------------------------------------------ constants
@@ -1219,6 +1226,20 @@ module esc_core (
   always @(*) if (rst_n && run)
     ahead_b0: `ESC_AHEAD (sq == now[1:0] + 2'd1 && cq == own(sq, pair_on)
                          && nq == own(sq + 2'd1, pair_on) && fq == own(now[1:0], pair_on));
+`ifdef ESC_NI
+  generate
+    for (gk = 0; gk < 4; gk = gk + 1) begin : g_ni
+      assign f_ctx_obs[320*gk +: 320] = {7'd0,
+          c_state[2*gk +: 2], c_pc[8*gk +: 8], c_lr[8*gk +: 8], c_z[gk], c_c[gk],
+          c_lc[16*gk +: 16], c_r0[32*gk +: 32], c_r1[32*gk +: 32], c_r2[32*gk +: 32],
+          c_r3[32*gk +: 32], c_sh[32*gk +: 32], c_tmr[32*gk +: 32], c_ish[32*gk +: 32],
+          c_cnt[3*gk +: 3], c_tail[32*gk +: 32], c_act[gk], c_irqp[gk],
+          c_pass[8*gk +: 8], c_fail[8*gk +: 8]};
+    end
+  endgenerate
+  assign f_pins = {pin_oe, pin_val};
+  assign f_fq   = fq;
+`endif
   // v1.7 S3: a restart edge has no commit (the shared latch write flops are free for the
   // restarted context's zeros), and a cycle given to a host program write reads nothing.
   always @(*) if (rst_n) begin

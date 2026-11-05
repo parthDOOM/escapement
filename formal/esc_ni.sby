@@ -1,0 +1,29 @@
+# Non-interference between contexts (v1.7, S3: live reload): formal/esc_ni_env.v, two cores
+# that differ only in what is aimed at contexts other than j. Run: sby -f esc_ni.sby bmc | kind
+# The properties proved elsewhere (B0-B9, S2a-c, the ahead task) are assumed in both copies;
+# the cores' other assertions are removed (formal/esc_core.sby, esc_ctx.sby prove them).
+[tasks]
+bmc
+kind
+
+[options]
+bmc: mode bmc
+bmc: depth 40
+kind: mode prove
+kind: depth 12
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL -DESC_NI esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v esc_ni_env.v
+prep -top esc_ni_env
+chformal -assert -remove esc_core esc_ctx esc_cap esc_line esc_greg esc_lreg
+
+[files]
+../src/esc_greg.v
+../src/esc_ctx.v
+../src/esc_cap.v
+../src/esc_line.v
+../src/esc_core.v
+esc_ni_env.v
