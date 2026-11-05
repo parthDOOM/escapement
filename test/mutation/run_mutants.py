@@ -321,6 +321,9 @@ EXCLUDED = {
                              "data is taken only after a read of its own (lu_rd_c acts only with lu_cmc)",
     "esc_core_bit_ef1d2c41": "an extra tape read in the commit cycle of a SEND or LINE that reads nothing: read "
                              "data is taken only after a read of its own (lu_rd_c acts only with lu_cmc)",
+    "esc_core_const_cb45980f": "lead16 reloads at every edge, so its reset value lives one cycle; it is read "
+                               "only by a context's commit (min_lead, under cm_ok), which needs a run, clear "
+                               "until a START, which takes a whole SPI frame",
     "esc_core_const_936aafc6": "the decode registers reload at every edge, so their reset values live one cycle; "
                                "they are read only through commit_valid (run, p3v), clear until a START, which "
                                "takes a whole SPI frame",
@@ -651,12 +654,16 @@ def reconcile(ids: list[str], rows: list[dict]) -> list[str]:
 # to shards. A mutant no suite kills runs every suite and the proof, ~1.5 h against minutes
 # for most kills, so dealing every N-th mutant left v1.6's sixteen shards 96 to 389 minutes
 # apart (modelled on CI runs 41296786251 and 41825920334), past the job limit at the top.
+# Run 41954839297 (dealt by those times) ran 1.28x their sum, and the mutants they lacked were
+# survivors at ~2 h each, so six shards hit the limit: its 779 measured times replace them,
+# and CI runs nineteen shards.
 COSTS = Path(__file__).with_name("costs.json")
 
 
 def shards(ms: list[Mutant], n: int) -> list[list[Mutant]]:
     """Deal the mutants to n shards, longest first to the least-loaded shard. A mutant with
-    no recorded time counts as the mean of its file's. Deterministic, so every shard deals
+    no recorded time counts as the slowest of its file's (new mutants are often the ones no
+    suite kills, which run every suite and the proof). Deterministic, so every shard deals
     the same way; the summary job checks that each mutant has exactly one result."""
     cost = json.loads(COSTS.read_text()) if COSTS.exists() else {}
     byfile: dict[str, list[int]] = {}
@@ -664,8 +671,8 @@ def shards(ms: list[Mutant], n: int) -> list[list[Mutant]]:
         if m.id in cost:
             byfile.setdefault(m.file, []).append(cost[m.id])
     known = [c for cs in byfile.values() for c in cs]
-    est = {m.id: cost.get(m.id) or (sum(byfile[m.file]) // len(byfile[m.file]) if m.file in byfile
-                                    else (sum(known) // len(known) if known else 1)) for m in ms}
+    est = {m.id: cost.get(m.id) or (max(byfile[m.file]) if m.file in byfile
+                                    else (max(known) if known else 1)) for m in ms}
     out: list[list[Mutant]] = [[] for _ in range(n)]
     load = [0] * n
     for m in sorted(ms, key=lambda m: (-est[m.id], m.id)):
