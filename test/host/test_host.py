@@ -17,6 +17,7 @@ class Pulses:
         self.dut = dut
         self.start = self.stop = 0
         self.irq_clear, self.push, self.pop = [], [], []
+        self.ctx_stop, self.ctx_start = [], []             # v1.7 (S3)
         cocotb.start_soon(self._watch())
 
     async def _watch(self):
@@ -35,6 +36,10 @@ class Pulses:
                 self.push.append((m, (int(d.mbx_rx_data.value) >> (32 * ctx)) & 0xFFFFFFFF))
             if int(d.mbx_tx_pop.value):
                 self.pop.append(int(d.mbx_tx_pop.value))
+            if int(d.ctx_stop.value):
+                self.ctx_stop.append(int(d.ctx_stop.value))
+            if int(d.ctx_start.value):
+                self.ctx_start.append(int(d.ctx_start.value))
 
 
 async def setup(dut, half=8, jitter=0, seed=1):
@@ -141,14 +146,87 @@ async def test_cfg_pair(dut):
 
 
 @cocotb.test()
-async def test_write_while_running_is_rejected(dut):
+async def test_live_write_in_a_free_slot(dut):
+    """v1.7 (S3): WRITE_IMEM during a run writes each word in a free fetch slot."""
+    host, _, _ = await setup(dut)
+    await host.write_imem(5, [0x11111111, 0x11111111])
+    dut.running.value = 1
+    await host.write_imem(5, [0x22222222, 0x33333333])
+    assert not (await host.status())["host_err"]
+    dut.running.value = 0
+    assert await host.read_imem(5, 2) == [0x22222222, 0x33333333]
+
+
+@cocotb.test()
+async def test_live_write_waits_for_a_free_slot(dut):
     host, _, _ = await setup(dut)
     await host.write_imem(5, [0x11111111])
     dut.running.value = 1
-    await host.write_imem(5, [0x22222222])
-    assert (await host.status())["host_err"]
+    dut.tb_free.value = 0
+    await host.write_imem(5, [0x44444444])
+    assert int(dut.imem_wpend.value) and not (await host.status())["host_err"]
+    dut.tb_free.value = 1
+    await ClockCycles(dut.clk, 2)
+    assert not int(dut.imem_wpend.value)
     dut.running.value = 0
-    assert await host.read_imem(5, 1) == [0x11111111]
+    assert await host.read_imem(5, 1) == [0x44444444]
+
+
+@cocotb.test()
+async def test_live_write_refusals(dut):
+    """A second word while one waits, a command that would move a waiting word's address,
+    and the tape during a run: host error, and the waiting word still lands where aimed."""
+    host, _, _ = await setup(dut)
+    await host.write_imem(5, [0x11111111, 0x66666666, 0x99999999])
+    await host.write_tape(5, [0x55555555])                  # a refused read still reads mem_addr
+    await host.write_tape(9, [0x77777777])
+    dut.running.value = 1
+    dut.tb_free.value = 0
+    await host.write_imem(5, [0xAAAAAAAA, 0xBBBBBBBB])      # B completes while A waits
+    assert (await host.status())["host_err"]
+    await host.clear_err()
+    await host.read_tape(9, 1)                              # would move A's address
+    assert (await host.status())["host_err"]
+    await host.clear_err()
+    await host.write_imem(7, [0xCCCCCCCC])                  # so would this
+    assert (await host.status())["host_err"]
+    await host.clear_err()
+    dut.tb_free.value = 1
+    await ClockCycles(dut.clk, 2)
+    await host.write_tape(9, [0x88888888])                  # the tape during a run
+    assert (await host.status())["host_err"]
+    await host.clear_err()
+    dut.running.value = 0
+    assert await host.read_imem(5, 3) == [0xAAAAAAAA, 0x66666666, 0x99999999]
+    assert await host.read_tape(9, 1) == [0x77777777]
+
+
+@cocotb.test()
+async def test_ctx_stop_and_start(dut):
+    """v1.7 (S3): CTX_STOP / CTX_START strobe their mask during a run; CTX_START refuses a
+    context that is RUNNING or not enabled, both refuse while stopped (host error, no strobe)."""
+    host, _, pulses = await setup(dut)
+    await host.write_cfg(0b0011, 0, 0, 0, 0)
+    dut.running.value = 1
+    dut.ctx_state.value = 0b00_00_01_01                     # contexts 0 and 1 RUNNING
+    await host.ctx_stop(0b0010)
+    assert pulses.ctx_stop == [0b0010] and not (await host.status())["host_err"]
+    dut.ctx_state.value = 0b00_00_10_01                     # context 1 HALTED
+    await host.ctx_start(0b0010)
+    assert pulses.ctx_start == [0b0010] and not (await host.status())["host_err"]
+    for mask in (0b0001, 0b0100, 0b0011):                   # RUNNING; not enabled; both
+        await host.ctx_start(mask)
+        assert (await host.status())["host_err"], mask
+        await host.clear_err()
+    assert pulses.ctx_start == [0b0010]
+    dut.running.value = 0
+    dut.ctx_state.value = 0
+    await host.ctx_stop(0b0010)
+    assert (await host.status())["host_err"]
+    await host.clear_err()
+    await host.ctx_start(0b0010)
+    assert (await host.status())["host_err"]
+    assert pulses.ctx_stop == [0b0010] and pulses.ctx_start == [0b0010]
 
 
 @cocotb.test()

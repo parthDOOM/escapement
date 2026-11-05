@@ -162,7 +162,9 @@ module escapement_host (
   end
 
   // v1.7 (S3): the buffer is free for a new word (empty, or emptied at this edge), and the
-  // contexts RUNNING now (ST_RUN = 1 in each 2-bit field of ctx_state)
+  // contexts RUNNING now (ST_RUN = 1 in each 2-bit field of ctx_state). While a word waits,
+  // mem_addr is its address: a command that would move it is refused (host error). A word
+  // waits more than 4 cycles only when every context is RUNNING.
   wire       wslot   = ~imem_wpend | imem_wgnt;
   wire [3:0] ctx_run = {ctx_state[7:6] == 2'd1, ctx_state[5:4] == 2'd1,
                         ctx_state[3:2] == 2'd1, ctx_state[1:0] == 2'd1};
@@ -228,8 +230,9 @@ module escapement_host (
             // ------------------------------------------------ payload bytes
             case (cmd)
               C_WRITE_IMEM, C_WRITE_TAPE: begin
-                if (idx == 4'd1) mem_addr <= rx_byte;
-                else begin
+                if (idx == 4'd1) begin
+                  if (wslot) mem_addr <= rx_byte; else host_err <= 1'b1;   // v1.7: a word waits
+                end else begin
                   word <= {word[23:0], rx_byte};
                   wcnt <= wcnt + 2'd1;
                   if (wcnt == 2'd3) begin
@@ -245,11 +248,13 @@ module escapement_host (
               end
               C_READ_IMEM, C_READ_TAPE: begin
                 if (idx == 4'd1) begin
-                  mem_addr <= rx_byte;                          // read starts now
+                  if (wslot) mem_addr <= rx_byte;               // read starts now
+                  else host_err <= 1'b1;
                   if (cmd == C_READ_TAPE) tape_req <= 1'b1;
                 end else if (idx == 4'd2) begin
                   word     <= rdat;                             // first word
-                  mem_addr <= mem_addr + 8'd1;                  // prefetch next
+                  if (wslot) mem_addr <= mem_addr + 8'd1;       // prefetch next
+                  else host_err <= 1'b1;
                   wcnt     <= 2'd0;
                   if (stale) host_err <= 1'b1;
                   if (cmd == C_READ_TAPE) tape_req <= 1'b1;
@@ -257,7 +262,7 @@ module escapement_host (
                   wcnt <= wcnt + 2'd1;
                   if (wcnt == 2'd3) begin
                     word     <= rdat;
-                    mem_addr <= mem_addr + 8'd1;
+                    if (wslot) mem_addr <= mem_addr + 8'd1; else host_err <= 1'b1;
                     if (stale) host_err <= 1'b1;
                     if (cmd == C_READ_TAPE) tape_req <= 1'b1;
                   end
