@@ -609,7 +609,8 @@ below it; v1.5 had 30 and 21. The other 11 are looser (`i2c_ctrl` 33 against 2, 
 example), because the inputs that produce the worst case, such as a device on the bus,
 are absent.
 
-Certificates compose. Each context issues in fixed barrel slots, so another context can
+Certificates compose. Each context issues in barrel slots fixed by the configuration (a
+paired context's two included, v1.7), so another context can
 reach it only through data: pins, tape and mailboxes, which escert already treats as
 unknown inputs. Firmware certified one context at a time therefore stays certified when
 the contexts run together, as long as they own disjoint pins, none writes tape words

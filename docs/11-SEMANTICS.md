@@ -1,4 +1,4 @@
-# Escapement machine semantics v1.6.0 (normative)
+# Escapement machine semantics v1.7.0 (normative)
 
 This document is the single normative definition of the machine. The Python
 instruction-set simulator (`sw/esciss`) and the RTL (`src/`) are separate
@@ -26,7 +26,11 @@ included. 1.6.0 extends the line unit (§6.6) with an optional second part of it
 configuration (`ext`): symbol coding, in which each line bit is a pattern of up to eight
 cells (Manchester, pulse-width codes), a clock pattern on the second pin, a CRC of up to
 32 bits, a repeated prefix, a positive end-of-packet level and streams of up to 8191 bits.
-A configuration without `ext` behaves exactly as on 1.4.0, digest included.
+A configuration without `ext` behaves exactly as on 1.4.0, digest included. 1.7.0 adds
+pair mode (§3): a context whose partner (context k ^ 2) is off may take the partner's
+slot as well as its own, fetching its next instruction while the one before is a cycle
+from committing, so it commits every 2 ticks instead of every 4. A configuration without
+`ctx_pair` behaves exactly as on 1.6.0, digest included.
 
 Notation: all arithmetic on 32-bit values is modulo 2^32 unless stated. `zext` is
 zero extension. `ahead(a, b)` means `1 <= (a - b) mod 2^32 < 2^31` ("a is strictly
@@ -60,32 +64,71 @@ then at edge E_s the machine initialises the run (§9). The cycle after E_s is r
 cycle **0**. The **tick counter** `now` equals t during run cycle t and wraps modulo
 2^32. All ticks in this document are run cycles.
 
-## 3. Context scheduling (fixed 4-slot barrel)
+## 3. Context scheduling (4-slot barrel, pair mode)
 
 A context is in one of four states: `IDLE`, `RUNNING`, `HALTED`, `FAULTED`.
 
-A `RUNNING` context k **fetches** in every run cycle t with `t mod 4 == k`. The
-instruction fetched in cycle t **commits at edge E_(t+3)**; t+3 is its **commit tick**.
-So context k commits only at ticks c with `c mod 4 == (k + 3) mod 4`, and its next
-fetch is at t+4. A context that is not `RUNNING` during its fetch cycle does not
-fetch, and its slot is empty.
+**Slots.** Run cycle t is in **slot** `t mod 4`. Context k is **paired** in a run when
+`ctx_pair[k]` is set and its **partner** k ^ 2 is not enabled (`ctx_enable[k ^ 2] = 0`);
+this is fixed at start (§9). Slot s **belongs to** context s, unless its partner s ^ 2
+is paired, in which case it belongs to s ^ 2. So an unpaired context owns one slot in
+four, a paired context owns two, two cycles apart (contexts 0 and 2 share slots 0 and 2,
+contexts 1 and 3 slots 1 and 3), and a context that is enabled is never paired away
+from its own slot. With `ctx_pair = 0` (every configuration before v1.7) slot s belongs
+to context s.
+
+**Fetch and commit.** A `RUNNING` context **fetches** in every run cycle t whose slot
+it owns (except after an LDT, below). The instruction fetched in cycle t reaches its
+**commit tick** t+3 and **commits at edge E_(t+3)** if the context is still `RUNNING`
+during cycle t+3 and PC during cycle t+3 is the address it was fetched from. Otherwise
+it is **discarded**: no commit, no record, no effect. A context that is not `RUNNING`
+during a fetch cycle of its slot does not fetch, and the slot is empty.
+
+Unpaired, context k fetches PC in every cycle t with `t mod 4 == k`, commits only at
+ticks c with `c mod 4 == (k + 3) mod 4`, and never discards (exactly as before v1.7).
+
+**Fetch address (pair mode).** A paired context fetching in cycle t has the instruction
+i it fetched in cycle t-2 (if any) still in flight, committing at E_(t+1). If i was
+fetched from PC during cycle t, the fetch address is i's **next PC**, computed from the
+state during cycle t, which is the state i sees in its commit cycle:
+
+| i | next PC |
+| --- | --- |
+| JMP, CALL | target |
+| JZ, JNZ, JC, JNC | target if its condition holds on Z or C, else PC + 1 |
+| DJNZ | target if `lc != 1`, else PC + 1 |
+| RET | `lr` |
+| HALT | PC |
+| LDT | none: the context does not fetch in cycle t, and the slot is empty |
+| any other instruction | PC + 1 |
+
+Otherwise (nothing in flight, or i will be discarded) the fetch address is PC during
+cycle t. The next PC is exact when i completes. When i's outcome is WAIT, PC stays at
+i, so the fetch made in cycle t is discarded at its commit tick unless it was of i
+itself (HALT); after a FAULT the context is no longer `RUNNING`. So a paired context
+commits every 2 ticks while its instructions complete, commits 4 ticks after an LDT
+(whose register load lands at the edge after its commit, §7.6), re-evaluates a waiting
+instruction every 4 ticks, as an unpaired context does, and a waiting HALT every 2.
 
 **Instruction memory interface.** In fetch cycle t the machine presents
-`imem_addr = PC_k` (PC during cycle t). The memory returns `imem_rdata = IMEM[PC_k]`
+`imem_addr` = the fetch address. The memory returns `imem_rdata = IMEM[imem_addr]`
 during cycle t+1 (synchronous read registered at E_t). IMEM is never written during a
 run.
 
 **What a commit sees.** Every decision and value used by the instruction committing
 at tick c is taken from state **during cycle c**: registers, flags, `tmr`, `lc`,
 `sh`, `ish`, checker status, FIFO contents, mailbox contents and the synchronised
-input vector `sync`. Only the instruction word is fetched earlier. (Context state can
-change between fetch and commit only through the event engine and the host.)
+input vector `sync`. Only the instruction word, and in pair mode its address, is decided
+earlier. (Unpaired, context state can change between fetch and commit only through the
+event engine and the host; paired, also through the commit of the instruction before.)
 
 Each commit has one **outcome**:
 
 - **COMPLETE**: effects are applied at E_c, and PC becomes the next PC.
 - **WAIT** (wait-class only): no architectural effect except the telemetry counter
-  in §7.4; PC is unchanged, so the same instruction is fetched again in the next slot.
+  in §7.4; PC is unchanged, so the same instruction is fetched again in cycle c+1, the
+  context's next fetch cycle, and commits again at c+4 (paired: the fetch made in cycle
+  c-1 is discarded at c+2, except after HALT, which it repeats, at c+2).
 - **FAULT**: no architectural effect of the instruction; fault handling (§8) at E_c.
 
 ## 4. Architectural state
@@ -100,7 +143,7 @@ written only by STT, the capture unit and the host while stopped), the capture u
 (§6.5), the line unit (§6.6), the execution digest `dg` (§10.1), and configuration
 (static during a run):
 `ctx_enable[3:0]`, `entry_pc[k]`, `pin_owned[12:0]`, `pin_owner[p]` (2 b each),
-`pin_od[7:0]`, `ctx_bank[3:0]` (v1.2).
+`pin_od[7:0]`, `ctx_bank[3:0]` (v1.2), `ctx_pair[3:0]` (v1.7, §3).
 
 ## 5. Pins
 
@@ -361,11 +404,13 @@ first boundary has α = 0. Receive and a configuration of one cell use one inter
 bit, so transmitted bit k starts at `B_k = d + k·P_int + ⌊k·P_frac/256⌋`. With more than
 one cell an interval is a cell, and a symbol (below) lasts `cells` + 1 of them.
 
-**Tape access.** The LU uses the tape port only in its **owner's commit cycles**, the
-cycles u with `u mod 4 == (owner + 3) mod 4`, whether or not the owner commits in u. The
-port is busy (§6.5) in the commit cycle of every SEND and LINE, whatever its outcome,
-and in every cycle with a **scheduled access** (one requested at an earlier edge, listed
-below). A scheduled access in cycle u happens even if the job ends at E_u, and an LDT or
+**Tape access.** The LU uses the tape port only in its owner's commit cycles: SEND and
+RECV words in the cycles u with `u mod 4 == (owner + 3) mod 4`, whether or not the owner
+commits in u, and CONFIG and CRC words in the cycles 4, 8, ... after the LINE that
+started them (v1.7: a paired owner's LINE may commit in its partner's slot, and the job
+keeps that slot). The port is busy (§6.5) in the commit cycle of every SEND and LINE,
+whatever its outcome, and in every cycle with a **scheduled access** (one requested at an
+earlier edge, listed below). A scheduled access in cycle u happens even if the job ends at E_u, and an LDT or
 STT of the owner committing in u has outcome WAIT. A read in cycle u returns T during
 cycle u, and the LU can use it from cycle u+1. A write in cycle u sets `T[a] <= v` at E_u.
 
@@ -578,8 +623,9 @@ listed.
 | GETI rd (wait, v1.1) | if the FIFO **during cycle c** holds any SAMPLE entry (including one retiring at E_c): WAIT. Else R[rd] = ish (during cycle c) and ish is cleared at E_c | Z |
 | GETX rd | R[rd] = {fail_count[7:0], pass_count[7:0], 14'b0, active, failed_since_start} | Z |
 
-A wait-class instruction is re-evaluated at each of its slots, so its completion is
-quantised to the 4-tick slot grid. Exact-tick I/O uses events.
+A wait-class instruction is re-evaluated every 4 ticks from its first try (§3, paired or
+not; a paired HALT every 2), so its completion is quantised to a 4-tick grid. Exact-tick
+I/O uses events.
 
 ### 7.4 Events
 
@@ -681,7 +727,9 @@ clear, mailboxes empty, `now = 0`.
 
 **Start** at E_s:
 - run = 1 and `now` = 0 in the next cycle.
-- Each context k: state = RUNNING if `ctx_enable[k]` else IDLE.
+- Each context k: state = RUNNING if `ctx_enable[k]` else IDLE; paired (v1.7, §3) if
+  `ctx_pair[k]` and not `ctx_enable[k ^ 2]`, for the whole run. No instruction is in
+  flight.
 - r0–r3 = sh = tmr = 0, lc = 0, lr = 0, Z = C = 0, PC = entry_pc[k], ish = 0.
 - FIFO empty, checker idle with counts 0 and no fail record, EXPECT history cleared.
 - min_lead = 0xFFFF, max_occupancy = 0, wait_full = 0, IRQ clear.
@@ -754,9 +802,13 @@ first-fault register.
 `dbg_sel` is 5 bits wide since v1.1 (16–26 ignore `dbg_sel_ctx`; 22–24 and 27–31 read 0).
 
 Selects 0–8 (v1.4) show the context's registers as they were in its most recent commit
-slot (`now mod 4 = ctx - 1`) during a run, at most four cycles before the read, and as
-they were one cycle before the read while stopped. All other selects show the current
-state.
+cycle (`now mod 4 = s - 1` for each slot s it owns, §3) during a run, at most four
+cycles before the read (two when paired), and as they were one cycle before the read
+while stopped. All other selects show the current state. (v1.7: a context that owns no
+slot in a run, one that is off while its partner is paired, has no commit cycle in that
+run; reading its selects 0–8 during the run returns the value read last, which may
+belong to another select or context. Read them while stopped; its registers keep their
+start values, §9.)
 
 ### 10.1 Execution digest (v1.1)
 
@@ -828,3 +880,16 @@ by ctx 0, push-pull, from start:
 - `uio_out[0] = uio_oe[0] = 1` during cycle 11 onward.
 - `min_lead = 3`.
 - An external loopback (`uio_in[0]` = output) makes `sync[0] = 1` during cycle 13.
+
+The same program with `ctx_pair[0]` set (`.pair 0`; context 2 is off, so context 0 is
+paired and owns slots 0 and 2):
+
+- Fetch PC 0 in cycle 0 → commit at E_3: tmr = 10.
+- Cycle 2 is context 0's too. ADDT, fetched from PC 0 = PC during cycle 2, is in flight
+  and completes, so the fetch address is its next PC, 1. Commit at E_5: d = 10,
+  ahead(10, 5) holds, so it is admitted.
+- The DRIVE retires at E_10 as before: `uio_out[0] = uio_oe[0] = 1` during cycle 11
+  onward.
+- `min_lead = 5`: the EMIT committed 2 ticks earlier.
+- With HALT at PC 2: fetched in cycle 4, it commits at E_7 with outcome WAIT (the FIFO still holds the
+  DRIVE), at E_9 the same, and completes at E_11, once the DRIVE has retired at E_10.

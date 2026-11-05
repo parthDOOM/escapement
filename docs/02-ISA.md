@@ -15,7 +15,7 @@ definition.
   loop counter `lc` (16), deadline register `tmr` (32), PC and link register (8), flags
   Z and C, and input shift register `ish` (32).
 - A context commits one instruction every **4 ticks** (one tick is one clock cycle,
-  40 ns at 25 MHz). An instruction fetched in cycle t commits at tick t + 3.
+  40 ns at 25 MHz), or every 2 when it is paired (v1.7, [semantics](11-SEMANTICS.md) §3). An instruction fetched in cycle t commits at tick t + 3.
 - Pins change only through **events** queued with an absolute deadline from `tmr`.
 - Every instruction names **eight logical pins**. A context in bank A (the default)
   sees `uio[7:0]`; a context in bank B sees the five split pins B0–B4 (outputs

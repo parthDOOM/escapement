@@ -17,7 +17,8 @@ words before the engine was built around it.
 **D-3 Scheduler: a fixed 4-slot barrel.** Each context fetches every fourth cycle and
 commits three cycles later, so there are no hazards, no forwarding and no interaction
 between contexts. The cost is one instruction per context every 4 ticks, which is
-enough: a serial bit loop is three instructions.
+enough: a serial bit loop is three instructions. (v1.7 lets a context take an idle
+partner's slot as well, D-46.)
 
 **D-4 No protocol hardware (versions 1.0 to 1.3).** No serialisers, CRC engines or
 oscillators. The only acceleration is `EMITX` (drive a pin from the bit shifted out of
@@ -295,6 +296,30 @@ layout (`v16s`) does not have the collision, so the proof takes two steps instea
 with that module ([verification](04-VERIFICATION.md#rtl-to-netlist-equivalence)). Every
 committed layout must also pass LibreLane's disconnected-pin check, which is what caught
 the bug.
+
+**D-46 Pair mode, not a faster barrel (v1.7).** A context commits one instruction every 4
+ticks; single-cycle programmable I/O commits every cycle. Issuing every cycle does not fit
+50 MHz here: the next instruction's X stage would be the commit cycle of the one before, so
+every value v1.6 moved into X (D-44) would need forwarding from the commit result, putting
+the commit logic, the slow-corner limit, in front of X's own subtracts and compares. Two
+slots apart there is no such hazard: an instruction's X stage comes a cycle after the one
+before has committed. So a context may take the slot of its partner (k ^ 2) when that one
+is off ([semantics](11-SEMANTICS.md) §3), and commits every 2 ticks. Its next fetch is made
+while the instruction before is in X, where branches resolve exactly from final flags; the
+fetched PC travels with the instruction and must equal the context's PC at commit, so a
+wrong guess (a wait, a fault) costs a slot and never a wrong commit. After an LDT, whose
+load lands an edge after its commit, no fetch is made. Pairing is a static configuration
+bit (`ctx_pair`, protocol version 9), not a run-time choice, so a context's certificate
+never depends on another context's progress, and with it clear the machine is v1.6, digest
+included. The WAITT guess (complete if the timer is reached) was dropped: its 32-bit compare
+on `now` sat on the program store's address path. Two v1.6 line-unit paths that a trial
+layout placed badly were registered: the owner's pin bank (`lu_bank`, one cycle behind,
+never seen: the unit loads a CONFIG for 9 cycles after taking an owner, proved) and the
+configuration's pin fields (W0[11:0] in flip-flops instead of the latch bank, D-40). On the
+ISS against the bus models, the minimum clock falls by 1.92 to 2.22 times for SWD, JTAG,
+WS2812, DShot, I2C fast mode, SPI controller and CAN transmit; timer-bound firmware is
+unchanged. A trial layout met 20 ns at the slow corner down to 19.2 ns (v1.6: 19.7 ns),
+with the power estimate 1.4% higher.
 
 ## Power and timing margin
 

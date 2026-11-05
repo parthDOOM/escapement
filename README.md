@@ -83,7 +83,9 @@ flowchart LR
 ```
 
 - **Four hardware contexts** in a fixed barrel: each runs its own program with its own
-  pins, so a slow protocol in one context never changes another context's timing.
+  pins, so a slow protocol in one context never changes another context's timing. A
+  context can take an idle partner's slot as well and commit every 2 ticks instead of 4
+  (pair mode, v1.7).
 - **Two pin banks, 18 protocol signals.** Bank A is the eight bidirectional pins; bank B
   turns the five dedicated inputs and outputs the host link leaves free into split
   pins. Each context sees one bank as its eight logical pins, so a module runs on

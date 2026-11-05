@@ -45,7 +45,8 @@ three predictions:
 | `steady` | The program settles into a repeating pattern, usually waiting for a mailbox word or an input edge | The same state while it waits; then STOP, and the digest must lie on the model's orbit (below) |
 | `none` | Neither within 2,000,000 ticks | State and first fault only |
 
-A waiting context commits a WAIT outcome every 4 ticks, and each one folds into the
+A waiting context commits a WAIT outcome every 4 ticks (a paired context's waiting HALT
+every 2), and each one folds into the
 digest, so the digest of a waiting program depends on when the host stops it. The
 bundle records the digest at a tick `t0` after the pattern began and the values folded in
 one period. After STOP, the board starts from that digest and applies the period's folds

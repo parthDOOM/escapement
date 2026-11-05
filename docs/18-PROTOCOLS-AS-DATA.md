@@ -93,5 +93,5 @@ that stays in hand-written code.
   is sent LSB first and needs the mailbox or constant source (it counts bits in r3).
 - One carrier per table.
 - A symbol has to be long enough for its instructions: four ticks per instruction per
-  context, plus whatever the event queue has banked. The checker decides; for example
+  context (two paired, v1.7), plus whatever the event queue has banked. The checker decides; for example
   DMX512 needs a clock of at least about 4 MHz.

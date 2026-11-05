@@ -11,8 +11,8 @@ are what it generates, and what receivers and two-way buses still need by hand.
 
 ## The timing model in one paragraph
 
-Each context commits one instruction every 4 ticks (40 ns ticks at 25 MHz). Wait-class
-instructions repeat on that 4-tick grid. Pins change only through events (DRIVE,
+Each context commits one instruction every 4 ticks (40 ns ticks at 25 MHz), or every 2
+when it is paired (v1.7, idiom 15). Wait-class instructions repeat on a 4-tick grid. Pins change only through events (DRIVE,
 EXPECT, SAMPLE) with absolute deadlines taken from `tmr`. The chip checks each event at
 enqueue: its deadline must be after the commit tick and after the previous queued
 event, otherwise the context faults (ADMIT) and its pins release. An admitted event
@@ -152,10 +152,28 @@ one left the edge register fresh. Jump to the abort path from inside it instead 
 leaves its events far ahead of the clock, and a loop of them loses escert's upper bound on
 the lead. Anchor, compute the reply, `WAITT` until shortly before it, then queue it (`dali`).
 
+**15. Pair a busy context (v1.7).** `.pair CTX` gives context CTX the slot of its partner,
+context CTX ^ 2 (0 with 2, 1 with 3), which must stay off: the context then commits every
+2 ticks instead of 4. Its code is unchanged; escert certifies it paired, so rerun it and
+take the new bound. The cost is the partner's context, so a chip has two fast contexts,
+or one fast and two normal, instead of four normal. Three things do not speed up: a wait
+(`WAITT`, `WAITP`, `POP`, a full FIFO) still retries every 4 ticks, the instruction after
+an `LDT` commits 4 ticks after it, and nothing timer-bound changes. On the ISS against the
+bus models, pairing lowers the minimum clock about 2x for instruction-bound firmware (SWD,
+JTAG, WS2812, DShot, I2C fast mode, SPI controller, CAN transmit) and leaves UART, SENT,
+PS/2, CEC and 1-Wire where they were. A paired image needs a chip that reports protocol
+version 9; `sw/eschost` refuses to load it onto an older one.
+
+```text
+.pair 0                          ; context 2 stays off
+.equ swd_idcode.CTX, 0
+.include "swd_idcode.asm"
+```
+
 ## Budgeting a protocol
 
-- One instruction takes 4 ticks: a 3-instruction bit loop (`EMITX`, `ADDT`, `DJNZ`)
-  sustains up to 2 Mbit/s for a single pin.
+- One instruction takes 4 ticks (2 paired): a 3-instruction bit loop (`EMITX`, `ADDT`,
+  `DJNZ`) sustains up to 2 Mbit/s for a single pin at 25 MHz, twice that paired.
 - A target on a bus it cannot stretch must finish every bit within one clock period.
   `spi_target` polls SCK in a 12-tick loop; its longest bit is 15 instructions, which
   rates it at 416 kHz. Where the bus allows stretching, use idiom 8 instead.

@@ -41,6 +41,11 @@ flowchart LR
   `t mod 4 == k` and commits at t + 3, so each context issues one instruction every four
   ticks. There are no same-context hazards, no forwarding and no stalls between
   contexts: a context that is waiting simply leaves its slot empty.
+- **Pair mode (v1.7).** A context whose partner (k ^ 2) is off may also take the
+  partner's slot, set by configuration: it then issues every two ticks, fetching its next
+  instruction while the one before is in X, where branches resolve exactly. The fetched
+  PC must equal the context's PC at commit, so a wrong guess costs a slot, never a wrong
+  commit (D-46).
 - **Per-context state:** four 32-bit registers, a 32-bit shift register `sh`, a 16-bit
   loop counter, a 32-bit deadline register `tmr`, an 8-bit PC and link register, flags
   Z and C, and a 32-bit input shift register `ish` filled by SAMPLE events.

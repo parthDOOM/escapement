@@ -52,7 +52,7 @@ can see:
   unit's own accesses; every other context is unaffected.) `STT` writes at the
   commit edge. `LDT` reads at the commit edge, and the register is written one edge
   later. That is architecturally invisible, because the same context's next commit is
-  four ticks away.
+  four ticks away (a paired context makes no fetch after an LDT, so the same holds, v1.7).
 - **Capture fills the gaps.** A two-record staging FIFO drains into any cycle without
   an LDT/STT. A burst that would need a third slot does not drop a record silently.
   It latches `ovf` and `ovf_tick`, stops generation, and still writes the records

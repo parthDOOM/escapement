@@ -1,6 +1,6 @@
 # Host protocol (normative)
 
-The SPI command set between a host and Escapement. Protocol version 8. Implemented by
+The SPI command set between a host and Escapement. Protocol version 9. Implemented by
 `src/escapement_host.v`, and driven by `sw/eschost` (PC and cocotb) and the RP2350
 MicroPython host on the Tiny Tapeout demo board (`sw/rp2350`). Version 1.1 adds
 WRITE_TAPE and READ_TAPE (0x13, 0x14) for the tape ([11-SEMANTICS](11-SEMANTICS.md) §7.6)
@@ -10,6 +10,10 @@ Version 1.2 adds four optional WRITE_CFG bytes for pin bank B
 adds TAPE_ACK (0x15), for streaming capture ([11-SEMANTICS](11-SEMANTICS.md) §6.5).
 Versions 1.4 to 1.6 change no command and still report protocol version 8: the line unit
 is used from firmware, and the host sees it only through READ_DBG selects 21, 25 and 26.
+Version 1.7 reports protocol version 9: WRITE_CFG byte 10 bits 7:4 set `ctx_pair`, pair
+mode ([11-SEMANTICS](11-SEMANTICS.md) §3). An older chip ignores those bits and would run a
+paired image unpaired, at half its context's rate, so its timing certificate would not
+hold: `sw/eschost` refuses to load a paired image onto a chip that reports a version below 9.
 
 ## Physical layer
 
@@ -50,7 +54,7 @@ is the status byte**:
 | 6 | IRQ pending on any context |
 | 5 | first-fault register valid |
 | 4 | host error (sticky; see CLEAR_ERR) |
-| 3:0 | protocol version: `0x8` (v1.3 to v1.6; v1.2 chips report `0x7`, v1.1 `0x6`, v1.0 `0x5`) |
+| 3:0 | protocol version: `0x9` (v1.7; v1.3 to v1.6 chips report `0x8`, v1.2 `0x7`, v1.1 `0x6`, v1.0 `0x5`) |
 
 Raising CS_n ends the frame at any point; a partial word is discarded. Bytes after the
 end of a command's payload are ignored (response 0x00). An unknown command sets host
@@ -66,7 +70,7 @@ the chip prepares data; its response is 0x00.
 | 0x00 | STATUS | 3 × dummy | ctx_state, {rx_full[3:0], tx_empty[3:0]}, irq_pending[3:0] | |
 | 0x10 | WRITE_IMEM | addr, then words (4 bytes each) | zeros | Writes addr, addr+1, …; only while stopped, else host error and no write |
 | 0x11 | READ_IMEM | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … | Readback verification of a loaded image |
-| 0x12 | WRITE_CFG | ctx_enable, entry0, entry1, entry2, entry3, pin_owned[7:0], pin_owner[15:8], pin_owner[7:0], pin_od, then optionally ctx_bank, pin_owned[12:8], pin_owner[25:24], pin_owner[23:16] | zeros | 9 or 13 bytes; only while stopped. Takes effect at the next START. Bytes 10–13 (v1.2) configure bank B; a 9-byte frame leaves them unchanged (0 after reset), and a v1.1 chip ignores them |
+| 0x12 | WRITE_CFG | ctx_enable, entry0, entry1, entry2, entry3, pin_owned[7:0], pin_owner[15:8], pin_owner[7:0], pin_od, then optionally ctx_bank (bits 3:0) and ctx_pair (bits 7:4, v1.7), pin_owned[12:8], pin_owner[25:24], pin_owner[23:16] | zeros | 9 or 13 bytes; only while stopped. Takes effect at the next START. Bytes 10–13 (v1.2) configure bank B, and byte 10's high nibble pair mode (v1.7); a 9-byte frame leaves them unchanged (0 after reset), a v1.1 chip ignores them, and a v1.2 to v1.6 chip ignores byte 10 bits 7:4 |
 | 0x13 | WRITE_TAPE | addr, then words (4 bytes each) | zeros | As WRITE_IMEM, into the tape; only while stopped, else host error and no write |
 | 0x14 | READ_TAPE | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … | As READ_IMEM, from the tape, at any time (v1.3; below) |
 | 0x15 | TAPE_ACK | rptr | zeros | v1.3: the host has read the capture records before `rptr`; sets the capture unit's `rptr` at the end of the byte ([11-SEMANTICS](11-SEMANTICS.md) §6.5). Allowed while running or stopped |
@@ -106,7 +110,7 @@ READ_TAPE plus a share of the status read and TAPE_ACK.
 
 ## Typical session
 
-1. STATUS, and check version 0x8.
+1. STATUS, and check version 0x9 (0x8 also runs any image without pair mode).
 2. STOP.
 3. WRITE_IMEM with the image, then READ_IMEM to compare (verification is in host software).
    WRITE_TAPE / READ_TAPE likewise for any initial tape contents (the SRAM powers up
