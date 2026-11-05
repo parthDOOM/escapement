@@ -647,6 +647,34 @@ def reconcile(ids: list[str], rows: list[dict]) -> list[str]:
     return probs
 
 
+# Seconds each mutant took in CI (refreshed with --costs-from), used only to deal the mutants
+# to shards. A mutant no suite kills runs every suite and the proof, ~1.5 h against minutes
+# for most kills, so dealing every N-th mutant left v1.6's sixteen shards 96 to 389 minutes
+# apart (modelled on CI runs 41296786251 and 41825920334), past the job limit at the top.
+COSTS = Path(__file__).with_name("costs.json")
+
+
+def shards(ms: list[Mutant], n: int) -> list[list[Mutant]]:
+    """Deal the mutants to n shards, longest first to the least-loaded shard. A mutant with
+    no recorded time counts as the mean of its file's. Deterministic, so every shard deals
+    the same way; the summary job checks that each mutant has exactly one result."""
+    cost = json.loads(COSTS.read_text()) if COSTS.exists() else {}
+    byfile: dict[str, list[int]] = {}
+    for m in ms:
+        if m.id in cost:
+            byfile.setdefault(m.file, []).append(cost[m.id])
+    known = [c for cs in byfile.values() for c in cs]
+    est = {m.id: cost.get(m.id) or (sum(byfile[m.file]) // len(byfile[m.file]) if m.file in byfile
+                                    else (sum(known) // len(known) if known else 1)) for m in ms}
+    out: list[list[Mutant]] = [[] for _ in range(n)]
+    load = [0] * n
+    for m in sorted(ms, key=lambda m: (-est[m.id], m.id)):
+        k = load.index(min(load))
+        out[k].append(m)
+        load[k] += est[m.id]
+    return out
+
+
 def run_one(m: Mutant, seeds: int, root: Path, do_equiv: bool) -> dict:
     t0 = time.time()
     work = root / m.id
@@ -725,7 +753,9 @@ def main() -> int:
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--curated", action="store_true")
     g.add_argument("--generated", action="store_true")
-    ap.add_argument("--shard", help="I/N: run every N-th mutant starting at I (0-based)")
+    ap.add_argument("--shard", help="I/N: run shard I (0-based) of N, dealt by cost (see shards())")
+    ap.add_argument("--costs-from", nargs="+", metavar="JSON",
+                    help="rewrite costs.json from these result files (--json output, or CI's merged one)")
     ap.add_argument("--no-equiv", action="store_true", help="skip the equivalence check of survivors")
     ap.add_argument("--no-baseline", action="store_true",
                     help="skip the check that every suite passes on the unmutated RTL")
@@ -780,9 +810,18 @@ def main() -> int:
         ms = [m for m in ms if m.origin == "generated"]
     if args.only:
         ms = [m for m in ms if m.id in args.only]
+    if args.costs_from:
+        cost = json.loads(COSTS.read_text()) if COSTS.exists() else {}
+        for f in args.costs_from:
+            cost |= {r["id"]: r["secs"] for r in json.loads(Path(f).read_text())["results"] if r.get("secs")}
+        ids = {m.id for m in ms}
+        cost = {k: v for k, v in sorted(cost.items()) if k in ids}
+        COSTS.write_text(json.dumps(cost, indent=0) + "\n")
+        print(f"{COSTS}: {len(cost)} of {len(ids)} mutants timed")
+        return 0
     if args.shard:
         i, n = map(int, args.shard.split("/"))
-        ms = ms[i::n]
+        ms = shards(ms, n)[i]
     if args.reconcile:
         rows = [json.loads(line) for line in Path(args.progress).read_text().splitlines() if line.strip()]
         probs = reconcile([m.id for m in ms], rows)

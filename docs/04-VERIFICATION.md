@@ -280,7 +280,8 @@ say yes is caught before any mutant is scored. Every kill stores its **evidence*
 tests and the first assertion or mismatch, and a **kill audit** reruns a sample of kills with
 the killing suite alone and reads that evidence. A final **reconcile** checks that every
 selected mutant has exactly one result, that every kill names a suite and every exclusion
-has its argument. The line unit lockstep counts its own replayed edges and the stray tape
+has its argument; in CI the summary job runs it over the merged shards and fails on any
+miss. The line unit lockstep counts its own replayed edges and the stray tape
 reads it makes, and fails a run that replays fewer edges than it generated or makes none.
 
 The campaign has 836 mutants across the whole RTL, the line unit included (745 before
@@ -737,7 +738,7 @@ on master, with its commit and log, failures included.
 | --- | --- | --- |
 | `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, the certificates against the RTL's measured leads (`proof_table.py`), firmware through the pins; the co-simulation and the line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
 | `formal` | a change to `src/` or `formal/` | `make formal`: formal-quick, then the unbounded core proof as one PDR task per assertion |
-| `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in sixteen shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors |
+| `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in sixteen shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors; the shards are dealt by each mutant's time in earlier runs (`test/mutation/costs.json`), the canaries run once beside them, and the summary requires the canaries and exactly one result per mutant |
 | `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
 | `equivalence` | each successful `gds` run on master | that run's netlist against the RTL of its commit (`formal/equiv.sh`) |
 
@@ -757,7 +758,7 @@ CELLS=yes make test cosim-parallel                               # the RTL with 
 make formal-quick                                                # bounded core proof, cover, ahead, never-late, clock gate, latch bank, host
 make formal JOBS=8                                               # adds the unbounded core proof (81 min for v1.6 at 2 jobs)
 make equiv                                                       # final netlist equals the RTL (~4 min)
-CELLS=yes make mutation JOBS=8                                   # mutation campaign, 8 mutants at a time (hours; CI: 16 shards of ~2 h)
+CELLS=yes make mutation JOBS=8                                   # mutation campaign, 8 mutants at a time (hours; CI: 16 shards dealt by cost)
 ```
 
 The suites run in parallel where they can: `sw-test` uses every core when pytest-xdist is

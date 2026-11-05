@@ -1,10 +1,13 @@
 name: mutation
 
 # The mutation campaign (test/mutation/run_mutants.py): every curated and generated RTL
-# mutant against the test suites that can see it, in sixteen shards; a mutant no test
-# kills is checked formally against the original RTL. The suites simulate the RTL with the
-# standard-cell clock gates and latch banks (CELLS=yes, D-40), as hardened, so a mutant of
-# a latch bank's input reaches them. The result goes to the results page.
+# mutant against the test suites that can see it, in sixteen shards dealt by cost (each
+# mutant's time in CI, test/mutation/costs.json); a mutant no test kills is checked formally
+# against the original RTL. The canaries (each suite catches a fault it must, the proof says
+# both yes and no) run once, beside the shards, and the summary requires them. The suites
+# simulate the RTL with the standard-cell clock gates and latch banks (CELLS=yes, D-40), as
+# hardened, so a mutant of a latch bank's input reaches them. The result goes to the
+# results page.
 
 on:
   push:
@@ -21,7 +24,7 @@ on:
 jobs:
   shard:
     runs-on: ubuntu-24.04
-    timeout-minutes: 330
+    timeout-minutes: 355     # GitHub's limit is 360
     strategy:
       fail-fast: false
       matrix:
@@ -61,7 +64,7 @@ jobs:
           CELLS: 'yes'
         run: |
           mkdir -p results
-          python test/mutation/run_mutants.py --shard ${{ matrix.shard }}/16 --jobs 4 \
+          python test/mutation/run_mutants.py --shard ${{ matrix.shard }}/16 --jobs 4 --no-canary \
             --json results/mutation-${{ matrix.shard }}.json
 
       - name: Upload shard result
@@ -71,8 +74,44 @@ jobs:
           name: mutation-shard-${{ matrix.shard }}
           path: results/mutation-${{ matrix.shard }}.json
 
+  canaries:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          tools: yosys yosys-abc
+
+      - uses: ./.github/actions/iverilog
+
+      - name: Setup python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install Python packages
+        run: pip install -r test/requirements.txt
+
+      - name: Standard-cell liberty and models at the pinned PDK commit
+        run: |
+          git clone -q --filter=blob:none --no-checkout https://github.com/IHP-GmbH/IHP-Open-PDK pdk
+          cd pdk
+          git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/' \
+            '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/'
+          git checkout -q 2bbec755dc67ca3db0261c3d6163e15735d66710
+
+      - name: Baseline and canaries
+        env:
+          PDK_ROOT: ${{ github.workspace }}/pdk
+          EQUIV_LIMIT: '1800'
+          CELLS: 'yes'
+        run: python test/mutation/run_mutants.py --canaries-only --jobs 4
+
   summary:
-    needs: shard
+    needs: [shard, canaries]
     if: ${{ !cancelled() }}  # failed shards still report; a cancelled run does not
     runs-on: ubuntu-24.04
     steps:
@@ -117,6 +156,14 @@ jobs:
         with:
           name: mutation-results
           path: mutation.json
+
+      - name: The canaries passed
+        run: test "${{ needs.canaries.result }}" = success
+
+      - name: Every mutant has exactly one result, killed, proved equivalent or argued
+        run: |
+          python3 -c "import json; [print(json.dumps(r)) for r in json.load(open('mutation.json'))['results']]" > all.jsonl
+          python3 test/mutation/run_mutants.py --reconcile --progress all.jsonl
 
       - name: Every mutant killed or proved equivalent
         run: |
