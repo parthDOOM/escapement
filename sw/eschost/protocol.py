@@ -10,6 +10,7 @@ VERSION = 0x9                 # v1.7: WRITE_CFG byte 10 bits 7:4 (pair mode)
 STATUS, WRITE_IMEM, READ_IMEM, WRITE_CFG = 0x00, 0x10, 0x11, 0x12
 WRITE_TAPE, READ_TAPE, TAPE_ACK = 0x13, 0x14, 0x15
 START, STOP, READ_DBG, MBX_PUSH, MBX_POP = 0x20, 0x21, 0x30, 0x40, 0x41
+CTX_STOP, CTX_START = 0x22, 0x23    # v1.7 (S3): live reload of one context
 IRQ_CLEAR, CLEAR_ERR = 0x50, 0x51
 
 
@@ -117,6 +118,16 @@ def plan_stop():
     return bytes((STOP,)), _st
 
 
+def plan_ctx_stop(mask):
+    # v1.7 (S3): stop these contexts at the end of the mask byte (during a run only)
+    return bytes((CTX_STOP, mask & 0xF)), _st
+
+
+def plan_ctx_start(mask):
+    # v1.7 (S3): restart these contexts at their first slot (each enabled and not RUNNING)
+    return bytes((CTX_START, mask & 0xF)), _st
+
+
 def plan_read_dbg(ctx, sel):
     # v1.1: select byte {0, sel[4], ctx[1:0], sel[3:0]}
     sb = ((sel & 0x10) << 2) | ((ctx & 3) << 4) | (sel & 0xF)
@@ -155,7 +166,7 @@ PLANS = {
     "read_dbg": plan_read_dbg, "mbx_push": plan_mbx_push, "mbx_pop": plan_mbx_pop,
     "irq_clear": plan_irq_clear, "clear_err": plan_clear_err,
     "write_tape": plan_write_tape, "read_tape": plan_read_tape,
-    "tape_ack": plan_tape_ack,
+    "tape_ack": plan_tape_ack, "ctx_stop": plan_ctx_stop, "ctx_start": plan_ctx_start,
 }
 
 
@@ -209,6 +220,23 @@ class Host:
                        image.pin_owner_packed, image.pin_od_mask,
                        getattr(image, "ctx_bank_mask", 0), getattr(image, "ctx_pair_mask", 0))
         return n
+
+    def reload(self, ctx, runs):
+        """v1.7 (S3) live reload of context ctx during a run: CTX_STOP, the program words
+        `runs` ([(addr, [words])], from eschost.live.plan_reload, which checks they are
+        certified and touch no word a running context can reach), CTX_START. The chip
+        writes each word in a cycle with no fetch. READ_IMEM reads only while stopped, so
+        the words are not read back here; a write the chip could not take sets host error,
+        which is checked (CLEAR_ERR returns the status before clearing it)."""
+        st = self.status()
+        if not st["running"]:
+            raise IOError("reload needs a running chip (load() while stopped)")
+        self.ctx_stop(1 << ctx)
+        for addr, words in runs:
+            self.write_imem(addr, words)
+        self.ctx_start(1 << ctx)
+        if self.clear_err()["host_err"]:
+            raise IOError("reload of context %d: the chip reported a host error" % ctx)
 
     def stream_poll(self, base, lim, rptr, retries=3):
         """One round of streaming capture (v1.3): read the capture status, every record

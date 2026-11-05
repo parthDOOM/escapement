@@ -139,3 +139,43 @@ def test_paired_context_restarts_before_its_first_slot(at):
     want = [(c["t"], c["pc"], c["insn"]) for c in fresh.commits if c["ctx"] == 3]
     assert got and got == want[:len(got)]
     assert pins(m, 1)[base:] == pins(fresh, 1)[:TICKS - base]
+
+
+def test_plan_reload_checks_reach_configuration_and_certificate():
+    from eschost.live import plan_reload
+    runs = plan_reload(OLD, NEW, 1)
+    assert runs and all(a >= NEW.entry_pcs[1] for a, _ in runs)
+    assert sum(len(w) for _, w in runs) == sum(OLD.words[a] != NEW.words[a] for a in range(256))
+    a_moved = assemble(PROG.replace("ADDT 40", "ADDT 48", 1).format(up=56, down=12))
+    with pytest.raises(ValueError, match="context 0 can reach"):
+        plan_reload(OLD, a_moved, 1)
+    repinned = assemble(PROG.replace(".own 1, 1", ".own 2, 1").format(up=56, down=12))
+    with pytest.raises(ValueError, match="configuration"):
+        plan_reload(OLD, repinned, 1)
+    late = assemble(PROG.format(up=0, down=12))     # an EMIT due at its own commit tick
+    with pytest.raises(ValueError, match="not certified"):
+        plan_reload(OLD, late, 1)
+
+
+class _Live:
+    """Answers every frame with a running status byte (version 9) and records the frames."""
+
+    def __init__(self, running=True):
+        self.frames, self.running = [], running
+
+    def __call__(self, frame):
+        self.frames.append(bytes(frame))
+        return bytes([0x89 if self.running else 0x09]) + bytes(len(frame) - 1)
+
+
+def test_host_reload_sends_stop_words_start():
+    from eschost.live import plan_reload
+    from eschost.protocol import Host
+    chip = _Live()
+    runs = plan_reload(OLD, NEW, 1)
+    Host(chip).reload(1, runs)
+    ops = [f[0] for f in chip.frames]
+    assert ops == [0x00, 0x22] + [0x10] * len(runs) + [0x23, 0x51]
+    assert chip.frames[1][1] == 0b0010 and chip.frames[-2][1] == 0b0010
+    with pytest.raises(IOError, match="running"):
+        Host(_Live(running=False)).reload(1, runs)
