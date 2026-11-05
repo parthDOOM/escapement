@@ -17,6 +17,7 @@ module esc_ctx_env (
     input wire        clk,
     input wire        rst_n,
     input wire        start,
+    input wire [31:0] f_start_tmr,     // v1.7 (S3): tmr after a start, free (0 or a frame base)
     input wire        stop,
     input wire [7:0]  sync,
     input wire        cfg_enable,
@@ -60,7 +61,7 @@ module esc_ctx_env (
   wire        late;
 
   esc_ctx u (
-      .clk(clk), .rst_n(rst_n), .start_i(start), .stop_i(stop & ~start), .run(run),
+      .clk(clk), .rst_n(rst_n), .start_i(start), .stop_i(stop & ~start), .run(run), .start_tmr(f_start_tmr),
       .now(now), .now_n(now + 32'd1), .sync(sync), .cfg_enable(cfg_enable), .cfg_entry_pc(cfg_entry_pc),
       .cm_ok(cm_ok), .cm_waitfull(cm_waitfull), .fault(fault),
       .w_rd_we(w_rd_we), .w_rd_idx(w_rd_idx), .w_rd_data(w_rd_data), .w_z_we(w_z_we),

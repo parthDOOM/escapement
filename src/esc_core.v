@@ -42,6 +42,8 @@ module esc_core (
     input  wire         rst_n,
     input  wire         start,
     input  wire         stop,
+    input  wire [3:0]   ctx_stop,      // v1.7 (S3): stop these contexts at this edge
+    input  wire [3:0]   ctx_start,     // v1.7 (S3): restart these contexts (at their first slot)
     // configuration (static during a run)
     input  wire [3:0]   ctx_enable,
     input  wire [31:0]  entry_pcs,
@@ -53,6 +55,7 @@ module esc_core (
     // instruction memory
     output wire [7:0]   imem_addr,
     output wire         imem_re,       // D-29: this slot's fetch will be used (else no read)
+    output wire         imem_free,     // v1.7 (S3): no fetch in this cycle (a host write may go)
     input  wire [31:0]  imem_rdata,
     // pins
     input  wire [7:0]   uio_in,
@@ -636,7 +639,7 @@ module esc_core (
 
   // v1.7: p3ok, registered in X, says the instruction was fetched from its context's PC
   // as of X, which no commit changes before this one (pair mode: a guessed fetch).
-  wire commit_valid = run & p3v & p3ok & (cs_state == ST_RUN) & ~start & ~stop;
+  wire commit_valid = run & p3v & p3ok & (cs_state == ST_RUN) & ~start & ~stop & ~ctx_stop[cctx];
   wire cm_ok        = commit_valid & (outcome == OC_C);
 
   // ------------------------------------------------------------------ tape port (v1.1)
@@ -690,6 +693,46 @@ module esc_core (
     end
   endgenerate
 
+  // v1.7 (S3) live reload. CTX_STOP k: k's context sees a stop at this edge (RUN becomes
+  // HALT, FIFO and checker killed), a commit of k at it is suppressed, k's pins release and
+  // a line-unit job of k ends, as on a fault but with no record and no IRQ. CTX_START k
+  // waits for the edge whose commit slot is k's first slot (k, or min(k, k^2) when paired):
+  // nothing commits there (k is not RUNNING), so the shared latch write flops carry zeros
+  // and the frame base to k's banks as at a run start, and the next cycle is k's fetch slot.
+  // k then sees what a run started at that frame shows it (tmr = the frame base), so its
+  // certificate holds unchanged.
+  reg  [3:0]  rs_pend;
+  wire [3:0]  rs_want = rs_pend | ctx_start;
+  wire [3:0]  rs_k;                    // k restarts at this edge
+  wire [3:0]  cs_k;                    // k stops at this edge (a restart or a run start wins)
+  wire        rs_any  = |rs_k;
+  wire [31:0] rs_tmr  = {now_n[31:2], 2'b00};
+  function [1:0] first(input [1:0] k, input [3:0] pr);
+    first = pr[k] ? {1'b0, k[0]} : k;
+  endfunction
+  generate
+    for (gk = 0; gk < 4; gk = gk + 1) begin : g_rs
+      assign rs_k[gk] = run & ~start & ~stop & rs_want[gk] & (sq == first(gk[1:0], pair_on));
+      assign cs_k[gk] = ctx_stop[gk] & ~start & ~stop & ~rs_k[gk];
+    end
+  endgenerate
+
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n)              rs_pend <= 4'd0;
+    else if (start || stop)  rs_pend <= 4'd0;
+    else                     rs_pend <= rs_want & ~rs_k & ~ctx_stop;
+
+  // v1.7 (S3): the fetch slot of the coming cycle belongs to a context that is not RUNNING
+  // (states become RUN only at a start or a restart), so that cycle reads nothing and a
+  // program word written during a run may take the port. A register: the top's port select
+  // is this flop and the host's, nothing from the fetch logic.
+  reg        free_q;
+  wire [1:0] fq_n = own(now_n[1:0], pair_on);
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) free_q <= 1'b0;
+    else        free_q <= run & ~start & ~stop & (c_state[2*fq_n +: 2] != ST_RUN) & ~rs_k[fq_n];
+  assign imem_free = free_q;
+
   // ------------------------------------------------------------------ latch write data
   // v1.4 (D-40): most of the contexts' banks are latches (esc_lreg). Each copies, while
   // its gated clock is high, what was written at the last edge, from these flip-flops:
@@ -700,11 +743,11 @@ module esc_core (
   wire [57:0] q_entry;
   reg  [3:0]  q_ldk;                   // the last edge's deferred LDT write, per context
   esc_greg #(32) g_qwr (.clk(clk), .rst_n(rst_n),
-      .en(start | (commit_valid & (w_rd_we | w_sh_we | w_tx_push))),
-      .d(start ? 32'd0 : w_sh_we ? w_sh : w_tx_push ? opb : w_rd_data), .q(q_wr));
+      .en(start | rs_any | (commit_valid & (w_rd_we | w_sh_we | w_tx_push))),
+      .d((start | rs_any) ? 32'd0 : w_sh_we ? w_sh : w_tx_push ? opb : w_rd_data), .q(q_wr));
   esc_greg #(32) g_qtmr (.clk(clk), .rst_n(rst_n),
-      .en(start | (commit_valid & (w_tmr_we | w_exp_admit))),
-      .d(start ? 32'd0 : w_tmr), .q(q_tmr));
+      .en(start | rs_any | (commit_valid & (w_tmr_we | w_exp_admit))),
+      .d(start ? 32'd0 : rs_any ? rs_tmr : w_tmr), .q(q_tmr));
   esc_greg #(58) g_qent (.clk(clk), .rst_n(rst_n), .en(commit_valid & w_push),
       .d(w_entry), .q(q_entry));
   esc_greg #(32) g_qld (.clk(clk), .rst_n(rst_n), .en(ld_v), .d(tape_rdata), .q(q_ld));
@@ -719,7 +762,7 @@ module esc_core (
       .op_crc(lu_cm & (l_op == 4'd2)), .op_cfg(lu_cm & (l_op == 4'd3)),
       .op_ctx(cctx), .op_v(opb[29:0]),
       .line_ret(c_lret[lu_owner] & lu_owned), .halt_done(cm_ok & w_halt & lu_mine),
-      .kill(stop_q | (|(fault_k & lu_sel))), .rdata(tape_rdata),
+      .kill(stop_q | (|((fault_k | cs_k) & lu_sel))), .rdata(tape_rdata),
       .owned(lu_owned), .owner(lu_owner), .conf(lu_conf), .claimed(lu_claimed),
       .engaged(lu_engaged), .busy(lu_busy), .status(lu_status), .e(lu_e), .mode(lu_mode),
       .flt_owner(lu_flto), .flt_config(lu_fltc), .send_rd(lu_srd),
@@ -732,8 +775,9 @@ module esc_core (
       esc_ctx u_ctx (
           .clk         (clk),
           .rst_n       (rst_n),
-          .start_i     (start),
-          .stop_i      (stop_q),
+          .start_i     (start | rs_k[gk]),
+          .stop_i      (stop_q | cs_k[gk]),
+          .start_tmr   (start ? 32'd0 : rs_tmr),
           .run         (run),
           .now         (now),
           .now_n       (now_n),
@@ -905,7 +949,7 @@ module esc_core (
         end
     end
     for (pk = 0; pk < 4; pk = pk + 1)
-      if (fault_k[pk]) oe_n = oe_n & ~pown[13*pk +: 13];
+      if (fault_k[pk] | cs_k[pk]) oe_n = oe_n & ~pown[13*pk +: 13];
     oe_n  = oe_n & ~to_phys(lu_bank, lu_rel);
     lm    = to_phys(lu_bank, lu_drv);
     val_n = (val_n & ~lm) | (to_phys(lu_bank, lu_dval) & lm);
@@ -1175,6 +1219,12 @@ module esc_core (
   always @(*) if (rst_n && run)
     ahead_b0: `ESC_AHEAD (sq == now[1:0] + 2'd1 && cq == own(sq, pair_on)
                          && nq == own(sq + 2'd1, pair_on) && fq == own(now[1:0], pair_on));
+  // v1.7 S3: a restart edge has no commit (the shared latch write flops are free for the
+  // restarted context's zeros), and a cycle given to a host program write reads nothing.
+  always @(*) if (rst_n) begin
+    assert (!rs_any || !commit_valid);
+    assert (!free_q || !imem_re);
+  end
 `undef ESC_AHEAD
 
   // driven(p): physical pin p is away from its released level (bank A: output enabled;

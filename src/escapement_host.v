@@ -37,6 +37,10 @@ module escapement_host (
     output reg  [3:0]   ctx_bank,
     output reg  [3:0]   ctx_pair,      // v1.7: WRITE_CFG byte 10 bits 7:4
     output reg  [3:0]   irq_clear,
+    output reg  [3:0]   ctx_stop,      // v1.7 (S3): CTX_STOP strobe, a context mask
+    output reg  [3:0]   ctx_start,     // v1.7 (S3): CTX_START strobe, a context mask
+    output reg          imem_wpend,    // v1.7 (S3): a program word written during a run waits
+    input  wire         imem_wgnt,     //            ... and is written in this cycle
     input  wire         running,
     input  wire [7:0]   ctx_state,
     input  wire [3:0]   irq_pending,
@@ -68,7 +72,7 @@ module escapement_host (
   localparam [7:0] C_STATUS = 8'h00, C_WRITE_IMEM = 8'h10, C_READ_IMEM = 8'h11,
                    C_WRITE_CFG = 8'h12, C_WRITE_TAPE = 8'h13, C_READ_TAPE = 8'h14,
                    C_TAPE_ACK = 8'h15,
-                   C_START = 8'h20, C_STOP = 8'h21,
+                   C_START = 8'h20, C_STOP = 8'h21, C_CTX_STOP = 8'h22, C_CTX_START = 8'h23,
                    C_READ_DBG = 8'h30, C_MBX_PUSH = 8'h40, C_MBX_POP = 8'h41,
                    C_IRQ_CLEAR = 8'h50, C_CLEAR_ERR = 8'h51, C_IGNORE = 8'hFF;
   localparam [3:0] VERSION = 4'h9;            // v1.7: WRITE_CFG byte 10 bits 7:4
@@ -157,6 +161,12 @@ module escapement_host (
     end
   end
 
+  // v1.7 (S3): the buffer is free for a new word (empty, or emptied at this edge), and the
+  // contexts RUNNING now (ST_RUN = 1 in each 2-bit field of ctx_state)
+  wire       wslot   = ~imem_wpend | imem_wgnt;
+  wire [3:0] ctx_run = {ctx_state[7:6] == 2'd1, ctx_state[5:4] == 2'd1,
+                        ctx_state[3:2] == 2'd1, ctx_state[1:0] == 2'd1};
+
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       bitcnt <= 3'd0; rx_shift <= 7'd0; tx_shift <= 8'h00;
@@ -165,6 +175,7 @@ module escapement_host (
       start <= 1'b0; stop <= 1'b0; irq_clear <= 4'd0;
       ctx_enable <= 4'd0; entry_pcs <= 32'd0; pin_owned <= 13'd0; pin_owner <= 26'd0;
       pin_od <= 8'd0; ctx_bank <= 4'd0; ctx_pair <= 4'd0;
+      ctx_stop <= 4'd0; ctx_start <= 4'd0; imem_wpend <= 1'b0;
       mem_we <= 1'b0; mem_addr <= 8'd0; mem_wdata <= 32'd0; mem_space <= 1'b0;
       dbg_ctx <= 2'd0; dbg_sel <= 5'd0;
       mbx_rx_push <= 4'd0; mbx_tx_pop <= 4'd0;
@@ -172,6 +183,7 @@ module escapement_host (
     end else begin
       // single-cycle strobes
       start <= 1'b0; stop <= 1'b0; irq_clear <= 4'd0; mem_we <= 1'b0;
+      ctx_stop <= 4'd0; ctx_start <= 4'd0;
       mbx_rx_push <= 4'd0; mbx_tx_pop <= 4'd0; tape_ack <= 1'b0;
       // tape fetch: granted this cycle, its data arrives in the next (D-29 timing)
       gnt_d <= tape_gnt;
@@ -179,6 +191,8 @@ module escapement_host (
       if (tape_gnt) tape_req <= 1'b0;
       // a word was written at this edge: advance for the next one
       if (mem_we) mem_addr <= mem_addr + 8'd1;
+      // v1.7 (S3): a word written during a run went to the program store in this cycle
+      if (imem_wgnt) begin imem_wpend <= 1'b0; mem_addr <= mem_addr + 8'd1; end
 
       if (!selected) begin
         bitcnt   <= 3'd0;
@@ -200,14 +214,15 @@ module escapement_host (
             mem_space <= (rx_byte == C_WRITE_TAPE) || (rx_byte == C_READ_TAPE);
             case (rx_byte)
               C_STATUS, C_WRITE_IMEM, C_READ_IMEM, C_WRITE_CFG, C_READ_DBG,
-              C_MBX_PUSH, C_MBX_POP, C_IRQ_CLEAR, C_WRITE_TAPE, C_READ_TAPE, C_TAPE_ACK: ;
+              C_MBX_PUSH, C_MBX_POP, C_IRQ_CLEAR, C_WRITE_TAPE, C_READ_TAPE, C_TAPE_ACK,
+              C_CTX_STOP, C_CTX_START: ;
               C_START: if (running) host_err <= 1'b1; else start <= 1'b1;
               C_STOP: stop <= 1'b1;
               C_CLEAR_ERR: host_err <= 1'b0;
               default: begin host_err <= 1'b1; cmd <= C_IGNORE; end
             endcase
-            if ((rx_byte == C_WRITE_IMEM || rx_byte == C_WRITE_CFG ||
-                 rx_byte == C_WRITE_TAPE) && running)
+            // v1.7 (S3): WRITE_IMEM is accepted during a run (its words wait for a free slot)
+            if ((rx_byte == C_WRITE_CFG || rx_byte == C_WRITE_TAPE) && running)
               host_err <= 1'b1;
           end else begin
             // ------------------------------------------------ payload bytes
@@ -218,11 +233,13 @@ module escapement_host (
                   word <= {word[23:0], rx_byte};
                   wcnt <= wcnt + 2'd1;
                   if (wcnt == 2'd3) begin
-                    if (running) host_err <= 1'b1;
-                    else begin
+                    if (!running) begin
                       mem_we    <= 1'b1;
                       mem_wdata <= {word[23:0], rx_byte};
-                    end
+                    end else if (cmd == C_WRITE_IMEM && wslot) begin
+                      imem_wpend <= 1'b1;
+                      mem_wdata  <= {word[23:0], rx_byte};
+                    end else host_err <= 1'b1;            // the tape during a run; a word still waiting
                   end
                 end
               end
@@ -296,6 +313,16 @@ module escapement_host (
                 end
               end
               C_IRQ_CLEAR: if (idx == 4'd1) irq_clear <= rx_byte[3:0];
+              // v1.7 (S3): stop / restart contexts during a run. CTX_START refuses (host error,
+              // nothing started) a context that is not enabled or is RUNNING.
+              C_CTX_STOP: if (idx == 4'd1) begin
+                if (running) ctx_stop <= rx_byte[3:0]; else host_err <= 1'b1;
+              end
+              C_CTX_START: if (idx == 4'd1) begin
+                if (running && (rx_byte[3:0] & (~ctx_enable | ctx_run)) == 4'd0)
+                  ctx_start <= rx_byte[3:0];
+                else host_err <= 1'b1;
+              end
               default: ;
             endcase
           end

@@ -46,8 +46,13 @@ module tb_host (
   wire [31:0] dbg_rdata = {8'hD0 | {6'b0, dbg_ctx}, 3'h0, dbg_sel, 16'hBEEF ^ {11'h0, dbg_sel}};
 
   // re as project.v while the host owns the memories (D-29)
+  // v1.7 (S3): live writes, granted as in project.v; tb_free stands for the core's free slot
+  wire [3:0] ctx_stop, ctx_start;
+  wire       imem_wpend;
+  reg        tb_free = 1'b1;
+  wire       imem_wgnt = imem_wpend & (tb_free | ~running);
   escapement_sram u_sram (.clk(clk), .rst_n(rst_n), .addr(mem_addr), .re(mem_re & ~mem_space),
-                          .we(mem_we & ~running & ~mem_space),
+                          .we((mem_we & ~running & ~mem_space) | imem_wgnt),
                           .wdata(mem_wdata), .rdata(imem_rdata));
   // the stand-in core never really accesses the tape: while busy it only holds the port
   assign tape_gnt = tape_req & ~core_busy;
@@ -58,7 +63,8 @@ module tb_host (
       .clk(clk), .rst_n(rst_n), .cs_n_pin(cs_n), .sck_pin(sck), .mosi_pin(mosi), .miso(miso),
       .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
-      .ctx_pair(ctx_pair), .irq_clear(irq_clear),
+      .ctx_pair(ctx_pair), .irq_clear(irq_clear), .ctx_stop(ctx_stop), .ctx_start(ctx_start),
+      .imem_wpend(imem_wpend), .imem_wgnt(imem_wgnt),
       .running(running), .ctx_state(ctx_state), .irq_pending(irq_pending), .fault_valid(fault_valid),
       .mem_we(mem_we), .mem_addr(mem_addr), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata),
       .mem_space(mem_space), .mem_re(mem_re),

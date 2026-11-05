@@ -57,8 +57,12 @@ module tb_core ();
       .wdata(ld_data),
       .rdata(imem_rdata));
 
+  // v1.7 (S3): live-reload strobes, driven by tests (0 otherwise)
+  reg  [3:0] ctx_stop = 4'd0, ctx_start = 4'd0;
+  wire       imem_free;
   esc_core u_core (
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop),
+      .ctx_stop(ctx_stop), .ctx_start(ctx_start), .imem_free(imem_free),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs), .pin_owned(pin_owned),
       .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
       .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),

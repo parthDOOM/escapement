@@ -32,6 +32,7 @@ module esc_ctx (
     input  wire        clk,
     input  wire        rst_n,
     input  wire        start_i,       // run initialisation at this edge (wins over all)
+    input  wire [31:0] start_tmr,     // v1.7 (S3): tmr after a start (0; a restart: the frame base)
     input  wire        stop_i,        // stop at this edge (already masked by start)
     input  wire        run,           // run flag during this cycle
     input  wire [31:0] now,
@@ -386,7 +387,7 @@ module esc_ctx (
   wire        en_sh = st | (live & cm_ok & w_sh_we);
   wire        en_tmr = st | (live & cm_ok & w_tmr_we);
   wire        en_lee = st | (live & cm_ok & w_exp_admit);
-  wire [31:0] d_sh = st ? 32'd0 : w_sh, d_tmr = st ? 32'd0 : w_tmr, d_lee = st ? 32'd0 : w_lee;
+  wire [31:0] d_sh = st ? 32'd0 : w_sh, d_tmr = st ? start_tmr : w_tmr, d_lee = st ? 32'd0 : w_lee;
   esc_lreg #(32) g_r0 (.clk(clk), .rst_n(rst_n), .en(en_r0), .d(d_r), .dq(dq_r), .q(o_r0));
   esc_lreg #(32) g_r1 (.clk(clk), .rst_n(rst_n), .en(en_r1), .d(d_r), .dq(dq_r), .q(o_r1));
   esc_lreg #(32) g_r2 (.clk(clk), .rst_n(rst_n), .en(en_r2), .d(d_r), .dq(dq_r), .q(o_r2));
