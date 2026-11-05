@@ -256,6 +256,85 @@ spin:
     assert not (await host.status())["host_err"]
 
 
+RELOAD = """
+.entry 0, a
+.entry 1, b
+.own 0, 0
+.own 1, 1
+a:  ADDT 40
+    EMIT 1, 1, 1
+    ADDT 40
+    EMIT 1, 0, 1
+    JMP a
+b:  ADDT {up}
+    EMIT 2, 2, 2
+    ADDT {down}
+    EMIT 2, 0, 2
+    JMP b
+"""
+
+
+class PinLog:
+    """A board that drives nothing and logs every change of the chip's uio outputs."""
+
+    def __init__(self):
+        self.log, self.last = [], None
+
+    def __call__(self, t, out, oe):
+        if (out, oe) != self.last:
+            self.log.append((t, out, oe))
+            self.last = (out, oe)
+        return 0
+
+    def edges(self, bit):
+        """(tick, level) of each change of the pin's driven level; None while released."""
+        out, prev = [], "start"
+        for t, o, e in self.log:
+            lv = (o >> bit & 1) if e >> bit & 1 else None
+            if lv != prev:
+                out.append((t, lv))
+                prev = lv
+        return out
+
+
+@cocotb.test()
+async def test_live_reload_over_spi(dut):
+    """v1.7 (S3) live reload through SPI, the host interface, project.v's free-slot grant and
+    the program store: context 1 is stopped, given new timing and restarted while context 0
+    keeps toggling its pin every 40 ticks. Not one of context 0's edges moves, and context 1
+    comes back with the new pattern (ADDT 56 before the rise, 12 before the fall: low 56 and
+    high 12 ticks instead of 24 and 24; the ISS gives the same)."""
+    from eschost.live import plan_reload
+    old, new = assemble(RELOAD.format(up=24, down=24)), assemble(RELOAD.format(up=56, down=12))
+    runs = plan_reload(old, new, 1)
+    pins = PinLog()
+    host = await bring_up(dut, pins)
+    await host.load(old)
+    await host.start()
+    await ClockCycles(dut.clk, 3000)
+    await host.reload(1, runs)
+    st = await host.status()
+    assert st["running"] and not st["host_err"] and (st["ctx_state"] >> 2) & 3 == 1, st
+    await ClockCycles(dut.clk, 3000)
+    await host.stop()
+    assert await host.read_imem(runs[0][0], len(runs[0][1])) == runs[0][1]
+    e0 = [t for t, lv in pins.edges(0)]
+    gaps0 = {b - a for a, b in zip(e0[1:-1], e0[2:-1])}         # first drive to the STOP
+    assert gaps0 == {40}, sorted(gaps0)
+    assert all(lv is not None for _, lv in pins.edges(0)[1:-1])  # never released in the run
+    e1 = pins.edges(1)
+    rel = [i for i, (_, lv) in enumerate(e1) if lv is None and i > 0]
+    assert rel, "context 1's pin was never released"
+    before = [b[0] - a[0] for a, b in zip(e1[1:rel[0]], e1[2:rel[0]])]
+    after = e1[rel[0] + 1:]
+    highs = [b[0] - a[0] for a, b in zip(after, after[1:]) if a[1] == 1 and b[1] == 0]
+    lows = [b[0] - a[0] for a, b in zip(after, after[1:]) if a[1] == 0 and b[1] == 1]
+    dut._log.info(f"ctx0 {len(e0)} edges, gaps {sorted(gaps0)}; ctx1 before {set(before)}, "
+                  f"after high {set(highs)} low {set(lows)}")
+    assert before and set(before) == {24}
+    assert highs and lows and set(highs) == {12} and set(lows) == {56}
+
+
 @cocotb.test()
 async def test_slow_bitbang_host_like_the_demo_board(dut):
     """The demo board's bit-bang (sw/rp2350/bringup.py, Link): MOSI, sample MISO

@@ -294,6 +294,17 @@ class AsyncHost:
                              getattr(image, "ctx_pair_mask", 0))
         return n
 
+    async def reload(self, ctx, runs):
+        """As Host.reload."""
+        if not (await self.status())["running"]:
+            raise IOError("reload needs a running chip (load() while stopped)")
+        await self.ctx_stop(1 << ctx)
+        for addr, words in runs:
+            await self.write_imem(addr, words)
+        await self.ctx_start(1 << ctx)
+        if (await self.clear_err())["host_err"]:
+            raise IOError("reload of context %d: the chip reported a host error" % ctx)
+
     async def stream_poll(self, base, lim, rptr, retries=3):
         """As Host.stream_poll."""
         st = await self.read_dbg(0, 17)
