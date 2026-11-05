@@ -90,7 +90,7 @@ module esc_tb (
       .clk  (clk),
       .rst_n(rst_n),
       .addr ((load_we & ~load_space) ? load_addr : imem_addr),
-      .re   (running ? imem_re : 1'b1),          // as project.v while running (D-29)
+      .re   (running ? (imem_re & ~(load_we & ~load_space)) : 1'b1),  // as project.v (D-29; v1.7 live writes)
       .we   (load_we & ~load_space),
       .wdata(load_data),
       .rdata(imem_rdata)

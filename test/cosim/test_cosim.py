@@ -147,7 +147,8 @@ class TapeHost:
         return errs
 
 
-async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b, tape_host=None):
+async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b, tape_host=None,
+                  reload=None):
     """Returns (commits, commits<n, pins, final) using the RTL. Cycle numbering per §2.
     `host` (an escmodels.HostScript, never attached to a machine) gives the mailbox
     schedule; pops are recorded into host.received like the ISS run does. `tape_host`
@@ -179,6 +180,8 @@ async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b, ta
         dut.mbx_rx_push.value = push_mask
         dut.mbx_rx_data.value = push_data
         dut.mbx_tx_pop.value = pop_mask
+        if reload is not None:
+            reload.rtl_cycle(dut, t, n_cycles)
         if tape_host is not None:
             if t < n_cycles:
                 await tape_host.rtl_cycle(dut, t)
@@ -595,6 +598,102 @@ async def test_v12_bank_b(dut):
 
 
 # --------------------------------------------------------------------------- v1.3
+
+
+class Reload:
+    """v1.7 (S3) a live reload during a run: CTX_STOP `mask` during cycle stop_at, the new
+    image's differing words written in cycles the core leaves the program store free
+    (imem_free), CTX_START `mask` in the first cycle at or after start_at once every word is
+    in. The RTL run records when each word and the start went in; iss_run replays them."""
+
+    def __init__(self, mask, old, new, stop_at, start_at):
+        self.mask, self.stop_at, self.start_want = mask, stop_at, start_at
+        self.todo = [(a, new.words[a]) for a in range(256) if old.words[a] != new.words[a]]
+        self.writes, self.start_at = [], None
+
+    def rtl_cycle(self, dut, t, n):
+        dut.ctx_stop.value = self.mask if t == self.stop_at else 0
+        dut.ctx_start.value = 0
+        dut.load_we.value = 0
+        if t >= n:
+            return
+        if t > self.stop_at and self.todo and int(dut.imem_free.value):
+            a, w = self.todo.pop(0)
+            dut.load_space.value = 0
+            dut.load_addr.value = a
+            dut.load_data.value = w
+            dut.load_we.value = 1
+            self.writes.append((t, a, w))
+        elif t >= self.start_want and not self.todo and self.start_at is None:
+            dut.ctx_start.value = self.mask
+            self.start_at = t
+
+    def iss_run(self, image, board, n):
+        m = Machine(image, board=board)
+        at = {}
+        for tw, a, w in self.writes:
+            at.setdefault(tw, []).append((a, w))
+        for t in range(n):
+            if t == self.stop_at:
+                m.host_ctx_stop(self.mask)
+            if t == self.start_at:
+                m.host_ctx_start(self.mask)
+            m.run(1, stop_when_idle=False)
+            for a, w in at.get(t, []):           # written at E_t: fetched from t + 1 on
+                m.imem_write(a, w)
+        return m
+
+
+RELOAD_PROG = """
+{pair}
+.entry 0, a
+.entry {k}, b
+.own 0, 0
+.own 1, {k}
+a:  ADDT 40
+    EMIT 1, 1, 1
+    ADDT 40
+    EMIT 1, 0, 1
+    JMP a
+b:  ADDT {{up}}
+    EMIT 2, 2, 2
+    ADDT {{down}}
+    EMIT 2, 0, 2
+    JMP b
+"""
+
+
+@cocotb.test()
+async def test_v17_live_reload(dut):
+    """v1.7 (S3): context k is stopped during a run, its program rewritten in free slots and
+    restarted at its first slot (k = 1; and k = 3 paired, first slot 1), at every slot phase
+    of the stop. Every commit, pin and final state must match the ISS."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    from esciss.machine import default_board
+    failures, n = [], 1200
+    for pair, k in (("", 1), (".pair 3", 3)):
+        src = RELOAD_PROG.format(pair=pair, k=k)
+        old, new = assemble(src.format(up=24, down=24)), assemble(src.format(up=56, down=12))
+        for stop_at in (301, 302, 303, 304, 517):
+            r = Reload(1 << k, old, new, stop_at, stop_at + 2)
+            _, rtl_commits, rtl_pins, rtl_final = await run_rtl(dut, old, default_board, n, reload=r)
+            name = f"reload k{k} stop{stop_at}"
+            if r.start_at is None or r.todo:
+                failures.append(name)
+                dut._log.error(f"[{name}] the reload did not complete: {len(r.todo)} words left")
+                continue
+            m = r.iss_run(old, default_board, n)
+            restarted = [c for c in m.commits if c["ctx"] == k and c["t"] > r.start_at]
+            errs = compare(name, old, m, rtl_commits, rtl_pins, rtl_final, dut._log)
+            if not restarted:
+                errs.append("the restarted context never committed")
+            if errs:
+                failures.append(name)
+            else:
+                dut._log.info(f"[{name}] {len(r.writes)} words in cycles "
+                              f"{[w[0] for w in r.writes]}, start strobe {r.start_at}, "
+                              f"{len(restarted)} commits after the restart")
+    assert not failures, f"mismatching: {failures}"
 
 
 def host_schedule(seed: int, n: int = MAX_TICKS):
