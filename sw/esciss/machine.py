@@ -334,6 +334,11 @@ class Machine:
         self._host_tx_pop: list[bool] = [False] * N_CTX
         self._host_irq_clear = 0
         self._host_tape_ack: Optional[int] = None
+        # v1.7 (S3) live reload: contexts to stop at the next edge, and contexts waiting for
+        # their first slot to restart; the contexts restarted at the edge being simulated
+        self._ctx_stop = 0
+        self._ctx_start = 0
+        self._restarted = 0
         self._reset()
         self._start_cycle()
 
@@ -404,6 +409,27 @@ class Machine:
     def stop(self) -> None:
         """§9 Stop at the next edge."""
         self._stop_pending = True
+
+    def host_ctx_stop(self, mask: int) -> None:
+        """v1.7 (S3) CTX_STOP at the next edge: each context in mask stops there as on a run
+        stop (RUNNING becomes HALTED, FIFO and checker killed, its commit at that edge
+        discarded), its pins release and a line-unit job it owns ends; no fault record."""
+        self._ctx_stop |= mask & 0xF
+
+    def host_ctx_start(self, mask: int) -> None:
+        """v1.7 (S3) CTX_START: each context in mask restarts at the edge ending the cycle
+        before its first slot (k, or min(k, k^2) when paired), as at a run start at that
+        frame: registers cleared, PC = entry, tmr = the frame base, RUNNING if enabled."""
+        self._ctx_start |= mask & 0xF
+
+    def imem_write(self, addr: int, word: int) -> None:
+        """v1.7 (S3) a program word written during a run (the chip writes it in a cycle with
+        no fetch); fetches from the next cycle on read it."""
+        self.imem[addr & 0xFF] = word & M32
+
+    def _first_slot(self, k: int) -> int:
+        """v1.7: the first of context k's slots in a frame (k, or min(k, k^2) when paired)."""
+        return k & 1 if self.pair_on[k] else k
 
     def host_rx_push(self, ctx: int, value: int) -> None:
         """Host pushes into ctx's RX mailbox at the next edge (§7.5, §10 mbx_rx_push).
@@ -562,11 +588,20 @@ class Machine:
         idle = self._is_idle()
 
         commit = None
+        self._restarted = 0
         if self._stop_pending:                                 # §9 Stop at E_t
             self._edge_stop()
+            self._ctx_stop = self._ctx_start = 0
         else:
             self._fetch(t)                                     # §3
-            commit = self._edge(t, tm, psync)
+            # v1.7 (S3): restarts at E_t, then stops (a restart wins over a same-edge stop)
+            rs = sum(1 << k for k in range(N_CTX)
+                     if self._ctx_start >> k & 1 and (t + 1) % N_CTX == self._first_slot(k))
+            cs, raw_stop = self._ctx_stop & ~rs, self._ctx_stop
+            self._ctx_start &= ~rs & ~raw_stop
+            self._ctx_stop = 0
+            self._restarted = rs
+            commit = self._edge(t, tm, psync, cs, raw_stop, rs)
             self._capture_edge(tm, psync, commit)              # §6.5 (v1.1)
             self._digest_edge(out, oe, ob, commit)             # §10.1 (v1.1)
         self._apply_mailboxes(commit)                          # §7.5, §10 host ports
@@ -615,7 +650,8 @@ class Machine:
 
     # ------------------------------------------------------------------ edge E_t
 
-    def _edge(self, t: int, tm: int, psync: int) -> Optional[Commit]:
+    def _edge(self, t: int, tm: int, psync: int, cs: int = 0, raw_stop: int = 0,
+              rs: int = 0) -> Optional[Commit]:
         # Each context sees its own bank's inputs as its logical pins (§5, v1.2).
         views = [view(self.ctx_bank[k], psync) for k in range(N_CTX)]
         # ---- plan: event engine for every context (§6.3, §6.4), state during cycle t
@@ -640,7 +676,8 @@ class Machine:
             # SPEC-Q 1: an instruction whose context is no longer RUNNING during its
             # commit cycle (only possible after LATE_HEAD) is discarded, like §9 Stop.
             # v1.7: so is one fetched from a PC that is not the context's (a wrong guess).
-            if xj.state == RUNNING and fl.pc == xj.pc:
+            # v1.7 (S3): and one whose context a CTX_STOP stops at E_t.
+            if xj.state == RUNNING and fl.pc == xj.pc and not raw_stop >> j & 1:
                 commit = self._commit(j, fl, tm, views[j], plans[j])
 
         # ---- apply
@@ -654,6 +691,19 @@ class Machine:
             commit_fault = my_commit is not None and my_commit.outcome == "F"
             pc_during_t = x.pc
 
+            if cs >> k & 1:
+                # v1.7 (S3) CTX_STOP: as §9 Stop for this context; its pins release as on
+                # a fault, and a line-unit job of its ends (the unit's kill), no record.
+                if x.state == RUNNING:
+                    x.state = HALTED
+                x.fifo.clear()
+                x.chk.active = False
+                x.inflight = []
+                for pp in range(N_PHYS):
+                    if self._phys_owned(k, pp):
+                        new_oe &= ~(1 << pp)
+                owner_faulted |= k == lu_owner
+                continue
             if commit_fault:
                 self._apply_checker_eval_on_fault(x, p, tm, sync)
                 new_oe = self._fault(k, my_commit.cause, my_commit.subcode, my_commit.pc,
@@ -724,6 +774,17 @@ class Machine:
             commit is not None and ((commit.insn >> 24) & 0xFF) in (OP_SEND, OP_LINE))
 
         self.val, self.oe = new_val & 0x1FFF, new_oe & 0x1FFF
+
+        # v1.7 (S3) CTX_START: k re-initialises at E_t as at a run start (the start wins over
+        # everything else of k at this edge), with tmr the frame base; pins and the line
+        # unit's ownership are unchanged.
+        for k in range(N_CTX):
+            if rs >> k & 1:
+                ctx = Context()
+                ctx.state = RUNNING if self.ctx_enable[k] else IDLE
+                ctx.pc = self.entry_pc[k]
+                ctx.tmr = (t + 1) & ~3 & M32
+                self.ctx[k] = ctx
 
         if commit is not None:
             self._record_commit(commit, t)
@@ -980,6 +1041,8 @@ class Machine:
         and the host ports. Host full/empty checks use the state during the cycle (§10:
         ignored when full or empty; never visible to a commit at the same edge). SPEC-Q 9."""
         for k, x in enumerate(self.ctx):
+            if self._restarted >> k & 1:
+                continue                           # v1.7 (S3): its start wins, mailboxes empty
             mine = commit if (commit is not None and commit.k == k
                               and commit.outcome == "C") else None
             rx_full_before = len(x.rx) >= MBX_DEPTH
