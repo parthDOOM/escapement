@@ -321,6 +321,24 @@ WS2812, DShot, I2C fast mode, SPI controller and CAN transmit; timer-bound firmw
 unchanged. A trial layout met 20 ns at the slow corner down to 19.2 ns (v1.6: 19.7 ns),
 with the power estimate 1.4% higher.
 
+**D-48 Live reload of one context, restarted at its own slot (v1.7).** A host can stop one
+context, rewrite its program words and restart it while the others run (CTX_STOP, WRITE_IMEM
+during a run, CTX_START; [host protocol](12-HOST-PROTOCOL.md)). Three choices make the others
+unable to notice. Program words are written only in a cycle whose fetch slot belongs to a
+context that is not RUNNING (the port is idle there, D-29b), so no fetch waits. A stopped
+context releases its pins as on a fault but records no fault. The restart happens at the edge
+before the context's own first slot of a frame, not at the frame edge the first draft used:
+the latch banks (D-40) copy their reset values from shared write registers that another
+context's commit can load at a frame edge, while at the restarting context's own commit slot
+nothing commits. The restarted context then sees what a run started at that frame shows it,
+so its timing certificate holds unchanged. `formal/esc_ni.sby` checks non-interference: two
+cores with the same inputs on every channel context j can see, one free to differ in every
+command aimed at the other contexts and in the words only they fetch, give j the same
+commits, state and pins (j's program uses neither the capture unit nor the line unit, one
+shared instance each that another context may own or configure; the digest and the
+first-fault register are global and not compared). The host software refuses a reload that changes the configuration,
+touches a word another enabled context can reach, or is not certified by escert.
+
 ## Power and timing margin
 
 **D-29 Measure power, then cut what dominates.** On the first v1.1 netlist, with

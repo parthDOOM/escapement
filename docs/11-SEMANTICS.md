@@ -749,6 +749,28 @@ Instructions in flight are discarded. A pending LDT register write (§7.6) still
 `dg` stops changing; capture generation stops (`en = 0`) and staged records drain. The
 line unit (v1.4) ends its job as on OFF (§6.6); no access is made at E_t.
 
+**Context stop** (v1.7) at E_t (`ctx_stop[k]` during cycle t, host CTX_STOP during a run):
+- Context k: RUNNING becomes HALTED; its FIFO is flushed and nothing of k due at E_t
+  retires; its checker is deactivated without evaluating tick t; a commit of k at E_t is
+  discarded (no record, no effect). Its instructions in flight are discarded.
+- `oe[p] <= 0` for each pin p owned by k; `val` unchanged.
+- If k owns the line unit, the line unit ends its job as on a fault of its owner (§8).
+- No first-fault record, no IRQ. Other contexts are unaffected.
+
+**Context restart** (v1.7; `ctx_start[k]`, host CTX_START during a run, k enabled and not
+RUNNING): pending until the edge E_t with (t + 1) mod 4 = first(k), where first(k) = k, or
+min(k, k ^ 2) if k is paired, so that cycle t + 1 is k's first slot of the frame
+4m .. 4m + 3 (4m = t + 1 - first(k)). At E_t context k is reset as at a run start (above,
+the per-context items: registers, PC = entry_pc[k], FIFO, checker, statistics, IRQ,
+mailboxes), RUNNING, with `tmr = 4m` (the frame's first tick) instead of 0. Pins and line
+unit ownership are unchanged (k's pins stay released until k drives them). A context stop
+or run stop before that edge cancels the pending restart. At E_t nothing of k commits (k is
+not RUNNING), so k sees from E_t on exactly what a run started at that frame shows it: its
+first fetch is at t + 1 and its timing certificate holds unchanged.
+
+A program word written during a run (host WRITE_IMEM, v1.7) is written in a cycle whose
+fetch slot belongs to a context that is not RUNNING, and fetches after that cycle read it.
+
 ## 10. Observation interface (verification only)
 
 Both models produce the same records. A commit at tick c produces:
