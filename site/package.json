@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "data": "python tools/pybundle.py && python tools/runs.py",
+    "data": "python tools/pybundle.py && python tools/runs.py && python tools/fpga_bench.py",
     "dev": "npm run data && vite",
     "build": "npm run data && tsc --noEmit && vite build",
     "preview": "vite preview"
