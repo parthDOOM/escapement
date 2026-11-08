@@ -527,6 +527,20 @@ def _rated_wiegand_rx(khz):
     return Board(snd), [], check
 
 
+def _rated_usbpd(khz):
+    """USB PD: a Source_Capabilities message (5 V 3 A), header, PDO and CRC read back."""
+    from escmodels.usbpd import UsbPdSink
+    sink = UsbPdSink(0, 1e6 / khz)
+    hdr, pdo = 0x11A1, 100 << 10 | 300
+
+    def check(board, h):
+        sink.finish()
+        got = [(x["header"], x["data"], x["crc_ok"], x["eop"]) for x in sink.messages]
+        ok = got == [(hdr, [pdo], True, True)] and not sink.violations and h.received[0] == [1]
+        return [] if ok else [f"usbpd {got} {sink.violations[:2]} {h.received}"]
+    return Board(sink, pullups=0), [(100, 0, hdr), (150, 0, pdo)], check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -633,6 +647,7 @@ RATED_CASES = {
     "lin_resp": (_rated_lin_resp, 18_000, None),
     "em4100_tag": (_rated_em4100, 40_000, None),
     "wiegand_rx": (_rated_wiegand_rx, 30_000, None),
+    "usbpd_tx": (_rated_usbpd, 1_500, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),
