@@ -783,6 +783,10 @@ FIRMWARE_CASES = {
     "rc5_tx": ("rc5_tx.asm", 60000, _ir_case("Rc5Receiver", 2000, 0b11 << 12 | 0x05 << 6 | 0x0C,
                                               lambda f: f["start"] << 12 | f["toggle"] << 11
                                               | f["address"] << 6 | f["command"])),
+    # RC-6 at 8 MHz: escert proves rc6_tx from 8 MHz up (2 MHz would run unproven)
+    "rc6_tx": ("rc6_tx.asm", 215000, _ir_case("Rc6Receiver", 8000, 0b1000 | 1 << 4 | 0xA5 << 13 | 0x0C << 5,
+                                               lambda f: 0b1000 | f["mode"] | f["toggle"] << 4
+                                               | f["address"] << 13 | f["command"] << 5)),
     "jvc_tx": ("jvc_tx.asm", 85000, _ir_case("JvcReceiver", 2000, 0x59 | 0x35 << 8,
                                               lambda f: f["address"] | f["command"] << 8)),
     "ev1527_tx": ("ev1527_tx.asm", 90000, case_ev1527),
@@ -797,7 +801,7 @@ TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_t
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 # parameters a case sets on its firmware's .defaults (a short gate for the meter)
 FW_EQU = {"freq_meter": {"N": 8, "PIN": 3},
-          "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "jvc_tx": {"CLK_KHZ": 2000},
+          "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
           "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000},
           "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500}}

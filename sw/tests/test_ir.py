@@ -1,5 +1,5 @@
-"""Sony SIRC and Philips RC5 transmitters generated from protocols/sirc_tx.yaml and
-rc5_tx.yaml (v1.6), against the receiver models of escmodels/ir.py, which decode the
+"""Sony SIRC, Philips RC5 and RC-6 transmitters generated from protocols/sirc_tx.yaml,
+rc5_tx.yaml (v1.6) and rc6_tx.yaml, against the receiver models of escmodels/ir.py, which decode the
 carrier bursts in microseconds. Most runs use a 4 MHz clock (the tables are written in
 CLK_KHZ, and the models time in microseconds), SIRC also at 25 MHz."""
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 import escgen
-from escmodels import Board, Rc5Receiver, SircReceiver
+from escmodels import Board, Rc5Receiver, Rc6Receiver, SircReceiver
 from esciss import Machine
 
 from test_escgen import table
@@ -130,3 +130,31 @@ def test_wiegand_frames(khz):
     rx.finish()
     assert [WiegandReceiver.card26(b) for b in rx.frames] == cards
     assert not rx.violations and acks == [1] * len(cards) and not m.ff.valid
+
+
+def rc6_word(toggle, address, command, mode=0):
+    """The host word of rc6_tx: start bit and mode bits (MSB first), toggle, address, command."""
+    return (0b1000 | mode) | toggle << 4 | address << 13 | command << 5
+
+
+@pytest.mark.parametrize("khz", [8000, 25000])
+def test_rc6_frames(khz):
+    """RC-6 mode 0 from rc6_tx against the RC-6 receiver model: every field, both toggle
+    values, all-zero and all-one data, the 36 kHz carrier. (escert proves rc6_tx at 8 MHz and
+    above; below that its bound on the lead widens to [0, 2^16].)"""
+    frames = [(0, 0x00, 0x0C), (1, 0xFF, 0xFF), (0, 0x00, 0x00), (1, 0xA5, 0x5A)]
+    if khz == 25000:
+        frames = frames[:2]
+    rx, acks = run("rc6_tx", Rc6Receiver, [rc6_word(*f) for f in frames], khz, 30)
+    got = [(f["toggle"], f["address"], f["command"]) for f in rx.frames()]
+    assert got == frames and acks == [1] * len(frames)
+    assert all(f["mode"] == 0 and abs(f["carrier_khz"] - 36) < 0.5 for f in rx.frames())
+
+
+def test_rc6_receiver_rejects_rc5():
+    """The RC-6 model decodes nothing from RC5 frames (and the RC5 model nothing from RC-6),
+    so neither test can pass on the other protocol's waveform."""
+    rx, _ = run("rc5_tx", Rc6Receiver, [0b11 << 12 | 0x05 << 6 | 0x0C], 8000, 115)
+    assert rx.frames() == []
+    rx, _ = run("rc6_tx", Rc5Receiver, [rc6_word(0, 0x05, 0x0C)], 8000, 30)
+    assert rx.frames() == []

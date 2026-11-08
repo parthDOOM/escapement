@@ -19,7 +19,7 @@ from .dshot import DshotEsc, dshot_crc  # noqa: F401
 from .sent import SentReceiver, sent_crc  # noqa: F401
 from .cec import CecDevice  # noqa: F401
 from .dali import DaliController  # noqa: F401
-from .ir import DccDecoder, Ev1527Receiver, JvcReceiver, Rc5Receiver, SircReceiver  # noqa: F401
+from .ir import DccDecoder, Ev1527Receiver, JvcReceiver, Rc5Receiver, Rc6Receiver, SircReceiver  # noqa: F401
 from .lin import LinReceiver  # noqa: F401
 from .wiegand import WiegandReceiver  # noqa: F401
 from .modbus import ModbusClient, adu, crc16  # noqa: F401
