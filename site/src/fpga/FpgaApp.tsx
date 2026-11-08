@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Header from "../components/Header";
 import Ruler from "../components/Ruler";
+import Pinout from "../components/Pinout";
 import { useJson } from "../lib/util";
 import BenchLayout from "./BenchLayout";
 import SignalPath from "./SignalPath";
@@ -10,6 +11,7 @@ import { cssColour, REPO, wireColour } from "./types";
 
 const SECTIONS = [
   ["bench", "Bench"],
+  ["pins", "Pins"],
   ["path", "Signal path"],
   ["design", "On the FPGA"],
   ["results", "Results"],
@@ -37,7 +39,7 @@ export default function FpgaApp() {
   const [d, err] = useJson<Fpga>("data/fpga.json");
   return (
     <>
-      <Header sections={SECTIONS} other={{ href: "../", label: "The chip" }} home="../" />
+      <Header sections={SECTIONS} page="fpga" />
       <main id="top">
         {err && <div className="wrap"><p className="loading">The bench data could not be loaded ({err}).</p></div>}
         {!d && !err && <div className="wrap"><p className="loading" style={{ minHeight: 400 }}>loading…</p></div>}
@@ -115,10 +117,18 @@ function Page({ d }: { d: Fpga }) {
             </div>
             <WireTable d={d} />
           </div>
+          <div className="sub-head" id="pins" style={{ marginTop: "3.5rem" }}>
+            <p className="eyebrow">The chip's pins</p>
+            <h3>Twenty-four pins, two banks</h3>
+            <p className="dim">The Tiny Tapeout pins as the chip uses them. On the bench each one is a wire from the
+              Pico W to a Dock Pmod (the table above); on the demo board they are the same pins of the same chip.</p>
+          </div>
+          <Pinout />
         </div>
       </section>
 
       <Ruler n={12} />
+
 
       <section id="path" className="band">
         <div className="wrap">
@@ -162,7 +172,7 @@ function Page({ d }: { d: Fpga }) {
                 with its boundaries kept ({n(d.hierarchy.total.lut4)} LUT4 in all); the bitstream itself, flattened
                 and optimised across blocks, uses {n(lut[0])}. The silicon column is the signed-off v1.6 layout.</p>
               <p>A full gate-level drawing of either is a wall of boxes: tens of thousands of cells. The die views on
-                the <a href="../#silicon">main page</a> show the real layout down to the transistors.</p>
+                the <a href="../silicon/">layout page</a> show the real layout down to the transistors.</p>
               <p className="note">nextpnr reports 40 hold flags at the block RAM address pins. A lone counter feeding a
                 block RAM gets the same 40, also with the clock on the Dock's own oscillator pin, which the tool routes
                 entirely on global wires: they come from its block RAM timing model, not from this design. The build
