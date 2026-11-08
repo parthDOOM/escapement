@@ -5,20 +5,39 @@
 #   scripts/local-harden.sh [--tag NAME] [--to STEP_ID] [KEY=JSON_VALUE ...]
 #
 # Same inputs as CI: tt-support-tools d66cf17, IHP-Open-PDK 2bbec755, LibreLane 3.1.0.dev3
-# in its official container (--dockerized). KEY=VALUE pairs patch the merged LibreLane config
+# in its official container (--dockerized). FLOW=ttihp27a selects the March 2027 shuttle's
+# release instead (tt-gds-action@ttihp27a): tt-support-tools main 9d13ff3 (the action's default
+# tools-ref is main; pinned here), LibreLane 3.1.0.dev4 (the action's default for cmos5l) and
+# IHP-Open-PDK 89d42ee fetched by ciel (LibreLane 3.1.0.dev4's pdk_hashes.yaml; also the
+# action's precheck PDK). KEY=VALUE pairs patch the merged LibreLane config
 # for experiments only, e.g.  scripts/local-harden.sh --tag hold PL_RESIZER_HOLD_SLACK_MARGIN=0.05
 # --to stops after a step, e.g. --to OpenROAD.ResizerTimingPostCTS for a quick A/B of
 # placement, CTS, power and hold repair (~10 min) without routing.
 # Results: runs/<tag>/ (gitignored); metrics summary printed at the end.
 set -euo pipefail
 
-TOOLS_REF=d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
-PDK_REV=2bbec755dc67ca3db0261c3d6163e15735d66710
-LIBRELANE=3.1.0.dev3
+FLOW="${FLOW:-pre}"
 EDA="${EDA:-$HOME/eda}"
-export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ihp-$PDK_REV}"
 export PDK=ihp-sg13cmos5l
-VENV="$EDA/harden-venv"
+case "$FLOW" in
+  pre)        # the pre-release cmos5l branches v1.2-v1.6 were signed off on
+    TOOLS_REF=d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
+    PDK_REV=2bbec755dc67ca3db0261c3d6163e15735d66710
+    LIBRELANE=3.1.0.dev3
+    export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ihp-$PDK_REV}"
+    VENV="$EDA/harden-venv"
+    TT_PDK_ARGS=(--ihp)
+    LL_PDK_ARGS=(--pdk ihp-sg13cmos5l --manual-pdk) ;;
+  ttihp27a)   # the shuttle's release
+    TOOLS_REF=9d13ff3e3e6202090740110438c6a10c1d62ca0f
+    PDK_REV=89d42ee6d2fd9b50b86a1aada6fee6673c3e6008
+    LIBRELANE=3.1.0.dev4
+    export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ciel}"
+    VENV="$EDA/harden-venv-ttihp27a"
+    TT_PDK_ARGS=(--pdk ihp-sg13cmos5l)
+    LL_PDK_ARGS=(--pdk ihp-sg13cmos5l) ;;
+  *) echo "FLOW must be pre or ttihp27a" >&2; exit 2 ;;
+esac
 
 cd "$(dirname "$0")/.."
 TAG=wokwi
@@ -34,8 +53,9 @@ if [[ ! -d tt/.git ]] || [[ "$(git -C tt rev-parse HEAD)" != "$TOOLS_REF" ]]; th
   git -C tt checkout -q FETCH_HEAD
 fi
 
-# --- PDK (same script logic as tt-gds-action install_sg13cmos5l.sh)
-if [[ ! -f "$PDK_ROOT/ihp-sg13cmos5l/SOURCES" ]]; then
+# --- PDK: pre = the same script logic as tt-gds-action install_sg13cmos5l.sh;
+# ttihp27a = LibreLane's ciel fetches PDK_REV into PDK_ROOT on its first run (checked after)
+if [[ "$FLOW" == pre && ! -f "$PDK_ROOT/ihp-sg13cmos5l/SOURCES" ]]; then
   mkdir -p "$PDK_ROOT"
   git -C "$PDK_ROOT" init -q
   git -C "$PDK_ROOT" fetch -q --depth 1 https://github.com/IHP-GmbH/IHP-Open-PDK.git "$PDK_REV"
@@ -52,7 +72,7 @@ fi
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 
-./tt/tt_tool.py --create-user-config --ihp
+./tt/tt_tool.py --create-user-config "${TT_PDK_ARGS[@]}"
 
 # --- local overrides: all cores, plus any experiment keys
 python3 - "$@" <<'EOF'
@@ -74,9 +94,14 @@ rm -rf "runs/$TAG"
 mkdir -p "runs/$TAG"           # LibreLane requires --force-run-dir to exist (tt_tool does the same)
 start=$(date +%s)
 python -m librelane --pdk-root "$PDK_ROOT" --docker-no-tty --dockerized \
-  --pdk ihp-sg13cmos5l --manual-pdk \
+  "${LL_PDK_ARGS[@]}" \
   --run-tag "$TAG" --force-run-dir "runs/$TAG" "${TO[@]}" src/config_merged.json
 echo "harden wall time: $(( ($(date +%s) - start) / 60 )) min"
+# the PDK the run used must be the one this flow names
+grep -qs "$PDK_REV" "$PDK_ROOT/ihp-sg13cmos5l/SOURCES" \
+  || [[ "$(readlink -f "$PDK_ROOT/ihp-sg13cmos5l")" == *"$PDK_REV"* ]] \
+  || { echo "PDK in $PDK_ROOT/ihp-sg13cmos5l is not $PDK_REV" >&2; exit 3; }
+echo "flow $FLOW: tools $TOOLS_REF, LibreLane $LIBRELANE, PDK $PDK_REV"
 [[ ${#TO[@]} -gt 0 ]] && exit 0
 
 python3 - "runs/$TAG" <<'EOF'
