@@ -1,0 +1,31 @@
+PS> .\hw.ps1 load pinid        (build/pinid/pinid.fs, see pinid.MANIFEST)
+Done
+PS> .\hw.ps1 pinid
+GPIO  signal
+GP0   clk
+GP1   ui_in[0]
+GP2   ui_in[1]
+GP3   ui_in[2]
+GP4   ui_in[3]
+GP5   ui_in[4]
+GP6   ui_in[5]
+GP7   ui_in[6]
+GP8   ui_in[7]
+GP9   uio[0]
+GP10  uo_out[0]
+GP11  uo_out[1]
+GP12  uo_out[2]
+GP13  uo_out[3]
+GP14  uo_out[4]
+GP15  uo_out[5]
+GP16  uo_out[6]
+GP17  uo_out[7]
+GP18  uio[1]
+GP19  uio[2]
+GP20  uio[3]
+GP21  uio[4]
+GP22  uio[5]
+GP26  uio[6]
+GP27  uio[7]
+GP28  rst_n
+WIRING: PASS, all 26 signals on the expected GPIOs

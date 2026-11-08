@@ -83,6 +83,8 @@ p { margin: 0; max-width: var(--measure); }
 .bar nav::-webkit-scrollbar { display: none; }
 .bar nav a { color: var(--fg-3); text-decoration: none; font-size: var(--step--1); white-space: nowrap; padding-block: 0.3rem; border-bottom: 2px solid transparent; }
 .bar nav a:hover, .bar nav a[aria-current="true"] { color: var(--fg); border-bottom-color: var(--brass); }
+.bar nav a.other-page { margin-left: auto; color: var(--brass-2); }
+.bar nav a.other-page::after { content: " →"; }
 .icon-btn { background: var(--bg-3); color: var(--fg-2); border: 1px solid var(--line); border-radius: 6px; padding: 0.35rem 0.6rem; font: 500 var(--step--1) var(--font-mono); cursor: pointer; white-space: nowrap; }
 .icon-btn:hover { color: var(--fg); border-color: var(--fg-3); }
 

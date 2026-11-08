@@ -4,6 +4,7 @@ public/die/
 public/py/
 public/pyodide/
 public/data/isa.json
+public/data/fpga.json
 public/data/runs/
 public/data/learn/
 public/data/late/

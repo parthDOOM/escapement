@@ -1,0 +1,6 @@
+target: pinid
+built: 2026-11-08T16:21:18+05:30
+tools: Yosys 0.69+190 (git sha1 0e8336b4e, Release, Clang /usr/bin/clang++ 21.1.8); "nextpnr-himbaechel" -- Next Generation Place and Route (Version nextpnr-0.11.1-47-ge2fe86b3)
+505ebe3631736e047c0b40e5c5e11f7aa753c66dd28affc6a750be71cf5e0d87  /mnt/e/Jane_Street/escapement-private/fpga25k/pinid.v
+cb5df36616a99f743a70d0e88665501685313c7a5b62dd701089f2e15abbb05b  /root/fpga25k_build/pinid/pinid.cst
+bdd305635224c117374104047582ee45ca5887b03f8cbf6a0fdf1593a8c048ae  /root/fpga25k_build/pinid/pinid.fs
