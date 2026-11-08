@@ -594,8 +594,8 @@ CANARY = {   # suite -> (file, old, new): a fault that suite must catch
     "line": ("esc_line.v", "drv_m = claimed; drv_val = dq_val;", "drv_m = claimed; drv_val = ~dq_val;"),
     "cosim": ("esc_core.v", "w_rd_data = {16'd0, f_imm16};", "w_rd_data = {16'd0, ~f_imm16};"),
     "unit": ("esc_core.v", "w_rd_data = {16'd0, f_imm16};", "w_rd_data = {16'd0, ~f_imm16};"),
-    "host": ("escapement_host.v", "localparam [3:0] VERSION = 4'h8;", "localparam [3:0] VERSION = 4'h7;"),
-    "chip": ("escapement_host.v", "localparam [3:0] VERSION = 4'h8;", "localparam [3:0] VERSION = 4'h7;"),
+    "host": ("escapement_host.v", "localparam [3:0] VERSION = 4'h9;", "localparam [3:0] VERSION = 4'h8;"),
+    "chip": ("escapement_host.v", "localparam [3:0] VERSION = 4'h9;", "localparam [3:0] VERSION = 4'h8;"),
     "pins": ("project.v", "assign uo_out = {ob_out, running, |irq_pending | fault_valid, miso};",
              "assign uo_out = {ob_out, running, |irq_pending | fault_valid, ~miso};"),
 }

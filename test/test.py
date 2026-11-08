@@ -100,7 +100,7 @@ async def bring_up(dut, board, board_b=None):
 async def test_identity_over_spi(dut):
     host = await bring_up(dut, Board())
     s = await host.status()
-    assert s["version"] == 8 and not s["running"] and not s["host_err"], s
+    assert s["version"] == 9 and not s["running"] and not s["host_err"], s
 
 
 @cocotb.test()
@@ -370,6 +370,6 @@ async def test_slow_bitbang_host_like_the_demo_board(dut):
 
     good = await xfer([0x00, 0, 0, 0])
     st = good[0]
-    assert st & 0x0F == 8 and not st & 0x80, hex(st)
+    assert st & 0x0F == 9 and not st & 0x80, hex(st)
     bad = await xfer([0x00, 0, 0, 0], sample_before=False)
     assert bad != good                          # the wrong discipline really is wrong
