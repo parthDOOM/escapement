@@ -109,3 +109,25 @@ def test_sd_card_session():
     assert "CRC7: 0x4a" in ann and "CMD8: 48 00 00 01 aa 87" in ann
     assert not [a for a in ann if "CRC" in a and ("fail" in a.lower() or "error" in a.lower())
                 and "No error" not in a], ann
+
+
+def test_onewire_device_read_and_search_rom():
+    """sigrok's 1-Wire link and network decoders follow a Read ROM and a Search ROM with the
+    chip as the device: both give its ROM code (family 0x28, the serial, the CRC-8 the chip
+    computed). The master leaves 490 us after reset (AN126's 480 is exactly the decoder's
+    minimum, which at tick resolution it can read as the first slot's edge)."""
+    from escmodels import crc8_maxim
+    from test_onewire_dev import rom_bytes, run
+
+    def prog(mm):
+        yield from mm.reset()
+        yield from mm.write(0x33)
+        mm.results.append((yield from mm.read_n(8)))
+        mm.results.append((yield from mm.search()))
+    m, master, board = run(prog, ms=60, J=420)
+    ann = decode(vcd({"owr": board.level(0)}, 40), "onewire_link:owr=owr,onewire_network")
+    rom = int.from_bytes(rom_bytes(), "little")
+    assert crc8_maxim(rom_bytes()[:7]) == rom_bytes()[7]
+    assert "ROM command: 0x33 'Read ROM'" in ann and "ROM command: 0xf0 'Search ROM'" in ann
+    assert ann.count(f"ROM: 0x{rom:016x}") == 2, [a for a in ann if a.startswith("ROM")]
+    assert not [a for a in ann if "error" in a.lower()], [a for a in ann if "error" in a.lower()]

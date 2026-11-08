@@ -82,3 +82,115 @@ def crc8_maxim(data: bytes) -> int:
                 crc ^= 0x8C
             b >>= 1
     return crc
+
+
+class OneWireMaster(Device):
+    """A 1-Wire bus master at standard speed (Maxim AN126 recommended timings, in us: A 6,
+    B 64, C 60, D 10, E 9, F 55, H 480, I 70, J 410), for testing a device. `program(m)` is a
+    generator built from m.reset(), m.write(byte), m.read() and m.search(); results land in
+    m.results. Pulls DQ low or releases it; reads happen at the AN126 sampling points."""
+
+    T = dict(A=6, B=64, C=60, D=10, E=9, F=55, H=480, I=70, J=410)
+
+    def __init__(self, pin: int, tick_ns: float, program, start_us: float = 100, **timing):
+        self.pin, self.us = pin, 1000.0 / tick_ns
+        self.T = dict(self.T, **timing)            # e.g. A=15: a write-1 low for 15 us
+        self.results: list = []
+        self._gen = self._run(program, start_us)
+        self._drive = False
+        self._wait = 0
+        self._level = 1
+        self.done = False
+
+    def _t(self, us):
+        return max(1, round(us * self.us))
+
+    def _run(self, program, start_us):
+        yield ("rel", self._t(start_us))
+        yield from program(self)
+
+    # primitives (generators)
+    def reset(self):
+        T = self.T
+        yield ("low", self._t(T["H"]))
+        yield ("rel", self._t(T["I"]))
+        present = self._level == 0
+        yield ("rel", self._t(T["J"]))
+        return present
+
+    def write_bit(self, b):
+        T = self.T
+        if b:
+            yield ("low", self._t(T["A"]))
+            yield ("rel", self._t(T["B"]))
+        else:
+            yield ("low", self._t(T["C"]))
+            yield ("rel", self._t(T["D"]))
+
+    def read_bit(self):
+        """Low for RL us (default A), sampled RS us after the edge (default A + E)."""
+        T = self.T
+        low, at = T.get("RL", T["A"]), T.get("RS", T["A"] + T["E"])
+        yield ("low", self._t(low))
+        yield ("rel", self._t(at - low))
+        b = self._level
+        yield ("rel", self._t(T["A"] + T["E"] + T["F"] - at))
+        return b
+
+    def write(self, byte):
+        for k in range(8):
+            yield from self.write_bit((byte >> k) & 1)
+
+    def read(self):
+        v = 0
+        for k in range(8):
+            v |= (yield from self.read_bit()) << k
+        return v
+
+    def read_n(self, n):
+        out = []
+        for _ in range(n):
+            out.append((yield from self.read()))
+        return bytes(out)
+
+    def search(self):
+        """All ROMs on the bus by Maxim AN187's search: at each bit position the devices
+        send the bit and its complement; 1 1 means none, differing values the bit, 0 0 a
+        discrepancy, resolved as AN187 does (the last discrepancy goes 1, earlier ones
+        repeat the previous path, later ones go 0)."""
+        found, last_disc = [], 0
+        rom = [0] * 65                              # rom[1..64], 1-based as in AN187
+        while True:
+            if not (yield from self.reset()):
+                return found
+            yield from self.write(0xF0)
+            last_zero = 0
+            for i in range(1, 65):
+                a = yield from self.read_bit()
+                b = yield from self.read_bit()
+                if a and b:
+                    return found
+                if a != b:
+                    d = a
+                else:
+                    d = rom[i] if i < last_disc else int(i == last_disc)
+                    if d == 0:
+                        last_zero = i
+                rom[i] = d
+                yield from self.write_bit(d)
+            found.append(sum(rom[k + 1] << k for k in range(64)))
+            last_disc = last_zero
+            if last_disc == 0:
+                return found
+
+    def step(self, t, bus):
+        self._level = (bus >> self.pin) & 1
+        while self._wait <= 0 and not self.done:
+            try:
+                op, n = next(self._gen)
+            except StopIteration:
+                self.done, self._drive = True, False
+                break
+            self._drive, self._wait = op == "low", n
+        self._wait -= 1
+        return (1 << self.pin if self._drive else 0), 0

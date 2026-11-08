@@ -784,6 +784,27 @@ def case_sd_spi():
     return Board(sd, host), host, check
 
 
+def case_onewire_dev():
+    """The 1-Wire device at 25 MHz: reset and presence, Read ROM, Search ROM (AN187)."""
+    khz = 25000
+    from escmodels import OneWireMaster, crc8_maxim
+    rom = bytes([0x28, 1, 2, 3, 4, 5, 6])
+    rom += bytes([crc8_maxim(rom)])
+
+    def prog(mm):
+        yield from mm.reset()
+        yield from mm.write(0x33)
+        mm.results.append((yield from mm.read_n(8)))
+        mm.results.append((yield from mm.search()))
+    mst = OneWireMaster(0, 1e6 / khz, prog)
+
+    def check(board, h):
+        ok = mst.done and mst.results == [rom, [int.from_bytes(rom, "little")]]
+        return ([] if ok else [f"onewire_dev {mst.done} {mst.results}"]) + board.errors()
+    host = HostScript([], drain=[0], poll=5000)
+    return Board(mst, host), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -897,6 +918,7 @@ FIRMWARE_CASES = {
     "usbpd_tx": ("usbpd_tx.asm", 45000, case_usbpd),
     "dcf77_tx": ("dcf77_tx.asm", 625000, case_dcf77),
     "sd_spi": ("sd_spi.asm", 1_700_000, case_sd_spi),
+    "onewire_dev": ("onewire_dev.asm", 640_000, case_onewire_dev),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }

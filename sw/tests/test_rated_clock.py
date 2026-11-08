@@ -553,6 +553,25 @@ def _rated_sd_spi(khz):
     return Board(sd), [(khz * 40, 0, 0x1234)], check
 
 
+def _rated_onewire_dev(khz):
+    """The 1-Wire device: Read ROM, then Search ROM finds it."""
+    from escmodels import OneWireMaster, crc8_maxim
+    rom = bytes([0x28, 1, 2, 3, 4, 5, 6])
+    rom += bytes([crc8_maxim(rom)])
+
+    def prog(mm):
+        yield from mm.reset()
+        yield from mm.write(0x33)
+        mm.results.append((yield from mm.read_n(8)))
+        mm.results.append((yield from mm.search()))
+    mst = OneWireMaster(0, 1e6 / khz, prog)
+
+    def check(board, h):
+        ok = mst.done and mst.results == [rom, [int.from_bytes(rom, "little")]]
+        return [] if ok else [f"onewire_dev {mst.done} {mst.results}"]
+    return Board(mst), [], check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -661,6 +680,7 @@ RATED_CASES = {
     "wiegand_rx": (_rated_wiegand_rx, 30_000, None),
     "usbpd_tx": (_rated_usbpd, 1_500, None),
     "sd_spi": (_rated_sd_spi, 68_000, None),
+    "onewire_dev": (_rated_onewire_dev, 26_000, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),
