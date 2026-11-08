@@ -4,17 +4,14 @@ import Ruler from "./components/Ruler";
 import Deadline from "./components/Deadline";
 import Arch from "./components/Arch";
 import Barrel from "./components/Barrel";
-import Isa from "./components/Isa";
 import Proof, { ProofTable } from "./components/Proof";
 import CiResults from "./components/CiResults";
-import { History, Power } from "./components/Power";
-import Pinout from "./components/Pinout";
-import { scrollToSection, useVisible } from "./lib/util";
+import { Power } from "./components/Power";
+import { asset, scrollToSection, useVisible } from "./lib/util";
 
 // the heavy parts load when they come near the screen
 const Die3D = lazy(() => import("./components/Die3D"));
 const DieZoom = lazy(() => import("./components/DieZoom"));
-const Slice3D = lazy(() => import("./components/Slice3D"));
 const Playground = lazy(() => import("./playground/Playground"));
 const Learn = lazy(() => import("./playground/Learn"));
 const Late = lazy(() => import("./playground/Late"));
@@ -83,6 +80,8 @@ export default function App() {
                 <a className="run-btn" href="#play">Run the firmware</a>
                 <a className="icon-btn" href="#inside">How it works</a>
               </div>
+              <p className="hero-hw"><a href={asset("fpga/")}>Runs on hardware: version 1.6 on an FPGA, driven by a
+                Pico W, passes all 6 bring-up stages and 48 of 48 firmware programs →</a></p>
               <div className="facts">
                 <div><b>40 ns</b><span>one tick at 25 MHz, rated to 50</span></div>
                 <div><b>4</b><span>programs running at once</span></div>
@@ -116,6 +115,8 @@ export default function App() {
                   strictly after the last event already queued. If it is not, the event is refused, the context stops
                   with a fault that names the reason, its pins are released, and the other contexts carry on. A late
                   edge cannot happen, and that is proved formally.</p>
+                <p>The check is on each edge, at run time, not on the program before it starts: it holds whatever the
+                  data, the host's timing or the other contexts do, for a program no tool has ever looked at.</p>
                 <p>Drag the deadline in the figure to try it, or{" "}
                   <button type="button" className="link" onClick={() => tryInPlayground("blank", [".equ DELAY, 10", ".equ DELAY, 9"])}>
                     make a real program fall behind</button>.</p>
@@ -223,21 +224,6 @@ export default function App() {
 
         <Ruler n={4} />
 
-        <section id="isa" className="band">
-          <div className="wrap">
-            <div className="sec-head">
-              <p className="eyebrow">Instruction set</p>
-              <h2>Fifty-three instructions, one word each</h2>
-              <p className="lede">Every instruction is 32 bits: an 8-bit opcode and a 24-bit payload whose unused bits
-                must be zero, so erased or uninitialised memory traps instead of running. Pick an instruction, then
-                click bits to see how the word decodes.</p>
-            </div>
-            <Isa />
-          </div>
-        </section>
-
-        <Ruler n={5} />
-
         <section id="proof">
           <div className="wrap">
             <div className="sec-head">
@@ -264,19 +250,19 @@ export default function App() {
                   run into one word. After a run on silicon, one SPI read compares the chip with the model's
                   prediction.</p>
                 <p>To check the tests themselves, faults are planted in the RTL one at a time, across every module,
-                  the line unit included, and simulated on the PDK's standard-cell models. In the version 1.4
-                  campaign the tests caught 653 of 710. Of the rest, 19 are proved to change no output of the chip,
-                  and 38 are excluded with a written reason, such as logic a proof shows can never run. None
-                  survives. Version 1.5's new logic was mutated at every site: 97 of 103 caught, 5 proved equivalent,
-                  1 excluded. Every fault that slipped through an earlier run was read against the RTL, and each hole
-                  it showed was closed with a new test.</p>
+                  the line unit included, and simulated on the PDK's standard-cell models. Version 1.6's campaign
+                  planted 626 at every site on the lines it changed: the tests caught 556, 22 are proved to change no
+                  output of the chip, and 48 are excluded with a written reason, such as logic a proof shows can never
+                  run. None survives. CI reruns 836 across the whole RTL on every change to it. Every fault that
+                  slipped through a run was read against the RTL, and each hole it showed was closed with a new
+                  test.</p>
               </div>
               <ProofTable />
             </div>
           </div>
         </section>
 
-        <Ruler n={6} />
+        <Ruler n={5} />
 
         <section id="silicon" className="band">
           <div className="wrap">
@@ -289,26 +275,8 @@ export default function App() {
             </div>
             <Later h={520}><DieZoom /></Later>
 
-            <div className="cols" style={{ marginTop: "3.5rem" }}>
-              <Later h={380}><Slice3D /></Later>
-              <div className="prose">
-                <h3>Down to the transistors</h3>
-                <p>The close-up is cut straight from the final layout. Green active area and red gate poly form the
-                  transistors. Thousands of contacts and vias climb through Metal1 to Metal4, which carry the signals.
-                  A standard cell is one row of that structure, 3.78 µm tall.</p>
-                <p>Only four metal layers can carry signals in a Tiny Tapeout block on this process, and each SRAM
-                  blocks three of them over its whole footprint. Routing Metal1 as a signal layer cut global-route
-                  overflow from 5,276 to 76. Version 1.4 adds the line unit in the same area: most registers became
-                  latches, 44% smaller than flip-flops, and the design ended smaller than version 1.3. Version 1.5
-                  decides each deadline test a cycle before the commit that needs it, which moves the slow-corner
-                  limit from 28.6 to 38.6 MHz. Version 1.6 decodes each instruction, reads its operands and decides
-                  its pin writes a stage earlier: it is laid out for a 20 ns clock and rated up to 50 MHz.</p>
-                <p>To save power, register banks that are not being written do not see the clock: 82 clock gates cover
-                  3,292 of the 4,756 storage cells, and each memory is selected only on the cycles that read
-                  it.</p>
-              </div>
-            </div>
-
+            <p className="more"><a href={asset("silicon/")}>Down to the transistors, and the six layouts that led
+              here →</a></p>
             <div className="stats" style={{ marginTop: "3rem" }} aria-label="Sign-off results">
               <div><b>32,239</b><span>standard cells</span></div>
               <div><b>65.9%</b><span>utilisation</span></div>
@@ -329,14 +297,10 @@ export default function App() {
               </div>
               <Power />
             </div>
-            <div style={{ marginTop: "3rem" }}>
-              <h3 style={{ marginBottom: "1rem" }}>Six layouts, one story</h3>
-              <History />
-            </div>
           </div>
         </section>
 
-        <Ruler n={7} />
+        <Ruler n={6} />
 
         <section id="use">
           <div className="wrap">
@@ -357,7 +321,9 @@ export default function App() {
               </ol>
               <div className="prose">
                 <p>A staged bring-up script for the Tiny Tapeout demo board's RP2350 tests the link, both memories,
-                  every pin and every firmware in order, and says what each failure most likely means.</p>
+                  every pin and every firmware in order, and says what each failure most likely means. It has already
+                  run on the RTL in an FPGA: <a href={asset("fpga/")}>the bench, its wiring and every result</a>,
+                  with the chip's pinout.</p>
                 <p>The chip is also an instrument. Its capture unit timestamps every change of the watched pins to the
                   40 ns tick, and the host reads the records during the run, so a capture lasts as long as the host
                   keeps up and a record is never overwritten before it has been read. On the demo board, PulseView and
@@ -366,17 +332,13 @@ export default function App() {
                   configuration.</p>
                 <ul className="links">
                   <li><a href="https://github.com/parthDOOM/escapement">Source: github.com/parthDOOM/escapement</a></li>
-                  <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/02-ISA.md">ISA reference</a></li>
+                  <li><a href={asset("isa/")}>Instruction set, bit by bit</a> and the <a href="https://github.com/parthDOOM/escapement/blob/master/docs/02-ISA.md">ISA reference</a></li>
                   <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/14-FIRMWARE-GUIDE.md">Firmware guide</a></li>
                   <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/16-BRING-UP.md">Bring-up</a></li>
                   <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/17-INSTRUMENT.md">Capture, streaming and PulseView</a></li>
                   <li><a href="https://github.com/parthDOOM/escapement/blob/master/docs/19-LINE-UNIT.md">Line unit and the USB keyboard</a></li>
                 </ul>
               </div>
-            </div>
-            <div style={{ marginTop: "3rem" }}>
-              <h3 style={{ marginBottom: "1rem" }}>The pins</h3>
-              <Pinout />
             </div>
           </div>
         </section>

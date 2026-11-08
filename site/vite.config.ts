@@ -10,7 +10,14 @@ export default defineConfig({
   build: {
     target: "es2020",
     chunkSizeWarningLimit: 1200,
-    // two pages: the chip (/) and the hardware bench (/fpga/)
-    rollupOptions: { input: { main: resolve(__dirname, "index.html"), fpga: resolve(__dirname, "fpga/index.html") } },
+    // the chip (/), the instruction set (/isa/), the layout (/silicon/), the hardware bench (/fpga/)
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        isa: resolve(__dirname, "isa/index.html"),
+        silicon: resolve(__dirname, "silicon/index.html"),
+        fpga: resolve(__dirname, "fpga/index.html"),
+      },
+    },
   },
 });

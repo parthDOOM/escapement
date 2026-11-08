@@ -1,22 +1,29 @@
 import { useEffect, useState } from "react";
-import { isDark, scrollToSection, setTheme, useThemeTick } from "../lib/util";
+import { asset, isDark, scrollToSection, setTheme, useThemeTick } from "../lib/util";
 
 export const SECTIONS = [
   ["time", "Promise"],
   ["inside", "Inside"],
   ["play", "Playground"],
-  ["isa", "Instructions"],
   ["proof", "Proof"],
   ["silicon", "Silicon"],
   ["use", "Use it"],
 ] as const;
 
 type Sections = readonly (readonly [string, string])[];
+export type Page = "chip" | "isa" | "silicon" | "fpga";
 
-/** The sticky bar. `sections` are this page's own sections (tracked while scrolling); `other`
- *  links to the other page of the site, and `home` is where the wordmark goes. */
-export default function Header({ sections = SECTIONS, other = { href: "fpga/", label: "On hardware" }, home = "#top" }:
-  { sections?: Sections; other?: { href: string; label: string }; home?: string } = {}) {
+// the site's pages, relative to its root (each page's esc-root meta says where that is)
+const PAGES: readonly (readonly [Page, string, string])[] = [
+  ["chip", "", "The chip"],
+  ["isa", "isa/", "Instructions"],
+  ["silicon", "silicon/", "Layout"],
+  ["fpga", "fpga/", "On hardware"],
+];
+
+/** The sticky bar. `sections` are this page's own sections (tracked while scrolling); the
+ *  other pages of the site follow them, and the wordmark goes to the chip's page. */
+export default function Header({ sections = SECTIONS, page = "chip" }: { sections?: Sections; page?: Page } = {}) {
   useThemeTick();
   const [cur, setCur] = useState("");
   // The current section is the last one whose top has passed a line a third of the way
@@ -63,7 +70,7 @@ export default function Header({ sections = SECTIONS, other = { href: "fpga/", l
   return (
     <header className="bar">
       <div className="wrap">
-        <a className="mark" href={home}>
+        <a className="mark" href={page === "chip" ? "#top" : asset("")}>
           Escapement
         </a>
         <nav aria-label="Sections">
@@ -73,7 +80,9 @@ export default function Header({ sections = SECTIONS, other = { href: "fpga/", l
               {label}
             </a>
           ))}
-          <a className="other-page" href={other.href}>{other.label}</a>
+          {PAGES.filter(([p]) => p !== page).map(([p, href, label], i) => (
+            <a key={p} className={i === 0 ? "other-page first" : "other-page"} href={asset(href) || "./"}>{label}</a>
+          ))}
         </nav>
         <a className="icon-btn gh" href="https://github.com/parthDOOM/escapement" aria-label="Source on GitHub">
           GitHub
