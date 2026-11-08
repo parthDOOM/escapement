@@ -736,6 +736,22 @@ def case_wiegand_rx():
     return Board(snd, host), host, check
 
 
+def case_usbpd():
+    """USB PD at 25 MHz: a Source_Capabilities message (header, one PDO, the CRC-32 the
+    chip computes) through the BMC sink model."""
+    from escmodels.usbpd import UsbPdSink
+    sink = UsbPdSink(0, 40.0)
+    hdr, pdo = 0x11A1, 100 << 10 | 300
+    host = HostScript([(100, 0, hdr), (150, 0, pdo)], drain=[0], poll=500)
+
+    def check(board, h):
+        sink.finish()
+        got = [(x["header"], x["data"], x["crc_ok"], x["eop"]) for x in sink.messages]
+        ok = got == [(hdr, [pdo], True, True)] and not sink.violations and h.received[0] == [1]
+        return ([] if ok else [f"usbpd {got} {sink.violations[:2]} {h.received}"]) + board.errors()
+    return Board(sink, host, pullups=0), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -846,6 +862,7 @@ FIRMWARE_CASES = {
     "lin_resp": ("lin_resp.asm", 60000, case_lin_resp),
     "em4100_tag": ("em4100_tag.asm", 140000, case_em4100),
     "wiegand_rx": ("wiegand_rx.asm", 115000, case_wiegand_rx),
+    "usbpd_tx": ("usbpd_tx.asm", 45000, case_usbpd),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }
