@@ -72,3 +72,21 @@ def test_em4100_tag():
     for t in tags:                                   # each whole frame before a tag: all OK
         h = max(i for i, a in enumerate(ann[:t]) if a == "Header")
         assert not [a for a in ann[h:t] if "ERROR" in a], ann[h:t]
+
+
+def test_dcf77_minutes():
+    """Three minutes at 10 kHz (a 100 us tick): sigrok's DCF77 decoder syncs on the first
+    minute marker (the minute before it has none, so its bits are "unknown"), then reads both
+    following minutes, every parity the chip computed right. (Its data line is high while
+    the carrier is reduced, the receiver modules' convention: the chip's pin inverted.)"""
+    from escmodels.dcf77 import encode
+    from test_dcf77 import T1, T2, run
+    m, rx, board = run([encode(**T2), encode(**T1), encode(**T2)])
+    data = [1 - v for v in board.level(0)]
+    ann = decode(vcd({"data": data}, 100_000), "dcf77:data=data")
+    assert not [a for a in ann if "INVALID" in a], [a for a in ann if "INVALID" in a]
+    for want in ("Minutes: 59", "Hours: 23", "Day: 31", "Month: 12 (December)", "Year: 99",
+                 "Minutes: 0", "Hours: 0", "Day: 1", "Month: 1 (January)", "Year: 0"):
+        assert want in ann, (want, [a for a in ann if ":" in a][:40])
+    assert ann.count("Minute parity: OK") >= 2 and ann.count("Hour parity: OK") >= 2
+    assert ann.count("Date parity: OK") >= 2

@@ -752,6 +752,24 @@ def case_usbpd():
     return Board(sink, host, pullups=0), host, check
 
 
+def case_dcf77():
+    """DCF77 at a 10 kHz clock: one whole minute (23:59, 31 Dec '99), the parity bits and
+    bits 0 and 20 set by the chip, and the minute marker that ends it."""
+    from escmodels.dcf77 import Dcf77Receiver, encode
+    bits = encode(minute=59, hour=23, day=31, weekday=7, month=12, year=99)
+    bits[0], bits[20], bits[28], bits[35], bits[58] = 1, 0, bits[28] ^ 1, bits[35] ^ 1, bits[58] ^ 1
+    v = sum(b << k for k, b in enumerate(bits))
+    rx = Dcf77Receiver(0, 1e5)
+    host = HostScript([(50, 0, v & 0xFFFFFFFF), (60, 0, v >> 32)], drain=[0], poll=5000)
+
+    def check(board, h):
+        rx.finish()
+        want = [dict(minute=59, hour=23, day=31, weekday=7, month=12, year=99, cest=False)]
+        return ([] if rx.minutes[:1] == want and not rx.violations
+                else [f"dcf77 {rx.minutes} {rx.violations[:2]}"]) + board.errors()
+    return Board(rx, host), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -863,6 +881,7 @@ FIRMWARE_CASES = {
     "em4100_tag": ("em4100_tag.asm", 140000, case_em4100),
     "wiegand_rx": ("wiegand_rx.asm", 115000, case_wiegand_rx),
     "usbpd_tx": ("usbpd_tx.asm", 45000, case_usbpd),
+    "dcf77_tx": ("dcf77_tx.asm", 625000, case_dcf77),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }
@@ -873,7 +892,7 @@ TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 FW_EQU = {"freq_meter": {"N": 8, "PIN": 3},
           "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
-          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000}, "wiegand_rx": {"CLK_KHZ": 4000},
+          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000}, "wiegand_rx": {"CLK_KHZ": 4000}, "dcf77_tx": {"CLK_KHZ": 10},
           "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500}}
 
 
