@@ -4,7 +4,7 @@
  * v1.2: bank B pins ib_in / ob_out and the ctx_bank configuration.
  * v1.3: a host tape reader (hrd_*) that gets the port in every cycle the core leaves
  * free, as in project.v, and TAPE_ACK.
- * Written from the port list in docs/11-SEMANTICS.md Â§10 only.
+ * Written from the port list in docs/11-SEMANTICS.md §10 only.
  * SPDX-License-Identifier: Apache-2.0
  */
 `default_nettype none
