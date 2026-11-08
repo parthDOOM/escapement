@@ -484,6 +484,25 @@ def _rated_lin(khz):
     return Board(rx), [(100, 0, 0x2C | 2 << 8), (104, 0, 0x3412), (2 * khz, 0, 0)], check
 
 
+def _rated_lin_resp(khz):
+    """The LIN responder: published ID 0x10 (two bytes) answered, 0x11 left alone."""
+    from escmodels import LinCommander, LinReceiver, lin_pid
+    words = [1 << 30 | 0x10 << 0 | 2 << 8, 2 << 30 | 0 << 8 | 0x12, 2 << 30 | 1 << 8 | 0x34, 3 << 30]
+    pushes = [(200 + k * khz * 5 // 4, 0, w) for k, w in enumerate(words)]
+    start = 200 + 6 * khz * 5 // 4
+    cmd = LinCommander(0, 1e6 / khz, [lin_pid(0x10), lin_pid(0x11)], start=start, slot_bits=90)
+    rx = LinReceiver(0, tick_ns=1e6 / khz)
+
+    def check(board, h):
+        rx.finish()
+        got = [(f["id"], f["data"]) for f in rx.frames]
+        unanswered = [v for v in rx.violations if "frame [85, " not in v]
+        ok = (got == [(0x10, [0x12, 0x34])] and not unanswered and len(rx.violations) == 1
+              and h.received[0] == [lin_pid(0x10) | 0x100, lin_pid(0x11)])
+        return ([] if ok else [f"lin_resp {got} {rx.violations[:2]} {h.received}"])
+    return Board(cmd, rx), pushes, check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -587,6 +606,7 @@ RATED_CASES = {
     "dcc_tx": (_rated_dcc, 10_000, None),
     "wiegand_tx": (_rated_wiegand, 60_000, None),
     "lin_tx": (_rated_lin, 8_000, None),
+    "lin_resp": (_rated_lin_resp, 18_000, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),

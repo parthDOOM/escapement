@@ -686,6 +686,28 @@ def case_lin():
     return Board(rx, host), host, check
 
 
+def case_lin_resp():
+    """The LIN responder at 4 MHz (its lowest certified clock and the 64-tick bit floor):
+    a commander's headers for a published ID (answered) and an unpublished one."""
+    khz = 4000
+    from escmodels import LinCommander, LinReceiver, lin_pid
+    words = [1 << 30 | 0x10 << 0 | 2 << 8, 2 << 30 | 0 << 8 | 0x12, 2 << 30 | 1 << 8 | 0x34, 3 << 30]
+    host_pushes = [(200 + k * khz * 5 // 4, 0, w) for k, w in enumerate(words)]
+    start = 200 + 6 * khz * 5 // 4
+    cmd = LinCommander(0, 1e6 / khz, [lin_pid(0x10), lin_pid(0x11)], start=start, slot_bits=90)
+    rx = LinReceiver(0, tick_ns=1e6 / khz)
+
+    def check(board, h):
+        rx.finish()
+        got = [(f["id"], f["data"]) for f in rx.frames]
+        unanswered = [v for v in rx.violations if "frame [85, " not in v]
+        ok = (got == [(0x10, [0x12, 0x34])] and not unanswered and len(rx.violations) == 1
+              and h.received[0] == [lin_pid(0x10) | 0x100, lin_pid(0x11)])
+        return ([] if ok else [f"lin_resp {got} {rx.violations[:2]} {h.received}"]) + board.errors()
+    host = HostScript(host_pushes, drain=[0], poll=500)
+    return Board(cmd, rx, host), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -793,6 +815,7 @@ FIRMWARE_CASES = {
     "dcc_tx": ("dcc_tx.asm", 40000, case_dcc),
     "wiegand_tx": ("wiegand_tx.asm", 60000, case_wiegand),
     "lin_tx": ("lin_tx.asm", 8000, case_lin),
+    "lin_resp": ("lin_resp.asm", 60000, case_lin_resp),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }
@@ -803,7 +826,7 @@ TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 FW_EQU = {"freq_meter": {"N": 8, "PIN": 3},
           "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
-          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000},
+          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000},
           "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500}}
 
 

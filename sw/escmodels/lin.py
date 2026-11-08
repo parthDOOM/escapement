@@ -86,3 +86,41 @@ class LinReceiver(Device):
             if cs != checksum(data, None if classic else p):
                 self.violations.append(f"t={s}: checksum {cs:02x}")
             self.frames.append({"id": ident, "data": data, "classic": classic})
+
+
+class LinCommander(Device):
+    """A LIN commander's header on an open-drain bus, for testing a responder: for each
+    header, a break of `brk` bit times dominant, a one-bit delimiter, the sync byte 0x55 and
+    the protected identifier `pid` (as given, so a wrong parity can be sent), each byte 8N1
+    LSB first; then the bus is left recessive for the response. Headers start every
+    `slot_bits` bit times from tick `start`; `scale` stretches the commander's bit time (its
+    clock error). The commander only pulls the line low (dominant) or releases it."""
+
+    def __init__(self, pin: int, tick_ns: float, headers, baud: int = 19200, start: int = 1000,
+                 slot_bits: int = 200, scale: float = 1.0):
+        self.pin = pin
+        bit = 1e9 / baud / tick_ns * scale
+        self.low: list[tuple[int, int]] = []          # dominant intervals [a, b)
+        self.starts: list[int] = []
+        for k, h in enumerate(headers):
+            h = h if isinstance(h, dict) else {"pid": h}
+            t0 = start + round(k * slot_bits * bit)
+            self.starts.append(t0)
+            brk = h.get("brk", 13)
+            self.low.append((t0, t0 + round(brk * bit)))
+            t = t0 + round((brk + 1) * bit)                 # after the delimiter
+            for byte in (0x55, h["pid"]):
+                frame = [0] + [(byte >> i) & 1 for i in range(8)] + [1]
+                for i, v in enumerate(frame):
+                    if v == 0:
+                        self.low.append((t + round(i * bit), t + round((i + 1) * bit)))
+                t += round(10 * bit)
+        self.low.sort()
+        self._i = 0
+
+    def step(self, t, bus):
+        while self._i < len(self.low) and self.low[self._i][1] <= t:
+            self._i += 1
+        if self._i < len(self.low) and self.low[self._i][0] <= t:
+            return 1 << self.pin, 0
+        return 0, 0
