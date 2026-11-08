@@ -90,3 +90,22 @@ def test_dcf77_minutes():
         assert want in ann, (want, [a for a in ann if ":" in a][:40])
     assert ann.count("Minute parity: OK") >= 2 and ann.count("Hour parity: OK") >= 2
     assert ann.count("Date parity: OK") >= 2
+
+
+def test_sd_card_session():
+    """sigrok's sdcard_spi decoder (over its spi decoder) reads the start-up and a block
+    read: every command named, its CRC7 the chip computed (CMD0's byte 0x95, CMD8's frame
+    48 00 00 01 aa 87, the values the specification's examples give), every R1 as the
+    card sent it."""
+    from test_sd_spi import run
+    m, sd, host, board = run(blocks=[0x1234])
+    ch = {n: board.level(p) for n, p in (("sck", 4), ("mosi", 5), ("miso", 6), ("cs", 7))}
+    ann = decode(vcd(ch, 40), "spi:clk=sck:mosi=mosi:miso=miso:cs=cs,sdcard_spi")
+    cmds = [a for a in ann if a.startswith("Command: ")]
+    want = (["CMD0 (GO_IDLE_STATE)", "CMD8 (SEND_IF_COND)"]
+            + ["CMD55 (APP_CMD)", "ACMD41 (SD_SEND_OP_COND)"] * 4
+            + ["CMD58 (READ_OCR)", "CMD17 (READ_SINGLE_BLOCK)"])
+    assert [c[len("Command: "):] for c in cmds] == want, cmds
+    assert "CRC7: 0x4a" in ann and "CMD8: 48 00 00 01 aa 87" in ann
+    assert not [a for a in ann if "CRC" in a and ("fail" in a.lower() or "error" in a.lower())
+                and "No error" not in a], ann

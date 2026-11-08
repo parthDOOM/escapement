@@ -770,6 +770,20 @@ def case_dcf77():
     return Board(rx, host), host, check
 
 
+def case_sd_spi():
+    """The SD host at 25 MHz, 400 kHz SCK: start-up (CRC7 on every command), the OCR, one
+    block read with its CRC-16 checked."""
+    from escmodels.sdcard import OCR_READY, SdCardSpi
+    sd = SdCardSpi(4, 5, 6, 7)
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r[:3] == [4 << 16, OCR_READY, 0] and not sd.violations
+        return ([] if ok else [f"sd_spi {[hex(x) for x in r]} {sd.violations[:2]}"]) + board.errors()
+    host = HostScript([(1_000_000, 0, 0x1234)], drain=[0], poll=2500)
+    return Board(sd, host), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -882,6 +896,7 @@ FIRMWARE_CASES = {
     "wiegand_rx": ("wiegand_rx.asm", 115000, case_wiegand_rx),
     "usbpd_tx": ("usbpd_tx.asm", 45000, case_usbpd),
     "dcf77_tx": ("dcf77_tx.asm", 625000, case_dcf77),
+    "sd_spi": ("sd_spi.asm", 1_700_000, case_sd_spi),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }

@@ -541,6 +541,18 @@ def _rated_usbpd(khz):
     return Board(sink, pullups=0), [(100, 0, hdr), (150, 0, pdo)], check
 
 
+def _rated_sd_spi(khz):
+    """The SD host at 400 kHz SCK: start-up, the OCR, one block with its CRC-16 good."""
+    from escmodels.sdcard import OCR_READY, SdCardSpi
+    sd = SdCardSpi(4, 5, 6, 7)
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r[:3] == [4 << 16, OCR_READY, 0] and not sd.violations
+        return [] if ok else [f"sd_spi {[hex(x) for x in r]} {sd.violations[:2]}"]
+    return Board(sd), [(khz * 40, 0, 0x1234)], check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -648,6 +660,7 @@ RATED_CASES = {
     "em4100_tag": (_rated_em4100, 40_000, None),
     "wiegand_rx": (_rated_wiegand_rx, 30_000, None),
     "usbpd_tx": (_rated_usbpd, 1_500, None),
+    "sd_spi": (_rated_sd_spi, 68_000, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),
