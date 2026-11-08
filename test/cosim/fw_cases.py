@@ -708,6 +708,20 @@ def case_lin_resp():
     return Board(cmd, rx, host), host, check
 
 
+def case_em4100():
+    """The EM4100 tag at 4 MHz: one whole repetition of ID 0x0123456789 read back."""
+    from escmodels.em4100 import Em4100Reader, words
+    rd = Em4100Reader(0, 4000 * 64 // 125 / 2)
+    w0, w1 = words(0x0123456789)
+    host = HostScript([(100, 0, w0), (110, 0, w1)], drain=[0], poll=500)
+
+    def check(board, h):
+        ids = rd.ids()
+        return ([] if ids and set(ids) == {0x0123456789} and not rd.bad_runs
+                else [f"em4100 {ids} {rd.bad_runs[:2]}"]) + board.errors()
+    return Board(rd, host), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -816,6 +830,7 @@ FIRMWARE_CASES = {
     "wiegand_tx": ("wiegand_tx.asm", 60000, case_wiegand),
     "lin_tx": ("lin_tx.asm", 8000, case_lin),
     "lin_resp": ("lin_resp.asm", 60000, case_lin_resp),
+    "em4100_tag": ("em4100_tag.asm", 140000, case_em4100),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }
@@ -826,7 +841,7 @@ TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 FW_EQU = {"freq_meter": {"N": 8, "PIN": 3},
           "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
-          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000},
+          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000},
           "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500}}
 
 

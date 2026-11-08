@@ -503,6 +503,18 @@ def _rated_lin_resp(khz):
     return Board(cmd, rx), pushes, check
 
 
+def _rated_em4100(khz):
+    """The EM4100 tag: one whole 64-bit repetition of ID 0x0123456789, read back."""
+    from escmodels.em4100 import Em4100Reader, words
+    rd = Em4100Reader(0, khz * 64 // 125 / 2)
+    w0, w1 = words(0x0123456789)
+
+    def check(board, h):
+        ids = rd.ids()
+        return [] if ids and set(ids) == {0x0123456789} and not rd.bad_runs else [f"em4100 {ids} {rd.bad_runs[:2]}"]
+    return Board(rd), [(100, 0, w0), (110, 0, w1)], check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -607,6 +619,7 @@ RATED_CASES = {
     "wiegand_tx": (_rated_wiegand, 60_000, None),
     "lin_tx": (_rated_lin, 8_000, None),
     "lin_resp": (_rated_lin_resp, 18_000, None),
+    "em4100_tag": (_rated_em4100, 40_000, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),
