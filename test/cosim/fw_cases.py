@@ -805,6 +805,23 @@ def case_onewire_dev():
     return Board(mst, host), host, check
 
 
+def case_avr_isp():
+    """The AVR programmer at 25 MHz, SCK 125 kHz, against an ATmega328P in serial
+    programming mode: 20 ms after RESET, Programming Enable with its echo, the signature,
+    then a raw Read Fuse Low."""
+    from escmodels.avr import AvrIspTarget
+    avr = AvrIspTarget(4, 5, 6, 7, 40.0)
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r[:2] == [0, 0x1E950F] and len(r) == 3 and r[2] & 0xFF == 0x62
+        ok = ok and avr.enables == 1 and not avr.violations
+        return ([] if ok else [f"avr_isp {[hex(x) for x in r]} {avr.violations[:2]}"]) + board.errors()
+    host = HostScript([(100, 0, 1 << 28), (575_000, 0, 2 << 28), (575_010, 0, 0x50000000)],
+                      drain=[0], poll=2500)
+    return Board(avr, host), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -919,6 +936,7 @@ FIRMWARE_CASES = {
     "dcf77_tx": ("dcf77_tx.asm", 625000, case_dcf77),
     "sd_spi": ("sd_spi.asm", 1_700_000, case_sd_spi),
     "onewire_dev": ("onewire_dev.asm", 640_000, case_onewire_dev),
+    "avr_isp": ("avr_isp.asm", 612_000, case_avr_isp),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }

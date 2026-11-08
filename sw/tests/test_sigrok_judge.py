@@ -131,3 +131,16 @@ def test_onewire_device_read_and_search_rom():
     assert "ROM command: 0x33 'Read ROM'" in ann and "ROM command: 0xf0 'Search ROM'" in ann
     assert ann.count(f"ROM: 0x{rom:016x}") == 2, [a for a in ann if a.startswith("ROM")]
     assert not [a for a in ann if "error" in a.lower()], [a for a in ann if "error" in a.lower()]
+
+
+def test_avr_isp_session():
+    """sigrok's avr_isp decoder (over spi) reads the programmer entering programming mode on
+    an ATmega328P, its signature and its low fuse, with no warning about the replies."""
+    from test_avr_isp import MS, run
+    m, avr, host, board = run([(100, 0, 1 << 28), (60 * MS, 0, 2 << 28), (60 * MS + 10, 0, 0x50000000)], 75)
+    ch = {n: board.level(p) for n, p in (("sck", 4), ("mosi", 5), ("miso", 6))}
+    ch["cs"] = [0] * len(board.level(4))          # RESET is not a chip select: always selected
+    ann = decode(vcd(ch, 40), "spi:clk=sck:mosi=mosi:miso=miso:cs=cs:cs_polarity=active-low,avr_isp")
+    assert "Programming enable" in ann
+    assert "Device: Atmel ATmega328P" in ann and "Read fuse bits: 0x62" in ann, ann
+    assert not [a for a in ann if a.startswith("Warning")], [a for a in ann if a.startswith("Warning")]

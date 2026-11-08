@@ -572,6 +572,19 @@ def _rated_onewire_dev(khz):
     return Board(mst), [], check
 
 
+def _rated_avr_isp(khz):
+    """The AVR programmer: programming enable 20 ms after RESET, the signature, a fuse read."""
+    from escmodels.avr import AvrIspTarget
+    avr = AvrIspTarget(4, 5, 6, 7, 1e6 / khz)
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r[:2] == [0, 0x1E950F] and len(r) == 3 and r[2] & 0xFF == 0x62
+        ok = ok and avr.enables == 1 and not avr.violations
+        return [] if ok else [f"avr_isp {[hex(x) for x in r]} {avr.violations[:2]}"]
+    return Board(avr), [(100, 0, 1 << 28), (khz * 23, 0, 2 << 28), (khz * 23 + 10, 0, 0x50000000)], check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -681,6 +694,7 @@ RATED_CASES = {
     "usbpd_tx": (_rated_usbpd, 1_500, None),
     "sd_spi": (_rated_sd_spi, 68_000, None),
     "onewire_dev": (_rated_onewire_dev, 26_000, None),
+    "avr_isp": (_rated_avr_isp, 24_500, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),
