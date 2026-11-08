@@ -515,6 +515,18 @@ def _rated_em4100(khz):
     return Board(rd), [(100, 0, w0), (110, 0, w1)], check
 
 
+def _rated_wiegand_rx(khz):
+    """The Wiegand panel receiver: one 26-bit frame at 200 us intervals."""
+    from escmodels import WiegandSender
+    bits = [0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1]
+    want = [26, 0, int("".join(map(str, bits)), 2)]
+    snd = WiegandSender(0, 1, 1e6 / khz, [bits], interval_us=200, start=200)
+
+    def check(board, h):
+        return [] if h.received[0] == want else [f"wiegand_rx {h.received[0]}"]
+    return Board(snd), [], check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -620,6 +632,7 @@ RATED_CASES = {
     "lin_tx": (_rated_lin, 8_000, None),
     "lin_resp": (_rated_lin_resp, 18_000, None),
     "em4100_tag": (_rated_em4100, 40_000, None),
+    "wiegand_rx": (_rated_wiegand_rx, 30_000, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),

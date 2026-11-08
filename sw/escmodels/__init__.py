@@ -21,6 +21,6 @@ from .cec import CecDevice  # noqa: F401
 from .dali import DaliController  # noqa: F401
 from .ir import DccDecoder, Ev1527Receiver, JvcReceiver, Rc5Receiver, Rc6Receiver, SircReceiver  # noqa: F401
 from .lin import LinCommander, LinReceiver, checksum as lin_checksum, pid as lin_pid  # noqa: F401
-from .wiegand import WiegandReceiver  # noqa: F401
+from .wiegand import WiegandReceiver, WiegandSender  # noqa: F401
 from .modbus import ModbusClient, adu, crc16  # noqa: F401
 from .sbus import SbusSource  # noqa: F401

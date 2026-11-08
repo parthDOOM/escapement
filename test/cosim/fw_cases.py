@@ -722,6 +722,20 @@ def case_em4100():
     return Board(rd, host), host, check
 
 
+def case_wiegand_rx():
+    """The Wiegand panel receiver at 4 MHz: one 26-bit frame at 200 us intervals."""
+    khz = 4000
+    from escmodels import WiegandSender
+    bits = [0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1]
+    want = [26, 0, int("".join(map(str, bits)), 2)]
+    snd = WiegandSender(0, 1, 1e6 / khz, [bits], interval_us=200, start=200)
+
+    def check(board, h):
+        return ([] if h.received[0] == want else [f"wiegand_rx {h.received[0]}"]) + board.errors()
+    host = HostScript([], drain=[0], poll=500)
+    return Board(snd, host), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -831,6 +845,7 @@ FIRMWARE_CASES = {
     "lin_tx": ("lin_tx.asm", 8000, case_lin),
     "lin_resp": ("lin_resp.asm", 60000, case_lin_resp),
     "em4100_tag": ("em4100_tag.asm", 140000, case_em4100),
+    "wiegand_rx": ("wiegand_rx.asm", 115000, case_wiegand_rx),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }
@@ -841,7 +856,7 @@ TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 FW_EQU = {"freq_meter": {"N": 8, "PIN": 3},
           "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
-          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000},
+          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000}, "wiegand_rx": {"CLK_KHZ": 4000},
           "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500}}
 
 
