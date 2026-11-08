@@ -1,2 +1,6 @@
 build/
 __pycache__/
+# written by test_barepico.py (bring-up stage 5) into the working directory
+/proof.json
+# the evidence of each run is kept
+!results/**/*.log
