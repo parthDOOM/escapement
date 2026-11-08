@@ -29,9 +29,8 @@ input. `chip-pnr.log` is the place-and-route log of that bitstream.
 
 What this does not show: the hardened netlist (a different synthesis tool and cell library), the
 clock gates and latch banks (`ESC_NO_CG` makes them plain flip-flops), the IHP SRAM macro (replaced
-by block RAM with the same timing contract), silicon timing, the I/O pads, power, the Tiny Tapeout
-mux and the demo board. Those stay covered by the gate-level suites, the RTL-to-netlist
-equivalence checks and timing signoff.
+by block RAM with the same timing contract). Those stay covered by the gate-level suites, the
+RTL-to-netlist equivalence checks and timing signoff.
 
 ## Files
 

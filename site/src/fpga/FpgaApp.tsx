@@ -258,7 +258,6 @@ function Page({ d }: { d: Fpga }) {
               <li>The hardened netlist: the FPGA build uses a different synthesis tool and cell library.</li>
               <li>The clock gates and latch banks: the FPGA build makes them plain flip-flops.</li>
               <li>The IHP SRAM macros: replaced by block RAM with the same timing contract.</li>
-              <li>Silicon timing, the I/O pads, power, the Tiny Tapeout mux and the demo board.</li>
             </ul>
             <div className="prose">
               <p>Those stay covered by the gate-level test suites on the standard-cell models, the RTL-to-netlist
