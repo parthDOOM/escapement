@@ -39,8 +39,12 @@ class Em4100Reader(Device):
     pairs are read as Manchester bits at both alignments, and a frame is accepted only with
     its header, every row parity, the column parities and the stop bit right."""
 
-    def __init__(self, pin: int, half: float):
-        self.pin, self.half = pin, half
+    def __init__(self, pin: int, half: float, real_line: bool = False):
+        """real_line: for a recording of a real tag's demodulated signal, a run is one half
+        below 1.5 halves and two below 2.5 (a weakly coupled tag moves its edges by up to a
+        fifth of a half), instead of the +/-10% that judges the chip's own output; every
+        frame still needs its header and every parity."""
+        self.pin, self.half, self.real_line = pin, half, real_line
         self.levels: list[int] = []
         self.bad_runs: list[tuple[int, int]] = []
 
@@ -58,7 +62,12 @@ class Em4100Reader(Device):
             runs.append((s, t - s, lv[s]))
         for s, n, v in runs[1:-1]:                      # the first and last runs are cut
             k = round(n / self.half)
-            if k not in (1, 2) or abs(n - k * self.half) > 0.1 * self.half:
+            if self.real_line:
+                k = 1 if 0.5 * self.half <= n < 1.5 * self.half else 2 if n < 2.5 * self.half else 0
+                bad = k == 0
+            else:
+                bad = k not in (1, 2) or abs(n - k * self.half) > 0.1 * self.half
+            if bad:
                 self.bad_runs.append((s, n))
                 out.append(None)
                 continue
