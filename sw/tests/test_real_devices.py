@@ -260,3 +260,102 @@ def test_cec_firmware_follows_a_real_tv_and_amplifier():
     assert len(chip) == 13 and chip == model, (chip, model)
     assert ([0x0F, 0x36], [1, 1]) in chip
     assert any(b[:5] == [0x0F, 0xA0, 0x08, 0x00, 0x46] for b, _ in chip)
+
+
+def _dcc_accessory(b):
+    """A basic accessory packet {10AAAAAA} {1AAACDDD} (S-9.2.1): (output address, C, D0),
+    the upper address bits sent inverted."""
+    if len(b) == 3 and b[0] >> 6 == 0b10 and b[1] >> 7 == 1:
+        a = (b[0] & 0x3F) | ((~b[1] >> 4) & 0x7) << 6
+        return (a - 1) * 4 + ((b[1] >> 1) & 3) + 1, (b[1] >> 3) & 1, b[1] & 1
+    return None
+
+
+@pytest.mark.parametrize("name,accessories", [("dcc_easycontrol_120_121.sr", {120, 121}),
+                                              ("dcc_easycontrol_133.sr", {133}),
+                                              ("dcc_easycontrol_140.sr", {140}),
+                                              ("dcc_easycontrol_310.sr", {310})])
+def test_dcc_real_command_station_accessories(name, accessories):
+    """A tams EasyControl command station through a B-2 booster (1 MHz capture through a
+    clamp): every packet's check byte right (but the last, which the end of the recording
+    cuts), and the basic accessory packets address exactly the decoders the recording's
+    notes name, switched on and off."""
+    from recording import play_edges
+    from escmodels.ir import DccDecoder
+    d = DccDecoder(0, sample_ns(name))
+    play_edges(name, sample_ns(name), {0: 0}, d)
+    pk = d.packets()[:-1]
+    assert len(pk) > 800 and all(p["check_ok"] for p in pk), [p for p in pk if not p["check_ok"]][:3]
+    acc = {_dcc_accessory(p["bytes"]) for p in pk}
+    acc.discard(None)
+    assert {a for a, c, _ in acc} == accessories and {c for _, c, _ in acc} == {0, 1}
+
+
+def test_dcc_real_command_station_loco_light():
+    """The same station switching the light of loco 2: function group one (100 FL F4-F1)
+    to address 2 goes 0x80, 0x90 (FL on), 0x80, 0x90; every check byte right."""
+    from itertools import groupby
+    from recording import play_edges
+    from escmodels.ir import DccDecoder
+    name = "dcc_easycontrol_2_light.sr"
+    d = DccDecoder(0, sample_ns(name))
+    play_edges(name, sample_ns(name), {0: 0}, d)
+    pk = d.packets()
+    assert pk and all(p["check_ok"] for p in pk)
+    fg = [p["bytes"][1] for p in pk if p["bytes"][0] == 0x02 and p["bytes"][1] & 0xE0 == 0x80]
+    assert [v for v, _ in groupby(fg)] == [0x80, 0x90, 0x80, 0x90]
+
+
+def _dali_frames(records, te):
+    """Independent of the firmware: Manchester frames in a recording, as (first falling
+    edge, bits incl. the start bit); a frame ends at an idle of more than 3 Te."""
+    seg, s = [], [records[0]]
+    for a, b in zip(records, records[1:]):
+        if b[0] - a[0] > 3 * te:
+            seg.append(s)
+            s = []
+        s.append(b)
+    seg.append(s)
+    out = []
+    for s in seg:
+        if len(s) < 4:
+            continue
+        halves = []
+        for (t0, v0), (t1, _) in zip(s, s[1:]):
+            halves += [v0 & 1] * max(1, round((t1 - t0) / te))
+        halves += [s[-1][1] & 1] * 2
+        bits = [{(0, 1): 1, (1, 0): 0}.get((halves[2 * i], halves[2 * i + 1])) for i in range(len(halves) // 2)]
+        out.append((s[0][0], bits))
+    return out
+
+
+def test_dali_firmware_hears_a_real_controller():
+    """A Rako RSR-DALI controller querying a ballast at short address 0 (100 kHz capture):
+    the chip's dali firmware (ISS, 1 MHz, short address 63, so it only listens) receives
+    all nine forward frames exactly as an independent Manchester decode reads them, takes
+    none as its own and answers none. The real ballast answers each 4.3 to 4.7 ms after
+    the forward frame's last bit, earlier than the 5.5 ms of IEC 62386-101:2014 that the
+    controller model (escmodels.dali) holds the chip's gear to."""
+    from pathlib import Path
+    from escasm import assemble
+    from escmodels import Board, HostScript
+    from esciss import Machine
+    from recording import Recording
+    khz = 1000
+    te = 416.67 * khz / 1000
+    rec = Recording("dali_rako_query_ballast.sr", 1e6 / khz, {0: 0})
+    host = HostScript([(10, 0, 1 << 31 | 63)], drain=[0], poll=khz)
+    fw = Path(__file__).resolve().parents[2] / "firmware"
+    m = Machine(assemble(f'.equ dali.CLK_KHZ, {khz}\n.include "dali.asm"\n', base_dir=fw), board=Board(rec, host))
+    host.machine = m
+    m.run(rec.end + 20 * khz, stop_when_idle=False)
+    assert not m.ff.valid
+    frames = _dali_frames(rec.records, te)
+    fwd = [(t, b) for t, b in frames if len(b) >= 17 and None not in b[:17]]
+    want = [int("".join(map(str, b[1:17])), 2) for _, b in fwd]
+    assert want == [0x0191, 0x01C0, 0x01C1, 0x01A3, 0x01A4, 0x01A5, 0x01A1, 0x01A2, 0x0199]
+    assert host.received[0] == want                    # [16], [17] clear: not ours, not answered
+    back = [(t, b) for t, b in frames if len(b) < 17]
+    assert len(back) == 9 and all(None not in b[:9] for _, b in back)
+    settle = [(tb - (tf + 17 * 2 * te)) / khz for (tf, _), (tb, _) in zip(fwd, back)]
+    assert all(4.2 < s < 4.75 for s in settle), settle
