@@ -590,8 +590,8 @@ measured a lead, 28 of them exactly the bound.
 | | Contexts |
 | --- | ---: |
 | Queued events, so a lead was measured | 60 |
-| Measured lead equal to the certified bound, to the tick | 52 |
-| Measured lead above the bound (`ws2812` 8 against 5, `ws2812_gen` 6 against 5, `usb_hid` 12 against 1, `morse` 908 against 148; on the line unit, `can_tx_lu` 17, `eth_tx` 13, `udp_tx` 13 and `ws2812_lu` 20, each against 1) | 8 |
+| Measured lead equal to the certified bound, to the tick | 50 |
+| Measured lead above the bound (`uart_rx` 209 against 206, alone and as `combo_uart_i2c`'s second context; `ws2812` 8 against 5, `ws2812_gen` 6 against 5, `usb_hid` 12 against 1, `morse` 908 against 148; on the line unit, `can_tx_lu` 17, `eth_tx` 13, `udp_tx` 13 and `ws2812_lu` 20, each against 1) | 10 |
 | Measured lead below the bound | 0 |
 | RTL lead or digest different from the ISS's | 0 |
 
@@ -780,7 +780,7 @@ sentence later; the Wiegand reader's notes say 36 bits, and it sends 34.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,168 | Pass (21 need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,247 | Pass (34 need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
