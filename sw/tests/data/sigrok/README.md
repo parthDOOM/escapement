@@ -43,3 +43,9 @@ instead (address 0x00 then 0xFF, every command byte then its complement).
 | dcc_easycontrol_*.sr | dcc/easycontrol/decoder_*.sr | NMRA DCC: a tams EasyControl command station through a B-2 booster (loco 2's light; accessory decoders 120/121, 133, 140, 310), 1 MHz |
 | dali_rako_query_ballast.sr | dali/rako_rsrdali/rako_rsrdali_query_ballast.sr | DALI: a Rako RSR-DALI controller querying a ballast, with its answers, 100 kHz |
 | sent_motor_position_3us.sr | sent/SENT2010_03p0us_6dn_pp_nsp_A6.sr | SENT: a motor position sensor (J2716 2010, 3 us ticks, six data nibbles, pause pulse), 100 MHz |
+| uart_stm32_8n1_*.sr | uart/hello_world/8n1/hello_world_8n1_*.sr | UART: an Olimex STM32-H103 sending "Hello World!\r\n" at 1200 to 921600 baud, 8N1, 625 kHz to 5 MHz |
+| uart_gps_mtk3339_9600.sr | uart/gps/mtk3339/mtk3339_8n1_9600.sr | UART: an MTK3339 GPS module (Adafruit breakout) sending NMEA at 9600 8N1, 200 kHz |
+| modbus_brainchild_io16do.sr | uart/modbus_rtu/brainchild_io_16do/brainchild-io-16do.sr | Modbus RTU: a PC (minimalmodbus) polling a Brainchild IO-16DO module, 19200 8E1, functions 1-6, 15, 16, on the RS-232 side (inverted levels), 1 MHz |
+| i2c_24lc02b_fx2_hantek6022be.sr | i2c/eeprom_24xx/microchip_24lc02b/hantek_6022be_powerup.sr | I2C: the Cypress FX2 in a Hantek 6022BE reading its 24LC02B boot EEPROM at power-up, 8 MHz |
+| i2c_x24c02_dual_tds744a.sr | i2c/eeprom_24xx/xicor_x24c02/x24c02_dual.sr | I2C: a Tektronix TDS 744A's internal bus, two X24C02 EEPROMs (0x50, 0x51) and probes of 0x52, 2 MHz |
+| can_mcp2515_125k_*.sr | can/microchip_mcp2515dm-bm/mcp2515dm-bm-125kbits_*.sr | CAN: a Microchip MCP2515DM-BM demo board at 125 kbit/s, its MCP2515's CAN_RX pin (one standard, one extended message; 25% and 100% bus load), 4 MHz |

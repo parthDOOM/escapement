@@ -479,11 +479,11 @@ replays into the fault, or NOT_PROVEN.
 | Firmware | Result | Certified minimum lead (ticks) |
 | --- | --- | ---: |
 | `uart_tx` | CHECKED | 9 |
-| `uart_rx` | CHECKED | 301 |
+| `uart_rx` | CHECKED | 206 |
 | `spi_ctrl` | CHECKED | 7 |
 | `i2c_ctrl` | CHECKED | 2 |
 | `i2c_eeprom` | CHECKED | 2 |
-| `combo_uart_i2c` (three contexts) | CHECKED | 2 / 301 / 7 |
+| `combo_uart_i2c` (three contexts) | CHECKED | 2 / 206 / 7 |
 | `combo_two_banks` (four contexts, both banks) | CHECKED | 5 / 4 / 7 / 6 |
 | `ws2812` | CHECKED | 5 |
 | `onewire` | CHECKED | 4 |
@@ -669,7 +669,7 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 
 | Protocol | Firmware | Checked against |
 | --- | --- | --- |
-| UART 8N1 at 115,200 baud (the rate is one constant) | `uart_tx`, `uart_rx` | Receiver and transmitter models; all 256 byte values, back-to-back frames, ±2% peer baud error |
+| UART 8N1 at 115,200 baud (the rate is one constant) | `uart_tx`, `uart_rx` | Receiver and transmitter models; all 256 byte values, back-to-back frames, ±2% peer baud error; `uart_rx` on a real STM32's output at 1,200 to 921,600 baud (`test_real_devices.py`) |
 | SPI controller, modes 0 to 3 | `spi_ctrl` | SPI target model (all four modes on the simulator, mode 3 on the RTL) |
 | I2C controller, Fast mode, clock stretching, address NACK | `i2c_ctrl` | I2C target model that flags Fast-mode timing violations |
 | I2C 24C02 EEPROM target, Standard and Fast mode | `i2c_eeprom` | Scripted controller that checks the target's timing; page roll-over |
@@ -725,6 +725,57 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | nRF24L01+ transmitter (Enhanced ShockBurst: auto-acknowledge, retransmits, MAX_RT) | `nrf24_tx` | Radio model written from the Product Specification (SPI commands, registers, Thce, Tpd2stby, Tpece2csn, time on air, ARD and ARC) and sigrok's `nrf24l01` decoder |
 | Morse code keyer (ITU-R M.1677-1) | `morse` | Listener written from the Recommendation: every key-down and gap in dots, to 1%; sigrok's `morse` decoder |
 
+## Real devices
+
+The bus models and the firmware are written from specifications, and so is everything
+that checks them. `sw/tests/test_real_devices.py` meets them with devices we did not
+design: logic-analyser recordings from [sigrok-dumps](https://github.com/sigrokproject/sigrok-dumps)
+(each file and its source are listed in `sw/tests/data/sigrok/README.md`), played onto
+the pins at the chip's tick. Recordings start mid-session and carry real lines: noise,
+edges moved by demodulators and by sampling, devices outside their specifications. The
+models that judge our firmware's own output are strict; each has an opt-in mode for a
+real line (`hunt` for Qi, `real_line` for USB PD, EM4100 and DCF77), and the strict
+defaults are unchanged.
+
+| Device | Chip side | Compared |
+| --- | --- | --- |
+| STM32F103 (Olimex STM32-H103), "Hello World!" at 1,200 to 921,600 baud | `uart_rx`, 1 to 50 MHz | Every byte, no framing error |
+| MTK3339 GPS module, NMEA at 9,600 baud | `uart_rx` | Every sentence's checksum; the same bytes as the receiver model |
+| PC (minimalmodbus) polling a Brainchild IO-16DO, Modbus RTU 19,200 8E1 | `modbus_rtu` in the module's place | Replies to functions 3, 6 and 16 byte for byte the module's; exception 01 to the other five |
+| Cypress FX2 booting from a 24LC02B (Hantek 6022BE) | `i2c_eeprom` in the EEPROM's place | Every bit on the bus but one (below); SCL never stretched past the FX2's |
+| Tektronix TDS 744A internal bus, two X24C02 EEPROMs | `i2c_eeprom` as 0x50, beside the real 0x51 | All 14 transactions bit for bit, at 500 kHz |
+| Microchip MCP2515DM-BM, CAN at 125 kbit/s, 25% and 100% bus load | `can_rx` | Every frame, standard and extended, each passing its CRC-15 |
+| NEC remotes (Joy-IT, a ceiling light's 16-bit address, Hama as Matsui) | `nec_rx` | The frames and repeat codes esclearn reads from the same recording |
+| 13.56 MHz Wiegand reader | `wiegand_rx` | Both 34-bit frames and their parities |
+| Sony TV with Denon and Yamaha amplifiers, HDMI-CEC | `cec` | The 13 frames as the CEC model reads them |
+| Rako RSR-DALI controller and a ballast | `dali` | Its 9 forward frames |
+| Nexus 5 and a no-name receiver on Qi transmitters | Qi transmitter model | 24 packets, every timing rule (Nexus 5); every packet refused for the no-name one, which keys its bits at 545 µs, outside 2 kHz ±4% |
+| MacBook, Pixel, ThinkPad and a ZY12PDS sink with chargers and adapters, USB PD | CC receiver model | 490 messages, every CRC-32 and EOP |
+| Eleven EM4100 tags, ten on an RDM630 reader and one on a reader coil | Reader model | Every tag's number and parities; for the ten, the number the RDM630 reports on its own UART |
+| Pollin DCF1 receiver off the air, 2 and 30 minutes | DCF77 receiver model | Every minute's time and parities |
+| Smoothieware and GRBL step/direction, a tams EasyControl DCC command station, a SENT position sensor | Step, DCC and SENT models | 32,000 steps on each of Smoothieware's axes and back to the start, GRBL's 56,903, each within the A4988's timing; accessory and loco packets with their check bytes; 11 frames with their CRCs |
+
+Two firmware bugs came out of this, both now covered by tests that would fail on the
+old code:
+
+- **`uart_rx` lost bytes sent back to back below about 100 ticks per bit.** The STM32
+  starts each byte straight after a stop bit; the firmware pushed a byte before watching
+  the line again and missed the next start edge at 460,800 baud on 25 MHz. It now reads
+  the data at bit 7's centre, samples the stop bit separately, and pushes a byte while
+  the next one's samples are queued. It reads every gap between bytes from 54 ticks per
+  bit (460,800 baud at 25 MHz, 921,600 at 50 MHz), and every gap but 2 to 2.8 idle bits
+  from its floor of 28 (`test_uart_rx_every_gap_from_54_ticks_per_bit`).
+- **`i2c_eeprom` faulted below 20 MHz.** Its 320 ns SDA setup, converted to ticks, fell
+  under the 7 ticks its two EMITs need, and escert, run at those clocks, said so (PAST).
+  The setup now has a 7-tick floor and certifies at every clock from 500 kHz; the
+  25 MHz image is unchanged.
+
+Where a real device and the chip legitimately differ, the test says so: the FX2's first
+read is at the EEPROM's current address, which the 24LC02B data sheet leaves undefined
+at power-up (the real one sent 0x00, the firmware starts at word 0); the GPS capture
+starts inside a burst, so the firmware, like the receiver model, finds the framing a
+sentence later; the Wiegand reader's notes say 36 bits, and it sends 34.
+
 ## Test suites
 
 | Suite | Tests | Result |
@@ -755,7 +806,9 @@ netlist with extracted parasitics at three corners ([physical design](03-PHYSICA
 - **Metastability** is not modelled probabilistically: inputs pass through a two-flop
   synchroniser, and simulation models it as a two-tick delay.
 - **The EEPROM** stretches the clock before each acknowledge, which a real 24C02 does
-  not; its Fast-mode margin is measured against our controller model only.
+  not. Against two real controllers (a Cypress FX2 at Standard mode, a TDS 744A's slow
+  bus) the stretch never outlasted the controller's own low time; its Fast-mode margin is
+  measured against our controller model only.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
 - **No hardware yet.** Every result on this page comes from simulation, formal proof or
   static analysis. The FPGA build (`fpga/`) passes the chip tests and the firmware through

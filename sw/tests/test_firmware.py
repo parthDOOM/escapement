@@ -111,6 +111,43 @@ def test_uart_rx_115200(gap_bits, baud_err):
         f"{next((i for i, (a, b) in enumerate(zip(got, data)) if a != b), None)}"
 
 
+def _uart_rx_gaps(baud, khz, gaps):
+    """uart_rx at khz against UartTx with each gap between bytes (in bit times) and four
+    start phases; returns the (gap, start) pairs that were misread or faulted."""
+    from escasm import assemble
+    from esciss import Machine
+    image = assemble(f".equ uart_rx.CLK_KHZ, {khz}\n.equ uart_rx.BAUD, {baud}\n"
+                     f'.include "uart_rx.asm"\n', base_dir=FW)
+    data = bytes([0x00, 0xFF, 0x55, 0xAA, 0x01, 0x80, 0x7E, 0x81] * 2)
+    tpb = khz * 1000 / baud
+    bad = []
+    for gap in gaps:
+        for start in (500, 501, 502, 503):
+            tx = UartTx(1, tpb, data, start=start, gap_bits=gap)
+            script = HostScript([], drain=[1], poll=97)
+            board = Board(tx, script)
+            m = Machine(image, board=board)
+            script.machine = m
+            m.run(tx.end + 20 * round(tpb) + 2000, stop_when_idle=False)
+            if script.received[1] != list(data) or m.ff.valid:
+                bad.append((gap, start))
+    return bad
+
+
+def test_uart_rx_every_gap_from_54_ticks_per_bit():
+    """Every gap between bytes, back to back to 4 idle bits, at 54.3 ticks per bit (460800
+    baud at 25 MHz). The earlier firmware pushed each byte before watching the line again
+    and lost back-to-back bytes here (a real STM32 showed it, test_real_devices.py)."""
+    assert _uart_rx_gaps(460800, 25000, [g / 4 for g in range(17)]) == []
+
+
+def test_uart_rx_at_its_clock_floor():
+    """At 28 ticks per bit (the .assert floor), every gap but 2 to 2.8 idle bits, where
+    a start edge in the 16 ticks between a byte's push and the next WAITP is seen late."""
+    assert _uart_rx_gaps(115200, 3226, [0, 0.25, 0.5, 1, 1.5, 1.75, 2.9, 3, 4]) == []
+    assert _uart_rx_gaps(115200, 3226, [2.4]) != []          # the documented band
+
+
 def test_ws2812_chain():
     dec = Ws2812Decoder(0, TICK_NS)
     script = HostScript([(30, 3, 0x102030), (40, 3, 0x010203), (2000, 3, 6)], drain=[3], poll=97)

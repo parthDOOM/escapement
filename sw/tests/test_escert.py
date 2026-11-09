@@ -126,7 +126,7 @@ def test_clock_parameterised_firmware_certifies_at_33_to_50_mhz(fw, khz):
 FLOOR_ASSERTS = {"i2c_ctrl": 23000, "ws2812": 23791, "servo": 1346, "swd_idcode": 20313,
                  "sbus_rx": 3950, "ws2812_lu": 12000, "qi_rx": 205, "spi_flash": 17001,
                  "max7219": 15001, "stepper": 5000, "nrf24_tx": 17001,
-                 "morse": 1279}
+                 "morse": 1279, "uart_rx": 3168}
 
 
 @pytest.mark.parametrize("fw, khz", sorted(FLOOR_ASSERTS.items()))
@@ -136,6 +136,14 @@ def test_clock_floor_assert_is_no_looser_than_escert(fw, khz):
     assert certs and all(c.status == "CHECKED" for c in certs), [str(c) for c in certs]
     with pytest.raises(AsmError, match="assertion failed"):
         assemble(src.format(khz - 1), base_dir=FW)
+
+
+@pytest.mark.parametrize("khz", [500, 4000, 18000])
+def test_i2c_eeprom_certifies_below_its_default_clock(khz):
+    """i2c_eeprom's SDA setup (320 ns) is under the 7 ticks between its two EMITs below
+    20 MHz; its floor keeps the second one ahead (it faulted PAST there before)."""
+    src = f'.equ i2c_eeprom.CLK_KHZ, {khz}\n.include "i2c_eeprom.asm"\n'
+    assert [c.status for c in certify(assemble(src, base_dir=FW))] == ["CHECKED"]
 
 
 def test_concurrent_image_certifies_every_context():

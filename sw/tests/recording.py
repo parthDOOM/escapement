@@ -76,3 +76,100 @@ def play_edges(name: str, tick_ns: float, pins: dict[int, int], *devices: Device
         for d in devices:
             d.step(t, bus)
     return rec.end
+
+
+def compress_idle(records: list, cap: int) -> list:
+    """The same changes with every stretch of more than `cap` ticks without one cut to cap:
+    an idle bus, shortened (a target sees no difference between long and longer idle)."""
+    out, prev, nt = [], None, 0
+    for t, v in records:
+        if prev is not None:
+            nt += min(t - prev, cap)
+        out.append((nt, v))
+        prev = t
+    return out
+
+
+def i2c_transactions(records: list, scl: int, sda: int) -> list[dict]:
+    """I2C on two channels of (tick, levels) records: per START (or repeated START), its
+    bytes as (byte, ack bit, [(SCL fall before, SCL rise, SCL fall after) per bit]) and
+    the tick of its STOP (None if a repeated START or the end follows)."""
+    out, cur, bits, pscl, psda, fall = [], None, [], 1, 1, None
+    for t, v in records:
+        c, d = (v >> scl) & 1, (v >> sda) & 1
+        if c and pscl and d != psda:
+            if d == 0:                                   # START or repeated START
+                if cur is not None:
+                    out.append(cur)
+                cur, bits = {"t": t, "rs": cur is not None, "bytes": [], "stop": None}, []
+            elif cur is not None:                        # STOP
+                cur["stop"] = t
+                out.append(cur)
+                cur = None
+        elif c and not pscl and cur is not None:         # a bit, sampled at SCL's rise
+            bits.append([fall, t, None, d])
+        elif not c and pscl:
+            if cur is not None and bits and bits[-1][2] is None:
+                bits[-1][2] = t
+                if len(bits) == 9:
+                    cur["bytes"].append((sum(b[3] << (7 - i) for i, b in enumerate(bits[:8])),
+                                         bits[8][3], [tuple(b[:3]) for b in bits]))
+                    bits = []
+            fall = t
+        pscl, psda = c, d
+    if cur is not None:
+        out.append(cur)
+    return out
+
+
+def i2c_target_slots(transactions: list[dict], address: int) -> list[tuple[int, int]]:
+    """The bit slots the target at 7-bit `address` drives SDA in, (SCL fall before, SCL
+    fall after]: the ACK of every byte it receives and the 8 data bits of every byte it
+    sends."""
+    slots = []
+    for tr in transactions:
+        bs = tr["bytes"]
+        if not bs or bs[0][0] >> 1 != address:
+            continue
+        read = bs[0][0] & 1
+        for k, (_, _, bit) in enumerate(bs):
+            if k == 0 or not read:
+                slots.append((bit[8][0], bit[8][2]))
+            else:
+                slots += [(b[0], b[2]) for b in bit[:8]]
+    return sorted(slots)
+
+
+class I2cReplay(Device):
+    """A recorded I2C bus with one target taken out: drives SCL and SDA low wherever the
+    recording has them low (open drain, so the chip can still pull either low and stretch
+    the clock), except SDA in that target's bit slots, which it leaves to the chip."""
+
+    def __init__(self, records: list, scl: int, sda: int, scl_pin: int, sda_pin: int, slots):
+        self.records, self.k, self.v = records, 0, records[0][1]
+        self.c, self.d, self.cp, self.dp = scl, sda, scl_pin, sda_pin
+        self.slots, self.s = list(slots), 0
+        self.end = records[-1][0]
+
+    def step(self, t, bus):
+        while self.k < len(self.records) and self.records[self.k][0] <= t:
+            self.v = self.records[self.k][1]
+            self.k += 1
+        while self.s < len(self.slots) and self.slots[self.s][1] < t:
+            self.s += 1
+        mine = self.s < len(self.slots) and self.slots[self.s][0] < t <= self.slots[self.s][1]
+        lo = 0 if (self.v >> self.c) & 1 else 1 << self.cp
+        if not (self.v >> self.d) & 1 and not mine:
+            lo |= 1 << self.dp
+        return lo, 0
+
+
+def bus_records(history: list[int], pins: list[int]) -> list[tuple[int, int]]:
+    """A board's bus levels as (tick, levels) records, pins[k] on channel k."""
+    out, prev = [], None
+    for t, b in enumerate(history):
+        v = sum(((b >> p) & 1) << k for k, p in enumerate(pins))
+        if v != prev:
+            out.append((t, v))
+            prev = v
+    return out

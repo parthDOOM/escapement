@@ -373,3 +373,330 @@ def test_sent_real_motor_position_sensor():
     assert len(r.frames) == 11 and all(f["crc_ok"] for f in r.frames) and not r.violations
     assert all(abs(f["unit"] * tick / 1000 - 2.982) < 0.002 for f in r.frames)
     assert all(f["pause"] for f in r.frames[:-1])
+
+
+# An Olimex STM32-H103 (STM32F103) sending "Hello World!\r\n" over and over, 8N1, at every
+# rate from 1200 to 921600 baud; its USART starts each byte straight after the stop bit.
+# (rate, chip clock in kHz): 1200 to 19200 at 1 MHz, 38400 and 57600 at 4 MHz, the rest at
+# 25 MHz and 921600 at 50 MHz, so 54 to 833 ticks per bit.
+STM32_UART = [(1200, 1000), (2400, 1000), (4800, 1000), (9600, 1000), (19200, 1000),
+              (38400, 4000), (57600, 4000), (115200, 25000), (230400, 25000), (460800, 25000),
+              (921600, 50000)]
+
+
+def _uart_rx_firmware(name, baud, khz, tail_ms=0):
+    """uart_rx on the ISS at khz with the recording on its RX pin (probe 1): the words it
+    pushed (a byte, bit 8 set on a framing error) and whether it faulted."""
+    from pathlib import Path
+    from escasm import assemble
+    from escmodels import Board, HostScript
+    from esciss import Machine
+    from recording import Recording
+    fw = Path(__file__).resolve().parents[2] / "firmware"
+    im = assemble(f".equ uart_rx.CLK_KHZ, {khz}\n.equ uart_rx.BAUD, {baud}\n"
+                  f'.include "uart_rx.asm"\n', base_dir=fw)
+    rec = Recording(name, 1e6 / khz, {0: 1})
+    host = HostScript([], drain=[1], poll=max(1, khz * 8000 // baud))
+    m = Machine(im, board=Board(rec, host))
+    host.machine = m
+    m.run(rec.end + tail_ms * khz, stop_when_idle=False)
+    return host.received[1], m.ff.valid
+
+
+@pytest.mark.parametrize("baud,khz", STM32_UART)
+def test_uart_rx_firmware_reads_a_real_stm32(baud, khz):
+    """The chip's own uart_rx firmware on the ISS reads every byte of the STM32's output,
+    with no framing error. This recording found a bug: the firmware pushed each byte before
+    watching the line again, so below about 100 ticks per bit it missed the start of a byte
+    sent straight after a stop bit (57600 at 4 MHz, 460800 at 25 MHz and 921600 at 50 MHz
+    failed)."""
+    got, fault = _uart_rx_firmware(f"uart_stm32_8n1_{baud}.sr", baud, khz)
+    assert not fault
+    assert all(b <= 0xFF for b in got), "framing errors"
+    k = bytes(got).index(b"H")                             # the recording starts mid-message
+    assert k < 14 and len(got) - k >= 40
+    assert bytes(got[k:]) == (b"Hello World!\r\n" * 5)[:len(got) - k], bytes(got)
+
+
+def test_uart_rx_firmware_reads_a_real_gps_module():
+    """An MTK3339 GPS module (Adafruit breakout) sending NMEA at 9600 8N1, sampled at
+    200 kHz, uart_rx at 1 MHz. The capture starts mid-sentence (it triggered on a low
+    line) inside a burst sent back to back, so a receiver first locks on a data bit and
+    finds its framing a sentence later; the receiver model does too. From the first CR LF
+    on: no framing error, every sentence's checksum (the XOR of the bytes between $ and *)
+    right, and the very bytes the receiver model reads."""
+    from escmodels import Board
+    from escmodels.uart import UartRx
+    from recording import Recording
+    got, fault = _uart_rx_firmware("uart_gps_mtk3339_9600.sr", 9600, 1000, tail_ms=5)
+    assert not fault
+    k = next(i for i in range(len(got) - 2) if got[i:i + 3] == [13, 10, ord("$")]) + 2
+    assert all(b <= 0xFF for b in got[k:]), "framing errors after the first CR LF"
+    text = bytes(got[k:])
+    model = UartRx(1, 1e6 / 9600)
+    rec = Recording("uart_gps_mtk3339_9600.sr", 1000.0, {0: 1})
+    board = Board(rec, model)
+    for t in range(rec.end + 5000):                       # as long as the firmware ran
+        board(t, 0, 0)
+    mb = bytes(model.bytes)
+    assert mb[mb.index(text[:40]):] == text
+    sentences = text.split(b"\r\n")[:-1]
+    assert len(sentences) >= 19
+    for s in sentences:
+        body, ck = s[1:].split(b"*")
+        x = 0
+        for c in body:
+            x ^= c
+        assert s[:1] == b"$" and int(ck, 16) == x, s
+    assert {s[:6] for s in sentences} == {b"$GPGGA", b"$GPGSA", b"$GPGSV", b"$GPRMC", b"$GPVTG"}
+
+
+def _frames_8e1(lv, tpb):
+    """8E1 characters on a list of line levels, grouped into frames by 3.5 characters of
+    silence: [[(byte, parity ok, stop ok), ...], ...]."""
+    frames, cur, last, t = [], [], None, 1
+    while t < len(lv) - 11 * tpb:
+        if lv[t - 1] == 1 and lv[t] == 0:
+            bits = [lv[round(t + (k + 0.5) * tpb)] for k in range(11)]
+            if last is not None and t - last > 3.5 * 11 * tpb:
+                frames.append(cur)
+                cur = []
+            cur.append((sum(bits[1 + i] << i for i in range(8)), sum(bits[1:10]) % 2 == 0,
+                        bits[10] == 1))
+            last, t = t, round(t + 10.5 * tpb)
+        else:
+            t += 1
+    return frames + [cur] if cur else frames
+
+
+def test_modbus_rtu_firmware_answers_a_real_client_as_a_real_server_does():
+    """A PC (minimalmodbus, through USB-RS232 and RS232-RS485 converters) polls a Brainchild
+    IO-16DO output module, server 1, at 19200 8E1: functions 1, 2, 3, 4, 5, 6, 15 and 16
+    in turn, recorded on the RS-232 side at 1 MHz. The PC's requests go to the chip's
+    modbus_rtu firmware (ISS, 4 MHz, server 1, 100 registers, register 99 = 0x0201 as the
+    module has it). The firmware implements 3, 6 and 16: its replies to those are the
+    module's own, byte for byte; to the other five, exception 01 (illegal function). Its
+    writes to register 1 reach the tape and the host."""
+    from pathlib import Path
+    from escasm import assemble
+    from escmodels import Board, HostScript
+    from escmodels.modbus import adu, crc16
+    from esciss import Machine
+    from recording import Recording
+    khz = 4000
+    fw = Path(__file__).resolve().parents[2] / "firmware"
+    im = assemble(f".equ modbus_rtu.CLK_KHZ, {khz}\n.equ modbus_rtu.NREG, 100\n"
+                  f'.include "modbus_rtu.asm"\n', base_dir=fw)
+    im.tape[99] = 0x0201
+    rec = Recording("modbus_brainchild_io16do.sr", 1e6 / khz, {1: 1, 0: 3})
+    rec.records = [(t, v ^ 3) for t, v in rec.records]   # RS-232: idle is the negative level
+    rec.level = rec.records[0][1]
+    host = HostScript([], drain=[0], poll=khz)
+    board = Board(rec, host)
+    m = Machine(im, board=board)
+    host.machine = m
+    m.run(rec.end + 40 * khz, stop_when_idle=False)
+    assert not m.ff.valid
+    tpb = khz * 1000 / 19200
+    req, real, ours = (_frames_8e1(board.level(p), tpb) for p in (1, 3, 0))
+    for f in req + real + ours:
+        assert all(p and s for _, p, s in f), f
+    req, real, ours = ([bytes(b for b, _, _ in f) for f in x] for x in (req, real, ours))
+    assert len(req) == 15 and [r[1] for r in req[:8]] == [1, 2, 3, 4, 5, 6, 15, 16]
+    assert all(crc16(f) == 0 for f in req + real)        # a frame with its CRC: residue 0
+    assert len(real) == len(ours) == 15
+    for q, r, o in zip(req, real, ours):
+        if q[1] in (3, 6, 16):
+            assert o == r, (q.hex(), r.hex(), o.hex())
+        else:
+            assert o == adu(1, bytes([q[1] | 0x80, 1])), (q.hex(), o.hex())
+    assert host.received[0] == [1 << 16 | 1] * 3 and m.tape[1] == 0x55
+
+
+def _i2c_eeprom_beside(name, khz, idle_us, memory):
+    """The chip's i2c_eeprom firmware (target 0x50, SCL pin 2, SDA pin 3) on a recorded I2C
+    bus in place of the recorded 0x50: the recording drives the bus except SDA in 0x50's
+    bit slots, which the firmware must drive itself. Returns the recorded transactions, the
+    ones on the resulting bus, the ticks where the bus's SCL differs from the recording's
+    (the firmware stretching the clock where the real target did not), and the machine."""
+    from pathlib import Path
+    from escasm import assemble
+    from escmodels import Board
+    from esciss import Machine
+    from esctape.export import read_sr
+    from recording import DATA, I2cReplay, bus_records, compress_idle, i2c_target_slots, \
+        i2c_transactions
+    probes = {v: int(k[5:]) - 1 for k, v in meta(name).items() if k.startswith("probe")}
+    scl, sda = probes["SCL"], probes["SDA"]
+    recs = compress_idle(read_sr(DATA / name, clock_hz=khz * 1000)[0], idle_us * khz // 1000)
+    want = i2c_transactions(recs, scl, sda)
+    fw = Path(__file__).resolve().parents[2] / "firmware"
+    im = assemble(f'.equ i2c_eeprom.CLK_KHZ, {khz}\n.include "i2c_eeprom.asm"\n', base_dir=fw)
+    for a, b in memory.items():
+        im.tape[a] = b
+    rp = I2cReplay(recs, scl, sda, 2, 3, i2c_target_slots(want, 0x50))
+    board = Board(rp)
+    m = Machine(im, board=board)
+    m.run(rp.end + 100, stop_when_idle=False)
+    got = i2c_transactions(bus_records(board.history, [2, 3]), 0, 1)
+    k, v, differ = 0, recs[0][1], 0
+    for t, b in enumerate(board.history):
+        while k < len(recs) and recs[k][0] <= t:
+            v = recs[k][1]
+            k += 1
+        differ += ((v >> scl) & 1) != ((b >> 2) & 1)
+    return want, got, differ, m
+
+
+def _i2c_view(tr):
+    return (tr["rs"], [(b, a) for b, a, _ in tr["bytes"]], tr["stop"] is not None)
+
+
+def test_i2c_eeprom_firmware_boots_a_real_fx2():
+    """The Cypress FX2 in a Hantek 6022BE oscilloscope reading its boot EEPROM, a 24LC02B,
+    at power-up (about 87 kHz, recorded at 8 MHz). i2c_eeprom at 25 MHz, holding the
+    header the 24LC02B sent (C0, then VID 04B4, PID 6022 and DID 0000 low byte first,
+    config 00), stands in for it: every bit the FX2 saw is the same, but one. The FX2
+    first reads one byte at the current address, which the 24LC02B data sheet leaves
+    undefined at power-up: the real one sent 0x00, the firmware's pointer starts at word 0.
+    Its clock stretching never shows: SCL is the FX2's at every tick."""
+    hdr = [0xC0, 0xB4, 0x04, 0x22, 0x60, 0x00, 0x00, 0x00]
+    want, got, differ, m = _i2c_eeprom_beside("i2c_24lc02b_fx2_hantek6022be.sr", 25000, 2000,
+                                              dict(enumerate(hdr)))
+    assert not m.ff.valid and differ == 0
+    assert [_i2c_view(t) for t in want] == [
+        (False, [(0xA1, 0), (0x00, 1)], False), (True, [(0xA0, 0), (0x00, 0)], False),
+        (True, [(0xA1, 0)] + [(b, 0) for b in hdr[:-1]] + [(hdr[-1], 1)], True)]
+    first = _i2c_view(got[0])
+    assert first == (False, [(0xA1, 0), (hdr[0], 1)], False)     # word 0, not the 0x00
+    assert [_i2c_view(t) for t in got[1:]] == [_i2c_view(t) for t in want[1:]]
+
+
+def test_i2c_eeprom_firmware_beside_a_real_eeprom():
+    """An internal bus of a Tektronix TDS 744A oscilloscope, about 1.7 kHz (recorded at
+    2 MHz), with two X24C02 EEPROMs at 0x50 and 0x51: random reads of both, six probes
+    of an absent 0x52, then block reads of 248 bytes from 0x50 and 196 from 0x51.
+    i2c_eeprom at 500 kHz, holding what the real 0x50 sent, takes 0x50's place beside the
+    real 0x51: all 14 transactions on the bus are bit for bit the recorded ones, so it
+    answers its address with the right timing, keeps the pointer across transactions,
+    and leaves the bus alone while 0x51 and 0x52 are addressed. At this clock the 320 ns
+    SDA setup is under a tick: before the 7-tick floor the firmware faulted here (PAST)."""
+    from recording import DATA, i2c_transactions
+    from esctape.export import read_sr
+    name = "i2c_x24c02_dual_tds744a.sr"
+    probes = {v: int(k[5:]) - 1 for k, v in meta(name).items() if k.startswith("probe")}
+    trs = i2c_transactions(read_sr(DATA / name, clock_hz=500_000)[0], probes["SCL"], probes["SDA"])
+    mem, ptr = {}, None                                  # what the real 0x50 sent, by word
+    for tr in trs:
+        bs = tr["bytes"]
+        if bs and bs[0][0] == 0xA0 and len(bs) > 1:
+            ptr = bs[1][0]
+        elif bs and bs[0][0] == 0xA1:
+            for b, _, _ in bs[1:]:
+                mem.setdefault(ptr, b)
+                ptr = (ptr + 1) & 0xFF
+    assert sorted(mem) == list(range(8, 256))
+    want, got, differ, m = _i2c_eeprom_beside(name, 500, 3000, mem)
+    assert not m.ff.valid and differ == 0
+    assert len(want) == 14 and [t["bytes"][0][0] for t in want].count(0xA4) == 6
+    assert [_i2c_view(t) for t in got] == [_i2c_view(t) for t in want]
+
+
+def _can_rx_firmware(name, until_s=None):
+    """can_rx (listen-only) at 12.5 MHz, 125 kbit/s, on an MCP2515's CAN_RX pin: the
+    frames it pushed as (extended, identifier, data), "CRC" for a frame that failed."""
+    from pathlib import Path
+    from escasm import assemble
+    from escmodels import Board, HostScript
+    from esciss import Machine
+    from recording import Recording, compress_idle
+    khz = 12500                                          # 100 ticks per bit
+    fw = Path(__file__).resolve().parents[2] / "firmware"
+    im = assemble(f".equ can_rx.CLK_KHZ, {khz}\n.equ can_rx.KBPS, 125\n"
+                  f'.include "can_rx.asm"\n', base_dir=fw)
+    rec = Recording(name, 1e6 / khz, {2: 1})             # probe 3: CAN_RX
+    recs = rec.records if until_s is None else [r for r in rec.records if r[0] < until_s * khz * 1000]
+    rec.records = compress_idle(recs, khz // 10)          # idle cut to 100 us, 12.5 bits
+    rec.end, rec.level = rec.records[-1][0], rec.records[0][1]
+    host = HostScript([], drain=[1], poll=khz // 10)
+    m = Machine(im, board=Board(rec, host))
+    host.machine = m
+    m.run(rec.end + khz, stop_when_idle=False)
+    assert not m.ff.valid
+    w, out, i = host.received[1], [], 0
+    while i < len(w):
+        if w[i] == 0x20000000:
+            out.append("CRC")
+            i += 1
+            continue
+        rtr, dlc = (w[i] >> 30) & 1, w[i + 1]
+        n = 0 if rtr or dlc == 0 else 1 if dlc <= 4 else 2
+        data = b"".join(x.to_bytes(4, "big") for x in w[i + 2:i + 2 + n])[:min(dlc, 8)]
+        out.append((w[i] >> 31, w[i] & 0x1FFFFFFF, data))
+        i += 2 + n
+    return out
+
+
+CAN_CYCLE = [(1, 0x14611234, bytes(range(4))), (0, 0x110, b"\x00\x11"),
+             (0, 0x550, bytes.fromhex("aabbccddeeff0a0b"))]
+
+
+@pytest.mark.parametrize("name,want", [
+    ("can_mcp2515_125k_msg_222_5bytes.sr", [(0, 0x222, bytes.fromhex("0011223344"))] * 3),
+    ("can_mcp2515_125k_extmsg_11223344_7bytes.sr",
+     [(1, 0x11223344, bytes.fromhex("00112233445566"))] * 5),
+    ("can_mcp2515_125k_bus_load_25percent.sr", (CAN_CYCLE * 5)[:14])])
+def test_can_rx_firmware_on_a_real_bus(name, want):
+    """A Microchip MCP2515DM-BM demo board at 125 kbit/s (its MCP2515's CAN_RX pin, 4 MHz):
+    can_rx reads every frame, standard and extended, each passing its CRC-15, as the
+    files are named (0x222 with five bytes, 0x11223344 with seven) and, at 25% bus load,
+    the board's three messages in turn."""
+    assert _can_rx_firmware(name) == want
+
+
+def test_can_rx_firmware_at_full_bus_load():
+    """The same board at 100% bus load: frames back to back, three bits of intermission
+    apart. The first 0.6 s: every frame read, none failing its CRC, the three messages
+    in unbroken turn (a missed frame would break it)."""
+    got = _can_rx_firmware("can_mcp2515_125k_bus_load_100percent.sr", until_s=0.6)
+    assert len(got) >= 50 and "CRC" not in got
+    k = CAN_CYCLE.index(got[0])
+    assert got == (CAN_CYCLE * 40)[k:k + len(got)]
+
+
+@pytest.mark.parametrize("name,ch,frames,repeats", [
+    ("nec_enter.sr", 0, 5, 0), ("nec_all.sr", 0, 21, 30), ("nec_extended.sr", 0, 7, 4),
+    ("nec_matsui.sr", 6, None, None)])
+def test_nec_rx_firmware_on_real_remotes(name, ch, frames, repeats):
+    """nec_rx (ISS, 1 MHz) on real remotes' demodulated IR (a Joy-IT remote, every button
+    and one button pressed five times; a ceiling light's remote with a 16-bit address; a
+    Hama universal remote as a Matsui TV's, outside the 5% that sigrok's decoder allows):
+    the frames and repeat codes it reports are the ones esclearn reads from the same
+    recording (sw/esclearn, a separate decoder that learns the coding from the timings)."""
+    import test_esclearn
+    from pathlib import Path
+    from escasm import assemble
+    from escmodels import Board, HostScript
+    from esciss import Machine
+    from recording import Recording, compress_idle
+    khz = 1000
+    fw = Path(__file__).resolve().parents[2] / "firmware"
+    im = assemble(f'.equ nec_rx.CLK_KHZ, {khz}\n.include "nec_rx.asm"\n', base_dir=fw)
+    rec = Recording(name, 1e6 / khz, {ch: 1})
+    rec.records = compress_idle(rec.records, 120 * khz)     # idle cut to 120 ms
+    rec.end = rec.records[-1][0]
+    host = HostScript([], drain=[1], poll=khz)
+    m = Machine(im, board=Board(rec, host))
+    host.machine = m
+    m.run(rec.end + 200 * khz, stop_when_idle=False)
+    assert not m.ff.valid
+    got = host.received[1]
+    learned = test_esclearn.dump(name, ch)[2]
+    want = []
+    for (w,) in learned.frames:
+        a, a2, cmd = w & 0xFF, w >> 8 & 0xFF, w >> 16 & 0xFF
+        want.append(cmd << 16 | (a if a2 == a ^ 0xFF else 1 << 24 | a2 << 8 | a))
+    assert [x for x in got if x != 0x80000000] == want
+    assert got.count(0x80000000) == learned.other
+    if frames is not None:
+        assert (len(want), learned.other) == (frames, repeats)
