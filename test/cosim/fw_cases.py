@@ -886,6 +886,23 @@ def case_stepper():
     return Board(drv, host, pullups=0), host, check
 
 
+def case_nrf24_tx():
+    """The nRF24L01+ driver at 25 MHz: set up (Tpd2stby kept), then a packet lost once and
+    retransmitted ARD later, acknowledged: TX_DS read and cleared."""
+    from escmodels.nrf24 import Nrf24Ptx
+    radio = Nrf24Ptx(4, 5, 6, 7, 3, 2, 40.0, acks=[False, True])
+
+    def check(board, h):
+        ok = (h.received[0] == [0x0E, 0x20] and [s["payload"] for s in radio.sent] == [b"cosim!!"] * 2
+              and not radio.violations)
+        return ([] if ok else [f"nrf24_tx {h.received} {radio.violations[:2]}"]) + board.errors()
+    # (the mailbox holds two words: the second payload word goes after the set-up's 1.5 ms)
+    host = HostScript([(100, 0, 1 << 28 | 0x06 << 16 | 0x13 << 8 | 2), (110, 0, 3 << 28 | 7),
+                       (2000, 0, int.from_bytes(b"cosi", "big")), (60_000, 0, int.from_bytes(b"m!! ", "big"))],
+                      drain=[0], poll=2500)
+    return Board(radio, host), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -1005,6 +1022,7 @@ FIRMWARE_CASES = {
     "spi_flash": ("spi_flash.asm", 85_000, case_spi_flash),
     "max7219": ("max7219.asm", 46_000, case_max7219),
     "stepper": ("stepper.asm", 380_000, case_stepper),
+    "nrf24_tx": ("nrf24_tx.asm", 125_000, case_nrf24_tx),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }

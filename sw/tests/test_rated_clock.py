@@ -638,6 +638,19 @@ def _rated_stepper(khz):
                                    (300, 0, 3 << 28 | 1 << 24 | 20)], check
 
 
+def _rated_nrf24_tx(khz):
+    """The nRF24L01+ driver: set up, then a packet sent and acknowledged."""
+    from escmodels.nrf24 import Nrf24Ptx
+    radio = Nrf24Ptx(4, 5, 6, 7, 3, 2, 1e6 / khz)
+
+    def check(board, h):
+        ok = (h.received[0] == [0x0E, 0x20] and [s["payload"] for s in radio.sent] == [b"rate"]
+              and not radio.violations)
+        return [] if ok else [f"nrf24_tx {h.received} {radio.violations[:2]}"]
+    return Board(radio), [(100, 0, 1 << 28 | 0x06 << 16 | 0x13 << 8 | 2), (110, 0, 3 << 28 | 4),
+                          (2000, 0, int.from_bytes(b"rate", "big"))], check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -752,6 +765,7 @@ RATED_CASES = {
     "spi_flash": (_rated_spi_flash, 3_000, None),
     "max7219": (_rated_max7219, 2_000, None),
     "stepper": (_rated_stepper, 15_000, None),
+    "nrf24_tx": (_rated_nrf24_tx, 3_500, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),

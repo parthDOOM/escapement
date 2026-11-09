@@ -219,3 +219,19 @@ def test_stepper_speed_and_position():
     pos = [a for a in ann if a.endswith(" steps")]
     assert speeds == ["%0.0f steps/s" % (1e6 / x) for x in intervals(drv)], speeds[:5]
     assert pos[-1] == "199 steps" and len(pos) == 199
+
+
+def test_nrf24_session():
+    """The nRF24L01+ driver's SPI, decoded by sigrok's nrf24l01 decoder: the set-up registers,
+    the address, the payload, then the STATUS read and clear."""
+    from test_nrf24_tx import run, send, setup
+    m, radio, host, board = run(setup() + send(5 * 25000, b"hello"), 9)
+    assert not radio.violations, radio.violations
+    ch = {"sck": board.level(4), "mosi": board.level(5), "miso": board.level(6), "csn": board.level(7)}
+    ann = decode(vcd(ch, 40), "spi:clk=sck:mosi=mosi:miso=miso:cs=csn:cs_polarity=active-low,nrf24l01")
+    for want in ('Cmd W_REGISTER: CONFIG = "0E"', 'Cmd W_REGISTER: EN_AA = "01"',
+                 'Cmd W_REGISTER: SETUP_RETR = "13"', 'Cmd W_REGISTER: RF_CH = "4C"',
+                 'Cmd W_REGISTER: RF_SETUP = "06"', 'Cmd FLUSH_TX', 'TX payload = "hello"'):
+        assert want in ann, (want, ann[:30])
+    assert [a for a in ann if a.startswith("Cmd W_REGISTER: TX_ADDR")], ann
+    assert not [a for a in ann if "unknown" in a.lower() or "warn" in a.lower()], ann
