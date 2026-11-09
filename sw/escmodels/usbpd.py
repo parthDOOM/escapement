@@ -35,8 +35,9 @@ class UsbPdSink(Device):
         wherever the burst starts; accept a preamble of 32 or more alternating bits ending in
         a 1 (a receiver locks on during it; the first bit can merge into the idle line); and
         count the ordered sets other than SOP (`other`) and bursts of under 20 edges, which
-        are the CC level changing, not messages (`line_events`). The bit rate is still
-        checked over each message."""
+        are the CC level changing, not messages (`line_events`); and take out a skew between
+        rising and falling edges (a threshold offset), measured from BMC's DC balance over
+        the burst. The bit rate is still checked over each message."""
         self.pin, self.tick, self.real_line = pin, tick_ns, real_line
         self.other: dict[str, int] = {}             # real_line: SOP', SOP'', resets seen
         self.line_events = 0                         # real_line: bursts of under 20 edges
@@ -108,6 +109,15 @@ class UsbPdSink(Device):
             self.line_events += 1
             return
         ivs = [self._us(b - a) for a, b in zip(edges, edges[1:])]
+        if self.real_line and ivs:
+            # a threshold offset on a slow CC edge moves every rising edge one way and every
+            # falling edge the other: high levels all short by 2s, low levels long by 2s (one
+            # ZY12PDS capture: 0.67 us, a fifth of a UI). BMC is DC balanced, so over a burst
+            # the high and the low levels last as long: the skew is what makes them differ.
+            hi = [k for k in range(len(ivs)) if self.levels[edges[k]]]
+            lo = [k for k in range(len(ivs)) if not self.levels[edges[k]]]
+            s = (sum(ivs[k] for k in lo) - sum(ivs[k] for k in hi)) / len(ivs)
+            ivs = [v + s if self.levels[edges[k]] else v - s for k, v in enumerate(ivs)]
         # real_line: a receiver locks on wherever the recording's burst starts (an edge of
         # the driver turning on, or the middle of a bit): try the first edges as the start
         bits, uis, start, kind = [], [], None, None

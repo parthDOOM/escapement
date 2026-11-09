@@ -750,7 +750,7 @@ defaults are unchanged.
 | Sony TV with Denon and Yamaha amplifiers, HDMI-CEC | `cec` | The 13 frames as the CEC model reads them |
 | Rako RSR-DALI controller and a ballast | `dali` | Its 9 forward frames |
 | Nexus 5 and a no-name receiver on Qi transmitters | Qi transmitter model | 24 packets, every timing rule (Nexus 5); every packet refused for the no-name one, which keys its bits at 545 µs, outside 2 kHz ±4% |
-| MacBook, Pixel, ThinkPad and a ZY12PDS sink with chargers and adapters, USB PD | CC receiver model | 490 messages, every CRC-32 and EOP |
+| MacBook, Pixel, ThinkPad and a ZY12PDS sink with chargers and adapters, USB PD | CC receiver model | 492 messages, every CRC-32 and EOP; sigrok's decoder reads the same, but for one GoodCRC whose edges are skewed |
 | Eleven EM4100 tags, ten on an RDM630 reader and one on a reader coil | Reader model | Every tag's number and parities; for the ten, the number the RDM630 reports on its own UART |
 | Pollin DCF1 receiver off the air, 2 and 30 minutes | DCF77 receiver model | Every minute's time and parities |
 | Smoothieware and GRBL step/direction, a tams EasyControl DCC command station, a SENT position sensor | Step, DCC and SENT models | 32,000 steps on each of Smoothieware's axes and back to the start, GRBL's 56,903, each within the A4988's timing; accessory and loco packets with their check bytes; 11 frames with their CRCs |

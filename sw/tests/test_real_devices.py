@@ -49,15 +49,18 @@ def test_qi_aftermarket_receiver_out_of_spec():
 # USB Power Delivery on the CC wire, recorded through a Twinkie interposer (or a logic
 # analyser on CC1/CC2): (file, channel, messages, damaged bursts). Every message decodes
 # with a good CRC-32 and EOP. "Damaged" are bursts that are no message: a flip of the plug
-# during the capture (both_orientations, CC1) and glitches that split a message.
+# during the capture (both_orientations, CC1) and glitches that split a message. One ZY12PDS
+# capture has a message whose falling edges all come 0.67 us early (a threshold offset);
+# the receiver takes the skew out (UsbPdSink, real_line), which also recovers a GoodCRC that
+# sigrok's decoder misses on the ThinkPad's CC1 (SIGROK_READS).
 PD = [
     ("pd_apple_av_hdmi.sr", 0, 84, 6), ("pd_apple_power_brick.sr", 0, 61, 0),
     ("pd_hdmi_dongle.sr", 1, 54, 0), ("pd_power_supply_20V.sr", 0, 42, 0),
-    ("pd_thinkpad_anker_powerbank-both_orientations.sr", 2, 20, 24),
+    ("pd_thinkpad_anker_powerbank-both_orientations.sr", 2, 21, 24),
     ("pd_thinkpad_anker_powerbank-both_orientations.sr", 3, 21, 0),
     ("pd_thinkpad_aukey_45w.sr", 1, 8, 0),
     ("pd_thinkpad_passtrough_dongle-anker_powerbank.sr", 1, 138, 0),
-    ("pd_zy12pds_65w_noname_supply.sr", 2, 10, 0), ("pd_zy12pds_anker_powerbank.sr", 2, 52, 1),
+    ("pd_zy12pds_65w_noname_supply.sr", 2, 10, 0), ("pd_zy12pds_anker_powerbank.sr", 2, 53, 0),
 ]
 
 
@@ -71,7 +74,7 @@ def _pd(name, ch):
 
 @pytest.mark.parametrize("name,ch,n,damaged", PD)
 def test_usb_pd_real_sources_and_sinks(name, ch, n, damaged):
-    """MacBook, Pixel, ThinkPad and a ZY12PDS sink with their chargers and adapters: 490
+    """MacBook, Pixel, ThinkPad and a ZY12PDS sink with their chargers and adapters: 492
     messages (85 of them SOP' to the cable), every CRC-32 good and every EOP present."""
     s = _pd(name, ch)
     assert len(s.messages) == n and all(m["crc_ok"] and m["eop"] for m in s.messages)
@@ -79,19 +82,23 @@ def test_usb_pd_real_sources_and_sinks(name, ch, n, damaged):
 
 
 SIGROK = shutil.which("sigrok-cli")
+# where sigrok-cli 0.7.2 reads fewer good messages than the model: the GoodCRC afd6a8a2
+# (header 0x441, acknowledging the PS_RDY before it), skewed like the ZY12PDS message
+SIGROK_READS = {("pd_thinkpad_anker_powerbank-both_orientations.sr", 2): 20}
 
 
 @pytest.mark.skipif(SIGROK is None, reason="sigrok-cli not installed")
 @pytest.mark.parametrize("name,ch,n,damaged", PD)
 def test_usb_pd_against_sigrok(name, ch, n, damaged):
     """sigrok's usb_power_delivery decoder reads the same recording: as many messages with
-    a good CRC as the model (a separate implementation on the same samples)."""
+    a good CRC as the model (a separate implementation on the same samples), but where
+    SIGROK_READS says it misses one."""
     cc = meta(name)[f"probe{ch + 1}"]
     r = subprocess.run([SIGROK, "-i", str(DATA / name), "-P", f"usb_power_delivery:cc1={cc}",
                         "-A", "usb_power_delivery=crc"], capture_output=True, text=True, timeout=600)
     assert r.returncode == 0, r.stderr
     ok = [ln for ln in r.stdout.splitlines() if "CRC" in ln and "!" not in ln]
-    assert len(ok) == n, r.stdout[-2000:]
+    assert len(ok) == SIGROK_READS.get((name, ch), n), r.stdout[-2000:]
 
 
 def test_wiegand_rx_firmware_on_a_real_reader():
@@ -700,3 +707,23 @@ def test_nec_rx_firmware_on_real_remotes(name, ch, frames, repeats):
     assert got.count(0x80000000) == learned.other
     if frames is not None:
         assert (len(want), learned.other) == (frames, repeats)
+
+
+@pytest.mark.skipif(SIGROK is None, reason="sigrok-cli not installed")
+@pytest.mark.parametrize("name", ["can_mcp2515_125k_msg_222_5bytes.sr",
+                                  "can_mcp2515_125k_extmsg_11223344_7bytes.sr",
+                                  "can_mcp2515_125k_bus_load_25percent.sr"])
+def test_can_rx_against_sigrok(name):
+    """sigrok's can decoder finds as many start-of-frames in the recording as frames can_rx
+    reads, and the same extended identifiers. (On the 100% bus-load file, too long to run
+    here: 286 and 286, 96 of them 0x14611234.)"""
+    def ann(cls):
+        r = subprocess.run([SIGROK, "-i", str(DATA / name), "-P",
+                            "can:can_rx=CAN_RX:nominal_bitrate=125000", "-A", f"can={cls}"],
+                           capture_output=True, text=True, timeout=600)
+        assert r.returncode == 0, r.stderr
+        return r.stdout.splitlines()
+    got = _can_rx_firmware(name)
+    assert len(ann("sof")) == len(got) and not ann("warnings")
+    ext = [int(ln.split("(0x")[1].rstrip(")"), 16) for ln in ann("full-id") if "(0x" in ln]
+    assert ext == [i for e, i, _ in got if e]
