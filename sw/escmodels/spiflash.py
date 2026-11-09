@@ -13,9 +13,12 @@ instruction and its first byte is the instruction code. Implemented:
   (bits can only go from 1 to 0); BUSY for tPP;
   20h Sector Erase: needs WEL; the 4 KB sector of a 24-bit address to FFh, only if /CS goes
   high after the 32nd bit; BUSY for tSE.
-After a program or erase, WEL clears. While BUSY every instruction but Read Status Register
-is ignored by the flash (a violation here: a programmer must wait). /CS must stay high for
-tSHSL (50 ns) between instructions.
+WEL stays set while a program or erase runs and clears when it finishes (Revision F, 8.5.13
+and 8.5.15: "After the Page Program cycle has finished the Write Enable Latch (WEL) bit in
+the Status Register is cleared to 0"; a real Macronix MX25L1605D reads status 03h there
+too). While BUSY every instruction but Read Status Register is ignored by the flash (a
+violation here: a programmer must wait). /CS must stay high for tSHSL (50 ns) between
+instructions.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ class SpiFlashW25(Device):
         self.t_pp, self.t_se = t_pp_ms * 1e6 / tick_ns, t_se_ms * 1e6 / tick_ns
         self.mem: dict[int, int] = {}
         self.wel = False
+        self._wel_off = None                            # when a program or erase clears WEL
         self.busy_until = -1
         self.instructions: list[tuple[int, int]] = []   # (code, bits clocked)
         self.violations: list[str] = []
@@ -51,6 +55,11 @@ class SpiFlashW25(Device):
 
     def _busy(self, t):
         return t < self.busy_until
+
+    def _wel(self, t):
+        if self._wel_off is not None and t >= self._wel_off:
+            self.wel, self._wel_off = False, None
+        return self.wel
 
     def read(self, a):
         return self.mem.get(a % SIZE, 0xFF)
@@ -111,7 +120,7 @@ class SpiFlashW25(Device):
             self._out.append(self._sr(t))
 
     def _sr(self, t):
-        return (1 if self._busy(t) else 0) | (2 if self.wel else 0)
+        return (1 if self._busy(t) else 0) | (2 if self._wel(t) else 0)
 
     def _end(self, t):
         c, bits = self._code, self._bits
@@ -121,11 +130,11 @@ class SpiFlashW25(Device):
         if self._busy(t) and c != 0x05:
             return                                      # ignored (and reported above)
         if c == 0x06 and bits == 8:
-            self.wel = True
+            self.wel, self._wel_off = True, None
         elif c == 0x04 and bits == 8:
-            self.wel = False
+            self.wel, self._wel_off = False, None
         elif c == 0x02:
-            if not self.wel:
+            if not self._wel(t):
                 self.violations.append(f"t={t}: Page Program with WEL 0 (ignored)")
             elif bits % 8 or bits < 40:
                 self.violations.append(f"t={t}: Page Program ended after {bits} bits (not executed)")
@@ -134,10 +143,9 @@ class SpiFlashW25(Device):
                 for k, v in enumerate(self._data):
                     a = page | (off + k) & 0xFF
                     self.mem[a] = self.read(a) & v
-                self.busy_until = t + self.t_pp
-                self.wel = False
+                self.busy_until = self._wel_off = t + self.t_pp
         elif c == 0x20:
-            if not self.wel:
+            if not self._wel(t):
                 self.violations.append(f"t={t}: Sector Erase with WEL 0 (ignored)")
             elif bits != 32:
                 self.violations.append(f"t={t}: Sector Erase ended after {bits} bits (not executed)")
@@ -145,5 +153,4 @@ class SpiFlashW25(Device):
                 base = self._addr & ~0xFFF
                 for a in [a for a in self.mem if base <= a < base + 0x1000]:
                     del self.mem[a]
-                self.busy_until = t + self.t_se
-                self.wel = False
+                self.busy_until = self._wel_off = t + self.t_se

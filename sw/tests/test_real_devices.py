@@ -926,3 +926,189 @@ def test_max7219_model_on_an_arduino_driving_four_chips():
         "device 2 register Dh (not in Table 2)", "device 3 register Eh (not in Table 2)"]
     assert all(r["shutdown"] == 1 and r["intensity"] == 7 and r["scan"] == 7 and
                r["digits"] == [0] * 8 for r in c.regs)
+
+
+def _flash_session(name, mem):
+    """A flashrom session played into the W25Q80DV model holding `mem` (address: byte):
+    per instruction, the bytes on MOSI, the real chip's MISO and the model's MISO (sampled
+    on SCK's rising edge while CS# is low); and the model."""
+    from esctape.export import read_sr
+    from recording import DATA
+    from escmodels.spiflash import SpiFlashW25
+    cs, miso, sck, mosi = 0, 1, 2, 3                       # CS#, MISO, SCLK, MOSI
+    fl = SpiFlashW25(sck, mosi, miso, cs, sample_ns(name))
+    fl.mem.update(mem)
+    out, cur, prev = [], None, None
+    for t, v in read_sr(DATA / name)[0]:
+        lo, _ = fl.step(t, v)
+        if (v >> cs) & 1:
+            if cur:
+                out.append(cur)
+            cur = None
+            prev = v
+            continue
+        if cur is None:
+            cur, n, b = ([], [], []), 0, [0, 0, 0]
+        if prev is not None and (v >> sck) & 1 and not (prev >> sck) & 1:
+            for k, bit in enumerate(((v >> mosi) & 1, (v >> miso) & 1, 0 if (lo >> miso) & 1 else 1)):
+                b[k] = (b[k] << 1 | bit) & 0xFF
+            n += 1
+            if n % 8 == 0:
+                for k in range(3):
+                    cur[k].append(b[k])
+        prev = v
+    if cur:
+        out.append(cur)                                    # CS# still low at the end
+    return [x for x in out if x[0]], fl
+
+
+def test_flash_model_does_as_a_real_flash_under_flashrom():
+    """flashrom on an FT2232H reading, writing and erasing a Macronix MX25L1605D whose
+    contents are "HelloWorld" over and over (25 MHz captures), played into the W25Q80DV
+    model that judges the spi_flash firmware (the instructions used are the same on both
+    parts). Read: all 168 pages of 256 bytes, the model's DO as the real chip's. Write:
+    84 Write Enable, Page Program, Read Status Register rounds, every status read as the
+    real chip's (03h while the program runs, which found the model clearing WEL early, and
+    00h after; the datasheet's typical tPP and tSE are as this part's at every poll), the
+    pages holding the file. Erase: four Sector Erases (the fifth sector was erased before
+    the capture began), each sector of "HelloWorld" read back as FFh as the real chip's
+    was, and the statuses as the real chip's. No violations. The model holds 1 MB, the
+    MX25L1605D 2 MB: the model's addresses wrap, and the file is laid at the wrapped ones."""
+    from escmodels.spiflash import SIZE
+    hw = b"HelloWorld"
+    file = lambda addrs: {a % SIZE: hw[a % 10] for a in addrs}
+    addr = lambda mo: mo[1] << 16 | mo[2] << 8 | mo[3]
+
+    def same_status(txs):
+        polls = [(r[1:], m[1:]) for mo, r, m in txs if mo[0] == 0x05]
+        assert polls and all(r == m for r, m in polls), [p for p in polls if p[0] != p[1]][:3]
+        return sorted({bytes(r).hex() for r, _ in polls})
+
+    name = "spiflash_mx25l1605d_flashrom_read.sr"
+    txs, _ = _flash_session(name, {})
+    reads = [addr(mo) for mo, _, _ in txs if mo[0] == 0x03]
+    txs, fl = _flash_session(name, file(a + k for a in reads for k in range(256)))
+    assert len(reads) == len(txs) == 168 and not fl.violations
+    assert all(len(r) == 260 and r[4:] == m[4:] and bytes(r[4:14]) in hw * 2 for _, r, m in txs)
+
+    txs, fl = _flash_session("spiflash_mx25l1605d_flashrom_write.sr", {})
+    rounds = [0x05] + [0x06, 0x02, 0x05, 0x05] * 84
+    assert [mo[0] for mo, _, _ in txs] == rounds[:-1] and not fl.violations   # ends at a poll
+    assert same_status(txs) == ["0000", "0303"]
+    pages = [addr(mo) for mo, _, _ in txs if mo[0] == 0x02]
+    assert all(fl.read(a + k) == hw[(a + k) % 10] for a in pages for k in range(256))
+
+    name = "spiflash_mx25l1605d_flashrom_erase.sr"
+    txs, _ = _flash_session(name, {})
+    sectors = [addr(mo) for mo, _, _ in txs if mo[0] == 0x20]
+    assert sectors == [0x19000, 0x1A000, 0x1B000, 0x1C000]
+    txs, fl = _flash_session(name, file(a + k for a in sectors for k in range(0x1000)))
+    verify = [(addr(mo), r[4:], m[4:]) for mo, r, m in txs if mo[0] == 0x03]
+    assert len(verify) == 74 and not fl.violations and same_status(txs) == ["0000", "0303"]
+    assert all(r == m == [0xFF] * 256 for _, r, m in verify)
+    assert {a >> 12 for a, _, _ in verify} == {0x18, 0x19, 0x1A, 0x1B, 0x1C}
+
+
+PS2_ASDFGH = [0x1C, 0xF0, 0x1C, 0x1B, 0xF0, 0x1B, 0x23, 0xF0, 0x23, 0x2B, 0xF0, 0x2B,
+              0x34, 0xF0, 0x34, 0x33, 0xF0, 0x33]          # a s d f g h, made and broken
+PS2_ASDFGH_ROLLED = [0x1C, 0xF0, 0x1C, 0x1B, 0x23, 0xF0, 0x1B, 0x2B, 0xF0, 0x23, 0xF0, 0x2B,
+                     0x34, 0xF0, 0x34, 0x33, 0xF0, 0x33]   # d made before s broken, f before d
+
+
+def _ps2_host(name, **kw):
+    from esctape.export import read_sr
+    from escmodels.ps2 import Ps2Host
+    pr = {v: int(k[5:]) - 1 for k, v in meta(name).items() if k.startswith("probe")}
+    h = Ps2Host(pr["Clock"], pr["Data"], sample_ns(name), **kw)
+    for t, v in read_sr(DATA / name)[0]:
+        h.step(t, v)
+    return h
+
+
+def _ps2_pc_holds(name):
+    """For each frame, when the PC pulled CLK low after it and when it let go, in us
+    after the frame's 11th falling edge (its pull makes a 12th, under 120 us later)."""
+    from esctape.export import read_sr
+    pr = {v: int(k[5:]) - 1 for k, v in meta(name).items() if k.startswith("probe")}
+    us = 1e-3 * sample_ns(name)
+    clk = [(t * us, (v >> pr["Clock"]) & 1) for t, v in read_sr(DATA / name)[0]]
+    edges = [(t, c) for (t, c), (_, p) in zip(clk[1:], clk) if c != p]
+    falls = [t for t, c in edges if c == 0]
+    frames, cur = [], [falls[0]]
+    for a, b in zip(falls, falls[1:]):
+        if b - a < 120:
+            cur.append(b)
+        else:
+            frames.append(cur)
+            cur = [b]
+    frames.append(cur)
+    out = []
+    for f in frames:
+        rise = [t for t, c in edges if c == 1 and t > f[-1]]
+        out.append((len(f), f[11] - f[10], rise[0] - f[10] if rise else None))
+    return out
+
+
+def test_ps2_host_model_reads_a_real_keyboard_and_a_real_pc():
+    """A PS/2 keyboard typing a s d f g h into a PC (24 MHz captures). With the PC passive,
+    the host model, which judges ps2_device, reads all 18 make and break codes (some keys
+    rolled over) with no
+    timing rule broken, the 50 us of CLK high before each frame included. This PC, though,
+    inhibits after every frame: it pulls CLK low 53 us after the 11th falling edge, for
+    250 us after a break prefix (F0h, the key to come) and 525 us otherwise, so the strict
+    model, which takes any CLK low for a clock, loses the framing; with `inhibits` it reads
+    the same 18 codes, 18 inhibits, nothing cut short and nothing broken."""
+    h = _ps2_host("ps2_keyboard_asdfgh_no_inhibit.sr")
+    assert h.bytes == PS2_ASDFGH_ROLLED and not h.violations, h.violations[:3]
+    name = "ps2_keyboard_asdfgh_pc_inhibits.sr"
+    assert _ps2_host(name).bytes != PS2_ASDFGH
+    h = _ps2_host(name, inhibits=True)
+    assert h.bytes == PS2_ASDFGH and h.inhibits == 18 and not h.cut and not h.violations
+    holds = _ps2_pc_holds(name)
+    assert len(holds) == 18 and all(n == 12 and 52.5 < a < 53.5 for n, a, _ in holds)
+    ends = [b for _, _, b in holds if b is not None]
+    after_f0 = [b for (_, _, b), code in zip(holds, PS2_ASDFGH) if code == 0xF0]
+    assert len(ends) == 18 and all(302.5 < b < 304 for b in after_f0)
+    assert all(575 < b < 581 for b in ends if b not in after_f0)
+
+
+def _ps2_device_under(hold, idle_check=True):
+    """ps2_device on the ISS, codes queued two at a time as a keyboard sends a break code,
+    to a host model that inhibits after every frame as `hold`."""
+    from pathlib import Path
+    from escasm import assemble
+    from escmodels import Board
+    from escmodels.ps2 import Ps2Host
+    from esciss import Machine
+    fw = Path(__file__).resolve().parents[2] / "firmware"
+    src = (fw / "ps2_device.asm").read_text()
+    if not idle_check:                                     # the firmware before the fix
+        old = src[src.index("    ADDI  r1, IDLE"):src.index("    ADDT  40\n") + len("    ADDT  40\n")]
+        src = src.replace(old, "    ADDI  r1, 40\n    SETT  r1\n")
+    host = Ps2Host(4, 5, hold=hold)
+    board = Board(host)
+    m = Machine(assemble(src, base_dir=fw), board=board)
+    acks = []
+    for pair in ((0xF0, 0x1C), (0xF0, 0x1B), (0x1C, 0x1B)):
+        for c in pair:
+            m.host_rx_push(1, c)
+            m.run(20, stop_when_idle=False)
+        for _ in range(80):
+            m.run(1000, stop_when_idle=False)
+            while (a := m.host_tx_pop(1)) is not None:
+                m.run(1, stop_when_idle=False)
+                acks.append(a)
+    assert acks == [1] * 6 and host.bytes == [0xF0, 0x1C, 0xF0, 0x1B, 0x1C, 0x1B]
+    assert not board.contention and not m.ff.valid
+    return host.violations
+
+
+def test_ps2_device_waits_out_a_real_pcs_inhibit():
+    """ps2_device in the keyboard's place before the PC above, which holds CLK low after
+    every frame (from 53 us to 303 or 578 us after its 11th falling edge, as measured):
+    each byte queued behind another waits for CLK to stay high 50 us, as a device must
+    before it begins. The firmware before this fix began 2 us after the PC let go."""
+    for hold in ((53, 303), (53, 578)):
+        assert _ps2_device_under(hold) == []
+        old = _ps2_device_under(hold, idle_check=False)
+        assert len(old) == 3 and all("CLK high before the start bit" in v for v in old), old

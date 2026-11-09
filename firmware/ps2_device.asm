@@ -2,9 +2,10 @@
 ; reversal of the usual host-clocked buses - and computes odd parity on-chip.
 ; Context 1; CLK on pin 4, DATA on pin 5, both open-drain (value 1 = release).
 ;
-; Host: POP a scancode byte; the chip waits for the bus to be idle (CLK high: the PC
-; may inhibit by holding CLK low), sends start, 8 data bits LSB first, odd parity and
-; stop at 12.5 kHz, and PUSHes 1.
+; Host: POP a scancode byte; the chip waits for the bus to be idle (CLK high for 50 us
+; without a break: the PC may inhibit by holding CLK low, and a device must see CLK high
+; that long before it begins), sends start, 8 data bits LSB first, odd parity and stop at
+; 12.5 kHz, and PUSHes 1.
 ;
 ; Per bit, from its slot start T: DATA at T (the middle of a CLK-high phase), CLK low
 ; at T + 500 (20 us later), CLK released at T + 1500; next bit at T + 2000 (80 us
@@ -20,6 +21,7 @@
 .equ HALFB, 20 * CLK_KHZ // 1000 ; 20 us
 .equ LOWB, 40 * CLK_KHZ // 1000  ; 40 us
 .equ BITT, 80 * CLK_KHZ // 1000  ; 80 us
+.equ IDLE, 50 * CLK_KHZ // 1000  ; 50 us
 
 .entry CTX, main
 .own CLK_PIN, CTX
@@ -57,8 +59,11 @@ idle:
     WAITP CLKM, CLKM             ; the PC is not inhibiting
     JNZ   idle
     RDTIME r1
-    ADDI  r1, 40
+    ADDI  r1, IDLE
     SETT  r1
+    WAITP CLKM, 0                ; and does not for 50 us (a PC inhibits after a frame,
+    JZ    idle                   ; and a byte may be queued behind it: F0h, then the key)
+    ADDT  40
     LDLC  11
 bit:
     EMITX DATM, LSB, DATM        ; T: DATA = frame bit

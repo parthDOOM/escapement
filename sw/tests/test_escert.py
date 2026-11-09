@@ -174,11 +174,14 @@ def test_historic_i2c_timeout_bug_is_refuted_with_a_witness():
 def test_historic_ps2_back_to_back_bug_is_refuted():
     """ps2_device.asm once started a new frame under the previous frame's queued events
     (no wait after the stop bit): escert flags ORDER at the frame start and the burst
-    witness search reproduces the ADMIT fault on the ISS."""
+    witness search reproduces the ADMIT fault on the ISS. (The firmware of then: without
+    the later 50 us idle check, which would see the queued CLK pulses and wait them out.)"""
     src = (FW / "ps2_device.asm").read_text()
     addt = "    ADDT  50 * CLK_KHZ // 1000"
-    assert src.count(addt) == 1 and src.count("    WAITT     ") == 1
+    hold = src[src.index("    ADDI  r1, IDLE"):src.index("    ADDT  40\n") + len("    ADDT  40\n")]
+    assert src.count(addt) == 1 and src.count("    WAITT     ") == 1 and "WAITP CLKM, 0" in hold
     src = src.replace(addt, "    ; " + addt[4:]).replace("    WAITT     ", "    ; WAITT   ")
+    src = src.replace(hold, "    ADDI  r1, 40\n    SETT  r1\n")
     c = certify(assemble(src, base_dir=FW), witness_trials=10)[0]
     assert c.status == "REFUTED" and c.witness["pc"] == c.findings[0].pc, str(c)
 

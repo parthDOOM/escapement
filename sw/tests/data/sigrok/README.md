@@ -53,3 +53,6 @@ instead (address 0x00 then 0xFF, every command byte then its complement).
 | sd_spi_cmd17_sigrok_rocks.sr | sdcard/spi_mode/cmds/cmd17.sr | SD card in SPI mode: CMD17 reading a block that starts "Sigrok rocks", 24 MHz |
 | sd_spi_xmore_512mb_read_3blocks.sr | sdcard/spi_mode/xmore_512mb/xmore_512mb_read_3blocks_A.sr | SD card in SPI mode: an xmore 512 MB card, initialisation, CSD and three blocks, 4 MHz |
 | max7219_arduino_4x_cascaded.sr | spi/max7219/max7219_4x_cascaded_chips.sr | MAX7219: an Arduino UNO driving four cascaded chips with Sebski123/MAX72xx-Sigrok's test sketch (three intentional errors), 2 MHz |
+| spiflash_mx25l1605d_flashrom_*.sr | spi/mx25l1605d/mx25l1605d_read.sr, _write.sr, _erase.sr | SPI flash: flashrom on an FT2232H (openbiosprog-spi) reading, writing and erasing a Macronix MX25L1605D holding "HelloWorld" over and over, 25 MHz |
+| ps2_keyboard_asdfgh_pc_inhibits.sr | ps2/keyboard/ps2_keyboard_asdfgh.sr | PS/2: a keyboard typing a s d f g h into a PC that inhibits after every frame, 24 MHz |
+| ps2_keyboard_asdfgh_no_inhibit.sr | ps2/keyboard/ps2_keyboard_asdfgh_no_inhibit.sr | PS/2: the same keys, the PC passive (its README lists a to g; h is there too), 24 MHz |
