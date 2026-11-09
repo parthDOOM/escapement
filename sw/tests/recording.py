@@ -61,3 +61,18 @@ def play(name: str, tick_ns: float, pins: dict[int, int], *devices: Device) -> i
     for t in range(rec.end + 1):
         board(t, 0, 0)
     return rec.end
+
+
+def play_edges(name: str, tick_ns: float, pins: dict[int, int], *devices: Device, idle: int = 0) -> int:
+    """As play(), but steps the devices only at the ticks where the recording changes: the
+    same result for a device that acts only on a change of its pins (it is given the time
+    of every change), and far faster on long recordings at high sample rates. Unmapped
+    pins read `idle`."""
+    rec = Recording(name, tick_ns, pins)
+    for t, v in rec.records:
+        bus = idle
+        for c, p in pins.items():
+            bus = (bus & ~(1 << p)) | (((v >> c) & 1) << p)
+        for d in devices:
+            d.step(t, bus)
+    return rec.end

@@ -185,3 +185,78 @@ def test_dcf77_real_receiver_module(name, first, n):
     assert got == [t0 + datetime.timedelta(minutes=k) for k in range(n)], got
     assert all(m["weekday"] == datetime.date(2000 + m["year"], m["month"], m["day"]).isoweekday()
                and not m["cest"] for m in r.minutes)
+
+
+@pytest.mark.parametrize("axis,step,dirp", [("X", 5, 6), ("Y", 3, 4)])
+def test_stepper_smoothieware_runs_its_gcode(axis, step, dirp):
+    """Smoothieware (12 MHz capture) running test.gcode from the recording's directory, at
+    80 steps/mm: X 0 -> 200 -> 190 -> 0 mm and Y 0 -> 200 -> 0 mm are 400 mm, 32,000 steps
+    each, one reversal at 200 mm (16,000 steps), both home at the end; every STEP and DIR
+    edge within the A4988's tA, tB, tC and tD. (This controller's DIR is low for +.)"""
+    from recording import play_edges
+    from escmodels.stepper import StepDirDriver
+    name = "stepper_smoothieware.sr"
+    d = StepDirDriver(0, 1, sample_ns(name))
+    play_edges(name, sample_ns(name), {step: 0, dirp: 1}, d)
+    assert len(d.steps) == 32000 and d.position == 0 and not d.violations, d.violations[:3]
+    pos, turns = 0, []
+    for k, (_, s) in enumerate(d.steps):
+        if k and s != d.steps[k - 1][1]:
+            turns.append(pos)
+        pos += s
+    assert turns == [-16000]
+
+
+def test_stepper_grbl_timing():
+    """GRBL on a CNC's Y axis (STEP only, 2 MHz capture), 56,903 steps: every pulse within
+    the A4988's high and low times."""
+    from recording import play_edges
+    from escmodels.stepper import StepDirDriver
+    name = "stepper_grbl_3.sr"
+    d = StepDirDriver(0, 1, sample_ns(name))
+    play_edges(name, sample_ns(name), {1: 0}, d)
+    assert len(d.steps) == 56903 and not d.violations, d.violations[:3]
+
+
+def test_cec_firmware_follows_a_real_tv_and_amplifier():
+    """The chip's own cec firmware (ISS, 1 MHz, logical address 14, which nothing on this
+    bus uses, so it only listens) on a Sony TV and a Denon amplifier while the TV is
+    switched off: it reports every frame block for block (byte, EOM, the ACK bit as
+    sampled) exactly as the CEC device model reads the same line, with no bit outside the
+    cec-pin.c windows. Among them the TV's broadcast Standby (0F 36) and its Vendor
+    Command With ID carrying Sony's vendor ID 08-00-46."""
+    from pathlib import Path
+    from escasm import assemble
+    from escmodels import Board
+    from escmodels.cec import CecDevice
+    from esciss import Machine
+    from recording import Recording
+    name, khz = "cec_sony_denon_off.sr", 1000
+    ch = {v: int(k[5:]) - 1 for k, v in meta(name).items() if k.startswith("probe")}["CEC"]
+    tick = 1e6 / khz
+    rec = Recording(name, tick, {ch: 0})
+    ear = CecDevice(0, 14, tick, ack=False)
+    board = Board(rec, ear)
+    fw = Path(__file__).resolve().parents[2] / "firmware"
+    m = Machine(assemble(f'.equ cec.CLK_KHZ, {khz}\n.equ cec.LA, 14\n.include "cec.asm"\n', base_dir=fw),
+                board=board)
+    out = []
+    while m.now < rec.end:
+        m.run(2000, stop_when_idle=False)
+        while (v := m.host_tx_pop(0)) is not None:
+            out.append(v)
+            m.run(1, stop_when_idle=False)
+        m.pins.clear()
+        m.commits.clear()
+        board.history.clear()
+    chip = []
+    for w in out:
+        if w & 0x400:
+            chip.append(([], []))
+        chip[-1][0].append((w >> 2) & 0xFF)
+        chip[-1][1].append(w & 1)
+    model = [(f["bytes"], f["acks"]) for f in ear.frames]
+    assert not m.ff.valid and not board.contention and not ear.violations
+    assert len(chip) == 13 and chip == model, (chip, model)
+    assert ([0x0F, 0x36], [1, 1]) in chip
+    assert any(b[:5] == [0x0F, 0xA0, 0x08, 0x00, 0x46] for b, _ in chip)
