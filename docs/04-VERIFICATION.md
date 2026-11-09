@@ -267,6 +267,9 @@ line unit lockstep (for `esc_line.v`), the lockstep co-simulation, the core unit
 host interface tests, the chip tests and the firmware-through-the-pins tests. A suite that
 hangs counts as a kill: one still running after three times its own time on the unmutated
 RTL, measured in the same run on the same machine (or after its fixed limit, if longer).
+The co-simulation runs the 43 bus-model cases the campaign had at v1.6; the firmware
+added since runs on the RTL at every push, but in the campaign it would triple the
+suite's time for every mutant, past what CI's job limit allows.
 The suites simulate the RTL with the standard-cell clock gates and
 latch banks (`CELLS=yes`), as it is hardened, so that a mutant of a latch bank's input is
 visible. Before any mutant is scored, every suite it needs must pass on the unmutated
