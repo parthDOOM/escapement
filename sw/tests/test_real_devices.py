@@ -13,7 +13,7 @@ import subprocess
 
 import pytest
 
-from recording import DATA, meta, play, sample_ns
+from recording import DATA, meta, play, play_edges, sample_ns
 
 from escmodels.qi import QiTransmitter
 from escmodels.board import Device
@@ -899,3 +899,30 @@ def test_sd_card_model_checks_as_real_cards_do():
             else:
                 blocks.append(data)
     assert len(blocks) == 4 and blocks[-1].startswith(b"Sigrok rocks")
+
+
+def test_max7219_model_on_an_arduino_driving_four_chips():
+    """An Arduino UNO bit-banging four cascaded MAX7219s (2 MHz capture), running
+    Sebski123/MAX72xx-Sigrok's Sigrok_max7219_test_data.ino: the chain model (which judges
+    the max7219 firmware) latches every packet the sketch sends into the chip it is for,
+    and flags exactly the sketch's three intentional errors: a write of three packets and
+    one of five to a chain of four, and registers Dh and Eh, which Table 2 does not have.
+    (At 500 ns a sample, the 25 to 100 ns timing limits are not exercised.)"""
+    from escmodels.max7219 import Max7219Chain
+    name = "max7219_arduino_4x_cascaded.sr"
+    c = Max7219Chain(0, 1, 2, sample_ns(name), n=4)
+    play_edges(name, sample_ns(name), {3: 0, 2: 1, 1: 2}, c, idle=1)   # CLK, MOSI, CS#
+    four = lambda reg, d: [reg << 8 | d] * 4
+    want = [four(0, 0),                                    # CS raised at power-up: no clock
+            four(15, 1), four(9, 0), four(10, 7), four(11, 7), four(15, 0)] \
+        + [four(r, 0) for r in range(1, 9)] + [four(12, 1)] \
+        + [[0, 0, 0, 0x0C01], [0, 0, 0, 0]] \
+        + [[0x0D06, 0x0E09, 0x0D06, 0x0E09], [0x0101, 0x0202, 0x0304, 0x0408],
+           [0x0100, 0x0200, 0x0300, 0x0400]]
+    assert c.latches == want
+    assert [v.split(": ", 1)[1] for v in c.violations] == [
+        "LOAD after 48 clocks (packets of 16 per device)", "LOAD after 80 clocks (packets of 16 per device)",
+        "device 0 register Dh (not in Table 2)", "device 1 register Eh (not in Table 2)",
+        "device 2 register Dh (not in Table 2)", "device 3 register Eh (not in Table 2)"]
+    assert all(r["shutdown"] == 1 and r["intensity"] == 7 and r["scan"] == 7 and
+               r["digits"] == [0] * 8 for r in c.regs)

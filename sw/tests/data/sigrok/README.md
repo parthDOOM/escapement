@@ -52,3 +52,4 @@ instead (address 0x00 then 0xFF, every command byte then its complement).
 | onewire_2xds18b20_stm32.sr | onewire/ds18b20/2xds18b20.sr | 1-Wire: a custom STM32F103 master with two DS18B20s (Search, Match, Read/Write/Copy Scratchpad, Convert T), 1 MHz |
 | sd_spi_cmd17_sigrok_rocks.sr | sdcard/spi_mode/cmds/cmd17.sr | SD card in SPI mode: CMD17 reading a block that starts "Sigrok rocks", 24 MHz |
 | sd_spi_xmore_512mb_read_3blocks.sr | sdcard/spi_mode/xmore_512mb/xmore_512mb_read_3blocks_A.sr | SD card in SPI mode: an xmore 512 MB card, initialisation, CSD and three blocks, 4 MHz |
+| max7219_arduino_4x_cascaded.sr | spi/max7219/max7219_4x_cascaded_chips.sr | MAX7219: an Arduino UNO driving four cascaded chips with Sebski123/MAX72xx-Sigrok's test sketch (three intentional errors), 2 MHz |
