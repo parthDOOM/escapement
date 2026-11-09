@@ -135,15 +135,20 @@ def test_onewire_device_read_and_search_rom():
 
 def test_avr_isp_session():
     """sigrok's avr_isp decoder (over spi) reads the programmer entering programming mode on
-    an ATmega328P, its signature and its low fuse, with no warning about the replies."""
+    an ATmega328P, its signature bytes and its low fuse, with no warning about the replies.
+    sigrok's part table has no ATmega328P (0x95, 0x0F): its decoder stops at that lookup, so
+    the fuse read is decoded from a second capture that starts after the signature."""
     from test_avr_isp import MS, run
     m, avr, host, board = run([(100, 0, 1 << 28), (60 * MS, 0, 2 << 28), (60 * MS + 10, 0, 0x50000000)], 75)
     ch = {n: board.level(p) for n, p in (("sck", 4), ("mosi", 5), ("miso", 6))}
     ch["cs"] = [0] * len(board.level(4))          # RESET is not a chip select: always selected
-    ann = decode(vcd(ch, 40), "spi:clk=sck:mosi=mosi:miso=miso:cs=cs:cs_polarity=active-low,avr_isp")
-    assert "Programming enable" in ann
-    assert "Device: Atmel ATmega328P" in ann and "Read fuse bits: 0x62" in ann, ann
-    assert not [a for a in ann if a.startswith("Warning")], [a for a in ann if a.startswith("Warning")]
+    dec = "spi:clk=sck:mosi=mosi:miso=miso:cs=cs:cs_polarity=active-low,avr_isp"
+    ann = decode(vcd(ch, 40), dec, ["-A", "avr_isp"])
+    assert ann[:4] == ["Programming enable", "Vendor code: 0x1e (Atmel)",
+                       "Part family / memory size: 0x95", "Part number: 0x0f"], ann
+    late = decode(vcd({n: v[59 * MS:] for n, v in ch.items()}, 40), dec, ["-A", "avr_isp"])
+    assert late == ["Read fuse bits: 0x62"], late
+    assert not [a for a in ann + late if a.startswith("Warning")], ann + late
 
 
 def test_qi_receiver_session():
@@ -165,7 +170,7 @@ def test_qi_receiver_session():
     assert "Count = 0, Window Size = 2, Window Offset = 2" in pk[2], pk
     assert pk[3:] == ["Control Error: -5", "Received Power: 85", "Control Error: -5"], pk
     assert ann.count("Checksum OK") == 6, ann
-    assert not [a for a in ann if "error" in a.lower()], ann
+    assert not [a for a in ann if "error" in a.lower() and not a.startswith("Control Error")], ann
 
 
 def test_spi_flash_session():
@@ -189,7 +194,10 @@ def test_spi_flash_session():
                  "Command: Read data (READ)"):
         assert want in ann, (want, ann[:40])
     assert ann.count("Command: Write enable (WREN)") == 2, ann
-    assert not [a for a in ann if "Warning" in a or "Unknown" in a], ann
+    # sigrok names a Winbond part by its legacy ID (0x13 for the W25Q80DV) but looks it up
+    # with RDID's third byte (0x14), so RDID always says "Winbond Unknown"; the bytes are checked above
+    rdid = "Read identification (RDID): Device = Winbond Unknown"
+    assert not [a for a in ann if ("Warning" in a or "Unknown" in a) and a != rdid], ann
 
 
 def test_max7219_display():
@@ -199,7 +207,8 @@ def test_max7219_display():
     m, ch, host, board = run([(100, 0, 1 << 28 | 1 << 11 | 7 << 8 | 8), (2 * MS, 0, 3 << 28 | 40960)], 3.5)
     assert not ch.violations, ch.violations
     chs = {"clk": board.level(4), "din": board.level(5), "load": board.level(7)}
-    ann = decode(vcd(chs, 40), "spi:clk=clk:mosi=din:cs=load:cs_polarity=active-low:wordsize=8,max7219")
+    ann = decode(vcd(chs, 40), "spi:clk=clk:mosi=din:cs=load:cs_polarity=active-low:wordsize=8,max7219",
+                 ["-A", "max7219"])
     assert ann[:5] == ["Display test: off", "Scan limit: 8", "Decode: 0b11111111", "Intensity: 8",
                        "Digit 1: 0F"], ann[:6]
     assert ann[12] == "Shutdown: off", ann                    # (sigrok: "off" = normal operation)
@@ -238,10 +247,13 @@ def test_nrf24_session():
 
 
 def test_morse_message():
-    """The keyer's output, decoded by sigrok's morse decoder (time unit = the 2 ms dot)."""
+    """The keyer's output, decoded by sigrok's morse decoder (time unit = the 2 ms dot; sigrok
+    prints letters in lower case): the words, and every element and gap 1, 3 or 7 dots."""
     from test_morse import run, text_words
     m, ear, board = run(text_words("CQ CQ DE ESC 73"), 420)
     assert not ear.violations, ear.violations
-    ann = decode(vcd({"key": board.level(0)}, 500), "morse:data=key:timeunit=0.002")
-    words = [a for a in ann if a in ("CQ", "DE", "ESC", "73")]
-    assert words == ["CQ", "CQ", "DE", "ESC", "73"], ann[-30:]
+    trace = vcd({"key": board.level(0)}, 500)
+    words = decode(trace, "morse:data=key:timeunit=0.002", ["-A", "morse=word"])
+    assert words == ["cq", "cq", "de", "esc", "73"], words
+    units = decode(trace, "morse:data=key:timeunit=0.002", ["-A", "morse=units"])
+    assert set(units) == {"1.0*0.002", "3.0*0.002", "7.0*0.002"}, sorted(set(units))
