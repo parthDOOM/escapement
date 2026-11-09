@@ -585,6 +585,33 @@ def _rated_avr_isp(khz):
     return Board(avr), [(100, 0, 1 << 28), (khz * 23, 0, 2 << 28), (khz * 23 + 10, 0, 0x50000000)], check
 
 
+def _rated_qi_rx(khz):
+    """The Qi receiver: SIG 40 ms after the Power Signal, bits at 2 kHz in real time."""
+    from escmodels.qi import QiTransmitter
+    qtx = QiTransmitter(0, 1, 1e6 / khz, power=((100, None),))
+
+    def check(board, h):
+        qtx.finish()
+        got = [(p["name"], p["message"]) for p in qtx.packets]
+        ok = got == [("SIG", [0x80])] and not qtx.violations
+        return [] if ok else [f"qi_rx {got} {qtx.violations[:2]}"]
+    return Board(qtx, pullups=0), [], check
+
+
+def _rated_spi_flash(khz):
+    """The flash programmer: the JEDEC ID, a one-word Page Program (BUSY polled), Read Data."""
+    from escmodels.spiflash import SpiFlashW25
+    fl = SpiFlashW25(4, 5, 6, 7, 1e6 / khz, t_pp_ms=0.3)
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r == [0xEF4014, 0, 0xA5C3965A] and not fl.violations
+        return [] if ok else [f"spi_flash {[hex(x) for x in r]} {fl.violations[:2]}"]
+    pushes = [(100, 0, 1 << 28), (khz // 2, 0, 3 << 28 | 0x000300), (khz // 2 + 10, 0, 1),
+              (khz // 2 + 2000, 0, 0xA5C3965A), (khz * 2, 0, 2 << 28 | 0x000300), (khz * 2 + 10, 0, 1)]
+    return Board(fl), pushes, check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -695,6 +722,8 @@ RATED_CASES = {
     "sd_spi": (_rated_sd_spi, 68_000, None),
     "onewire_dev": (_rated_onewire_dev, 26_000, None),
     "avr_isp": (_rated_avr_isp, 24_500, None),
+    "qi_rx": (_rated_qi_rx, 64_000, None),
+    "spi_flash": (_rated_spi_flash, 3_000, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),

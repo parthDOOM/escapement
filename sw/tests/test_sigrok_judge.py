@@ -144,3 +144,49 @@ def test_avr_isp_session():
     assert "Programming enable" in ann
     assert "Device: Atmel ATmega328P" in ann and "Read fuse bits: 0x62" in ann, ann
     assert not [a for a in ann if a.startswith("Warning")], [a for a in ann if a.startswith("Warning")]
+
+
+def test_qi_receiver_session():
+    """The Qi receiver's modulation, decoded by sigrok's qi decoder: SIG, ID, CFG, CE, RP8,
+    CE, every packet's parity and checksum good. (sigrok reads the power class from bits
+    7:6 shifted by 7, so only the other CFG fields are compared.)"""
+    from test_qi_rx import run
+    pushes = [(100, 0, 6 << 28 | 0x012304), (200, 0, 7 << 28 | 0x56789A),
+              (60 * 2000, 0, 1 << 28 | 0x9A), (100 * 2000, 0, 2 << 28 | 0xFB),
+              (300 * 2000, 0, 3 << 28 | 0x55)]
+    qtx, host, board, m = run(pushes, 720, power=((1000, None),))
+    assert not qtx.violations, qtx.violations
+    ann = decode(vcd({"qi": board.level(0)}, 500), "qi:qi=qi")
+    pk = [a for a in ann if a.split(":")[0] in ("Signal Strength", "Identification", "Configuration",
+                                                  "Control Error", "Received Power")]
+    assert pk[0] == "Signal Strength: 128", pk          # SIG goes before the host's 3rd word
+    assert pk[1] == "Identification: Version = 1.2, Manufacturer = 0123, Device = 0456789a", pk
+    assert pk[2].startswith("Configuration: ") and "Maximum Power = 10" in pk[2], pk
+    assert "Count = 0, Window Size = 2, Window Offset = 2" in pk[2], pk
+    assert pk[3:] == ["Control Error: -5", "Received Power: 85", "Control Error: -5"], pk
+    assert ann.count("Checksum OK") == 6, ann
+    assert not [a for a in ann if "error" in a.lower()], ann
+
+
+def test_spi_flash_session():
+    """The flash programmer's SPI, decoded by sigrok's spiflash decoder (as a Winbond
+    W25Q80DV): the JEDEC ID, Write Enable before the erase and the program (no "WREN might
+    be missing"), the sector address, the program and read data."""
+    from test_spi_flash import DATA, run
+    pushes = [(100, 0, 1 << 28), (2000, 0, 4 << 28 | 0x001000)]
+    t = 5 * 25000
+    pushes += [(t, 0, 3 << 28 | 0x001010), (t + 10, 0, 16)]
+    pushes += [(t + 1000 + 5000 * k, 0, w) for k, w in enumerate(DATA)]
+    t = 10 * 25000
+    pushes += [(t, 0, 2 << 28 | 0x001010), (t + 10, 0, 16)]
+    m, fl, host, board = run(pushes, 13)
+    assert not fl.violations, fl.violations
+    ch = {"sck": board.level(4), "mosi": board.level(5), "miso": board.level(6), "cs": board.level(7)}
+    ann = decode(vcd(ch, 40), "spi:clk=sck:mosi=mosi:miso=miso:cs=cs:cs_polarity=active-low,"
+                              "spiflash:chip=winbond_w25q80dv")
+    for want in ("Manufacturer ID: 0xef", "Memory type: 0x40", "Device ID: 0x14",
+                 "Erase sector 4096 (0x001000)", "Command: Page program (PP)",
+                 "Command: Read data (READ)"):
+        assert want in ann, (want, ann[:40])
+    assert ann.count("Command: Write enable (WREN)") == 2, ann
+    assert not [a for a in ann if "Warning" in a or "Unknown" in a], ann

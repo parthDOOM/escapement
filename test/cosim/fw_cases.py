@@ -822,6 +822,39 @@ def case_avr_isp():
     return Board(avr, host), host, check
 
 
+def case_qi_rx():
+    """The Qi receiver at 2 MHz: the Power Signal at 1 ms, SIG at tWake, ID, CFG and the
+    first CE, every bit, parity, checksum and spacing checked by the transmitter model."""
+    from escmodels.qi import QiTransmitter
+    qtx = QiTransmitter(0, 1, 500.0, power=((1000, None),))
+
+    def check(board, h):
+        qtx.finish()
+        got = [(p["name"], p["message"]) for p in qtx.packets]
+        ok = (got == [("SIG", [0x80]), ("ID", [0x12, 0, 0, 0, 0, 0, 1]), ("CFG", [10, 0, 0, 0x12, 0]),
+                      ("CE", [0xFB])] and not qtx.violations and h.received[0] == [1])
+        return ([] if ok else [f"qi_rx {got} {qtx.violations[:2]} {h.received}"]) + board.errors()
+    host = HostScript([(100, 0, 2 << 28 | 0xFB)], drain=[0], poll=2000)
+    return Board(qtx, host, pullups=0), host, check
+
+
+def case_spi_flash():
+    """The flash programmer at 25 MHz, SCK 500 kHz, against a W25Q80DV model: the JEDEC ID,
+    Sector Erase and Page Program with BUSY polled (tSE and tPP shortened), Read Data back."""
+    from escmodels.spiflash import SpiFlashW25
+    fl = SpiFlashW25(4, 5, 6, 7, 40.0, t_pp_ms=0.3, t_se_ms=1.0)
+    fl.mem.update({a: 0x5A for a in range(0x1000, 0x1010)})
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r == [0xEF4014, 0, 0, 0x01020304, 0xFFFFFFFF] and not fl.violations
+        return ([] if ok else [f"spi_flash {[hex(x) for x in r]} {fl.violations[:2]}"]) + board.errors()
+    host = HostScript([(100, 0, 1 << 28), (2000, 0, 4 << 28 | 0x001000),
+                       (40_000, 0, 3 << 28 | 0x001000), (40_010, 0, 1), (42_000, 0, 0x01020304),
+                       (70_000, 0, 2 << 28 | 0x001000), (70_010, 0, 2)], drain=[0], poll=2500)
+    return Board(fl, host), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -937,6 +970,8 @@ FIRMWARE_CASES = {
     "sd_spi": ("sd_spi.asm", 1_700_000, case_sd_spi),
     "onewire_dev": ("onewire_dev.asm", 640_000, case_onewire_dev),
     "avr_isp": ("avr_isp.asm", 612_000, case_avr_isp),
+    "qi_rx": ("qi_rx.asm", 940_000, case_qi_rx),
+    "spi_flash": ("spi_flash.asm", 85_000, case_spi_flash),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }
@@ -947,7 +982,7 @@ TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 FW_EQU = {"freq_meter": {"N": 8, "PIN": 3},
           "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
-          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000}, "wiegand_rx": {"CLK_KHZ": 4000}, "dcf77_tx": {"CLK_KHZ": 10},
+          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000}, "wiegand_rx": {"CLK_KHZ": 4000}, "dcf77_tx": {"CLK_KHZ": 10}, "qi_rx": {"CLK_KHZ": 2000},
           "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500}}
 
 
