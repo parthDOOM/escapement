@@ -42,3 +42,4 @@ instead (address 0x00 then 0xFF, every command byte then its complement).
 | cec_sony_denon_off.sr, cec_sony_yamaha_arc.sr | cec/tv_sony_amp_denon_switch_off_seq.sr, cec/tv_sony_amp_yamaha_arc_handshake.sr | HDMI-CEC: a Sony TV with a Denon amplifier (TV switched off) and a Yamaha amplifier on ARC, 1 MHz |
 | dcc_easycontrol_*.sr | dcc/easycontrol/decoder_*.sr | NMRA DCC: a tams EasyControl command station through a B-2 booster (loco 2's light; accessory decoders 120/121, 133, 140, 310), 1 MHz |
 | dali_rako_query_ballast.sr | dali/rako_rsrdali/rako_rsrdali_query_ballast.sr | DALI: a Rako RSR-DALI controller querying a ballast, with its answers, 100 kHz |
+| sent_motor_position_3us.sr | sent/SENT2010_03p0us_6dn_pp_nsp_A6.sr | SENT: a motor position sensor (J2716 2010, 3 us ticks, six data nibbles, pause pulse), 100 MHz |

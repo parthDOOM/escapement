@@ -359,3 +359,17 @@ def test_dali_firmware_hears_a_real_controller():
     assert len(back) == 9 and all(None not in b[:9] for _, b in back)
     settle = [(tb - (tf + 17 * 2 * te)) / khz for (tf, _), (tb, _) in zip(fwd, back)]
     assert all(4.2 < s < 4.75 for s in settle), settle
+
+
+def test_sent_real_motor_position_sensor():
+    """A motor position sensor's SENT output (SAE J2716 2010, 3 us ticks, six data nibbles,
+    pause pulse; 100 MHz capture): every frame's CRC right, no pulse outside the receiver's
+    limits, the unit time measured from the sync pulse 2.982 us (0.6% slow)."""
+    from recording import play_edges
+    from escmodels.sent import SentReceiver
+    tick = 100.0                                            # 0.1 us
+    r = SentReceiver(0, tick, ut_us=3.0, pause=True)
+    play_edges("sent_motor_position_3us.sr", tick, {0: 0}, r)
+    assert len(r.frames) == 11 and all(f["crc_ok"] for f in r.frames) and not r.violations
+    assert all(abs(f["unit"] * tick / 1000 - 2.982) < 0.002 for f in r.frames)
+    assert all(f["pause"] for f in r.frames[:-1])
