@@ -190,3 +190,18 @@ def test_spi_flash_session():
         assert want in ann, (want, ann[:40])
     assert ann.count("Command: Write enable (WREN)") == 2, ann
     assert not [a for a in ann if "Warning" in a or "Unknown" in a], ann
+
+
+def test_max7219_display():
+    """The MAX7219 driver's frames, decoded by sigrok's max7219 decoder (LOAD as an
+    active-low select): the set-up registers, then the digits of 40960, units first."""
+    from test_max7219 import MS, run
+    m, ch, host, board = run([(100, 0, 1 << 28 | 1 << 11 | 7 << 8 | 8), (2 * MS, 0, 3 << 28 | 40960)], 3.5)
+    assert not ch.violations, ch.violations
+    chs = {"clk": board.level(4), "din": board.level(5), "load": board.level(7)}
+    ann = decode(vcd(chs, 40), "spi:clk=clk:mosi=din:cs=load:cs_polarity=active-low:wordsize=8,max7219")
+    assert ann[:5] == ["Display test: off", "Scan limit: 8", "Decode: 0b11111111", "Intensity: 8",
+                       "Digit 1: 0F"], ann[:6]
+    assert ann[12] == "Shutdown: off", ann                    # (sigrok: "off" = normal operation)
+    assert ann[13:] == ["Digit 1: 00", "Digit 2: 06", "Digit 3: 09", "Digit 4: 00", "Digit 5: 04",
+                        "Digit 6: 0F", "Digit 7: 0F", "Digit 8: 0F"], ann[13:]

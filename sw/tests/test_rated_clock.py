@@ -612,6 +612,17 @@ def _rated_spi_flash(khz):
     return Board(fl), pushes, check
 
 
+def _rated_max7219(khz):
+    """The MAX7219 driver: set up (code B, 8 digits), then 1234567 in decimal."""
+    from escmodels.max7219 import Max7219Chain
+    ch = Max7219Chain(4, 5, 7, 1e6 / khz)
+
+    def check(board, h):
+        ok = ch.text() == " 1234567" and not ch.violations
+        return [] if ok else [f"max7219 {ch.text()!r} {ch.violations[:2]}"]
+    return Board(ch), [(100, 0, 1 << 28 | 1 << 11 | 7 << 8 | 8), (khz, 0, 3 << 28 | 1234567)], check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -724,6 +735,7 @@ RATED_CASES = {
     "avr_isp": (_rated_avr_isp, 24_500, None),
     "qi_rx": (_rated_qi_rx, 64_000, None),
     "spi_flash": (_rated_spi_flash, 3_000, None),
+    "max7219": (_rated_max7219, 2_000, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),

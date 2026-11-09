@@ -855,6 +855,20 @@ def case_spi_flash():
     return Board(fl, host), host, check
 
 
+def case_max7219():
+    """The MAX7219 driver at 25 MHz, CLK 500 kHz: set up a code B display, then a number
+    divided into decimal digits on the chip, leading zeros blank."""
+    from escmodels.max7219 import Max7219Chain
+    ch = Max7219Chain(4, 5, 7, 40.0)
+
+    def check(board, h):
+        ok = ch.text() == "  904561" and not ch.violations
+        return ([] if ok else [f"max7219 {ch.text()!r} {ch.violations[:2]}"]) + board.errors()
+    host = HostScript([(100, 0, 1 << 28 | 1 << 11 | 7 << 8 | 8), (25_000, 0, 3 << 28 | 904561)],
+                      drain=[0], poll=2500)
+    return Board(ch, host), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -972,6 +986,7 @@ FIRMWARE_CASES = {
     "avr_isp": ("avr_isp.asm", 612_000, case_avr_isp),
     "qi_rx": ("qi_rx.asm", 940_000, case_qi_rx),
     "spi_flash": ("spi_flash.asm", 85_000, case_spi_flash),
+    "max7219": ("max7219.asm", 46_000, case_max7219),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }
