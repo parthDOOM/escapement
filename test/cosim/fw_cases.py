@@ -869,6 +869,23 @@ def case_max7219():
     return Board(ch, host), host, check
 
 
+def case_stepper():
+    """Stepper motion at 25 MHz: 20 steps at 500,000 steps/s^2 (AVR446 ramp computed on the
+    chip, then played), STEP and DIR at A4988 timing, the stop ramp mirroring the start."""
+    from escmodels.stepper import StepDirDriver
+    drv = StepDirDriver(0, 1, 40.0)
+
+    def check(board, h):
+        t = [s[0] for s in drv.steps]
+        iv = [b - a for a, b in zip(t, t[1:])]
+        ok = (drv.position == 20 and not drv.violations and h.received[0] == [20]
+              and all(abs(iv[i] - iv[-1 - i]) < 0.01 for i in range(9)))
+        return ([] if ok else [f"stepper {drv.position} {drv.violations[:2]} {h.received}"]) + board.errors()
+    host = HostScript([(100, 0, 1 << 28 | 1352), (200, 0, 2 << 28 | 100), (300, 0, 3 << 28 | 1 << 24 | 20)],
+                      drain=[0], poll=2500)
+    return Board(drv, host, pullups=0), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -987,6 +1004,7 @@ FIRMWARE_CASES = {
     "qi_rx": ("qi_rx.asm", 940_000, case_qi_rx),
     "spi_flash": ("spi_flash.asm", 85_000, case_spi_flash),
     "max7219": ("max7219.asm", 46_000, case_max7219),
+    "stepper": ("stepper.asm", 380_000, case_stepper),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }

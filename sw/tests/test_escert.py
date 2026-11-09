@@ -125,7 +125,7 @@ def test_clock_parameterised_firmware_certifies_at_33_to_50_mhz(fw, khz):
 # loop, not the work between LEDs).
 FLOOR_ASSERTS = {"i2c_ctrl": 23000, "ws2812": 23791, "servo": 1346, "swd_idcode": 20313,
                  "sbus_rx": 3950, "ws2812_lu": 12000, "qi_rx": 205, "spi_flash": 17001,
-                 "max7219": 15001}
+                 "max7219": 15001, "stepper": 5000}
 
 
 @pytest.mark.parametrize("fw, khz", sorted(FLOOR_ASSERTS.items()))

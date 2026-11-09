@@ -623,6 +623,21 @@ def _rated_max7219(khz):
     return Board(ch), [(100, 0, 1 << 28 | 1 << 11 | 7 << 8 | 8), (khz, 0, 3 << 28 | 1234567)], check
 
 
+def _rated_stepper(khz):
+    """Stepper motion: 20 steps at 500,000 steps/s^2, up and down mirrored, A4988 timing."""
+    from escmodels.stepper import StepDirDriver
+    drv = StepDirDriver(0, 1, 1e6 / khz)
+
+    def check(board, h):
+        t = [s[0] for s in drv.steps]
+        iv = [b - a for a, b in zip(t, t[1:])]
+        ok = (drv.position == 20 and not drv.violations and h.received[0] == [20]
+              and all(abs(iv[i] - iv[-1 - i]) < 0.01 for i in range(9)))
+        return [] if ok else [f"stepper {drv.position} {drv.violations[:2]} {h.received}"]
+    return Board(drv, pullups=0), [(100, 0, 1 << 28 | 1352), (200, 0, 2 << 28 | 100),
+                                   (300, 0, 3 << 28 | 1 << 24 | 20)], check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -736,6 +751,7 @@ RATED_CASES = {
     "qi_rx": (_rated_qi_rx, 64_000, None),
     "spi_flash": (_rated_spi_flash, 3_000, None),
     "max7219": (_rated_max7219, 2_000, None),
+    "stepper": (_rated_stepper, 15_000, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),

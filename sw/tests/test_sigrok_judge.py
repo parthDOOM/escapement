@@ -205,3 +205,17 @@ def test_max7219_display():
     assert ann[12] == "Shutdown: off", ann                    # (sigrok: "off" = normal operation)
     assert ann[13:] == ["Digit 1: 00", "Digit 2: 06", "Digit 3: 09", "Digit 4: 00", "Digit 5: 04",
                         "Digit 6: 0F", "Digit 7: 0F", "Digit 8: 0F"], ann[13:]
+
+
+def test_stepper_speed_and_position():
+    """The stepper's STEP and DIR, decoded by sigrok's stepper_motor decoder: every step's
+    speed (from its sample rate) is the model's measured interval, and the position counts up
+    to 199 before the 200th step."""
+    from test_stepper import intervals, move, run
+    m, drv, host, board = run(move(20000, 200, 200), 230, khz=10000)          # 100 ns samples
+    assert not drv.violations, drv.violations
+    ann = decode(vcd({"step": board.level(0), "dir": board.level(1)}, 100), "stepper_motor:step=step:dir=dir")
+    speeds = [a for a in ann if a.endswith("steps/s")]
+    pos = [a for a in ann if a.endswith(" steps")]
+    assert speeds == ["%0.0f steps/s" % (1e6 / x) for x in intervals(drv)], speeds[:5]
+    assert pos[-1] == "199 steps" and len(pos) == 199
