@@ -16,6 +16,7 @@ import pytest
 from recording import DATA, meta, play, sample_ns
 
 from escmodels.qi import QiTransmitter
+from escmodels.board import Device
 from escmodels.usbpd import UsbPdSink
 
 
@@ -727,3 +728,127 @@ def test_can_rx_against_sigrok(name):
     assert len(ann("sof")) == len(got) and not ann("warnings")
     ext = [int(ln.split("(0x")[1].rstrip(")"), 16) for ln in ann("full-id") if "(0x" in ln]
     assert ext == [i for e, i, _ in got if e]
+
+
+# A custom 1-Wire master on an STM32F103 with two DS18B20s (1 MHz capture): Search ROM
+# four times, then for each sensor Match ROM and Read Scratchpad (and a Write and a Copy
+# Scratchpad sent with no reset first, which the sensors ignore), Convert T for both, and
+# Read Scratchpad again.
+DS18B20_A = bytes.fromhex("28ee94f72716018d")            # as the recording's notes give them
+DS18B20_B = bytes.fromhex("28ee875425160233")
+
+
+def _onewire_beside_b(khz, chip=True):
+    """onewire_dev in sensor A's place, beside the real B: the recording drives DQ (the
+    master's pulses, and B wherever B pulls low) except where only A would pull it low: its
+    presence after each reset, the Search ROM bits where A's bit, not B's, is 0, and A's
+    scratchpad. Returns (checks, failures): each check is the level at the master's sample
+    point, 13 us into a slot, or 70 us after a reset for the presence."""
+    import bisect
+    from pathlib import Path
+    from escasm import assemble
+    from escmodels import Board
+    from esciss import Machine
+    from esctape.export import read_sr
+    from recording import DATA, compress_idle
+    us = khz // 1000
+    recs = compress_idle(read_sr(DATA / "onewire_2xds18b20_stm32.sr", clock_hz=khz * 1000)[0], 5000 * us)
+    lows, prev, t0 = [], 1, None
+    for t, v in recs:
+        if not v & 1 and prev:
+            t0 = t
+        if v & 1 and not prev:
+            lows.append((t0, t - t0))
+        prev = v & 1
+    tx = []
+    for s, d in lows:
+        if d >= 400 * us:
+            tx.append({"reset": (s, d), "slots": []})
+        elif tx and s - sum(tx[-1]["reset"]) > 80 * us:        # not the presence pulse
+            tx[-1]["slots"].append((s, d))
+    bit = lambda d: 0 if d > 15 * us else 1
+    rom_bit = lambda r, k: (r[k // 8] >> k % 8) & 1
+    free, checks, alone = [], [], []        # windows where A, or the chip, drives; checks
+    for tr in tx:
+        rs, rd = tr["reset"]
+        free.append((rs + rd, 300 * us))
+        checks.append((rs + rd + 70 * us, 0, "presence"))
+        sl = tr["slots"]
+        bits = [bit(d) for _, d in sl]
+        cmd = sum(bits[j] << j for j in range(8))
+        if cmd == 0xF0:
+            a_on = b_on = True
+            for k in range(64):
+                for j, comp in ((8 + 3 * k, 0), (9 + 3 * k, 1)):
+                    a0, b0 = a_on and rom_bit(DS18B20_A, k) == comp, b_on and rom_bit(DS18B20_B, k) == comp
+                    s, d = sl[j]
+                    if not a0 and not b0:
+                        alone.append(d)
+                        checks.append((s + 13 * us, 1, "search"))
+                    elif not b0:
+                        free.append((s, 70 * us))
+                        checks.append((s + 13 * us, 0, "search"))
+                a_on &= rom_bit(DS18B20_A, k) == bits[10 + 3 * k]
+                b_on &= rom_bit(DS18B20_B, k) == bits[10 + 3 * k]
+        elif cmd == 0x55:
+            rom = bytes(sum(bits[8 + 8 * n + j] << j for j in range(8)) for n in range(8))
+            mine = rom == DS18B20_A and sum(bits[72 + j] << j for j in range(8)) == 0xBE
+            for j in range(80, len(sl)):
+                s, d = sl[j]
+                if mine and j < 152:
+                    free.append((s, 70 * us))
+                checks.append((s + 13 * us, bit(d), "scratchpad" if j < 152 else "after"))
+    pulse = sorted(alone)[len(alone) // 2]                     # the master's own read pulse
+    starts = sorted([tr["reset"][0] for tr in tx] + [s for tr in tx for s, _ in tr["slots"]])
+    win = []
+    for s, n in sorted(free):
+        k = bisect.bisect_right(starts, s)
+        end = min(s + n, starts[k] if k < len(starts) else s + n)
+        win.append((s + (pulse if n == 70 * us else 0), end))   # keep the master's pulse
+
+    class Replay(Device):
+        def __init__(self):
+            self.k, self.v, self.w = 0, recs[0][1], 0
+
+        def step(self, t, bus):
+            while self.k < len(recs) and recs[self.k][0] <= t:
+                self.v = recs[self.k][1]
+                self.k += 1
+            while self.w < len(win) and win[self.w][1] <= t:
+                self.w += 1
+            off = self.w < len(win) and win[self.w][0] <= t < win[self.w][1]
+            return (0 if self.v & 1 or off else 1), 0
+
+    board = Board(Replay())
+    end = recs[-1][0] + 1000 * us
+    if chip:
+        fw = Path(__file__).resolve().parents[2] / "firmware"
+        im = assemble(f'.equ onewire_dev.CLK_KHZ, {khz}\n.include "onewire_dev.asm"\n', base_dir=fw)
+        rom, sp = im.symbols["onewire_dev.ROM"], im.symbols["onewire_dev.SP"]
+        for n, b in enumerate(DS18B20_A[:7] + b"\0"):           # the chip computes the CRC
+            im.tape[rom + n] = b
+        for n, b in enumerate(bytes.fromhex("82014b467fff0c1000")):
+            im.tape[sp + n] = b
+        m = Machine(im, board=board)
+        m.run(end, stop_when_idle=False)
+        assert not m.ff.valid
+    else:
+        for t in range(end):
+            board(t, 0, 0)
+    lv = board.level(0)
+    return checks, [(t, w, what) for t, w, what in checks if lv[t] != w]
+
+
+def test_onewire_dev_firmware_in_a_real_sensors_place():
+    """onewire_dev (ISS, 25 MHz) as DS18B20 A, beside the real B, under the STM32's own
+    timing: its presence at every reset, its half of four Search ROMs (the bits where A
+    alone pulls DQ low), and its scratchpad twice (24.125 C, TH 4B, TL 46, 12-bit, and the
+    CRC-8 the chip computes: E1), bit for bit at the master's sample points; and DQ left
+    alone while B is read and while the master sends the Write and Copy Scratchpad the sensors ignore. Without
+    the chip the same checks fail (presence and A's zeros missing)."""
+    checks, bad = _onewire_beside_b(25000)
+    kinds = [w for _, _, w in checks]
+    assert (kinds.count("presence"), kinds.count("scratchpad")) == (10, 288)   # A and B, twice
+    assert bad == [], bad[:5]
+    _, without = _onewire_beside_b(25000, chip=False)
+    assert {w for _, _, w in without} == {"presence", "search", "scratchpad"}

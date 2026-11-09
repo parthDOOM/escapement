@@ -744,6 +744,7 @@ defaults are unchanged.
 | PC (minimalmodbus) polling a Brainchild IO-16DO, Modbus RTU 19,200 8E1 | `modbus_rtu` in the module's place | Replies to functions 3, 6 and 16 byte for byte the module's; exception 01 to the other five |
 | Cypress FX2 booting from a 24LC02B (Hantek 6022BE) | `i2c_eeprom` in the EEPROM's place | Every bit on the bus but one (below); SCL never stretched past the FX2's |
 | Tektronix TDS 744A internal bus, two X24C02 EEPROMs | `i2c_eeprom` as 0x50, beside the real 0x51 | All 14 transactions bit for bit, at 500 kHz |
+| An STM32F103 1-Wire master with two DS18B20s | `onewire_dev` as one sensor, beside the real other | Its presence at every reset, its half of four Search ROMs, both its scratchpad reads with the CRC-8 the chip computes; silent while the other is read (a run without the chip fails the same checks) |
 | Microchip MCP2515DM-BM, CAN at 125 kbit/s, 25% and 100% bus load | `can_rx` | Every frame, standard and extended, each passing its CRC-15 |
 | NEC remotes (Joy-IT, a ceiling light's 16-bit address, Hama as Matsui) | `nec_rx` | The frames and repeat codes esclearn reads from the same recording |
 | 13.56 MHz Wiegand reader | `wiegand_rx` | Both 34-bit frames and their parities |
@@ -780,7 +781,7 @@ sentence later; the Wiegand reader's notes say 36 bits, and it sends 34.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,247 | Pass (34 need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,248 | Pass (34 need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
