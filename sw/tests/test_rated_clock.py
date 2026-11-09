@@ -651,6 +651,17 @@ def _rated_nrf24_tx(khz):
                           (2000, 0, int.from_bytes(b"rate", "big"))], check
 
 
+def _rated_morse(khz):
+    """The Morse keyer: "ET" with 1 ms dots, every signal and gap to 1% of its ITU length."""
+    from escmodels.morse import MorseListener
+    ear = MorseListener(0, 1e6 / khz, 1)
+
+    def check(board, h):
+        ok = ear.text() == "ET" and not ear.violations
+        return [] if ok else [f"morse {ear.text()!r} {ear.violations[:2]}"]
+    return Board(ear, pullups=0), [(100, 0, 1 << 28 | 1), (110, 0, 2 << 28 | ord("E") << 16 | ord("T") << 8)], check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -766,6 +777,7 @@ RATED_CASES = {
     "max7219": (_rated_max7219, 2_000, None),
     "stepper": (_rated_stepper, 15_000, None),
     "nrf24_tx": (_rated_nrf24_tx, 3_500, None),
+    "morse": (_rated_morse, 12_000, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),

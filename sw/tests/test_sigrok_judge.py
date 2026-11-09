@@ -235,3 +235,13 @@ def test_nrf24_session():
         assert want in ann, (want, ann[:30])
     assert [a for a in ann if a.startswith("Cmd W_REGISTER: TX_ADDR")], ann
     assert not [a for a in ann if "unknown" in a.lower() or "warn" in a.lower()], ann
+
+
+def test_morse_message():
+    """The keyer's output, decoded by sigrok's morse decoder (time unit = the 2 ms dot)."""
+    from test_morse import run, text_words
+    m, ear, board = run(text_words("CQ CQ DE ESC 73"), 420)
+    assert not ear.violations, ear.violations
+    ann = decode(vcd({"key": board.level(0)}, 500), "morse:data=key:timeunit=0.002")
+    words = [a for a in ann if a in ("CQ", "DE", "ESC", "73")]
+    assert words == ["CQ", "CQ", "DE", "ESC", "73"], ann[-30:]

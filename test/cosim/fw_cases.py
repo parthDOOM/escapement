@@ -903,6 +903,20 @@ def case_nrf24_tx():
     return Board(radio, host), host, check
 
 
+def case_morse():
+    """The Morse keyer at 25 MHz: SOS with 1 ms dots, against a listener written from ITU-R
+    M.1677-1 (every signal and gap to 1% of its length)."""
+    from escmodels.morse import MorseListener
+    ear = MorseListener(0, 40.0, 1)
+
+    def check(board, h):
+        ok = ear.text() == "SOS" and not ear.violations
+        return ([] if ok else [f"morse {ear.text()!r} {ear.violations[:2]}"]) + board.errors()
+    host = HostScript([(100, 0, 1 << 28 | 1), (110, 0, 2 << 28 | ord("S") << 16 | ord("O") << 8 | ord("S"))],
+                      drain=[0], poll=2500)
+    return Board(ear, host, pullups=0), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -1023,6 +1037,7 @@ FIRMWARE_CASES = {
     "max7219": ("max7219.asm", 46_000, case_max7219),
     "stepper": ("stepper.asm", 380_000, case_stepper),
     "nrf24_tx": ("nrf24_tx.asm", 125_000, case_nrf24_tx),
+    "morse": ("morse.asm", 760_000, case_morse),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }
