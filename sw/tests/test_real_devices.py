@@ -852,3 +852,50 @@ def test_onewire_dev_firmware_in_a_real_sensors_place():
     assert bad == [], bad[:5]
     _, without = _onewire_beside_b(25000, chip=False)
     assert {w for _, _, w in without} == {"presence", "search", "scratchpad"}
+
+
+def _spi_bytes(name):
+    """MOSI and MISO bytes of an SD card in SPI mode 0 (sampled on SCK's rising edge while
+    CS is low), from the recording's probe names."""
+    from esctape.export import read_sr
+    from recording import DATA
+    pr = {v.rstrip("#"): int(k[5:]) - 1 for k, v in meta(name).items() if k.startswith("probe")}
+    clk, cs = pr.get("CLK", pr.get("SCK")), pr["CS"]
+    mo, mi, prev, bo, bi, n = [], [], None, 0, 0, 0
+    for _, v in read_sr(DATA / name)[0]:
+        if (v >> cs) & 1:
+            bo = bi = n = 0
+        elif prev is not None and (v >> clk) & 1 and not (prev >> clk) & 1:
+            bo, bi, n = bo << 1 | (v >> pr["MOSI"]) & 1, bi << 1 | (v >> pr["MISO"]) & 1, n + 1
+            if n == 8:
+                mo.append(bo)
+                mi.append(bi)
+                bo = bi = n = 0
+        prev = v
+    return mo, mi
+
+
+def test_sd_card_model_checks_as_real_cards_do():
+    """The SD card model's CRCs, by which sd_spi's on-chip CRC7 and CRC-16 are judged,
+    against two real cards and their hosts (24 and 4 MHz captures): CMD0's CRC7 (0x95,
+    the one a host in SPI mode must get right; the others send placeholders, as SPI mode
+    allows), an xmore 512 MB card's CSD (its CRC7 field and its CRC-16) and four 512-byte
+    blocks with their CRC-16, one of them starting "Sigrok rocks"."""
+    import binascii
+    from escmodels.sdcard import crc7
+    mo, mi = _spi_bytes("sd_spi_xmore_512mb_read_3blocks.sr")
+    k = mo.index(0x40)
+    assert mo[k:k + 6] == [0x40, 0, 0, 0, 0, crc7(bytes([0x40, 0, 0, 0, 0])) << 1 | 1] == [0x40, 0, 0, 0, 0, 0x95]
+    blocks = []
+    for name in ("sd_spi_xmore_512mb_read_3blocks.sr", "sd_spi_cmd17_sigrok_rocks.sr"):
+        mo, mi = _spi_bytes(name)
+        tokens = [j for j in range(1, len(mi)) if mi[j] == 0xFE and mi[j - 1] == 0xFF]
+        for j in tokens:
+            n = 16 if name.startswith("sd_spi_xmore") and j == tokens[0] else 512   # CMD9: the CSD
+            data = bytes(mi[j + 1:j + 1 + n])
+            assert mi[j + 1 + n] << 8 | mi[j + 2 + n] == binascii.crc_hqx(data, 0)
+            if n == 16:
+                assert data[15] == crc7(data[:15]) << 1 | 1
+            else:
+                blocks.append(data)
+    assert len(blocks) == 4 and blocks[-1].startswith(b"Sigrok rocks")

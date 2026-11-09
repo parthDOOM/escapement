@@ -50,3 +50,5 @@ instead (address 0x00 then 0xFF, every command byte then its complement).
 | i2c_x24c02_dual_tds744a.sr | i2c/eeprom_24xx/xicor_x24c02/x24c02_dual.sr | I2C: a Tektronix TDS 744A's internal bus, two X24C02 EEPROMs (0x50, 0x51) and probes of 0x52, 2 MHz |
 | can_mcp2515_125k_*.sr | can/microchip_mcp2515dm-bm/mcp2515dm-bm-125kbits_*.sr | CAN: a Microchip MCP2515DM-BM demo board at 125 kbit/s, its MCP2515's CAN_RX pin (one standard, one extended message; 25% and 100% bus load), 4 MHz |
 | onewire_2xds18b20_stm32.sr | onewire/ds18b20/2xds18b20.sr | 1-Wire: a custom STM32F103 master with two DS18B20s (Search, Match, Read/Write/Copy Scratchpad, Convert T), 1 MHz |
+| sd_spi_cmd17_sigrok_rocks.sr | sdcard/spi_mode/cmds/cmd17.sr | SD card in SPI mode: CMD17 reading a block that starts "Sigrok rocks", 24 MHz |
+| sd_spi_xmore_512mb_read_3blocks.sr | sdcard/spi_mode/xmore_512mb/xmore_512mb_read_3blocks_A.sr | SD card in SPI mode: an xmore 512 MB card, initialisation, CSD and three blocks, 4 MHz |
