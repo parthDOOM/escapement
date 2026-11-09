@@ -86,7 +86,7 @@ export default function App() {
                 <div><b>40 ns</b><span>one tick at 25 MHz, rated to 50</span></div>
                 <div><b>4</b><span>programs running at once</span></div>
                 <div><b>13</b><span>protocol pins, two banks</span></div>
-                <div><b>49</b><span>firmware programs</span></div>
+                <div><b>64</b><span>firmware programs</span></div>
                 <div><b>3.6 mW</b><span>sending UART</span></div>
                 <div><b>0</b><span>late edges, for any program, for all time</span></div>
               </div>

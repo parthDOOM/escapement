@@ -1,0 +1,31 @@
+# Philips RC-6 mode 0 infrared remote: a 36 kHz carrier and unit time t = 16 carrier periods.
+# A leader (6t burst, 2t space), the start bit (1), three mode bits (000), the trailer bit
+# (the toggle, twice as wide), then 8 control (address) and 8 information (command) bits, MSB
+# first. Manchester the opposite way round from RC5: a 1 is a burst then a space.
+# Host word: bits 3:0 the start and mode bits, MSB first (0b1000: start 1, mode 0), bit 4 the
+# toggle, bits 20:5 address << 8 | command. (The start and mode bits as one field rather than four
+# fixed symbols: escert proves that form at every clock; the waveform is the same.)
+name: rc6_tx
+title: Philips RC-6 mode 0 infrared frame with a 36 kHz carrier; one frame per host word (8 | toggle << 4 | address << 13 | command << 5), acknowledged
+refs: ["SB-Projects, Philips RC-6 Protocol, www.sbprojects.net/knowledge/ir/rc6.php: 36 kHz carrier, duty 25% to 50%, t = 16 carrier periods = 444 us; leader 6t mark and 2t space; start bit 1; mode bits mb2..mb0 = 000 for mode 0; trailer bit 2t mark and 2t space (the toggle); a 1 is a mark then a space, a 0 a space then a mark; 8 control and 8 information bits, MSB first; 6t signal-free time"]
+context: 0
+pins:
+  IR: {pin: 0, idle: 0}
+constants:
+  PERIOD: (CLK_KHZ * 10 + 180) // 360      # 694 ticks at 25 MHz: 36.02 kHz
+  T: 16 * PERIOD                           # 444 us, the unit time
+  FREE: 6 * T                              # signal-free time after a frame
+carrier: {period: PERIOD, high: (PERIOD + 1) // 3}    # 1/3 duty
+symbols:
+  leader: [[{IR: carrier}, 6 * T], [{IR: 0}, 2 * T]]
+  one:    [[{IR: carrier}, T], [{IR: 0}, T]]
+  zero:   [[{IR: 0}, T], [{IR: carrier}, T]]
+  tr1:    [[{IR: carrier}, 2 * T], [{IR: 0}, 2 * T]]
+  tr0:    [[{IR: 0}, 2 * T], [{IR: carrier}, 2 * T]]
+  free:   [[{IR: 0}, FREE]]
+frame: [leader,
+        {bits: 4, order: msb, choose: [zero, one]},
+        {bits: 1, order: msb, choose: [tr0, tr1]},
+        {bits: 16, order: msb, choose: [zero, one]}]
+source: {kind: mailbox}
+packet: {after: [free], ack: true}

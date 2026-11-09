@@ -211,7 +211,7 @@ Planted bugs check that these tests can fail. During v1.4's development, 18 bugs
 hand in the line unit model, 28 in the firmware and 9 in escert's line unit analysis were
 all caught; that campaign was not kept as a script. The planted bugs that can be rerun are
 the RTL mutants of `esc_line.v` in the mutation campaign (`make mutation`), and the timing
-bugs `make fw-mutants` plants in the seven line unit programs (54 of the 394; none
+bugs `make fw-mutants` plants in the seven line unit programs (54 of the 558; none
 certified and then faulting). The tests and the
 certificate found real problems that earlier tests had passed: the firmware missed a
 token sent two bit times after the host's ACK on a transfer's last packet, could send a

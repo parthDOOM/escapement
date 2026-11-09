@@ -481,6 +481,20 @@ CORE_PIPELINE = ["cosim", "unit", "chip", "pins"]
 # not a detection.)
 TIMEOUT_FACTOR = 3
 BASE_SECS: dict[str, float] = {}
+# The bus-model cases of the cosim suite a mutant runs: the 43 of v1.6, with which the
+# campaign killed or proved equivalent every mutant of the RTL (CI run 41994751198). The
+# firmware added since tests firmware against its models; on the RTL it took the suite's
+# CI time from 966 s to 3,055 s, which no nineteen shards fit in the job limit (fw-g4's
+# run 42563846089). Those cases still run on the RTL in the test workflow at every push;
+# here a mutant gets the suite that scored v1.6, so its result and its cost stay v1.6's.
+# Adding a case here costs every mutant its time.
+MUTATION_COSIM_CASES = (
+    "uart_rx", "i2c_ctrl", "spi_mode3", "ws2812", "onewire", "combo_uart_i2c", "i2c_eeprom",
+    "can_tx", "ps2_device", "jtag_idcode", "swd_idcode", "nec_ir", "spi_target",
+    "spi_target_mode3", "combo_two_banks", "uart_tx_gen", "midi_tx", "ws2812_gen", "gen_slow",
+    "nec_tx_gen", "usb_hid", "can_rx", "dshot", "sent", "cec", "dali", "can_tx_lu", "spi_tx",
+    "eth_tx", "freq_meter", "udp_tx", "quadrature", "modbus", "sbus", "sirc_tx", "rc5_tx",
+    "jvc_tx", "ev1527_tx", "dcc_tx", "wiegand_tx", "lin_tx", "ws2812_lu", "servo")
 
 
 def apply(m: Mutant, src: Path) -> str | None:
@@ -520,6 +534,8 @@ def run_suite(suite: str, src: Path, work: Path, seeds: int, limit: float | None
     env = dict(os.environ, PWD=str(cwd), COCOTB_PLUSARGS="+nodump",
                COCOTB_RESULTS_FILE=str(work / f"results_{suite}.xml"),
                COSIM_SEEDS=str(seeds), COSIM_OUT=str(work / "failures"))
+    if suite == "cosim":
+        env["COSIM_FIRMWARE"] = ",".join(MUTATION_COSIM_CASES)
     cmd = ["make", "-s", "-B", f"SRC_DIR={src}", f"SIM_BUILD={work / ('build_' + suite)}", *extra]
     try:
         r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=limit)

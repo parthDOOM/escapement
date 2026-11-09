@@ -62,11 +62,14 @@ CHUNK = 4096
 # 40 MHz); the S.BUS receiver, on the demo board's pulled-up pins, sees an inverted line
 # held at a start bit, and keeps receiving (and counting) bad frames. The Modbus server
 # looks at the host every millisecond while the bus is idle (25,020 ticks), and the servo
-# driver's frames are 22 ms apart (550,000 ticks).
+# driver's frames are 22 ms apart (550,000 ticks). v1.7: the LIN responder and the 1-Wire
+# device look at the host every millisecond while the bus is idle (25,000 ticks, RDTIME each
+# time): inside that wait the model sees a 4-tick pattern, and its self-check ends before the
+# millisecond is up.
 # Bundled with kind "none": loaded, run and checked for faults only.
 NO_PREDICT = {"seven_seg.asm", "ws2812_gen.asm", "dmx512_tx.asm", "dshot_tx.asm", "sent_tx.asm",
               "cec.asm", "dali.asm", "vga_pong.asm", "eth_tx.asm", "udp_tx.asm", "sbus_rx.asm",
-              "modbus_rtu.asm", "servo.asm"}
+              "modbus_rtu.asm", "servo.asm", "lin_resp.asm", "onewire_dev.asm"}
 # Variants: name -> (firmware, .equ overrides). v1.3: the logic analyser streaming a
 # 64-word ring to the host during the run (escapement_demo.stream).
 VARIANTS = {"logic_analyzer_stream": ("logic_analyzer.asm",

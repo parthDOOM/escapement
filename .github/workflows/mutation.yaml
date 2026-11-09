@@ -6,8 +6,9 @@ name: mutation
 # against the original RTL. The canaries (each suite catches a fault it must, the proof says
 # both yes and no) run once, beside the shards, and the summary requires them. The suites
 # simulate the RTL with the standard-cell clock gates and latch banks (CELLS=yes, D-40), as
-# hardened, so a mutant of a latch bank's input reaches them. The result goes to the
-# results page.
+# hardened, so a mutant of a latch bank's input reaches them. The cosim suite runs v1.6's
+# 43 bus-model cases (MUTATION_COSIM_CASES): the firmware added since tripled its time.
+# The result goes to the results page.
 
 on:
   push:

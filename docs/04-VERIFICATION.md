@@ -36,7 +36,7 @@ digest, the capture state and all 256 tape words.
 | Random programs with tape traffic, version 1.1 (seeds 1 to 300) | 300 | 21,055 | 0 |
 | Random programs with pin bank B, version 1.2 (rerun at 683bc92, seeds 1 to 1,000) | 1,000 | 68,666 | 0 |
 | Random programs, version 1.6 generator, on the v1.6 RTL (seeds 1 to 1,000; 36 longer than the program memory are skipped; `run_parallel.py --seeds 1000`) | 964 | 111,491 | 0 |
-| Firmware programs with their bus models: 43 cases covering 45 of the 49 programs (the logic analyser runs in the streaming-capture case), on the v1.6 RTL, behavioural and standard-cell builds | 43 | — | 0 |
+| Firmware programs with their bus models: 58 cases covering 60 of the 64 programs (the logic analyser runs in the streaming-capture case), on the v1.6 RTL, behavioural and standard-cell builds | 58 | — | 0 |
 | Random programs with the host reading the tape during the run, version 1.3 | 60 | 7,598 words read | 0 |
 | Firmware-shaped line unit programs, version 1.4 (`test_v14_line_unit`) | 40 | 61,738 (240,000 cycles) | 0 |
 | The USB keyboard (`usb_hid.asm`) against the USB host model, version 1.4 | 1 | 70,000 cycles | 0 |
@@ -267,6 +267,9 @@ line unit lockstep (for `esc_line.v`), the lockstep co-simulation, the core unit
 host interface tests, the chip tests and the firmware-through-the-pins tests. A suite that
 hangs counts as a kill: one still running after three times its own time on the unmutated
 RTL, measured in the same run on the same machine (or after its fixed limit, if longer).
+The co-simulation runs the 43 bus-model cases the campaign had at v1.6; the firmware
+added since runs on the RTL at every push, but in the campaign it would triple the
+suite's time for every mutant, past what CI's job limit allows.
 The suites simulate the RTL with the standard-cell clock gates and
 latch banks (`CELLS=yes`), as it is hardened, so that a mutant of a latch bank's input is
 visible. Before any mutant is scored, every suite it needs must pass on the unmutated
@@ -579,15 +582,16 @@ leads the implementations measure, so each certificate is tested on every run in
 trusted. A measured lead below its bound is a bug in escert or in whatever measured it,
 and fails the table.
 
-Result on 2026-11-02 (v1.6): the 43 co-simulation cases with their bus models and host
-traffic (53 contexts). In v1.5 there were 26 cases and 36 contexts; 31 measured a lead,
-28 of them exactly the bound.
+Result on 2026-11-09: the 58 co-simulation cases with their bus models and host traffic
+(68 contexts). On 2026-11-02 (v1.6) there were 43 cases and 53 contexts; 46 measured a
+lead, 39 of them exactly the bound. In v1.5 there were 26 cases and 36 contexts; 31
+measured a lead, 28 of them exactly the bound.
 
 | | Contexts |
 | --- | ---: |
-| Queued events, so a lead was measured | 46 |
-| Measured lead equal to the certified bound, to the tick | 39 |
-| Measured lead above the bound (`ws2812` 8 against 5, `ws2812_gen` 6 against 5, `usb_hid` 12 against 1; on the line unit, `can_tx_lu` 17, `eth_tx` 13, `udp_tx` 13 and `ws2812_lu` 20, each against 1) | 7 |
+| Queued events, so a lead was measured | 60 |
+| Measured lead equal to the certified bound, to the tick | 52 |
+| Measured lead above the bound (`ws2812` 8 against 5, `ws2812_gen` 6 against 5, `usb_hid` 12 against 1, `morse` 908 against 148; on the line unit, `can_tx_lu` 17, `eth_tx` 13, `udp_tx` 13 and `ws2812_lu` 20, each against 1) | 8 |
 | Measured lead below the bound | 0 |
 | RTL lead or digest different from the ISS's | 0 |
 
@@ -603,9 +607,9 @@ event a tick closer to its deadline than escert's worst case would fail it.
 The table also runs every shipped firmware on the ISS in the demo board's environment,
 with nothing on the Pmods: the environment in which bring-up stage 5 checks the same
 bounds on the chip and writes `proof.json` for `--board`
-([bring-up](16-BRING-UP.md#stage-5-firmware-digests)). There, of 57 contexts in 48
-programs, 43 queue events (v1.6). Of those, 32 measure exactly their bound and none is
-below it; v1.5 had 30 and 21. The other 11 are looser (`i2c_ctrl` 33 against 2, for
+([bring-up](16-BRING-UP.md#stage-5-firmware-digests)). There, of 72 contexts in 63
+programs, 57 queue events. Of those, 39 measure exactly their bound and none is below it;
+v1.6 had 43 and 32, v1.5 30 and 21. The other 18 are looser (`i2c_ctrl` 33 against 2, for
 example), because the inputs that produce the worst case, such as a device on the bus,
 are absent.
 
@@ -635,26 +639,28 @@ Mutants are chosen by hashing each program's source lines and the searches are s
 so `make fw-mutants` on the same firmware prints the same table exactly; editing a
 program changes its mutants. The first run on v1.6's 45 programs found one CHECKED mutant
 that faulted: `udp_tx` without the ADDT at its line 73, the escert bug described above.
-With escert fixed, that mutant is REFUTED. Result on 2026-11-02, 394 mutants, 12 input
-searches each (v1.5 on 2026-10-31: 237 mutants in 28 programs, none CHECKED and
-faulting):
+With escert fixed, that mutant is REFUTED. Result on 2026-11-09, on the 60 programs of the
+v1.7 library that have mutation sites (all but the logic analyser and the three templates
+and combinations), 558 mutants, 12 input searches each (2026-11-02, v1.6: 394 mutants in 45
+programs; v1.5 on 2026-10-31: 237 in 28; none CHECKED and faulting):
 
 | escert's answer | Mutants |
 | --- | ---: |
-| REFUTED: a fault, reproduced on the ISS with concrete inputs | 88 |
-| NOT_PROVEN: a fault not excluded, and none found by the search | 29 |
-| CHECKED: no admission fault for any input | 277 |
+| REFUTED: a fault, reproduced on the ISS with concrete inputs | 121 |
+| NOT_PROVEN: a fault not excluded, and none found by the search | 47 |
+| CHECKED: no admission fault for any input | 390 |
 | CHECKED, yet the search made it fault | **0** |
 
 A CHECKED mutant is a change that keeps every deadline admissible, which escert is right
-to accept: it proves timing, not protocol correctness. Of the 92 inverted branches, 91
+to accept: it proves timing, not protocol correctness. Of the 131 inverted branches, 128
 are of this kind: escert already follows both directions of a branch whose flag depends
-on inputs, so inverting one leaves the same timed paths. The remaining one, in `servo`,
-is NOT_PROVEN. Of the 122 shortened delays, 102 are certified. Fifteen of the 29
-NOT_PROVEN mutants violate a rule in every state escert holds at the flagged
-instruction, for example a lead of exactly −24 ticks in `cec` without one of its ADDTs:
-they fault if that instruction is reachable, and the random search did not reach it.
-NOT_PROVEN is never counted as safe; such firmware carries no certificate.
+on inputs, so inverting one leaves the same timed paths. The remaining three, one in
+`servo` and two in `dcf77_tx`, are NOT_PROVEN. Of the 165 shortened delays, 135 are
+certified. In 21 of the 47 NOT_PROVEN mutants every state escert holds at the flagged
+instruction breaks a rule (a lead of 0 ticks or less, or a deadline not after the one
+queued before it), for example a lead of exactly −24 ticks in `cec` without one of its
+ADDTs: they fault if that instruction is reachable, and the random search did not reach
+it. NOT_PROVEN is never counted as safe; such firmware carries no certificate.
 
 ## Protocol coverage
 
@@ -691,12 +697,39 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | HDMI-CEC adapter: follower and initiator | `cec` | CEC device model with the Linux cec-pin timing windows: acknowledgement of its own address only, broadcast never driven, sending with arbitration (lost to a simultaneous start, then retried), retries after a refusal, a host-set logical address |
 | DALI control gear (IEC 62386-102 commands and queries) | `dali` | Controller model at nominal and ±10% bit timing: levels, OFF, RECALL, queries answered 7.5 ms after the forward frame on the half-bit grid; other addresses, groups, broadcast |
 | USB 1.1 low-speed HID keyboard on the line unit (v1.4) | `usb_hid` | Reactive USB host model from the USB 2.0 text that checks every device packet and its turnaround: enumeration, lost and corrupted handshakes, corrupt tokens and data, bus resets at every stage, host clock ±5%, hostile traffic (74 tests); and the Linux kernel itself, which enumerates the simulated chip over USB/IP and receives typed text |
+| CAN 2.0A at 1 Mbit/s on the line unit (v1.6) | `can_tx_lu` | CAN bus model (destuffs, checks the CRC-15, acknowledges) at 40 MHz |
+| 10BASE-T Ethernet transmitter (v1.6): link pulses, preamble, SFD, the CRC-32 frame check sequence | `eth_tx` | The pins decoded as 802.3 Manchester, the frame check sequence against zlib, link pulses 16 ms apart while idle |
+| UDP over IPv4 over 10BASE-T (v1.6) | `udp_tx` | What a receiving stack checks: the frame check sequence (zlib), the IPv4 header and its checksum, the UDP header, the payload |
+| LIN commander frames at 19,200 baud (v1.6) | `lin_tx` | Responder-side model: break and delimiter lengths, sync, identifier parity, enhanced and classic checksums, every bit |
+| Modbus RTU server (v1.6): functions 03, 06 and 16, exceptions 01 to 03 | `modbus_rtu` | Client bus model: reads and writes, broadcast, the longest frames, bad frames dropped, gaps between characters, parity modes, a slow baud rate and clock error |
+| S.BUS receiver (v1.6): 16 channels, two digital channels, frame-lost and failsafe, decoded into the tape | `sbus_rx` | S.BUS sender model: the flags and the S.BUS2 footer, bad frames dropped, not inverted, back to back |
+| Eight RC servo pulses per 22 ms frame (v1.6), widths from the host in microseconds | `servo` | Every width and the frame period, at 8 and 25 MHz |
+| Write-only SPI at line rate on the line unit (v1.6), every mode, 10 Mbit/s at 40 MHz | `spi_tx` | SPI target model: SCK's idle level at CS_n edges, MOSI set up before each sampling edge, no SCK edge outside a frame |
+| WS2812 from one line-unit SEND (v1.6) | `ws2812_lu` | LED chain model: every pulse against the datasheet |
+| Frequency, period and duty by reciprocal counting on the capture unit (v1.6) | `freq_meter` | Exact to one tick per gate; resolution below one tick, a gate across an epoch boundary, a signal too fast for it flagged |
+| Quadrature encoder, x4, from capture records (v1.6) | `quadrature` | Forward and back, bursts and the sustained rate, an illegal step and an overrun flagged |
+| Sony SIRC, RC5, JVC and EV1527 remotes, NMRA DCC and Wiegand 26 output, from timing tables ([Protocols as data](18-PROTOCOLS-AS-DATA.md)) | `sirc_tx`, `rc5_tx`, `jvc_tx`, `ev1527_tx`, `dcc_tx`, `wiegand_tx` | A receiver model for each; lockstep |
+| Philips RC-6 mode 0 infrared from a timing table | `rc6_tx` | RC-6 receiver model and sigrok's `ir_rc6` decoder; lockstep at 8 MHz |
+| LIN 2.x responder: break and sync, identifier parity, published IDs answered with the enhanced or classic checksum computed on the chip | `lin_resp` | Commander and frame receiver models (LIN 2.x worked values, a 10-bit break and a bad parity not answered, a commander 2% fast or slow, the response space) and sigrok's `lin` decoder |
+| EM4100 RFID tag: Manchester at RF/64, header, row and column parity | `em4100_tag` | Reader model and a frame worked by hand from the datasheet; every edge on the half-bit grid; sigrok's `em4100` decoder |
+| Wiegand panel receiver, up to 64 bits | `wiegand_rx` | Reader model at the interface's limits (20 and 100 Âµs pulses, 200 Âµs and 20 ms intervals), a stuck line flagged, and the chip's own `wiegand_tx` on another context |
+| USB Power Delivery transmitter: BMC, 4b5b, the CRC-32 computed on the chip | `usbpd_tx` | CC receiver model (CRC-32 checked with zlib), bit rate and the end of the line; sigrok's `usb_power_delivery` decoder |
+| DCF77 time code: minute frames with the parities computed on the chip | `dcf77_tx` | Receiver model; every second a whole second apart; a missing frame repeated with an IRQ; sigrok's `dcf77` decoder |
+| SD card host in SPI mode: CMD0, CMD8, ACMD41, CMD58, CMD17, CRC7 and CRC-16 on the chip | `sd_spi` | Card model (start-up, OCR, blocks, a CRC-16 error, a card that stays idle) and sigrok's `sdcard_spi` decoder |
+| 1-Wire device in the DS18B20 role: presence, Read, Match, Skip and Search ROM, scratchpad, both CRC-8s on the chip | `onewire_dev` | Bus master model at AN126 timing and at the device's limits, with AN187's search; sigrok's `onewire_link` and `onewire_network` decoders |
+| AVR in-system programmer (ATmega328P serial downloading) | `avr_isp` | ATmega328P model written from the datasheet (Programming Enable echo, a target out of step, page load, write, BUSY poll) and sigrok's `avr_isp` decoder |
+| Qi power receiver communications (v1.3, Baseline Protocol): differential bi-phase, SIG, ID, CFG, CE, RP8, EPT | `qi_rx` | Power Transmitter model written from the specification: every bit, parity and checksum, tWake, tStart, CE interval, the spacing after a CE, loss of the Power Signal; sigrok's `qi` decoder |
+| SPI NOR flash programmer: JEDEC ID, Read Data, Page Program, Sector Erase, Write Enable checked, BUSY polled | `spi_flash` | W25Q80DV model written from its datasheet (WEL, page wrap, /CS on a byte boundary, nothing while BUSY) and sigrok's `spiflash` decoder |
+| MAX7219 LED display driver, chains of up to 8, numbers divided into decimal on the chip | `max7219` | MAX7219 chain model written from the datasheet (packet alignment, tCH, tCL, tCP, tDS, tCSW, tLDCK, code B) and sigrok's `max7219` decoder |
+| Stepper motion: STEP and DIR with a linear speed ramp (AVR446) computed on the chip | `stepper` | Step/direction model with the A4988's logic timing; the ramp checked against physics (the acceleration from vÂ² = 2As, to 2%); sigrok's `stepper_motor` decoder |
+| nRF24L01+ transmitter (Enhanced ShockBurst: auto-acknowledge, retransmits, MAX_RT) | `nrf24_tx` | Radio model written from the Product Specification (SPI commands, registers, Thce, Tpd2stby, Tpece2csn, time on air, ARD and ARC) and sigrok's `nrf24l01` decoder |
+| Morse code keyer (ITU-R M.1677-1) | `morse` | Listener written from the Recommendation: every key-down and gap in dots, to 1%; sigrok's `morse` decoder |
 
 ## Test suites
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 980 | Pass (7 need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,168 | Pass (21 need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |

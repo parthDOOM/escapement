@@ -686,6 +686,237 @@ def case_lin():
     return Board(rx, host), host, check
 
 
+def case_lin_resp():
+    """The LIN responder at 4 MHz (its lowest certified clock and the 64-tick bit floor):
+    a commander's headers for a published ID (answered) and an unpublished one."""
+    khz = 4000
+    from escmodels import LinCommander, LinReceiver, lin_pid
+    words = [1 << 30 | 0x10 << 0 | 2 << 8, 2 << 30 | 0 << 8 | 0x12, 2 << 30 | 1 << 8 | 0x34, 3 << 30]
+    host_pushes = [(200 + k * khz * 5 // 4, 0, w) for k, w in enumerate(words)]
+    start = 200 + 6 * khz * 5 // 4
+    cmd = LinCommander(0, 1e6 / khz, [lin_pid(0x10), lin_pid(0x11)], start=start, slot_bits=90)
+    rx = LinReceiver(0, tick_ns=1e6 / khz)
+
+    def check(board, h):
+        rx.finish()
+        got = [(f["id"], f["data"]) for f in rx.frames]
+        unanswered = [v for v in rx.violations if "frame [85, " not in v]
+        ok = (got == [(0x10, [0x12, 0x34])] and not unanswered and len(rx.violations) == 1
+              and h.received[0] == [lin_pid(0x10) | 0x100, lin_pid(0x11)])
+        return ([] if ok else [f"lin_resp {got} {rx.violations[:2]} {h.received}"]) + board.errors()
+    host = HostScript(host_pushes, drain=[0], poll=500)
+    return Board(cmd, rx, host), host, check
+
+
+def case_em4100():
+    """The EM4100 tag at 4 MHz: one whole repetition of ID 0x0123456789 read back."""
+    from escmodels.em4100 import Em4100Reader, words
+    rd = Em4100Reader(0, 4000 * 64 // 125 / 2)
+    w0, w1 = words(0x0123456789)
+    host = HostScript([(100, 0, w0), (110, 0, w1)], drain=[0], poll=500)
+
+    def check(board, h):
+        ids = rd.ids()
+        return ([] if ids and set(ids) == {0x0123456789} and not rd.bad_runs
+                else [f"em4100 {ids} {rd.bad_runs[:2]}"]) + board.errors()
+    return Board(rd, host), host, check
+
+
+def case_wiegand_rx():
+    """The Wiegand panel receiver at 4 MHz: one 26-bit frame at 200 us intervals."""
+    khz = 4000
+    from escmodels import WiegandSender
+    bits = [0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1]
+    want = [26, 0, int("".join(map(str, bits)), 2)]
+    snd = WiegandSender(0, 1, 1e6 / khz, [bits], interval_us=200, start=200)
+
+    def check(board, h):
+        return ([] if h.received[0] == want else [f"wiegand_rx {h.received[0]}"]) + board.errors()
+    host = HostScript([], drain=[0], poll=500)
+    return Board(snd, host), host, check
+
+
+def case_usbpd():
+    """USB PD at 25 MHz: a Source_Capabilities message (header, one PDO, the CRC-32 the
+    chip computes) through the BMC sink model."""
+    from escmodels.usbpd import UsbPdSink
+    sink = UsbPdSink(0, 40.0)
+    hdr, pdo = 0x11A1, 100 << 10 | 300
+    host = HostScript([(100, 0, hdr), (150, 0, pdo)], drain=[0], poll=500)
+
+    def check(board, h):
+        sink.finish()
+        got = [(x["header"], x["data"], x["crc_ok"], x["eop"]) for x in sink.messages]
+        ok = got == [(hdr, [pdo], True, True)] and not sink.violations and h.received[0] == [1]
+        return ([] if ok else [f"usbpd {got} {sink.violations[:2]} {h.received}"]) + board.errors()
+    return Board(sink, host, pullups=0), host, check
+
+
+def case_dcf77():
+    """DCF77 at a 10 kHz clock: one whole minute (23:59, 31 Dec '99), the parity bits and
+    bits 0 and 20 set by the chip, and the minute marker that ends it."""
+    from escmodels.dcf77 import Dcf77Receiver, encode
+    bits = encode(minute=59, hour=23, day=31, weekday=7, month=12, year=99)
+    bits[0], bits[20], bits[28], bits[35], bits[58] = 1, 0, bits[28] ^ 1, bits[35] ^ 1, bits[58] ^ 1
+    v = sum(b << k for k, b in enumerate(bits))
+    rx = Dcf77Receiver(0, 1e5)
+    host = HostScript([(50, 0, v & 0xFFFFFFFF), (60, 0, v >> 32)], drain=[0], poll=5000)
+
+    def check(board, h):
+        rx.finish()
+        want = [dict(minute=59, hour=23, day=31, weekday=7, month=12, year=99, cest=False)]
+        return ([] if rx.minutes[:1] == want and not rx.violations
+                else [f"dcf77 {rx.minutes} {rx.violations[:2]}"]) + board.errors()
+    return Board(rx, host), host, check
+
+
+def case_sd_spi():
+    """The SD host at 25 MHz, 400 kHz SCK: start-up (CRC7 on every command), the OCR, one
+    block read with its CRC-16 checked."""
+    from escmodels.sdcard import OCR_READY, SdCardSpi
+    sd = SdCardSpi(4, 5, 6, 7)
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r[:3] == [4 << 16, OCR_READY, 0] and not sd.violations
+        return ([] if ok else [f"sd_spi {[hex(x) for x in r]} {sd.violations[:2]}"]) + board.errors()
+    host = HostScript([(1_000_000, 0, 0x1234)], drain=[0], poll=2500)
+    return Board(sd, host), host, check
+
+
+def case_onewire_dev():
+    """The 1-Wire device at 25 MHz: reset and presence, Read ROM, Search ROM (AN187)."""
+    khz = 25000
+    from escmodels import OneWireMaster, crc8_maxim
+    rom = bytes([0x28, 1, 2, 3, 4, 5, 6])
+    rom += bytes([crc8_maxim(rom)])
+
+    def prog(mm):
+        yield from mm.reset()
+        yield from mm.write(0x33)
+        mm.results.append((yield from mm.read_n(8)))
+        mm.results.append((yield from mm.search()))
+    mst = OneWireMaster(0, 1e6 / khz, prog)
+
+    def check(board, h):
+        ok = mst.done and mst.results == [rom, [int.from_bytes(rom, "little")]]
+        return ([] if ok else [f"onewire_dev {mst.done} {mst.results}"]) + board.errors()
+    host = HostScript([], drain=[0], poll=5000)
+    return Board(mst, host), host, check
+
+
+def case_avr_isp():
+    """The AVR programmer at 25 MHz, SCK 125 kHz, against an ATmega328P in serial
+    programming mode: 20 ms after RESET, Programming Enable with its echo, the signature,
+    then a raw Read Fuse Low."""
+    from escmodels.avr import AvrIspTarget
+    avr = AvrIspTarget(4, 5, 6, 7, 40.0)
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r[:2] == [0, 0x1E950F] and len(r) == 3 and r[2] & 0xFF == 0x62
+        ok = ok and avr.enables == 1 and not avr.violations
+        return ([] if ok else [f"avr_isp {[hex(x) for x in r]} {avr.violations[:2]}"]) + board.errors()
+    host = HostScript([(100, 0, 1 << 28), (575_000, 0, 2 << 28), (575_010, 0, 0x50000000)],
+                      drain=[0], poll=2500)
+    return Board(avr, host), host, check
+
+
+def case_qi_rx():
+    """The Qi receiver at 2 MHz: the Power Signal at 1 ms, SIG at tWake, ID, CFG and the
+    first CE, every bit, parity, checksum and spacing checked by the transmitter model."""
+    from escmodels.qi import QiTransmitter
+    qtx = QiTransmitter(0, 1, 500.0, power=((1000, None),))
+
+    def check(board, h):
+        qtx.finish()
+        got = [(p["name"], p["message"]) for p in qtx.packets]
+        ok = (got == [("SIG", [0x80]), ("ID", [0x12, 0, 0, 0, 0, 0, 1]), ("CFG", [10, 0, 0, 0x12, 0]),
+                      ("CE", [0xFB])] and not qtx.violations and h.received[0] == [1])
+        return ([] if ok else [f"qi_rx {got} {qtx.violations[:2]} {h.received}"]) + board.errors()
+    host = HostScript([(100, 0, 2 << 28 | 0xFB)], drain=[0], poll=2000)
+    return Board(qtx, host, pullups=0), host, check
+
+
+def case_spi_flash():
+    """The flash programmer at 25 MHz, SCK 500 kHz, against a W25Q80DV model: the JEDEC ID,
+    Sector Erase and Page Program with BUSY polled (tSE and tPP shortened), Read Data back."""
+    from escmodels.spiflash import SpiFlashW25
+    fl = SpiFlashW25(4, 5, 6, 7, 40.0, t_pp_ms=0.3, t_se_ms=1.0)
+    fl.mem.update({a: 0x5A for a in range(0x1000, 0x1010)})
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r == [0xEF4014, 0, 0, 0x01020304, 0xFFFFFFFF] and not fl.violations
+        return ([] if ok else [f"spi_flash {[hex(x) for x in r]} {fl.violations[:2]}"]) + board.errors()
+    host = HostScript([(100, 0, 1 << 28), (2000, 0, 4 << 28 | 0x001000),
+                       (40_000, 0, 3 << 28 | 0x001000), (40_010, 0, 1), (42_000, 0, 0x01020304),
+                       (70_000, 0, 2 << 28 | 0x001000), (70_010, 0, 2)], drain=[0], poll=2500)
+    return Board(fl, host), host, check
+
+
+def case_max7219():
+    """The MAX7219 driver at 25 MHz, CLK 500 kHz: set up a code B display, then a number
+    divided into decimal digits on the chip, leading zeros blank."""
+    from escmodels.max7219 import Max7219Chain
+    ch = Max7219Chain(4, 5, 7, 40.0)
+
+    def check(board, h):
+        ok = ch.text() == "  904561" and not ch.violations
+        return ([] if ok else [f"max7219 {ch.text()!r} {ch.violations[:2]}"]) + board.errors()
+    host = HostScript([(100, 0, 1 << 28 | 1 << 11 | 7 << 8 | 8), (25_000, 0, 3 << 28 | 904561)],
+                      drain=[0], poll=2500)
+    return Board(ch, host), host, check
+
+
+def case_stepper():
+    """Stepper motion at 25 MHz: 20 steps at 500,000 steps/s^2 (AVR446 ramp computed on the
+    chip, then played), STEP and DIR at A4988 timing, the stop ramp mirroring the start."""
+    from escmodels.stepper import StepDirDriver
+    drv = StepDirDriver(0, 1, 40.0)
+
+    def check(board, h):
+        t = [s[0] for s in drv.steps]
+        iv = [b - a for a, b in zip(t, t[1:])]
+        ok = (drv.position == 20 and not drv.violations and h.received[0] == [20]
+              and all(abs(iv[i] - iv[-1 - i]) < 0.01 for i in range(9)))
+        return ([] if ok else [f"stepper {drv.position} {drv.violations[:2]} {h.received}"]) + board.errors()
+    host = HostScript([(100, 0, 1 << 28 | 1352), (200, 0, 2 << 28 | 100), (300, 0, 3 << 28 | 1 << 24 | 20)],
+                      drain=[0], poll=2500)
+    return Board(drv, host, pullups=0), host, check
+
+
+def case_nrf24_tx():
+    """The nRF24L01+ driver at 25 MHz: set up (Tpd2stby kept), then a packet lost once and
+    retransmitted ARD later, acknowledged: TX_DS read and cleared."""
+    from escmodels.nrf24 import Nrf24Ptx
+    radio = Nrf24Ptx(4, 5, 6, 7, 3, 2, 40.0, acks=[False, True])
+
+    def check(board, h):
+        ok = (h.received[0] == [0x0E, 0x20] and [s["payload"] for s in radio.sent] == [b"cosim!!"] * 2
+              and not radio.violations)
+        return ([] if ok else [f"nrf24_tx {h.received} {radio.violations[:2]}"]) + board.errors()
+    # (the mailbox holds two words: the second payload word goes after the set-up's 1.5 ms)
+    host = HostScript([(100, 0, 1 << 28 | 0x06 << 16 | 0x13 << 8 | 2), (110, 0, 3 << 28 | 7),
+                       (2000, 0, int.from_bytes(b"cosi", "big")), (60_000, 0, int.from_bytes(b"m!! ", "big"))],
+                      drain=[0], poll=2500)
+    return Board(radio, host), host, check
+
+
+def case_morse():
+    """The Morse keyer at 25 MHz: SOS with 1 ms dots, against a listener written from ITU-R
+    M.1677-1 (every signal and gap to 1% of its length)."""
+    from escmodels.morse import MorseListener
+    ear = MorseListener(0, 40.0, 1)
+
+    def check(board, h):
+        ok = ear.text() == "SOS" and not ear.violations
+        return ([] if ok else [f"morse {ear.text()!r} {ear.violations[:2]}"]) + board.errors()
+    host = HostScript([(100, 0, 1 << 28 | 1), (110, 0, 2 << 28 | ord("S") << 16 | ord("O") << 8 | ord("S"))],
+                      drain=[0], poll=2500)
+    return Board(ear, host, pullups=0), host, check
+
+
 def case_ws2812_lu():
     """v1.6: three LEDs from one line unit SEND, at 12 MHz (cells of 5 ticks)."""
     from escmodels import Ws2812Decoder
@@ -783,12 +1014,30 @@ FIRMWARE_CASES = {
     "rc5_tx": ("rc5_tx.asm", 60000, _ir_case("Rc5Receiver", 2000, 0b11 << 12 | 0x05 << 6 | 0x0C,
                                               lambda f: f["start"] << 12 | f["toggle"] << 11
                                               | f["address"] << 6 | f["command"])),
+    # RC-6 at 8 MHz: escert proves rc6_tx from 8 MHz up (2 MHz would run unproven)
+    "rc6_tx": ("rc6_tx.asm", 215000, _ir_case("Rc6Receiver", 8000, 0b1000 | 1 << 4 | 0xA5 << 13 | 0x0C << 5,
+                                               lambda f: 0b1000 | f["mode"] | f["toggle"] << 4
+                                               | f["address"] << 13 | f["command"] << 5)),
     "jvc_tx": ("jvc_tx.asm", 85000, _ir_case("JvcReceiver", 2000, 0x59 | 0x35 << 8,
                                               lambda f: f["address"] | f["command"] << 8)),
     "ev1527_tx": ("ev1527_tx.asm", 90000, case_ev1527),
     "dcc_tx": ("dcc_tx.asm", 40000, case_dcc),
     "wiegand_tx": ("wiegand_tx.asm", 60000, case_wiegand),
     "lin_tx": ("lin_tx.asm", 8000, case_lin),
+    "lin_resp": ("lin_resp.asm", 60000, case_lin_resp),
+    "em4100_tag": ("em4100_tag.asm", 140000, case_em4100),
+    "wiegand_rx": ("wiegand_rx.asm", 115000, case_wiegand_rx),
+    "usbpd_tx": ("usbpd_tx.asm", 45000, case_usbpd),
+    "dcf77_tx": ("dcf77_tx.asm", 625000, case_dcf77),
+    "sd_spi": ("sd_spi.asm", 1_700_000, case_sd_spi),
+    "onewire_dev": ("onewire_dev.asm", 640_000, case_onewire_dev),
+    "avr_isp": ("avr_isp.asm", 612_000, case_avr_isp),
+    "qi_rx": ("qi_rx.asm", 940_000, case_qi_rx),
+    "spi_flash": ("spi_flash.asm", 85_000, case_spi_flash),
+    "max7219": ("max7219.asm", 46_000, case_max7219),
+    "stepper": ("stepper.asm", 380_000, case_stepper),
+    "nrf24_tx": ("nrf24_tx.asm", 125_000, case_nrf24_tx),
+    "morse": ("morse.asm", 760_000, case_morse),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
 }
@@ -797,9 +1046,9 @@ TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_t
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 # parameters a case sets on its firmware's .defaults (a short gate for the meter)
 FW_EQU = {"freq_meter": {"N": 8, "PIN": 3},
-          "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "jvc_tx": {"CLK_KHZ": 2000},
+          "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
-          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000},
+          "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000}, "wiegand_rx": {"CLK_KHZ": 4000}, "dcf77_tx": {"CLK_KHZ": 10}, "qi_rx": {"CLK_KHZ": 2000},
           "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500}}
 
 

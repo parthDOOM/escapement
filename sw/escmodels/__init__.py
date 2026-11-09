@@ -10,7 +10,7 @@ from .jtag import JtagTap  # noqa: F401
 from .spi import SpiTarget  # noqa: F401
 from .ws2812 import Ws2812Decoder  # noqa: F401
 from .dmx import DmxRx  # noqa: F401
-from .onewire import OneWireDevice, crc8_maxim  # noqa: F401
+from .onewire import OneWireDevice, OneWireMaster, crc8_maxim  # noqa: F401
 from .host import HostScript  # noqa: F401
 from .swd import SwdTarget  # noqa: F401
 from .nec import NecReceiver, NecSource, Tsop, nec_raw  # noqa: F401
@@ -19,8 +19,8 @@ from .dshot import DshotEsc, dshot_crc  # noqa: F401
 from .sent import SentReceiver, sent_crc  # noqa: F401
 from .cec import CecDevice  # noqa: F401
 from .dali import DaliController  # noqa: F401
-from .ir import DccDecoder, Ev1527Receiver, JvcReceiver, Rc5Receiver, SircReceiver  # noqa: F401
-from .lin import LinReceiver  # noqa: F401
-from .wiegand import WiegandReceiver  # noqa: F401
+from .ir import DccDecoder, Ev1527Receiver, JvcReceiver, Rc5Receiver, Rc6Receiver, SircReceiver  # noqa: F401
+from .lin import LinCommander, LinReceiver, checksum as lin_checksum, pid as lin_pid  # noqa: F401
+from .wiegand import WiegandReceiver, WiegandSender  # noqa: F401
 from .modbus import ModbusClient, adu, crc16  # noqa: F401
 from .sbus import SbusSource  # noqa: F401
