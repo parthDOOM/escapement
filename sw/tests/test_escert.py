@@ -124,7 +124,7 @@ def test_clock_parameterised_firmware_certifies_at_33_to_50_mhz(fw, khz):
 # to 23.8 MHz, where escert finds a possible late edge (PER >= 28 checked only the bit
 # loop, not the work between LEDs).
 FLOOR_ASSERTS = {"i2c_ctrl": 23000, "ws2812": 23791, "servo": 1346, "swd_idcode": 20313,
-                 "sbus_rx": 3950, "ws2812_lu": 12000}
+                 "sbus_rx": 3950, "ws2812_lu": 12000, "qi_rx": 205, "spi_flash": 17001}
 
 
 @pytest.mark.parametrize("fw, khz", sorted(FLOOR_ASSERTS.items()))

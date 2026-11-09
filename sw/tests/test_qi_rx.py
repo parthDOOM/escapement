@@ -1,7 +1,7 @@
 """Qi power receiver communications (firmware/qi_rx.asm) against a Power Transmitter model
 (escmodels/qi.py, written from the Qi v1.3 Communications Protocol), at a 2 MHz chip clock
-(escert certifies the program at 2 MHz and from 4 to 50 MHz) so that seconds of protocol
-run in the ISS."""
+(escert certifies the program from its floor, 205 kHz, to 50 MHz) so that seconds of
+protocol run in the ISS."""
 
 from __future__ import annotations
 

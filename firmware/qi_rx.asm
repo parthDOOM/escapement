@@ -149,6 +149,7 @@ pz:
     CMPI  r0, 0
     JNZ   pb
     EMIT  M, 0, M            ; modulation off at the end of the last bit
+    WAITT                    ; (the packet is out: nothing queued across the gap)
 ; ---- what comes next (tmr = the end of the packet)
     MOVI  r3, 0
     LDT   r0, r3, STATE
