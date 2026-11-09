@@ -37,3 +37,6 @@ instead (address 0x00 then 0xFF, every command byte then its complement).
 | em4100_*_card.sr, _keyfob.sr, _glass.sr | rfid/em4100/rdm630/ | EM4100: ten tags read by an RDM630 module: its RFID pin and its 9600 8N1 output |
 | em4100_0200f5ed8d_coil.sr | rfid/em4100/rfid_copier/em4100_0200f5ed8d.sr | EM4100: one tag on a reader coil |
 | dcf77_pollin_120s.sr, dcf77_pollin_1800s.sr | dcf77/pollin_dcf1_module/dcf77_120s.sr, dcf77_1800s.sr | DCF77: a Pollin DCF1 receiver module off the air, 2 and 30 minutes (January 2012) |
+| stepper_smoothieware.sr | stepper_motor/smoothieware/smoothieware.sr | Step/direction: Smoothieware running test.gcode (in that directory), X and Y, 12 MHz |
+| stepper_grbl_3.sr | stepper_motor/grbl_cnc/grbl_cnc_3.sr | Step: GRBL on a CNC's Y axis, 2 MHz |
+| cec_sony_denon_off.sr, cec_sony_yamaha_arc.sr | cec/tv_sony_amp_denon_switch_off_seq.sr, cec/tv_sony_amp_yamaha_arc_handshake.sr | HDMI-CEC: a Sony TV with a Denon amplifier (TV switched off) and a Yamaha amplifier on ARC, 1 MHz |
