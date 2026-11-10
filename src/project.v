@@ -9,6 +9,8 @@
  *   uo_out[7:3] / ui_in[7:3] protocol pins, bank B: five split pins (v1.2)
  * v1.1: a second 256x32 SRAM, the tape (firmware LDT/STT, capture, host while stopped).
  * v1.3: the host reads the tape during a run too, in cycles the core leaves free.
+ * v2 (S-A): the program store has four pages of 256 words, one per macro; context k
+ * fetches from page ctx_page[k] (docs/11-SEMANTICS.md §3).
  */
 
 `default_nettype none
@@ -24,6 +26,10 @@ module tt_um_escapement (
     input  wire       rst_n     // reset_n - low to reset
 );
 
+  // v2 feature switch (runbook 28 §5): program pages, S-A. 4: four pages; 1: the v1.7
+  // store and host interface, cycle for cycle.
+  localparam integer PAGES = 4;
+
   // ------------------------------------------------------------------ host
   wire         start, stop, running, fault_valid, miso;
   wire [3:0]   ctx_stop, ctx_start;            // v1.7 (S3)
@@ -34,6 +40,8 @@ module tt_um_escapement (
   wire [7:0]   pin_od, ctx_state;
   wire [3:0]   ctx_bank;
   wire [3:0]   ctx_pair;
+  wire [7:0]   ctx_page;                       // v2 (S-A)
+  wire [1:0]   host_mem_page;
   wire [4:0]   ob_out;
   wire [25:0]  pin_owner;
   wire         host_mem_we, host_mem_space, host_mem_re;
@@ -47,16 +55,17 @@ module tt_um_escapement (
   wire [3:0]   mbx_rx_push, mbx_rx_full, mbx_tx_pop, mbx_tx_empty;
   wire [127:0] mbx_rx_data, mbx_tx_data;
 
-  escapement_host u_host (
+  escapement_host #(.PAGES(PAGES)) u_host (
       .clk(clk), .rst_n(rst_n),
       .cs_n_pin(ui_in[0]), .sck_pin(ui_in[1]), .mosi_pin(ui_in[2]), .miso(miso),
       .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
+      .ctx_page(ctx_page),
       .irq_clear(irq_clear), .ctx_stop(ctx_stop), .ctx_start(ctx_start),
       .imem_wpend(imem_wpend), .imem_wgnt(imem_wgnt),
       .running(running), .ctx_state(ctx_state), .irq_pending(irq_pending),
       .fault_valid(fault_valid),
-      .mem_we(host_mem_we), .mem_addr(host_mem_addr), .mem_wdata(host_mem_wdata),
+      .mem_we(host_mem_we), .mem_addr(host_mem_addr), .mem_page(host_mem_page), .mem_wdata(host_mem_wdata),
       .mem_space(host_mem_space), .mem_re(host_mem_re), .mem_rdata(host_mem_space ? tape_rdata : imem_rdata),
       .tape_req(host_tape_req), .tape_gnt(host_tape_gnt),
       .tape_ack(host_tape_ack), .tape_ack_v(host_tape_ack_v),
@@ -67,14 +76,16 @@ module tt_um_escapement (
   // ------------------------------------------------------------------ program store
   // The core owns the single port while running, except in a cycle it reads nothing
   // (core_imem_free) when a program word written during the run waits (v1.7, S3: live
-  // reload); the host has it while stopped. The select is two flip-flops.
-  wire [7:0] core_imem_addr;
+  // reload); the host has it while stopped. The select is two flip-flops. v2: the address
+  // is {page, word} on both sides; a live write is granted in a cycle with no used fetch,
+  // whatever page either is in.
+  wire [9:0] core_imem_addr;
   wire       core_imem_re;
   assign     imem_wgnt = imem_wpend & (core_imem_free | ~running);
-  escapement_sram u_sram (
+  escapement_pstore #(.PAGES(PAGES)) u_sram (
       .clk  (clk),
       .rst_n(rst_n),
-      .addr ((running & ~imem_wgnt) ? core_imem_addr : host_mem_addr),
+      .addr ((running & ~imem_wgnt) ? core_imem_addr : {host_mem_page, host_mem_addr}),
       .re   (running ? (core_imem_re & ~imem_wgnt) : (host_mem_re & ~host_mem_space)),  // D-29
       .we   ((host_mem_we & ~running & ~host_mem_space) | imem_wgnt),
       .wdata(host_mem_wdata),
@@ -108,6 +119,7 @@ module tt_um_escapement (
       .ctx_stop(ctx_stop), .ctx_start(ctx_start),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
+      .ctx_page(ctx_page),
       .imem_addr(core_imem_addr), .imem_re(core_imem_re), .imem_free(core_imem_free),
       .imem_rdata(imem_rdata),
       .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ui_in[7:3]), .ob_out(ob_out),

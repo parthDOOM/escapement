@@ -100,7 +100,7 @@ async def bring_up(dut, board, board_b=None):
 async def test_identity_over_spi(dut):
     host = await bring_up(dut, Board())
     s = await host.status()
-    assert s["version"] == 9 and not s["running"] and not s["host_err"], s
+    assert s["version"] == 10 and not s["running"] and not s["host_err"], s
 
 
 @cocotb.test()
@@ -333,6 +333,39 @@ async def test_live_reload_over_spi(dut):
                   f"after high {set(highs)} low {set(lows)}")
     assert before and set(before) == {24}
     assert highs and lows and set(highs) == {12} and set(lows) == {56}
+
+
+@cocotb.test()
+async def test_pages_over_spi(dut):
+    """v2 (S-A) program pages through SPI, the host interface, project.v and the four
+    macros: two UART transmitters, both at address 0, context 0 at 115200 baud on pin 0 from
+    page 3 and context 1 at 57600 on pin 1 from page 1 (impossible on one 256-word store:
+    both programs start at 0). host.load sends IMEM_PAGE and WRITE_CFG byte 14, and reads
+    every page back. Both receivers decode their message, and the digest equals the ISS's."""
+    from escasm import paged
+
+    def tx(ctx, pin, baud):
+        return assemble(f".equ uart_tx.CTX, {ctx}\n.equ uart_tx.PIN, {pin}\n"
+                        f".equ uart_tx.BAUD, {baud}\n" '.include "uart_tx.asm"\n', base_dir=FW)
+    image = paged({3: tx(0, 0, 115200), 1: tx(1, 1, 57600)})
+    rx0, rx1 = UartRx(0, 25e6 / 115200), UartRx(1, 25e6 / 57600)
+    board = Board(rx0, rx1)
+    host = await bring_up(dut, board)
+    n = await host.load(image)
+    dut._log.info(f"loaded {n} words over SPI in two pages and verified")
+    await host.start()
+    await ClockCycles(dut.clk, 4 * 10 * 434 + 2000)
+    assert rx0.bytes == [0x55, 0x4B, 0x21, 0x0A], rx0.bytes
+    assert rx1.bytes == [0x55, 0x4B, 0x21, 0x0A], rx1.bytes
+    assert not board.errors(), board.errors()
+    for k in (0, 1):
+        assert (await host.read_dbg(k, 7) >> 2) & 3 == 2, k    # HALTED
+    chip = await host.read_dbg(0, 16)
+    m = Machine(image)
+    m.run(400_000)
+    dut._log.info(f"digest chip 0x{chip:08x} ISS 0x{m.dg:08x}")
+    assert chip == m.dg
+    await host.stop()
 
 
 @cocotb.test()

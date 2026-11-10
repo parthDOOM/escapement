@@ -4,6 +4,8 @@
  * v1.2: bank B pins ib_in / ob_out and the ctx_bank configuration.
  * v1.3: a host tape reader (hrd_*) that gets the port in every cycle the core leaves
  * free, as in project.v, and TAPE_ACK.
+ * v2 (S-A): the program store of four pages (escapement_pstore), a 10-bit load address
+ * ({page, word}; the tape uses its low 8 bits) and ctx_page.
  * Written from the port list in docs/11-SEMANTICS.md §10 only.
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -22,10 +24,11 @@ module esc_tb (
     input  wire [7:0]   pin_od,
     input  wire [3:0]   ctx_bank,
     input  wire [3:0]   ctx_pair,      // v1.7
+    input  wire [7:0]   ctx_page,      // v2 (S-A)
     // program load (only while not running)
     input  wire         load_we,
     input  wire         load_space,
-    input  wire [7:0]   load_addr,
+    input  wire [9:0]   load_addr,     // v2: {page, word}
     input  wire [31:0]  load_data,
     // host tape reads during a run (v1.3): the word at hrd_addr is fetched in the
     // first cycle hrd_req is high and the core does not use the port (hrd_gnt); it is
@@ -82,11 +85,11 @@ module esc_tb (
     $dumpvars(0, esc_tb);
   end
 
-  wire [7:0]  imem_addr;
+  wire [9:0]  imem_addr;
   wire        imem_re;
   wire [31:0] imem_rdata;
 
-  escapement_sram u_sram (
+  escapement_pstore u_sram (
       .clk  (clk),
       .rst_n(rst_n),
       .addr ((load_we & ~load_space) ? load_addr : imem_addr),
@@ -104,7 +107,7 @@ module esc_tb (
   escapement_sram u_tape (
       .clk  (clk),
       .rst_n(rst_n),
-      .addr (tload ? load_addr : tape_busy ? tape_addr : hrd_addr),
+      .addr (tload ? load_addr[7:0] : tape_busy ? tape_addr : hrd_addr),
       .re   (tape_busy ? tape_re : hrd_gnt),       // as project.v (D-29)
       .we   (tload | (tape_we & tape_busy)),
       .wdata(tload ? load_data : tape_wdata),
@@ -119,7 +122,7 @@ module esc_tb (
       .ctx_stop(ctx_stop), .ctx_start(ctx_start), .imem_free(imem_free),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
-      .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
+      .ctx_page(ctx_page), .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
       .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ib_in), .ob_out(ob_out),
       .running(running), .ctx_state(ctx_state),
       .irq_pending(irq_pending), .fault_valid(fault_valid), .irq_clear(irq_clear),

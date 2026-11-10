@@ -34,6 +34,7 @@ M32 = 0xFFFFFFFF
 C_STATUS, C_WI, C_RI, C_WC, C_WT, C_RT, C_TA = 0x00, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15
 C_START, C_STOP, C_DBG, C_PUSH, C_POP, C_IRQC, C_CLR, C_IGNORE = (
     0x20, 0x21, 0x30, 0x40, 0x41, 0x50, 0x51, 0xFF)
+C_PAGE = 0x24                            # v2 (S-A) IMEM_PAGE, on chips reporting version 10+
 KNOWN = {C_STATUS, C_WI, C_RI, C_WC, C_DBG, C_PUSH, C_POP, C_IRQC, C_WT, C_RT, C_TA}
 
 
@@ -64,14 +65,15 @@ def blank_image() -> Image:
                  pin_owned=[False] * 8, pin_owner=[0] * 8, pin_od=[False] * 8)
 
 
-def cfg_image(imem, tape, cfg) -> Image:
+def cfg_image(imem, tape, cfg, ctx_page=0) -> Image:
     en, entry, owned, owner, od, bank = cfg
     return Image(words=list(imem), entry_pcs=[(entry >> (8 * k)) & 0xFF for k in range(4)],
                  ctx_enable=[bool((en >> k) & 1) for k in range(4)],
                  pin_owned=[bool((owned >> i) & 1) for i in range(13)],
                  pin_owner=[(owner >> (2 * i)) & 3 for i in range(13)],
                  pin_od=[bool((od >> i) & 1) for i in range(8)], tape=list(tape),
-                 ctx_bank=[bool((bank >> k) & 1) for k in range(4)])
+                 ctx_bank=[bool((bank >> k) & 1) for k in range(4)],
+                 ctx_page=[(ctx_page >> (2 * k)) & 3 for k in range(4)])
 
 
 class FaultyMachine(Machine):
@@ -102,7 +104,7 @@ def _force(v: int, stuck) -> int:
 
 
 class SimChip:
-    def __init__(self, *, version=9, clock_scale=1.0, clock_dead=False, miso_stuck=None,
+    def __init__(self, *, version=10, clock_scale=1.0, clock_dead=False, miso_stuck=None,
                  mosi_stuck=None, mem_faults=None, uio_out_dead=0, uio_in_stuck=None,
                  uio_ext_low=0, ob_stuck=None, ib_stuck=None, exec_fault=None, seed=1):
         self.version, self.clock_scale, self.clock_dead = version, clock_scale, clock_dead
@@ -112,7 +114,10 @@ class SimChip:
         self.ob_stuck, self.ib_stuck = ob_stuck, ib_stuck      # (bank B bit, level)
         self.exec_fault = exec_fault
         rng = random.Random(seed)
-        self.mem = [[rng.randrange(1 << 32) for _ in range(256)] for _ in range(2)]  # powers up undefined
+        # powers up undefined; v2 (S-A): the program store is four pages of 256 words
+        self.pages = version >= 10
+        self.mem = [[rng.randrange(1 << 32) for _ in range(1024 if self.pages else 256)],
+                    [rng.randrange(1 << 32) for _ in range(256)]]
         self.pads = Pads()
         self.contention = []
         self.timing_violations = 0
@@ -154,6 +159,7 @@ class SimChip:
         self.host_err = 0
         self.cfg = [0, 0, 0, 0, 0, 0]
         self.mem_addr = self.mem_space = 0
+        self.mem_page = self.ctx_page = 0     # v2 (S-A)
         self.dbg_ctx = self.dbg_sel = 0
         self.running = False
         self.m = Machine(blank_image())
@@ -251,8 +257,17 @@ class SimChip:
         self.uarts.remove(u)
 
     # ------------------------------------------------------------- memories
-    def _phys(self, space: int, a: int) -> int:
+    def _phys(self, space: int, a: int, page=None) -> int:
+        """The word an access reaches. v2 (S-A): a program address is {page, a}, the page
+        being the host's (IMEM_PAGE) unless given; `page_stuck` (bit, level) is a fault on
+        the page select."""
         f = self.mem_faults.get(space, {})
+        pg = 0
+        if space == 0 and self.pages:
+            pg = self.mem_page if page is None else page
+            if "page_stuck" in f:
+                b, v = f["page_stuck"]
+                pg = (pg & ~(1 << b)) | (v << b)
         if "addr_stuck" in f:
             b, v = f["addr_stuck"]
             a = (a & ~(1 << b)) | (v << b)
@@ -260,13 +275,13 @@ class SimChip:
             i, j = f["addr_short"]
             both = (a >> i) & (a >> j) & 1
             a = (a & ~((1 << i) | (1 << j))) | (both << i) | (both << j)
-        return a & 0xFF
+        return ((pg & 3) << 8) | (a & 0xFF)
 
-    def mem_read(self, space: int, a: int) -> int:
+    def mem_read(self, space: int, a: int, page=None) -> int:
         # v1.3: during a run the tape is the core's (READ_TAPE is served in free cycles;
         # this model has no port contention, so a fetch is never late)
         tape_live = space == 1 and self.running
-        w = (self.m.tape if tape_live else self.mem[space])[self._phys(space, a)]
+        w = (self.m.tape if tape_live else self.mem[space])[self._phys(space, a, page)]
         f = self.mem_faults.get(space, {})
         if "data_stuck" in f:
             b, v = f["data_stuck"]
@@ -351,7 +366,7 @@ class SimChip:
         if idx == 0:
             self.cmd, self.wcnt = rx, 0
             self.mem_space = int(rx in (C_WT, C_RT))
-            if rx in KNOWN:
+            if rx in KNOWN or (rx == C_PAGE and self.pages):
                 pass
             elif rx == C_START:
                 if self.running:
@@ -392,7 +407,9 @@ class SimChip:
                     self.word = self.mem_read(self.mem_space, self.mem_addr)
                     self.mem_addr = (self.mem_addr + 1) & 0xFF
         elif cmd == C_WC:
-            if not self.running and 1 <= idx <= 13:
+            if not self.running and idx == 14 and self.pages:      # v2 (S-A) byte 14
+                self.ctx_page = rx
+            elif not self.running and 1 <= idx <= 13:
                 c = self.cfg
                 if idx == 1:
                     c[0] = rx & 0xF
@@ -422,6 +439,8 @@ class SimChip:
                 self.word, self.wcnt = self._dbg(), 0
             elif self.wcnt != 3:
                 self.wcnt += 1
+        elif cmd == C_PAGE and idx == 1:            # v2 (S-A)
+            self.mem_page = rx & 3
         elif cmd == C_IRQC and idx == 1:
             self.m.host_irq_clear(rx & 0xF)
         elif cmd == C_TA and idx == 1:              # v1.3 TAPE_ACK
@@ -431,8 +450,10 @@ class SimChip:
                     self.mem_write(1, a, self.m.tape[a])
 
     def _start(self) -> None:
-        image = cfg_image([self.mem_read(0, a) for a in range(256)],
-                          [self.mem_read(1, a) for a in range(256)], self.cfg)
+        prog = ([self.mem_read(0, a & 0xFF, a >> 8) for a in range(1024)] if self.pages
+                else [self.mem_read(0, a) for a in range(256)])
+        image = cfg_image(prog, [self.mem_read(1, a) for a in range(256)], self.cfg,
+                          self.ctx_page)
         FaultyMachine.exec_fault = self.exec_fault
         self.m = (FaultyMachine if self.exec_fault else Machine)(image, board=self._board,
                                                                    board_b=self._board_b)

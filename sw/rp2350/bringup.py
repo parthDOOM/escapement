@@ -39,7 +39,7 @@ except ImportError:                       # on a PC (tests): sw/eschost
 
 PROJECT = "tt_um_escapement"
 F_CLK = 25000000
-VERSION = 9
+VERSION = 10                              # v2: program pages (S-A)
 M32 = 0xFFFFFFFF
 DG_POLY = 0x04C11DB7
 CS, SCK, MOSI = 1, 2, 4                   # ui_in bits (docs/12-HOST-PROTOCOL.md)
@@ -47,9 +47,11 @@ MISO, IRQ, RUN = 1, 2, 4                  # uo_out bits
 UO_RESET = 0xF8                           # in and after reset: bank B (uo[7:3]) released high
 STATE = ("IDLE", "RUNNING", "HALTED", "FAULTED")
 CAUSE = {1: "ILLEGAL", 2: "PC_RANGE", 3: "ADMIT", 4: "LATE_HEAD"}
-RESET_STATUS = b"\x09\x00\x0f\x00"        # version 9, all IDLE, TX mailboxes empty
+RESET_STATUS = b"\x0a\x00\x0f\x00"        # version 10, all IDLE, TX mailboxes empty
 MIN_HALF_NS = 8 * 1000000000 // F_CLK     # bit-bang margin: 2x the 4-clock SCK minimum
 # Every data bit at 0 and 1, and every pair of bits different in at least one word.
+# v2 (S-A): each program page's patterns are masked with its own word (the tape: M32)
+PAGE_MASK = (0, 0x0F0F0F0F, 0xF0F0F0F0, 0x3C3C3C3C)
 DATA_LINE_PATTERNS = (0, M32, 0x55555555, 0xAAAAAAAA, 0x33333333, 0xCCCCCCCC, 0x0F0F0F0F,
                       0xF0F0F0F0, 0x00FF00FF, 0xFF00FF00, 0x0000FFFF, 0xFFFF0000)
 
@@ -324,6 +326,7 @@ class Bringup:
     def load(self, words, cfg, tape=None, verify=True):
         h = self.host
         h.stop()
+        h.imem_page(0)                    # v2: a bundle is one page, page 0
         h.write_imem(0, words)
         if verify:
             got = h.read_imem(0, len(words))
@@ -418,7 +421,10 @@ class Bringup:
         if v == 7:
             return "protocol version 7: an Escapement v1.2 design answers, not v1.3."
         if v == 8:
-            return "protocol version 8: an Escapement v1.3 to v1.6 design answers, not v1.7."
+            return "protocol version 8: an Escapement v1.3 to v1.6 design answers, not v2."
+        if v == 9:
+            return ("protocol version 9: an Escapement v1.7 design (no program pages) "
+                    "answers, not v2.")
         if v != VERSION:
             return ("protocol version %d: a different design is answering; check the "
                     "project selection (stage 0)." % v)
@@ -499,12 +505,25 @@ class Bringup:
         """Per SRAM: (a) data lines, one word at two addresses, so an address fault
         cannot hide or fake a data fault; (b) address lines, 'address in data' over all
         256 words, where an aliased read names the address it came from; (c) cells,
-        whole-array patterns. The program SRAM gets each pattern and the tape its
-        inverse, which also shows that the two spaces are independent."""
+        whole-array patterns. v2: the program store is four macros, one per page (IMEM_PAGE),
+        each tested as its own SRAM. Every page gets each pattern under its own mask and the
+        tape the inverse, all written before any is read, so the five spaces are shown
+        independent and a page that reads another page's words names the page bits."""
         host = self.host
         host.stop()
-        spaces = (("program SRAM", host.write_imem, host.read_imem, 0),
-                  ("tape SRAM", host.write_tape, host.read_tape, M32))
+
+        def page_io(p):
+            def wr(a, ws):
+                host.imem_page(p)
+                return host.write_imem(a, ws)
+
+            def rd(a, n):
+                host.imem_page(p)
+                return host.read_imem(a, n)
+            return wr, rd
+        spaces = tuple(("program SRAM page %d" % p,) + page_io(p) + (PAGE_MASK[p],)
+                       for p in range(4))
+        spaces += (("tape SRAM", host.write_tape, host.read_tape, M32),)
         report = []
         stuck = {}
         for sname, wr, rd, flip in spaces:
@@ -528,13 +547,16 @@ class Bringup:
                      if (same[i] >> j) & 1 and not ((s0 | s1) >> i) & 1]
             if pairs:
                 msg.append("data bits always equal (shorted): %s" % ", ".join(pairs[:6]))
-            stuck[sname] = (s0, s1)
+            stuck[sname] = "; ".join(msg)          # the whole fault, stuck bits and shorts
             if msg:
                 report.append("%s: %s" % (sname, "; ".join(msg)))
         if report:
-            if stuck["program SRAM"] == stuck["tape SRAM"]:
-                report.append("both memories show the same data faults: suspect the shared "
+            # only when every memory has the same fault (a fault in one, or a short, which
+            # leaves no stuck bit, is not a shared one)
+            if len(set(stuck.values())) == 1:
+                report.append("every memory shows the same data faults: suspect the shared "
                               "host data path (escapement_host), not one macro")
+            host.imem_page(0)
             raise Fail(" | ".join(report))
         problems = []
         pats = _patterns(self.quick)
@@ -547,6 +569,15 @@ class Bringup:
                 if not bad:
                     continue
                 msg = "%s, %s pattern: %d of 256 words wrong" % (sname, name, len(bad))
+                other = [q for q in range(4) if sname != "tape SRAM"
+                         and sname != "program SRAM page %d" % q
+                         and all(got[a] ^ PAGE_MASK[q] == data[a] for a in range(256))]
+                if other:
+                    p = int(sname[-1])
+                    msg += ("; it reads page %d's words: page select bit(s) %s have no effect "
+                            "(IMEM_PAGE or the store's page decode)"
+                            % (other[0], ",".join(str(b) for b in range(2)
+                                                   if (p ^ other[0]) >> b & 1)))
                 if name == "address in data":
                     xors = set()
                     for a in bad:
@@ -570,11 +601,13 @@ class Bringup:
                            "suspect supply or read timing"
                 problems.append(msg)
             if problems:
+                host.imem_page(0)
                 raise Fail(" | ".join(problems))
+        host.imem_page(0)
         self._tape_during_run()
-        return ("data lines at 2 addresses, %d patterns x 256 words, in both SRAMs; spaces "
-                "independent; tape reads during a run while the core uses the port"
-                % len(pats))
+        return ("data lines at 2 addresses, %d patterns x 256 words, in the four program pages "
+                "and the tape; spaces independent; tape reads during a run while the core uses "
+                "the port" % len(pats))
 
     def _tape_during_run(self):
         """v1.3: READ_TAPE while a program keeps the tape port busy in two of every three

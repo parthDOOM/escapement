@@ -184,13 +184,15 @@ tt-micropython-firmware's byte functions and samples MISO just before each SCK r
 | MISO is always 0 | No answer at all | Scope the clk pin (25 MHz square wave); check `rst_n` is high; check CS_n and SCK toggle at the chip; check `uo[0]` |
 | MISO is always 1 | `uo[0]` stuck high or undriven | Scope `uo[0]`; compare with stage 1 |
 | one bit late / one bit early | Sampling phase | Logic analyser on all four lines: MISO must change within 4 clocks after an SCK rise, and the RP must sample before the next rise |
-| protocol version 5, 6 or 7 / a different design | An older Escapement (v1.0, v1.1 or v1.2) or another design is answering | Check stage 0's selection |
+| protocol version 5 to 9 / a different design | An older Escapement (v1.0 to v1.7; 9 is v1.7, without program pages) or another design is answering | Check stage 0's selection |
 | did not decode STATUS / unknown command did not set host error | MOSI stuck high / low | Scope `ui[2]` at the chip |
 | N of M frames wrong | Intermittent | Errors only at the fast rate: SCK phase or MISO slew is marginal; at both rates: noise, ground or a loose connection |
 
 ### Stage 3: memories
 
-Both 256 × 32 SRAMs (program store and tape), through WRITE/READ_IMEM and WRITE/READ_TAPE:
+Five 256 × 32 SRAMs, through WRITE/READ_IMEM and WRITE/READ_TAPE: the program store's
+four pages (v2: one macro each, selected with IMEM_PAGE) and the tape. Each is tested as
+its own memory:
 
 1. **Data lines.** Twelve words, written and read one at a time at address 0x00 and 0xFF.
    Every data bit is seen at 0 and 1, and every pair of bits differs in at least one word,
@@ -200,9 +202,11 @@ Both 256 × 32 SRAMs (program store and tape), through WRITE/READ_IMEM and WRITE
    reads the word written to `a ^ 2^b`, and the word itself names `b`.
 3. **Cells.** Walking one, and (full run) walking zero and a checkerboard.
 
-The program store gets each pattern and the tape its inverse, which also shows that the
-two address spaces are separate. A failing pattern is read a second time to separate a
-stored fault from an unstable read.
+Each program page gets each pattern under its own mask (0, 0x0F0F0F0F, 0xF0F0F0F0,
+0x3C3C3C3C) and the tape its inverse, all five written before any is read, which shows
+that the five spaces are separate. A page that reads another page's words names the page
+select bits that have no effect. A failing pattern is read a second time to separate a
+stored fault from an unstable read. The stage ends on page 0.
 
 4. **Tape reads during a run (v1.3).** A four-word program (STORM) uses the tape port in
    two of every three of its commits while the host reads 32 words with READ_TAPE. Every
@@ -211,10 +215,11 @@ stored fault from an unstable read.
 
 | FAIL message | Meaning | Next |
 | --- | --- | --- |
-| data bits ... never read 1 / never read 0 | A data line is stuck | If both memories show the same bits, the fault is in the shared host path, not a macro |
+| data bits ... never read 1 / never read 0 | A data line is stuck | If every memory shows the same fault, it is in the shared host path, not a macro |
 | data bits always equal (shorted) | Two data lines are bridged | Same |
 | address bit(s) ... have no effect | An address line is stuck or open | It appears in one memory only, so it is that macro's address path |
 | addresses alias across bit groups ... | Two address lines are bridged | Same |
+| it reads page q's words: page select bit(s) ... have no effect | A program page reads another page (v2) | The fault is in IMEM_PAGE or the store's page decode, not in a macro: report the chip |
 | some words are not any address's word | Cell faults | Rerun with `quick=False`; note which words; check the supply |
 | two reads of the same contents differ | Unstable reads | Supply voltage, temperature or read timing: rerun after a power cycle and compare chips |
 | tape read during a run: N of 32 words wrong | The words read correctly while stopped, so the fault is in the v1.3 port arbitration | Compare with a READ_TAPE of the same words after STOP; report the chip |

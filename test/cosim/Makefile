@@ -14,6 +14,7 @@ COMPILE_ARGS    += -g2012
 endif
 VERILOG_SOURCES += $(sort $(wildcard $(SRC_DIR)/esc_*.v))
 VERILOG_SOURCES += $(SRC_DIR)/escapement_sram.v
+VERILOG_SOURCES += $(SRC_DIR)/escapement_pstore.v
 VERILOG_SOURCES += $(MACRO_DIR)/RM_IHPSG13_1P_core_behavioral_bm_bist.v
 VERILOG_SOURCES += $(MACRO_DIR)/RM_IHPSG13_1P_256x32_c2_bm_bist.v
 VERILOG_SOURCES += $(PWD)/esc_tb.v

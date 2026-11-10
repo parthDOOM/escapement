@@ -11,7 +11,7 @@ This page describes the blocks. The cycle-exact definition is
 ```mermaid
 flowchart LR
     Host[Host SPI<br/>oversampled mode 0] --> HI[Host interface<br/>commands, mailboxes]
-    HI --> IMEM[Program SRAM<br/>1P 256x32]
+    HI --> IMEM[Program store v2<br/>4 pages: 4 x 1P 256x32]
     IMEM --> Core[Barrel core<br/>4 fixed slots]
     Core --> Q[Event FIFOs<br/>4 per context]
     Time[Tick counter<br/>32 bit] --> Q
@@ -49,9 +49,15 @@ flowchart LR
 - **Per-context state:** four 32-bit registers, a 32-bit shift register `sh`, a 16-bit
   loop counter, a 32-bit deadline register `tmr`, an 8-bit PC and link register, flags
   Z and C, and a 32-bit input shift register `ish` filled by SAMPLE events.
-- **Program store:** IHP `RM_IHPSG13_1P_256x32_c2_bm_bist`, single port, synchronous,
-  shared by all contexts. The address is presented in the fetch cycle and the word is
-  available the next cycle. The host writes it only while the core is stopped.
+- **Program store:** v2 (S-A): four pages of 256 words, one IHP
+  `RM_IHPSG13_1P_256x32_c2_bm_bist` macro per page (`src/escapement_pstore.v`), single
+  port, synchronous, shared by all contexts. A context fetches only from its own page
+  (`ctx_page`, WRITE_CFG byte 14): the address is `{page, PC}`, presented in the fetch
+  cycle, and the word is available the next cycle. Only the addressed page's macro reads;
+  a two-bit register of the last read's page selects the output. With every context on
+  page 0 (the reset value) this is the v1.7 store. The host writes it while the core is
+  stopped, and since v1.7 during a run in a cycle with no fetch (live reload); IMEM_PAGE
+  selects the page it addresses.
 - **Wait-class instructions** (WAITT, WAITP, POP, PUSH, HALT, GETI, LINE and GETL, and
   event instructions while their FIFO is full) keep their PC and are re-evaluated at each of
   the context's slots, so their completion is quantised to the 4-tick grid. Exact-tick
@@ -243,6 +249,7 @@ the host reloads both memories after every reselect.
 | `src/project.v` | Tiny Tapeout top level: pins, memories, host and core |
 | `src/escapement_host.v` | Host SPI interface and command decoder |
 | `src/escapement_sram.v` | SRAM macro wrapper with on-demand select |
+| `src/escapement_pstore.v` | Program store (v2): four pages, one macro each; `PAGES = 1` is the v1.7 store |
 | `src/esc_core.v` | Barrel pipeline, decode, execute and admission, pins and synchronisers, first-fault register, digest |
 | `src/esc_ctx.v` | Per-context state, event FIFO, checker, telemetry, mailboxes |
 | `src/esc_cap.v` | Capture unit |

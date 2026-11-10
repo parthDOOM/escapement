@@ -14,6 +14,7 @@ module tb_core ();
   reg  [7:0]  pin_od = 8'd0;
   reg  [3:0]  ctx_bank = 4'd0;
   reg  [3:0]  ctx_pair = 4'd0;
+  reg  [7:0]  ctx_page = 8'd0;     // v2 (S-A): page 0 here; pages are in the cosim
   reg  [4:0]  ib_in = 5'd0;
   reg  [25:0] pin_owner = 26'd0;
   reg         ld_en = 1'b0, ld_we = 1'b0;
@@ -34,7 +35,7 @@ module tb_core ();
   wire        tape_re, tape_we, tape_busy;
   wire [31:0] tape_wdata, tape_rdata;
 
-  wire [7:0]  imem_addr;
+  wire [9:0]  imem_addr;
   wire        imem_re;
   wire [31:0] imem_rdata;
   wire [7:0]  uio_out, uio_oe;
@@ -53,7 +54,7 @@ module tb_core ();
 
   escapement_sram u_sram (
       .clk(clk), .rst_n(rst_n),
-      .addr(ld_en ? ld_addr : imem_addr), .re(running ? imem_re : 1'b1), .we(ld_we),
+      .addr(ld_en ? ld_addr : imem_addr[7:0]), .re(running ? imem_re : 1'b1), .we(ld_we),
       .wdata(ld_data),
       .rdata(imem_rdata));
 
@@ -65,7 +66,7 @@ module tb_core ();
       .ctx_stop(ctx_stop), .ctx_start(ctx_start), .imem_free(imem_free),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs), .pin_owned(pin_owned),
       .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
-      .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
+      .ctx_page(ctx_page), .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
       .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ib_in), .ob_out(ob_out),
       .running(running), .ctx_state(ctx_state),
       .irq_pending(irq_pending), .fault_valid(fault_valid), .irq_clear(irq_clear),

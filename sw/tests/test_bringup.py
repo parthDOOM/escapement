@@ -152,14 +152,18 @@ FAULTS = [
     ("v1.0 chip", {"version": 5}, {}, 2, "protocol version 5"),
     ("v1.1 chip", {"version": 6}, {}, 2, "protocol version 6"),
     ("v1.6 chip", {"version": 8}, {}, 2, "protocol version 8"),
+    ("v1.7 chip, no pages", {"version": 9}, {}, 2, "protocol version 9: an Escapement v1.7"),
     ("bit-bang too fast", {}, {"op_ns": 100}, 2, "one pin write takes 100 ns"),
     ("program SRAM address bit 3 stuck", {"mem_faults": {0: {"addr_stuck": (3, 0)}}}, {}, 3,
-     "program SRAM, address in data pattern: 128 of 256 words wrong; address bit(s) 3 "
-     "have no effect"),
+     "program SRAM page 0, address in data pattern: 128 of 256 words wrong; address bit(s) "
+     "3 have no effect"),
+    ("program page select bit 1 stuck at 0", {"mem_faults": {0: {"page_stuck": (1, 0)}}}, {},
+     3, "program SRAM page 0, address in data pattern: 256 of 256 words wrong; it reads page "
+     "2's words: page select bit(s) 1 have no effect"),
     ("tape SRAM data bit 17 stuck at 1", {"mem_faults": {1: {"data_stuck": (17, 1)}}}, {}, 3,
      "tape SRAM: data bits 17 never read 0 (stuck at 1)"),
     ("program SRAM data bits 4 and 9 shorted", {"mem_faults": {0: {"data_short": (4, 9)}}},
-     {}, 3, "program SRAM: data bits always equal (shorted): 4=9"),
+     {}, 3, "program SRAM page 0: data bits always equal (shorted): 4=9"),
     ("tape SRAM address lines 5 and 6 shorted", {"mem_faults": {1: {"addr_short": (5, 6)}}},
      {}, 3, "shorted address lines"),
     ("uio4 output driver dead", {"uio_out_dead": 0x10}, {}, 4,
@@ -336,3 +340,16 @@ def test_demo_menu_show_keeps_the_animation_running(tmp_path, monkeypatch):
     assert (int(chip.uo()) >> 2) & 1                     # segment c: RUN
     escapement_demo.stop()
     assert not (int(chip.uo()) >> 2) & 1
+
+
+def test_shared_data_path_only_when_every_memory_has_the_fault(bundles, tmp_path):
+    """Stage 3 blames the host's shared data path only when every memory (the four program
+    pages and the tape) shows the same data fault; a short in the program store alone
+    (which leaves no stuck bit) does not."""
+    small = subset(bundles, tmp_path, ["uart_tx.json"])
+    both = {0: {"data_stuck": (17, 1)}, 1: {"data_stuck": (17, 1)}}
+    ok, results, log = run_on(SimChip(mem_faults=both), small)
+    assert not ok and "suspect the shared host data path" in results[-1][2], log
+    ok, results, log = run_on(SimChip(mem_faults={0: {"data_short": (4, 9)}}), small)
+    assert not ok and results[-1][0] == 3, log
+    assert "shared host data path" not in results[-1][2], log

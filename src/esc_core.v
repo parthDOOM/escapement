@@ -21,7 +21,7 @@
  * its tape accesses and pin writes go through the ports here.
  *
  * Pipeline (each stage holds a different context, so no same-context hazards):
- *   F  cycle t   : imem_addr = PC[now mod 4] (combinational); slot valid if the
+ *   F  cycle t   : imem_addr = {page, PC} of ctx (now mod 4) (combinational); slot valid if the
  *                  context is RUNNING during t. SRAM samples the address at E_t.
  *   D  cycle t+1 : imem_rdata valid; registered into p2_insn at E_(t+1).
  *   X  cycle t+2 : p2_insn -> p3_insn at E_(t+2); beside it (v1.6) the decode (d_op,
@@ -52,8 +52,9 @@ module esc_core (
     input  wire [7:0]   pin_od,        // bank A only
     input  wire [3:0]   ctx_bank,      // v1.2: context k's logical pins are bank B
     input  wire [3:0]   ctx_pair,      // v1.7: context k also takes slot k^2 when context k^2 is off
+    input  wire [7:0]   ctx_page,      // v2 (S-A): context k fetches from program page [2k+1:2k]
     // instruction memory
-    output wire [7:0]   imem_addr,
+    output wire [9:0]   imem_addr,     // v2 (S-A): {page, PC}
     output wire         imem_re,       // D-29: this slot's fetch will be used (else no read)
     output wire         imem_free,     // v1.7 (S3): no fetch in this cycle (a host write may go)
     input  wire [31:0]  imem_rdata,
@@ -937,7 +938,9 @@ module esc_core (
                       : x_pc + 8'd1;
   wire        f_chain = x_ok & (nq == fq);           // only a paired context, 2 slots apart
   wire [7:0]  f_pc    = f_chain ? x_npc : c_pc[8*fq +: 8];
-  assign imem_addr = f_pc;
+  // v2 (S-A): the page is the fetching context's. f_chain means nq == fq, so f_pc is always
+  // fq's PC; fq is a register and ctx_page static, so the page bits are off the f_pc path.
+  assign imem_addr = {ctx_page[2*fq +: 2], f_pc};
   wire   f_valid   = run & (c_state[2*fq +: 2] == ST_RUN) & ~(f_chain & d_op_n[I_LDT]);
   // A slot whose context is not RUNNING is never committed (p3v), so its instruction need
   // not be read: a program with one context leaves the program store idle 3 cycles in 4,
@@ -1199,6 +1202,7 @@ module esc_core (
       assume ($stable(pin_od));
       assume ($stable(ctx_bank));
       assume ($stable(ctx_pair));
+      assume ($stable(ctx_page));    // v2 (S-A)
     end
 
   // v1.5 B1-B5: the deadline tests registered in the cycle before a commit are their
@@ -1272,6 +1276,8 @@ module esc_core (
   always @(*) if (rst_n) begin
     assert (!rs_any || !commit_valid);
     assert (!free_q || !imem_re);
+    // v2 (S-A): a context fetches only from its own page
+    if (imem_re) assert (imem_addr[9:8] == ctx_page[2*fq +: 2]);
   end
 `undef ESC_AHEAD
 

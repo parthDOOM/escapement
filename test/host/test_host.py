@@ -64,7 +64,7 @@ async def test_status_and_identity(dut):
     dut.mbx_rx_full.value = 0b0011
     dut.mbx_tx_empty.value = 0b1010
     s = await host.status()
-    assert s["version"] == 9 and not s["host_err"] and not s["running"]
+    assert s["version"] == 10 and not s["host_err"] and not s["running"]
     assert s["irq"] and s["ctx_state"] == 0b10011100
     assert s["rx_full"] == 0b0011 and s["tx_empty"] == 0b1010 and s["irq_pending"] == 0b0101
     dut.running.value = 1
@@ -270,7 +270,7 @@ async def test_unknown_command_and_aborted_frame(dut):
     await spi.xfer(bytes((0x10, 9, 0xDE, 0xAD, 0xBE, 0xEF)), abort_after_bits=8 * 4 + 3)
     assert await host.read_imem(9, 1) == [0x0BADF00D]
     s = await host.status()
-    assert s["version"] == 9 and not s["host_err"] and pulses.start == 0
+    assert s["version"] == 10 and not s["host_err"] and pulses.start == 0
 
 
 @cocotb.test()
@@ -411,3 +411,82 @@ async def test_tape_reads_use_one_cycle_per_word(dut):
     assert await host.read_tape(0, 8) == list(range(8))
     w.cancel()
     assert len(grants) == 10                    # addresses 0-9: one word held, one fetched ahead
+
+
+# ---------------------------------------------------------------- v2 (S-A): program pages
+
+
+@cocotb.test()
+async def test_imem_pages_are_separate(dut):
+    """IMEM_PAGE selects the page WRITE_IMEM and READ_IMEM address: four pages of 256
+    words, each holding its own words; the address wraps inside the page; the tape has no
+    pages."""
+    host, spi, _ = await setup(dut)
+    rng = random.Random(21)
+    pages = [[rng.randrange(1 << 32) for _ in range(256)] for _ in range(4)]
+    for p in (2, 0, 3, 1):
+        await host.imem_page(p)
+        assert int(dut.mem_page.value) == p
+        assert not (await host.write_imem(0, pages[p]))["host_err"]
+    await host.write_tape(0, [0x0BADF00D])
+    for p in (3, 1, 0, 2):
+        await host.imem_page(p)
+        got = await host.read_imem(0, 256)
+        assert got == pages[p], (p, next(i for i in range(256) if got[i] != pages[p][i]))
+        assert await host.read_imem(254, 4) == pages[p][254:] + pages[p][:2]
+    await host.imem_page(1)
+    assert await host.read_tape(0, 1) == [0x0BADF00D]
+    await host.write_imem(255, [0x11111111, 0x22222222])   # wraps to word 0 of page 1
+    assert await host.read_imem(255, 2) == [0x11111111, 0x22222222]
+    await host.imem_page(2)
+    assert await host.read_imem(255, 2) == [pages[2][255], pages[2][0]]
+    await spi.xfer(bytes((0x24, 0x7D)))                     # only bits 1:0
+    assert int(dut.mem_page.value) == 1
+    assert not (await host.status())["host_err"]
+
+
+@cocotb.test()
+async def test_cfg_page_byte(dut):
+    """WRITE_CFG byte 14 sets each context's page; a 9- or 13-byte frame leaves it (0
+    after reset); it is ignored during a run, like the rest of WRITE_CFG."""
+    host, spi, _ = await setup(dut)
+    assert int(dut.ctx_page.value) == 0
+    await host.write_cfg(0b1111, 0, 0, 0, 0, 0, 0, 0b11_10_01_00)
+    assert int(dut.ctx_page.value) == 0b11100100
+    await host.write_cfg(0b0011, 0, 0, 0, 0, 0b0110, 0b0011)          # 13 bytes
+    assert int(dut.ctx_page.value) == 0b11100100 and int(dut.ctx_bank.value) == 0b0110
+    await spi.xfer(bytes((0x12, 0b0001, 1, 2, 3, 4, 0x0F, 0x12, 0x34, 0x00)))   # 9 bytes
+    assert int(dut.ctx_page.value) == 0b11100100
+    await host.write_cfg(0b0001, 0, 0, 0, 0, 0, 0, 0b00_01_10_11)
+    assert int(dut.ctx_page.value) == 0b00011011
+    dut.running.value = 1
+    await host.write_cfg(0b0001, 0, 0, 0, 0, 0, 0, 0xFF)
+    assert int(dut.ctx_page.value) == 0b00011011 and (await host.status())["host_err"]
+
+
+@cocotb.test()
+async def test_imem_page_while_a_word_waits(dut):
+    """IMEM_PAGE during a run is accepted, but refused while a live word waits (the page is
+    part of the waiting word's address): host error, the page unchanged, and the word lands
+    in the page it was aimed at."""
+    host, _, _ = await setup(dut)
+    for p in range(4):
+        await host.imem_page(p)
+        await host.write_imem(7, [0x10101010 * (p + 1)])
+    await host.imem_page(2)
+    dut.running.value = 1
+    await host.imem_page(3)                                 # no word waits: accepted
+    assert int(dut.mem_page.value) == 3 and not (await host.status())["host_err"]
+    dut.tb_free.value = 0
+    await host.write_imem(7, [0xCAFEF00D])
+    assert int(dut.imem_wpend.value)
+    await host.imem_page(1)
+    assert (await host.status())["host_err"] and int(dut.mem_page.value) == 3
+    await host.clear_err()
+    dut.tb_free.value = 1
+    await ClockCycles(dut.clk, 2)
+    assert not int(dut.imem_wpend.value)
+    dut.running.value = 0
+    for p, want in ((3, 0xCAFEF00D), (1, 0x20202020), (2, 0x30303030), (0, 0x10101010)):
+        await host.imem_page(p)
+        assert await host.read_imem(7, 1) == [want], p

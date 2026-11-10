@@ -8,6 +8,8 @@
  * the core's run flag is modelled exactly as esc_core drives it (set the cycle after
  * `start`, cleared after `stop`, start winning). A PASS discharges the core proofs'
  * only environment assumption besides reset. v1.3 adds T1/T2 on the tape port, v1.4 M1.
+ * v2 adds ctx_page (S-A) and ctx_pair, which the core has assumed stable since v1.7, and
+ * P1: the program-store page a waiting live word was aimed at does not move under it.
  * SPDX-License-Identifier: Apache-2.0
  */
 `default_nettype none
@@ -32,7 +34,10 @@ module esc_host_env (
   wire [31:0] entry_pcs;
   wire [12:0] pin_owned;
   wire [7:0]  pin_od;
-  wire [3:0]  ctx_bank;
+  wire [3:0]  ctx_bank, ctx_pair;
+  wire [7:0]  ctx_page;
+  wire [1:0]  mem_page;
+  wire        imem_wpend;
   wire [25:0] pin_owner;
   wire        mem_we, mem_space, tape_req;
   wire [3:0]  rx_push;
@@ -49,9 +54,10 @@ module esc_host_env (
       .clk(clk), .rst_n(rst_n), .cs_n_pin(cs_n_pin), .sck_pin(sck_pin), .mosi_pin(mosi_pin),
       .miso(), .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
+      .ctx_pair(ctx_pair), .ctx_page(ctx_page), .imem_wpend(imem_wpend),
       .irq_clear(),
       .running(run), .ctx_state(ctx_state), .irq_pending(irq_pending),
-      .fault_valid(fault_valid), .mem_we(mem_we), .mem_addr(), .mem_wdata(), .mem_space(mem_space),
+      .fault_valid(fault_valid), .mem_we(mem_we), .mem_addr(), .mem_page(mem_page), .mem_wdata(), .mem_space(mem_space),
       .mem_re(), .mem_rdata(mem_rdata), .tape_req(tape_req), .tape_gnt(tape_gnt),
       .tape_ack(), .tape_ack_v(), .dbg_ctx(), .dbg_sel(), .dbg_rdata(dbg_rdata),
       .mbx_rx_push(rx_push), .mbx_rx_data(rx_data), .mbx_rx_full(mbx_rx_full), .mbx_tx_pop(),
@@ -70,7 +76,12 @@ module esc_host_env (
       assert ($stable(pin_owner));
       assert ($stable(pin_od));
       assert ($stable(ctx_bank));
+      assert ($stable(ctx_pair));
+      assert ($stable(ctx_page));
     end
+  // P1 (v2, S-A) a waiting live word's page does not move under it
+  always @(posedge clk)
+    if (f_past && rst_n && $past(rst_n) && $past(imem_wpend)) assert ($stable(mem_page));
 
   // T1 (v1.3) the host never writes the tape (or the program store) during a run: the
   // core's port then needs no write arbitration, and a capture drain only ever waits
@@ -92,6 +103,7 @@ module esc_host_env (
     cover ($rose(run) && ctx_bank != 4'd0 && pin_owned[12:8] != 5'd0);   // bank B configured
     cover (run && tape_req && tape_gnt);                                  // a read in a run
     cover ($past(rx_push != 4'd0));                                       // a mailbox push
+    cover ($rose(run) && ctx_page == 8'b11_10_01_00);                     // v2: pages set
   end
 endmodule
 `default_nettype wire

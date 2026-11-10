@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p fpga/build
-SRC="src/project.v src/escapement_host.v src/esc_core.v src/esc_ctx.v src/esc_cap.v src/esc_line.v
+SRC="src/project.v src/escapement_host.v src/escapement_pstore.v src/esc_core.v src/esc_ctx.v src/esc_cap.v src/esc_line.v
      src/esc_greg.v src/escapement_art.v fpga/escapement_sram_fpga.v"
 SRC=$(echo $SRC)   # one line: a newline ends a yosys -p command
 for fam in xilinx ecp5 ice40; do

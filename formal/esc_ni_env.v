@@ -8,6 +8,9 @@
  * and CTX_START (so their live reloads), their mailboxes and IRQ clears, and the program
  * words only they fetch. Then j's commits, its architectural state and the pins it owns are
  * equal in both copies, every cycle.
+ * v2 (S-A): the store has four pages and both copies have the same ctx_page. The fetch
+ * address is {page, PC}, so "the words j fetches" are in j's page (ni_page): if no other
+ * context shares j's page, no write outside it changes anything j does.
  *
  * Channels shared by design are equal by construction (the pins, the tape's contents as
  * read data) or excluded: j does not use the capture unit (CAPT, GETC) or the line unit
@@ -41,6 +44,7 @@ module esc_ni_env (
   (* anyconst *) reg [12:0] pin_owned;
   (* anyconst *) reg [25:0] pin_owner;
   (* anyconst *) reg [7:0]  pin_od;
+  (* anyconst *) reg [7:0]  ctx_page;                 // v2 (S-A)
 
   wire [3:0]   jb = 4'd1 << j;
   wire [127:0] jl = 128'hFFFFFFFF << (32 * j);
@@ -52,7 +56,7 @@ module esc_ni_env (
   wire [3:0]   pop_bj    = (pop_a & jb)    | (pop_b & ~jb);
   wire [127:0] pdata_bj  = (pdata_a & jl)  | (pdata_b & ~jl);
 
-  wire [7:0]    ia, ib;
+  wire [9:0]    ia, ib;
   wire          rea, reb;
   wire [1279:0] oa, ob;
   wire [25:0]   pa, pb;
@@ -66,7 +70,7 @@ module esc_ni_env (
   esc_core N ( \
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop), .ctx_stop(CSTOP), .ctx_start(CSTART), \
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs), .pin_owned(pin_owned), .pin_owner(pin_owner), \
-      .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair), \
+      .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair), .ctx_page(ctx_page), \
       .imem_addr(IA), .imem_re(RE), .imem_free(), .imem_rdata(RD), \
       .uio_in(uio_in), .uio_out(), .uio_oe(), .ib_in(ib_in), .ob_out(), \
       .running(), .ctx_state(), .irq_pending(), .fault_valid(), .irq_clear(IRQC), \
@@ -89,7 +93,7 @@ module esc_ni_env (
   // The program store: a word fetched for j at the same address in both copies is the same
   // word (j's words are the same in both); every other read is free in each copy.
   reg       fj_a, fj_b;
-  reg [7:0] fa_a, fa_b;
+  reg [9:0] fa_a, fa_b;
   always @(posedge clk) begin
     fj_a <= rea & (fqa == j); fa_a <= ia;
     fj_b <= reb & (fqb == j); fa_b <= ib;
@@ -119,6 +123,9 @@ module esc_ni_env (
     ni_pins:  assert (((pa ^ pb) & {own_j, own_j}) == 26'd0);
     ni_commit: assert ((cva && cca == j) == (cvb && ccb == j));
     if (cva && cca == j) ni_record: assert ({cpa, cia, coa} == {cpb, cib, cob});
+    // v2 (S-A): every word j fetches is in j's page, in both copies
+    if (fj_a) ni_page: assert (fa_a[9:8] == ctx_page[2*j +: 2]);
+    if (fj_b) ni_page_b: assert (fa_b[9:8] == ctx_page[2*j +: 2]);
   end
 
 `ifdef ESC_NI_IND
@@ -226,7 +233,7 @@ module esc_ni_env (
     if (j_p1) inv_p1: assert (a_p1v == b_p1v && (!a_p1v || a_p1_spc == b_p1_spc));
     // the program-store assumption's records (fj_*, fa_*: last cycle's fetch was j's, at this
     // address) agree with the stage that holds that fetch now
-    if (j_p1 && a_p1v) inv_fetch: assert (fj_a && fj_b && fa_a == a_p1_spc && fa_b == b_p1_spc);
+    if (j_p1 && a_p1v) inv_fetch: assert (fj_a && fj_b && fa_a[7:0] == a_p1_spc && fa_b[7:0] == b_p1_spc);
     // the exclusions hold for j's words in flight too (the assumption above applies at fetch)
     if (j_p2 && a_p2v) inv_op2: assert (ni_ok_op(a_p2_insn[31:24]));
     if (j_p3 && a_p3v) inv_op3: assert (ni_ok_op(a_p3_insn[31:24]));

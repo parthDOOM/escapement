@@ -21,6 +21,7 @@ project:
     - "project.v"
     - "escapement_host.v"
     - "escapement_sram.v"
+    - "escapement_pstore.v"
     - "RM_IHPSG13_1P_256x32_c2_bm_bist.v"
     - "escapement_art.v"
     - "esc_core.v"

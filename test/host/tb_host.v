@@ -30,6 +30,8 @@ module tb_host (
     output wire [7:0] pin_od,
     output wire [3:0] ctx_bank,
     output wire [3:0] ctx_pair,
+    output wire [7:0] ctx_page,      // v2 (S-A)
+    output wire [1:0] mem_page,
     output wire [3:0] irq_clear,
     output wire [1:0] dbg_ctx,
     output wire [4:0] dbg_sel,
@@ -51,7 +53,7 @@ module tb_host (
   wire       imem_wpend;
   reg        tb_free = 1'b1;
   wire       imem_wgnt = imem_wpend & (tb_free | ~running);
-  escapement_sram u_sram (.clk(clk), .rst_n(rst_n), .addr(mem_addr), .re(mem_re & ~mem_space),
+  escapement_pstore u_sram (.clk(clk), .rst_n(rst_n), .addr({mem_page, mem_addr}), .re(mem_re & ~mem_space),
                           .we((mem_we & ~running & ~mem_space) | imem_wgnt),
                           .wdata(mem_wdata), .rdata(imem_rdata));
   // the stand-in core never really accesses the tape: while busy it only holds the port
@@ -63,10 +65,10 @@ module tb_host (
       .clk(clk), .rst_n(rst_n), .cs_n_pin(cs_n), .sck_pin(sck), .mosi_pin(mosi), .miso(miso),
       .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
-      .ctx_pair(ctx_pair), .irq_clear(irq_clear), .ctx_stop(ctx_stop), .ctx_start(ctx_start),
+      .ctx_pair(ctx_pair), .ctx_page(ctx_page), .irq_clear(irq_clear), .ctx_stop(ctx_stop), .ctx_start(ctx_start),
       .imem_wpend(imem_wpend), .imem_wgnt(imem_wgnt),
       .running(running), .ctx_state(ctx_state), .irq_pending(irq_pending), .fault_valid(fault_valid),
-      .mem_we(mem_we), .mem_addr(mem_addr), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata),
+      .mem_we(mem_we), .mem_addr(mem_addr), .mem_page(mem_page), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata),
       .mem_space(mem_space), .mem_re(mem_re),
       .tape_req(tape_req), .tape_gnt(tape_gnt), .tape_ack(tape_ack), .tape_ack_v(tape_ack_v),
       .dbg_ctx(dbg_ctx), .dbg_sel(dbg_sel), .dbg_rdata(dbg_rdata),

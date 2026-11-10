@@ -9,6 +9,7 @@ SRC_DIR = $(PWD)/../src
 PROJECT_SOURCES  = project.v
 PROJECT_SOURCES += escapement_host.v
 PROJECT_SOURCES += escapement_sram.v
+PROJECT_SOURCES += escapement_pstore.v
 PROJECT_SOURCES += $(notdir $(sort $(wildcard $(SRC_DIR)/esc_*.v)))
 
 # SRAM macro simulation models (never synthesised; src/ holds a port-only stub).

@@ -7,7 +7,7 @@ MACRO_DIR = $(PWD)/../../macro/RM_IHPSG13_1P_256x32_c2_bm_bist
 
 SIM_BUILD        = sim_build
 COMPILE_ARGS    += -DFUNCTIONAL
-VERILOG_SOURCES += $(SRC_DIR)/esc_core.v $(SRC_DIR)/esc_ctx.v $(SRC_DIR)/esc_cap.v $(SRC_DIR)/esc_line.v $(SRC_DIR)/esc_greg.v $(SRC_DIR)/escapement_sram.v
+VERILOG_SOURCES += $(SRC_DIR)/esc_core.v $(SRC_DIR)/esc_ctx.v $(SRC_DIR)/esc_cap.v $(SRC_DIR)/esc_line.v $(SRC_DIR)/esc_greg.v $(SRC_DIR)/escapement_sram.v $(SRC_DIR)/escapement_pstore.v
 VERILOG_SOURCES += $(MACRO_DIR)/RM_IHPSG13_1P_core_behavioral_bm_bist.v
 VERILOG_SOURCES += $(MACRO_DIR)/RM_IHPSG13_1P_256x32_c2_bm_bist.v
 VERILOG_SOURCES += $(PWD)/tb_core.v

@@ -16,9 +16,15 @@
  * cycle the core leaves the tape port free (tape_req until tape_gnt) and latched here;
  * a word not fetched by the time it is sent sets host error. TAPE_ACK sets the capture
  * unit's rptr (streaming capture).
+ * v2 (protocol version 10, PAGES = 4): IMEM_PAGE selects the program-store page that
+ * WRITE_IMEM and READ_IMEM address (mem_page), and WRITE_CFG byte 14 sets each context's
+ * page (ctx_page). With PAGES = 1 both are absent (0x24 is an unknown command, byte 14 is
+ * ignored, ctx_page and mem_page stay 0) and the interface is v1.7's, version 9.
  */
 `default_nettype none
-module escapement_host (
+module escapement_host #(
+    parameter integer PAGES = 4    // v2 (S-A): 1 or 4, set in project.v
+) (
     input  wire         clk,
     input  wire         rst_n,
     // SPI pins (asynchronous)
@@ -36,6 +42,7 @@ module escapement_host (
     output reg  [7:0]   pin_od,
     output reg  [3:0]   ctx_bank,
     output reg  [3:0]   ctx_pair,      // v1.7: WRITE_CFG byte 10 bits 7:4
+    output reg  [7:0]   ctx_page,      // v2 (S-A): WRITE_CFG byte 14
     output reg  [3:0]   irq_clear,
     output reg  [3:0]   ctx_stop,      // v1.7 (S3): CTX_STOP strobe, a context mask
     output reg  [3:0]   ctx_start,     // v1.7 (S3): CTX_START strobe, a context mask
@@ -48,6 +55,7 @@ module escapement_host (
     // program memory host port (the top muxes it in while the core is stopped)
     output reg          mem_we,
     output reg  [7:0]   mem_addr,
+    output reg  [1:0]   mem_page,    // v2 (S-A): IMEM_PAGE; the program store only
     output reg  [31:0]  mem_wdata,
     output reg          mem_space,   // v1.1: 0 program store, 1 tape
     output wire         mem_re,      // D-29: a READ_IMEM is in progress
@@ -73,9 +81,11 @@ module escapement_host (
                    C_WRITE_CFG = 8'h12, C_WRITE_TAPE = 8'h13, C_READ_TAPE = 8'h14,
                    C_TAPE_ACK = 8'h15,
                    C_START = 8'h20, C_STOP = 8'h21, C_CTX_STOP = 8'h22, C_CTX_START = 8'h23,
+                   C_IMEM_PAGE = 8'h24,
                    C_READ_DBG = 8'h30, C_MBX_PUSH = 8'h40, C_MBX_POP = 8'h41,
                    C_IRQ_CLEAR = 8'h50, C_CLEAR_ERR = 8'h51, C_IGNORE = 8'hFF;
-  localparam [3:0] VERSION = 4'h9;            // v1.7: WRITE_CFG byte 10 bits 7:4
+  localparam [3:0] VERSION = (PAGES > 1) ? 4'hA   // v2 (S-A): pages
+                                         : 4'h9;  // v1.7: WRITE_CFG byte 10 bits 7:4
 
   // ---------------------------------------------------------------- synchronisers
   reg [1:0] cs_s, sck_s, mosi_s;
@@ -176,7 +186,7 @@ module escapement_host (
       host_err <= 1'b0;
       start <= 1'b0; stop <= 1'b0; irq_clear <= 4'd0;
       ctx_enable <= 4'd0; entry_pcs <= 32'd0; pin_owned <= 13'd0; pin_owner <= 26'd0;
-      pin_od <= 8'd0; ctx_bank <= 4'd0; ctx_pair <= 4'd0;
+      pin_od <= 8'd0; ctx_bank <= 4'd0; ctx_pair <= 4'd0; ctx_page <= 8'd0; mem_page <= 2'd0;
       ctx_stop <= 4'd0; ctx_start <= 4'd0; imem_wpend <= 1'b0;
       mem_we <= 1'b0; mem_addr <= 8'd0; mem_wdata <= 32'd0; mem_space <= 1'b0;
       dbg_ctx <= 2'd0; dbg_sel <= 5'd0;
@@ -218,6 +228,7 @@ module escapement_host (
               C_STATUS, C_WRITE_IMEM, C_READ_IMEM, C_WRITE_CFG, C_READ_DBG,
               C_MBX_PUSH, C_MBX_POP, C_IRQ_CLEAR, C_WRITE_TAPE, C_READ_TAPE, C_TAPE_ACK,
               C_CTX_STOP, C_CTX_START: ;
+              C_IMEM_PAGE: if (PAGES == 1) begin host_err <= 1'b1; cmd <= C_IGNORE; end
               C_START: if (running) host_err <= 1'b1; else start <= 1'b1;
               C_STOP: stop <= 1'b1;
               C_CLEAR_ERR: host_err <= 1'b0;
@@ -288,6 +299,8 @@ module escapement_host (
                   4'd11: pin_owned[12:8]   <= rx_byte[4:0];
                   4'd12: pin_owner[25:24]  <= rx_byte[1:0];
                   4'd13: pin_owner[23:16]  <= rx_byte;
+                  // v2 (S-A); a 9- or 13-byte WRITE_CFG leaves it unchanged
+                  4'd14: if (PAGES > 1) ctx_page <= rx_byte;
                   default: ;
                 endcase
               end
@@ -318,6 +331,11 @@ module escapement_host (
                 end
               end
               C_IRQ_CLEAR: if (idx == 4'd1) irq_clear <= rx_byte[3:0];
+              // v2 (S-A): running or stopped; refused while a live word waits (its page is
+              // part of its address, as for a new address byte)
+              C_IMEM_PAGE: if (idx == 4'd1) begin
+                if (wslot) mem_page <= rx_byte[1:0]; else host_err <= 1'b1;
+              end
               // v1.7 (S3): stop / restart contexts during a run. CTX_START refuses (host error,
               // nothing started) a context that is not enabled or is RUNNING.
               C_CTX_STOP: if (idx == 4'd1) begin

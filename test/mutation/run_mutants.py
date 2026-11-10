@@ -9,6 +9,7 @@ against the copy, cheapest first, and the first that fails kills it:
     esc_*.v            cosim (ISS lockstep), rtl_unit, chip tests, pin tests
     escapement_host.v  host, chip tests, pin tests
     escapement_sram.v  host, cosim, chip tests
+    escapement_pstore.v  host, cosim, chip tests (v2, S-A)
     project.v          chip tests, pin tests
 
 A suite that hangs past its time limit counts as a kill. A mutant that no suite kills is
@@ -467,6 +468,7 @@ PIPELINE = {
     "esc_line.v": ["line", "cosim", "unit", "chip", "pins"],
     "escapement_host.v": ["host", "chip", "pins"],
     "escapement_sram.v": ["host", "cosim", "chip"],
+    "escapement_pstore.v": ["host", "cosim", "chip"],
     "project.v": ["chip", "pins"],
 }
 CORE_PIPELINE = ["cosim", "unit", "chip", "pins"]
@@ -594,8 +596,8 @@ CANARY = {   # suite -> (file, old, new): a fault that suite must catch
     "line": ("esc_line.v", "drv_m = claimed; drv_val = dq_val;", "drv_m = claimed; drv_val = ~dq_val;"),
     "cosim": ("esc_core.v", "w_rd_data = {16'd0, f_imm16};", "w_rd_data = {16'd0, ~f_imm16};"),
     "unit": ("esc_core.v", "w_rd_data = {16'd0, f_imm16};", "w_rd_data = {16'd0, ~f_imm16};"),
-    "host": ("escapement_host.v", "localparam [3:0] VERSION = 4'h9;", "localparam [3:0] VERSION = 4'h8;"),
-    "chip": ("escapement_host.v", "localparam [3:0] VERSION = 4'h9;", "localparam [3:0] VERSION = 4'h8;"),
+    "host": ("escapement_host.v", "localparam [3:0] VERSION = (PAGES > 1) ? 4'hA", "localparam [3:0] VERSION = (PAGES > 1) ? 4'h8"),
+    "chip": ("escapement_host.v", "localparam [3:0] VERSION = (PAGES > 1) ? 4'hA", "localparam [3:0] VERSION = (PAGES > 1) ? 4'h8"),
     "pins": ("project.v", "assign uo_out = {ob_out, running, |irq_pending | fault_valid, miso};",
              "assign uo_out = {ob_out, running, |irq_pending | fault_valid, ~miso};"),
 }

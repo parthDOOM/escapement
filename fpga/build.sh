@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 board=${1:?board: tangnano20k or ulx3s}
 out=fpga/build/$board
 mkdir -p "$out"
-SRC="src/project.v src/escapement_host.v src/esc_core.v src/esc_ctx.v src/esc_cap.v src/esc_line.v
+SRC="src/project.v src/escapement_host.v src/escapement_pstore.v src/esc_core.v src/esc_ctx.v src/esc_cap.v src/esc_line.v
      src/esc_greg.v src/escapement_art.v fpga/escapement_sram_fpga.v fpga/escapement_board.v"
 SRC=$(echo $SRC)   # one line: a newline ends a yosys -p command
 # The layout-art macro (src/escapement_art.v) is a blackbox of metal shapes: no FPGA cell.

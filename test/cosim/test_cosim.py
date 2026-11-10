@@ -12,6 +12,7 @@ COSIM_FIRMWARE (restrict the bus-model test to the named firmware), COSIM_HOST_S
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import random
@@ -40,7 +41,7 @@ async def reset_and_load(dut, image):
     for sig in ("start", "stop", "load_we", "load_space", "load_addr", "load_data", "uio_in",
                 "mbx_rx_push", "mbx_rx_data", "mbx_tx_pop", "dbg_sel_ctx", "dbg_sel", "irq_clear",
                 "ctx_enable", "entry_pcs", "pin_owned", "pin_owner", "pin_od", "ctx_bank", "ctx_pair",
-                "ib_in", "hrd_req", "hrd_addr", "tape_ack", "tape_ack_v"):
+                "ctx_page", "ib_in", "hrd_req", "hrd_addr", "tape_ack", "tape_ack_v"):
         getattr(dut, sig).value = 0
     for _ in range(4):
         await FallingEdge(dut.clk)
@@ -62,6 +63,7 @@ async def reset_and_load(dut, image):
     dut.pin_od.value = image.pin_od_mask
     dut.ctx_bank.value = image.ctx_bank_mask
     dut.ctx_pair.value = image.ctx_pair_mask
+    dut.ctx_page.value = image.ctx_page_packed if len(image.words) == 1024 else 0   # v2 (S-A)
     for _ in range(4):  # uio_in = 0 so both synchroniser stages are 0 at start
         await FallingEdge(dut.clk)
 
@@ -951,3 +953,49 @@ async def test_v17_line_unit_bank_b(dut):
                   f"{len(failures)} mismatching {failures}")
     assert not failures, f"mismatching line unit bank B seeds: {failures} (see {out_dir}/)"
     assert 3 * drove >= seeds, f"only {drove} of {seeds} programs drove bank B"
+
+
+# --------------------------------------------------------------------------- v2 (S-A)
+
+
+def paged_case(seed: int, image):
+    """v2 (S-A): `image` (one page) copied into the pages its contexts are put on, each
+    context on a random page (two contexts may share one), and random words in every page
+    no context uses. A fetch from the wrong page reads a decoy: the RTL then commits what the
+    ISS does not."""
+    rng = random.Random(seed * 104729 + 0xA)
+    pages = [rng.randrange(4) for _ in range(4)]
+    words = [rng.randrange(1 << 32) for _ in range(1024)]
+    for p in set(pages[k] for k in range(4) if image.ctx_enable[k]):
+        words[256 * p:256 * (p + 1)] = image.words
+    out = copy.copy(image)
+    out.words, out.ctx_page = words, pages
+    return out
+
+
+@cocotb.test()
+async def test_v2_pages_random(dut):
+    """v2 (S-A) program pages: progen's programs with each context on its own page of the
+    four-macro store, every other page full of random words, compared tick by tick with the
+    ISS (which fetches imem[256 * page + pc])."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    seeds = int(os.environ.get("COSIM_PAGE_SEEDS", "40"))
+    failures, commits, used = [], 0, set()
+    for seed in range(1, 1 + 3 * seeds, 3):
+        try:
+            one = assemble(gen_program(seed))
+        except AsmError:
+            continue
+        image = paged_case(seed, one)
+        used |= {image.ctx_page[k] for k in range(4) if image.ctx_enable[k]}
+        errs, m = await cosim_one(dut, f"page{seed}", image, make_board(seed),
+                                  board_b=make_board_b(seed))
+        commits += len(m.commits)
+        if errs:
+            failures.append(seed)
+            if len(failures) >= 5:
+                break
+    dut._log.info(f"pages: {seeds} programs, {commits} commits, pages used {sorted(used)}, "
+                  f"{len(failures)} mismatching {failures}")
+    assert used == {0, 1, 2, 3}, used
+    assert not failures, f"mismatching seeds: {failures}"
