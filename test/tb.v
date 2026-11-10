@@ -24,6 +24,11 @@ module tb ();
   end
 `endif
 
+`ifdef SDF_FILE
+  // Gate-level timing (test/Makefile, SDF=...): back-annotate the harden's delays.
+  initial $sdf_annotate(`SDF_FILE, user_project);
+`endif
+
   // Wire up the inputs and outputs:
   reg clk;
   reg rst_n;

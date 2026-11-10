@@ -35,8 +35,18 @@ else
 # Gate level simulation:
 SIM_BUILD				= sim_build/gl
 COMPILE_ARGS    += -DGL_TEST
-COMPILE_ARGS    += -DFUNCTIONAL
 COMPILE_ARGS    += -DSIM
+ifeq ($(SDF),)
+COMPILE_ARGS    += -DFUNCTIONAL
+else
+# With delays (campaign row 18): SDF=<file from a harden's final/sdf/<corner>/>. The cells'
+# and the SRAM model's specify blocks take the SDF's delays (-gspecify); the SRAM model's
+# delays are in its non-FUNCTIONAL branch, so FUNCTIONAL is not set. Icarus applies delays
+# but does not report timing-check violations: a setup failure shows as a wrong value the
+# tests see. CLK_NS (test.py) sets the clock, for the overclocked control.
+SIM_BUILD				= sim_build/gl_sdf
+COMPILE_ARGS    += -gspecify -DSDF_FILE=\"$(abspath $(SDF))\"
+endif
 VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_io/verilog/sg13cmos5l_io.v
 VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/sg13cmos5l_stdcell.v
 # Flop models instantiate UDPs (ihp_dff_r, ...) defined here; the template omits it
