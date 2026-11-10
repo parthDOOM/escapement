@@ -1152,10 +1152,10 @@ module esc_core #(
     endcase
   end
   // ------------------------------------------------------------------ tripwires (v2, S-C)
-  // Twelve proved invariants, watched in silicon. Bit i sets on the first edge its invariant
-  // is seen broken and holds until reset; debug select 27 reads them. Nothing else reads tw,
+  // Twelve proved invariants, watched in silicon. Bit i sets one edge after the first edge its
+  // invariant is seen broken and holds until reset; debug select 27 reads them. Nothing else reads tw,
   // so behaviour, NI and the digest are untouched. The bank is clocked only when a monitor
-  // fires (esc_greg, en = |tw_v): never, in a correct chip. Each monitor is its property's
+  // fires (esc_greg, en = |tw_q, the monitors one edge late): never, in a correct chip. Each monitor is its property's
   // negation, written from the same nets (the formal section below); the `tw` task of
   // esc_core.sby proves that the properties imply tw == 0. docs/04 has the table.
   reg  [3:0] tw_cnt, tw_flt;            // per context: FIFO over 4; FAULTED yet driving
@@ -1182,7 +1182,15 @@ module esc_core #(
   wire [11:0] tw;
   generate
     if (TRIPWIRES != 0) begin : g_tw
-      esc_greg #(12) u_tw (.clk(clk), .rst_n(rst_n), .en(|tw_v), .d(tw | tw_v), .q(tw));
+      // The monitors read the ends of the core's longest paths (the line unit's owner
+      // fields, pin_oe, uio_out), so they are registered first and the bank sets one edge
+      // later: at 8x4 the 12-input OR into the bank's clock gate was a -1.42 ns gating
+      // check (T1 harden, 11-10). A tripwire is sticky, so the cycle costs nothing.
+      reg [11:0] tw_q;
+      always @(posedge clk or negedge rst_n)
+        if (!rst_n) tw_q <= 12'd0;
+        else        tw_q <= tw_v;
+      esc_greg #(12) u_tw (.clk(clk), .rst_n(rst_n), .en(|tw_q), .d(tw | tw_q), .q(tw));
     end else begin : g_no_tw
       assign tw = 12'd0;
       wire _unused_tw = &{tw_v, 1'b0};

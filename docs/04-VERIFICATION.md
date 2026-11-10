@@ -195,10 +195,12 @@ step.
 ### Proof tripwires (v2)
 
 Twelve of the proved invariants are also watched in silicon. A 12-bit register `tw`
-(`esc_core.v`, debug select 27) has one bit per invariant. Bit i sets on the first clock
-edge at which its invariant is seen broken, and holds until reset. The proofs say every
-bit stays 0, so a set bit on a real chip is a broken invariant, named. The bank is a
-clock-gated `esc_greg` enabled only when a monitor fires, so in a correct chip it is never
+(`esc_core.v`, debug select 27) has one bit per invariant. Bit i sets one clock edge after
+the first edge at which its invariant is seen broken, and holds until reset. The proofs say
+every bit stays 0, so a set bit on a real chip is a broken invariant, named. The monitors
+are registered first (`tw_q`): they read the ends of the core's longest paths, and at 8x4
+their OR into the bank's clock gate missed timing by 1.42 ns. The bank is a clock-gated
+`esc_greg` enabled only when a registered monitor fires, so in a correct chip it is never
 clocked. Nothing but select 27 reads `tw`, so behaviour, non-interference and the digest
 are untouched. The switch `TRIPWIRES = 0` in `project.v` removes it.
 
