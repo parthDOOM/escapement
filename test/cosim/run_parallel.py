@@ -23,10 +23,24 @@ HERE = Path(__file__).resolve().parent
 # One job per fixed test: cocotb puts the filter into a shell command unquoted, so a
 # regex alternation ("a|b") would become a pipe. The bus-model test runs one job per
 # firmware (COSIM_FIRMWARE), since it is the longest.
-FIXED = ["test_directed_firmware", "test_v11_directed", "test_v12_bank_b",
-         "test_v13_host_reads_during_runs", "test_v13_streaming_capture", "test_v14_line_unit"]
 BUS = "test_firmware_with_bus_models"
 RANDOM = "test_random_programs"
+
+
+def cocotb_tests() -> list[str]:
+    """Every @cocotb.test() in test_cosim.py, in file order (read from the source, as
+    firmware_cases does). Until 11-10 this was a hand-kept list, and three v1.7 tests
+    (test_pair_random, test_v17_live_reload, test_v17_line_unit_bank_b) were never added:
+    `make cosim-parallel`, which CI runs, skipped them while `make cosim` ran them."""
+    src = (HERE / "test_cosim.py").read_text()
+    found = re.findall(r"^@cocotb\.test\(\)\n(?:@[^\n]*\n)*async def (test_\w+)\(", src, re.M)
+    if len(found) != src.count("@cocotb.test("):     # a decorator this pattern misses
+        raise SystemExit("run_parallel: %d @cocotb.test decorators, %d tests recognised"
+                         % (src.count("@cocotb.test("), len(found)))
+    return found
+
+
+FIXED = [t for t in cocotb_tests() if t not in (BUS, RANDOM)]
 
 
 def firmware_cases() -> list[str]:
