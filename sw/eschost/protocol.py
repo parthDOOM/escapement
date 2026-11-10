@@ -11,6 +11,8 @@ STATUS, WRITE_IMEM, READ_IMEM, WRITE_CFG = 0x00, 0x10, 0x11, 0x12
 WRITE_TAPE, READ_TAPE, TAPE_ACK = 0x13, 0x14, 0x15
 START, STOP, READ_DBG, MBX_PUSH, MBX_POP = 0x20, 0x21, 0x30, 0x40, 0x41
 CTX_STOP, CTX_START = 0x22, 0x23    # v1.7 (S3): live reload of one context
+IMEM_PAGE = 0x24                    # v2 (S-A): the program-store page WRITE/READ_IMEM use
+PAGES_VERSION = 0xA                 # v2 (S-A): the first protocol version with pages
 IRQ_CLEAR, CLEAR_ERR = 0x50, 0x51
 
 
@@ -38,6 +40,19 @@ def check_pair(image, st):
     if getattr(image, "ctx_pair_mask", 0) and st["version"] < 9:
         raise IOError("image uses pair mode, chip reports protocol version %d (needs 9)"
                       % st["version"])
+
+
+def is_paged(image):
+    """v2 (S-A): an image of four pages (1,024 words)."""
+    return len(image.words) > 256
+
+
+def check_pages(image, st):
+    """v2: a paged image needs a chip with pages (protocol version 10); an older chip has
+    one page and would run every context from it."""
+    if is_paged(image) and st["version"] < PAGES_VERSION:
+        raise IOError("image uses program pages, chip reports protocol version %d (needs %d)"
+                      % (st["version"], PAGES_VERSION))
 
 
 def plan_status():
@@ -98,16 +113,28 @@ def stream_chunks(base, lim, rptr, ptr):
     return runs
 
 
-def plan_write_cfg(ctx_enable, entry_pcs, pin_owned, pin_owner, pin_od, ctx_bank=0, ctx_pair=0):
+def plan_write_cfg(ctx_enable, entry_pcs, pin_owned, pin_owner, pin_od, ctx_bank=0, ctx_pair=0,
+                   ctx_page=None):
     # Always the 13-byte v1.2 frame: a v1.1 chip ignores bytes after the ninth, and a
     # v1.2 chip never keeps a previous program's bank B settings. v1.7: byte 10 bits 7:4 are
-    # the pair-mode contexts (an older chip ignores them).
+    # the pair-mode contexts (an older chip ignores them). v2 (S-A): byte 14, the contexts'
+    # pages, when ctx_page is given: load() gives it to every chip with pages, so none keeps
+    # a previous program's pages, and an older chip's frame is unchanged.
     e = entry_pcs
-    return bytes((WRITE_CFG, ctx_enable & 0xF, e & 0xFF, (e >> 8) & 0xFF, (e >> 16) & 0xFF,
+    frame = bytes((WRITE_CFG, ctx_enable & 0xF, e & 0xFF, (e >> 8) & 0xFF, (e >> 16) & 0xFF,
                   (e >> 24) & 0xFF, pin_owned & 0xFF, (pin_owner >> 8) & 0xFF,
                   pin_owner & 0xFF, pin_od & 0xFF,
                   (ctx_bank & 0xF) | (ctx_pair & 0xF) << 4, (pin_owned >> 8) & 0x1F, (pin_owner >> 24) & 0x3,
-                  (pin_owner >> 16) & 0xFF)), _st
+                  (pin_owner >> 16) & 0xFF))
+    if ctx_page is not None:
+        frame += bytes((ctx_page & 0xFF,))
+    return frame, _st
+
+
+def plan_imem_page(page):
+    # v2 (S-A): the page the following WRITE_IMEM and READ_IMEM address (refused while a
+    # live word waits, as a new address is)
+    return bytes((IMEM_PAGE, page & 3)), _st
 
 
 def plan_start():
@@ -167,7 +194,32 @@ PLANS = {
     "irq_clear": plan_irq_clear, "clear_err": plan_clear_err,
     "write_tape": plan_write_tape, "read_tape": plan_read_tape,
     "tape_ack": plan_tape_ack, "ctx_stop": plan_ctx_stop, "ctx_start": plan_ctx_start,
+    "imem_page": plan_imem_page,
 }
+
+
+def page_loads(image):
+    """[(page or None, first word, words)]: what load() writes. A 256-word image is one
+    write at 0 with no IMEM_PAGE (as on every older chip); a paged one is one write per
+    page holding code, each after IMEM_PAGE."""
+    if not is_paged(image):
+        return [(None, 0, image.words[:image_extent(image)])]
+    out = []
+    for p in range(4):
+        words = image.words[256 * p:256 * (p + 1)]
+        n = 0
+        for i, w in enumerate(words):
+            if w:
+                n = i + 1
+        if n:
+            out.append((p, 256 * p, words[:n]))
+    return out
+
+
+def reload_writes(paged, runs):
+    """[(page or None, address in the page, words)] for reload's runs (store addresses
+    from eschost.live.plan_reload, where a run never crosses a page)."""
+    return [((a >> 8) if paged else None, a & 0xFF, w) for a, w in runs]
 
 
 def tape_extent(image):
@@ -203,14 +255,22 @@ class Host:
         return run
 
     def load(self, image, verify=True):
-        check_pair(image, self.stop())
-        n = image_extent(image)
-        self.write_imem(0, image.words[:n])
-        if verify:
-            got = self.read_imem(0, n)
-            bad = [i for i in range(n) if got[i] != image.words[i]]
-            if bad:
-                raise IOError("IMEM verify failed at words %s" % bad[:8])
+        st = self.stop()
+        check_pair(image, st)
+        check_pages(image, st)
+        n = 0
+        for page, base, words in page_loads(image):
+            if page is not None:
+                self.imem_page(page)
+            self.write_imem(0, words)
+            if verify:
+                got = self.read_imem(0, len(words))
+                bad = [base + i for i in range(len(words)) if got[i] != words[i]]
+                if bad:
+                    raise IOError("IMEM verify failed at words %s" % bad[:8])
+            n += len(words)
+        if is_paged(image):
+            self.imem_page(0)
         t0, tn = tape_extent(image)
         if tn:
             self.write_tape(t0, image.tape[t0:t0 + tn])
@@ -218,10 +278,12 @@ class Host:
                 raise IOError("tape verify failed")
         self.write_cfg(image.ctx_enable_mask, image.entry_pcs_packed, image.pin_owned_mask,
                        image.pin_owner_packed, image.pin_od_mask,
-                       getattr(image, "ctx_bank_mask", 0), getattr(image, "ctx_pair_mask", 0))
+                       getattr(image, "ctx_bank_mask", 0), getattr(image, "ctx_pair_mask", 0),
+                       getattr(image, "ctx_page_packed", 0) if st["version"] >= PAGES_VERSION
+                       else None)
         return n
 
-    def reload(self, ctx, runs):
+    def reload(self, ctx, runs, paged=False):
         """v1.7 (S3) live reload of context ctx during a run: CTX_STOP, the program words
         `runs` ([(addr, [words])], from eschost.live.plan_reload, which checks they are
         certified and touch no word a running context can reach), CTX_START. The chip
@@ -232,8 +294,12 @@ class Host:
         if not st["running"]:
             raise IOError("reload needs a running chip (load() while stopped)")
         self.ctx_stop(1 << ctx)
-        for addr, words in runs:
+        for page, addr, words in reload_writes(paged, runs):
+            if page is not None:
+                self.imem_page(page)
             self.write_imem(addr, words)
+        if paged:
+            self.imem_page(0)
         self.ctx_start(1 << ctx)
         if self.clear_err()["host_err"]:
             raise IOError("reload of context %d: the chip reported a host error" % ctx)
@@ -275,14 +341,22 @@ class AsyncHost:
         return run
 
     async def load(self, image, verify=True):
-        check_pair(image, await self.stop())
-        n = image_extent(image)
-        await self.write_imem(0, image.words[:n])
-        if verify:
-            got = await self.read_imem(0, n)
-            bad = [i for i in range(n) if got[i] != image.words[i]]
-            if bad:
-                raise IOError("IMEM verify failed at words %s" % bad[:8])
+        st = await self.stop()
+        check_pair(image, st)
+        check_pages(image, st)
+        n = 0
+        for page, base, words in page_loads(image):
+            if page is not None:
+                await self.imem_page(page)
+            await self.write_imem(0, words)
+            if verify:
+                got = await self.read_imem(0, len(words))
+                bad = [base + i for i in range(len(words)) if got[i] != words[i]]
+                if bad:
+                    raise IOError("IMEM verify failed at words %s" % bad[:8])
+            n += len(words)
+        if is_paged(image):
+            await self.imem_page(0)
         t0, tn = tape_extent(image)
         if tn:
             await self.write_tape(t0, image.tape[t0:t0 + tn])
@@ -291,16 +365,22 @@ class AsyncHost:
         await self.write_cfg(image.ctx_enable_mask, image.entry_pcs_packed,
                              image.pin_owned_mask, image.pin_owner_packed, image.pin_od_mask,
                              getattr(image, "ctx_bank_mask", 0),
-                             getattr(image, "ctx_pair_mask", 0))
+                             getattr(image, "ctx_pair_mask", 0),
+                             getattr(image, "ctx_page_packed", 0)
+                             if st["version"] >= PAGES_VERSION else None)
         return n
 
-    async def reload(self, ctx, runs):
+    async def reload(self, ctx, runs, paged=False):
         """As Host.reload."""
         if not (await self.status())["running"]:
             raise IOError("reload needs a running chip (load() while stopped)")
         await self.ctx_stop(1 << ctx)
-        for addr, words in runs:
+        for page, addr, words in reload_writes(paged, runs):
+            if page is not None:
+                await self.imem_page(page)
             await self.write_imem(addr, words)
+        if paged:
+            await self.imem_page(0)
         await self.ctx_start(1 << ctx)
         if (await self.clear_err())["host_err"]:
             raise IOError("reload of context %d: the chip reported a host error" % ctx)

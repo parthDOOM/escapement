@@ -26,6 +26,7 @@ Unused memory is filled with 0x00000000, which is ILLEGAL, so stray fetches trap
 from __future__ import annotations
 
 import ast
+import copy
 import json
 import re
 from dataclasses import dataclass, field
@@ -82,6 +83,9 @@ class Image:
     ctx_bank: list[bool] = field(default_factory=lambda: [False] * 4)
     # v1.7: contexts that also take their partner's slot (context k ^ 2, which is off)
     ctx_pair: list[bool] = field(default_factory=lambda: [False] * 4)
+    # v2 (S-A program pages): the 256-word page of the 1,024-word program store each
+    # context fetches from. An image of 256 words is page 0 alone (every context on it).
+    ctx_page: list[int] = field(default_factory=lambda: [0] * 4)
 
     def __post_init__(self) -> None:
         # images from v1.1 tools describe 8 pins; bank B pins are then unowned
@@ -118,6 +122,11 @@ class Image:
         return sum(1 << k for k, p in enumerate(self.ctx_pair) if p)
 
     @property
+    def ctx_page_packed(self) -> int:
+        """WRITE_CFG byte 14: bits 2k+1:2k are context k's page."""
+        return sum((p & 3) << (2 * k) for k, p in enumerate(self.ctx_page))
+
+    @property
     def uses_bank_b(self) -> bool:
         return any(self.ctx_bank) or any(self.pin_owned[8:])
 
@@ -126,7 +135,8 @@ class Image:
             "words": [f"{w:08x}" for w in self.words],
             "entry_pcs": self.entry_pcs, "ctx_enable": self.ctx_enable,
             "pin_owned": self.pin_owned, "pin_owner": self.pin_owner, "pin_od": self.pin_od,
-            "ctx_bank": self.ctx_bank, "ctx_pair": self.ctx_pair, "symbols": self.symbols, "used_words": self.used_words,
+            "ctx_bank": self.ctx_bank, "ctx_pair": self.ctx_pair, "ctx_page": self.ctx_page,
+            "symbols": self.symbols, "used_words": self.used_words,
             "tape": {f"{a}": f"{self.tape[a]:08x}" for a in self.tape_used},
         }, indent=1)
 
@@ -139,7 +149,64 @@ class Image:
         return cls([int(w, 16) for w in d["words"]], d["entry_pcs"], d["ctx_enable"],
                    d["pin_owned"], d["pin_owner"], d["pin_od"], d.get("symbols", {}),
                    [], d.get("used_words", 0), tape, sorted(int(a) for a in d.get("tape", {})),
-                   d.get("ctx_bank", [False] * 4), d.get("ctx_pair", [False] * 4))
+                   d.get("ctx_bank", [False] * 4), d.get("ctx_pair", [False] * 4),
+                   d.get("ctx_page", [0] * 4))
+
+
+PAGE_WORDS, PAGES = 256, 4
+
+
+def page_view(image: Image, ctx: int) -> Image:
+    """The 256-word program context ctx fetches (its page), with the image's configuration:
+    what a context sees, so escert and the reload checks analyse it unchanged. A 256-word
+    image is its own view."""
+    if len(image.words) == PAGE_WORDS:
+        return image
+    p = image.ctx_page[ctx]
+    v = copy.copy(image)
+    v.words = list(image.words[PAGE_WORDS * p:PAGE_WORDS * (p + 1)])
+    v.ctx_page = [0] * PAGES
+    return v
+
+
+def paged(pages: dict[int, Image]) -> Image:
+    """One 1,024-word image from up to four 256-word images, image `pages[p]` in page p.
+    Every context an image enables fetches from that image's page (a combined image's
+    contexts share it). Refused: a context enabled by two images, a pin owned by two, a tape
+    word set differently by two, a page out of range."""
+    words = [0] * (PAGE_WORDS * PAGES)
+    entry, enable, page = [0] * 4, [False] * 4, [0] * 4
+    owned, owner, od = [False] * 13, [0] * 13, [False] * 8
+    bank, pair, tape, tape_used = [False] * 4, [False] * 4, [0] * 256, set()
+    used = 0
+    for p, img in sorted(pages.items()):
+        if not 0 <= p < PAGES:
+            raise ValueError(f"page {p} out of range 0..{PAGES - 1}")
+        if len(img.words) != PAGE_WORDS:
+            raise ValueError(f"page {p}: an image of {len(img.words)} words (256 expected)")
+        words[PAGE_WORDS * p:PAGE_WORDS * (p + 1)] = [w & 0xFFFFFFFF for w in img.words]
+        used += img.used_words
+        for k in range(4):
+            if not img.ctx_enable[k]:
+                continue
+            if enable[k]:
+                raise ValueError(f"context {k} is enabled by two images (pages {page[k]} and {p})")
+            enable[k], entry[k], page[k] = True, img.entry_pcs[k], p
+            bank[k], pair[k] = bool(img.ctx_bank[k]), bool(img.ctx_pair[k])
+        for i in range(13):
+            if img.pin_owned[i]:
+                if owned[i]:
+                    raise ValueError(f"pin {i} is owned by two images")
+                owned[i], owner[i] = True, img.pin_owner[i]
+                if i < 8:
+                    od[i] = bool(img.pin_od[i])
+        for a in img.tape_used:
+            if a in tape_used and tape[a] != img.tape[a]:
+                raise ValueError(f"tape word {a} is set differently by two images")
+            tape[a] = img.tape[a]
+            tape_used.add(a)
+    return Image(words, entry, enable, owned, owner, od, {}, [], used, tape,
+                 sorted(tape_used), bank, pair, page)
 
 
 _ALLOWED_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant, ast.Name,

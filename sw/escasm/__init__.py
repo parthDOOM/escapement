@@ -5,7 +5,8 @@ live in docs/11-SEMANTICS.md and are implemented independently by the ISS and RT
 """
 
 from .isa import ISA, load_isa
-from .asm import AsmError, Image, assemble, assemble_file
+from .asm import PAGE_WORDS, PAGES, AsmError, Image, assemble, assemble_file, page_view, paged
 from .disasm import disassemble
 
-__all__ = ["ISA", "load_isa", "AsmError", "Image", "assemble", "assemble_file", "disassemble"]
+__all__ = ["ISA", "load_isa", "AsmError", "Image", "assemble", "assemble_file", "disassemble",
+           "PAGE_WORDS", "PAGES", "page_view", "paged"]

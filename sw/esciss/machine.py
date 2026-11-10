@@ -304,12 +304,16 @@ class _Done(Exception):
 class Machine:
     def __init__(self, image: Image, board: Optional[Board] = None,
                  board_b: Optional[BoardB] = None):
-        if len(image.words) != 256:
-            raise ValueError("image must have 256 words")
+        if len(image.words) not in (256, 1024):
+            raise ValueError("image must have 256 words (one page) or 1024 (four pages)")
         self.image = image
         self.board: Board = board or default_board
         self.board_b: BoardB = board_b or no_board_b
-        self.imem = [w & M32 for w in image.words]
+        # v2 (S-A): a 1,024-word program store of four 256-word pages; context k fetches from
+        # page ctx_page[k]. A 256-word image is page 0, with every context on it.
+        self.imem = [w & M32 for w in image.words] + [0] * (1024 - len(image.words))
+        self.ctx_page = ([p & 3 for p in getattr(image, "ctx_page", [0] * N_CTX)]
+                         if len(image.words) == 1024 else [0] * N_CTX)
         # §4 v1.1: the tape is not reset and not cleared by start; it starts with the
         # image's host-loaded contents (WRITE_TAPE before START).
         self.tape = [w & M32 for w in getattr(image, "tape", [0] * TAPE_WORDS)]
@@ -426,10 +430,11 @@ class Machine:
         self._ctx_start |= mask & 0xF & sum(1 << k for k in range(N_CTX)
                                             if self.ctx_enable[k] and self.ctx[k].state != RUNNING)
 
-    def imem_write(self, addr: int, word: int) -> None:
+    def imem_write(self, addr: int, word: int, page: int = 0) -> None:
         """v1.7 (S3) a program word written during a run (the chip writes it in a cycle with
-        no fetch); fetches from the next cycle on read it."""
-        self.imem[addr & 0xFF] = word & M32
+        no fetch); fetches from the next cycle on read it. v2 (S-A): into page `page` (the
+        host's IMEM_PAGE), at addr mod 256."""
+        self.imem[256 * (page & 3) + (addr & 0xFF)] = word & M32
 
     def _first_slot(self, k: int) -> int:
         """v1.7: the first of context k's slots in a frame (k, or min(k, k^2) when paired)."""
@@ -650,7 +655,7 @@ class Machine:
                 pc = x.pc
             else:
                 pc = (x.pc + 1) & 0xFF
-        x.inflight.append(InFlight(pc, self.imem[pc], t + 3))
+        x.inflight.append(InFlight(pc, self.imem[256 * self.ctx_page[k] + pc], t + 3))
 
     # ------------------------------------------------------------------ edge E_t
 

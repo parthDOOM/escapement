@@ -44,7 +44,7 @@ after b within the half-range horizon"). `reached(t, d)` means `(t - d) mod 2^32
 | Name | Value |
 | --- | --- |
 | Contexts | 4 (k = 0..3) |
-| Instruction memory | 256 words × 32 bits, single port, shared |
+| Instruction memory | 1,024 words × 32 bits in four pages of 256 (v2, S-A), single port, shared; a context fetches only from its own page (§3) |
 | Event FIFO depth | 4 entries per context |
 | Protocol pins | 13: bank A, 8 bidirectional (`uio[7:0]`); bank B (v1.2), 5 split pins (out `uo_out[7:3]`, in `ui_in[7:3]`) |
 | Pins per context | 8 logical pins, mapped onto the context's bank (§5) |
@@ -111,7 +111,10 @@ commits every 2 ticks while its instructions complete, commits 4 ticks after an 
 instruction every 4 ticks, as an unpaired context does, and a waiting HALT every 2.
 
 **Instruction memory interface.** In fetch cycle t the machine presents
-`imem_addr` = the fetch address. The memory returns `imem_rdata = IMEM[imem_addr]`
+`imem_addr` = `{ctx_page[k], the fetch address}`, k being the context that fetches in
+cycle t (v2, S-A: the 8-bit PC selects a word in the context's page; branch targets,
+`RET` and every encoding are unchanged). With every `ctx_page` 0, as after reset, this is
+the v1.7 machine on page 0. The memory returns `imem_rdata = IMEM[imem_addr]`
 during cycle t+1 (synchronous read registered at E_t). IMEM is never written during a
 run.
 
@@ -143,7 +146,8 @@ written only by STT, the capture unit and the host while stopped), the capture u
 (§6.5), the line unit (§6.6), the execution digest `dg` (§10.1), and configuration
 (static during a run):
 `ctx_enable[3:0]`, `entry_pc[k]`, `pin_owned[12:0]`, `pin_owner[p]` (2 b each),
-`pin_od[7:0]`, `ctx_bank[3:0]` (v1.2), `ctx_pair[3:0]` (v1.7, §3).
+`pin_od[7:0]`, `ctx_bank[3:0]` (v1.2), `ctx_pair[3:0]` (v1.7, §3), `ctx_page[k]` (2 b
+each, v2, §3).
 
 ## 5. Pins
 
@@ -863,8 +867,8 @@ bank B (`ob` stays 0x1F) produces the same digest as on 1.1.0.
 - Clock and control: `clk`, `rst_n`, `start`, `stop`.
 - Configuration: `ctx_enable[3:0]`, `entry_pcs[31:0]` (ctx k at [8k+7:8k]),
   `pin_owned[12:0]`, `pin_owner[25:0]` (pin p at [2p+1:2p]), `pin_od[7:0]`,
-  `ctx_bank[3:0]` (v1.2).
-- Instruction memory: `imem_addr[7:0]` out, `imem_rdata[31:0]` in.
+  `ctx_bank[3:0]` (v1.2), `ctx_page[7:0]` (v2, ctx k at [2k+1:2k]).
+- Instruction memory: `imem_addr[9:0]` out (v2; `[7:0]` before), `imem_rdata[31:0]` in.
 - Pins: `uio_in[7:0]`, `uio_out[7:0]`, `uio_oe[7:0]`; bank B (v1.2) `ib_in[4:0]`
   (`ui_in[7:3]`) and `ob_out[4:0]` (`uo_out[7:3]`).
 - Status: `running`, `ctx_state[7:0]` (2 bits per context, encoded as in sel 7),

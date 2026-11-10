@@ -68,7 +68,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Optional
 
-from escasm import Image, load_isa
+from escasm import Image, load_isa, page_view
 
 ISA = load_isa()
 INF = float("inf")
@@ -462,7 +462,9 @@ def _writes(name: str, f: dict) -> Optional[int]:
 def _reach(image: Image, ctx: int, stop=None) -> set:
     """Instructions reachable in the control-flow graph (every branch both ways, RET to
     every CALL's return address). With `stop(name, f)`, instructions after one that stops
-    are not followed (the stopping instruction itself is reached)."""
+    are not followed (the stopping instruction itself is reached). v2 (S-A): within the
+    context's own page, the only words it can fetch."""
+    image = page_view(image, ctx)
     rets = {pc + 1 for pc, w in enumerate(image.words) if _decode(w)[0] == "CALL"}
     seen, todo = set(), [image.entry_pcs[ctx]]
     while todo:
@@ -503,6 +505,7 @@ def _reads(name: str, f: dict) -> set:
 def _liveness(image: Image, ctx: int) -> dict:
     """Registers live on entry to each reachable instruction (read before written on
     some path). A dead register cannot affect anything, so the analysis forgets it."""
+    image = page_view(image, ctx)
     reach = _reach(image, ctx)
     code = {pc: _decode(image.words[pc]) for pc in reach}
     rets = [pc + 1 for pc, (n, _) in code.items() if n == "CALL"]
@@ -527,6 +530,7 @@ def _loop_heads(image: Image, ctx: int) -> set:
     """Targets of back edges in a depth-first walk of the control-flow graph. Every
     cycle contains one, so widening only there still makes the analysis terminate,
     and joins elsewhere stay exact."""
+    image = page_view(image, ctx)
     reach = _reach(image, ctx)
     code = {pc: _decode(image.words[pc]) for pc in reach}
     rets = [pc + 1 for pc, (n, _) in code.items() if n == "CALL"]
@@ -550,11 +554,13 @@ def _loop_heads(image: Image, ctx: int) -> set:
 
 
 def _uses_line(image: Image, ctx: int) -> bool:
+    image = page_view(image, ctx)
     return any(_decode(image.words[pc])[0] in LINE_OPS for pc in _reach(image, ctx))
 
 
 def _fixed_regs(image: Image, ctx: int) -> set:
     """Registers no reachable instruction of the context writes: they hold 0 (sec. 9)."""
+    image = page_view(image, ctx)
     written = {_writes(*_decode(image.words[pc])) for pc in _reach(image, ctx)}
     return {r for r in range(4) if r not in written}
 
@@ -569,9 +575,10 @@ def const_tape(image: Image) -> dict:
     for k, en in enumerate(image.ctx_enable):
         if not en:
             continue
-        fixed = _fixed_regs(image, k)
-        for pc in _reach(image, k):
-            name, f = _decode(image.words[pc])
+        vk = page_view(image, k)                 # v2 (S-A): context k's page
+        fixed = _fixed_regs(vk, k)
+        for pc in _reach(vk, k):
+            name, f = _decode(vk.words[pc])
             if name == "CAPT":
                 return {}
             if name == "STT":
@@ -597,9 +604,10 @@ def const_tape_before_stores(image: Image, ctx: int) -> tuple:
     for k, en in enumerate(image.ctx_enable):
         if not en:
             continue
-        fixed = _fixed_regs(image, k)
-        for pc in _reach(image, k):
-            name, f = _decode(image.words[pc])
+        vk = page_view(image, k)                 # v2 (S-A): context k's page
+        fixed = _fixed_regs(vk, k)
+        for pc in _reach(vk, k):
+            name, f = _decode(vk.words[pc])
             if name == "CAPT" or (name == "STT" and f["rb"] not in fixed and k != ctx):
                 return {}, set()
             if name == "STT" and f["rb"] in fixed:
@@ -672,6 +680,8 @@ def _port_waits(lu: str) -> list:
 
 
 def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
+    full = image                           # v2 (S-A): checks across contexts
+    image = page_view(image, ctx)          # the 256 words ctx fetches
     words = image.words
     z0 = Zone()
     # Context k fetches first in run cycle k and commits at tick k + 3 (sec. 3), while
@@ -696,9 +706,9 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
         tracked |= {_decode(image.words[pc])[1]["rb"] for pc in _reach(image, ctx)
                     if _decode(image.words[pc])[0] == "LDT"}
     fixed = _fixed_regs(image, ctx)
-    consts = const_tape(image) if lu_ctx else {}
-    early, early_pcs = const_tape_before_stores(image, ctx) if lu_ctx else ({}, set())
-    lu_users = [k for k, en in enumerate(image.ctx_enable) if en and _uses_line(image, k)]
+    consts = const_tape(full) if lu_ctx else {}
+    early, early_pcs = const_tape_before_stores(full, ctx) if lu_ctx else ({}, set())
+    lu_users = [k for k, en in enumerate(image.ctx_enable) if en and _uses_line(full, k)]
     claimed = [0, False, False]                  # pins a CONFIG claims; unknown config seen;
                                                  # a CONFIG without tx_pins seen
     emit_masks: set = set()
@@ -1242,6 +1252,7 @@ def _cfg_events(image: Image, ctx: int) -> set:
     """Event instructions reachable in the control-flow graph (every branch both ways,
     RET to the return address of every CALL this context reaches: another context's
     subroutines are not reachable through a RET)."""
+    image = page_view(image, ctx)
     rets, ret_reached = set(), False
     seen, todo, ev = set(), [image.entry_pcs[ctx]], set()
     while todo:
