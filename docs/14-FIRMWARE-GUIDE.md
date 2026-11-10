@@ -152,6 +152,23 @@ one left the edge register fresh. Jump to the abort path from inside it instead 
 leaves its events far ahead of the clock, and a loop of them loses escert's upper bound on
 the lead. Anchor, compute the reply, `WAITT` until shortly before it, then queue it (`dali`).
 
+**15. Count the lag from an input edge.** A `WAITP` that sees an edge commits 2 to 5 ticks
+after it: the 2-tick synchroniser, then up to one 4-tick slot. Each instruction after it
+adds 4 more, branches included. So an `RDTIME` taken k instructions after the `WAITP`
+reads the edge's tick + 3.5 + 4k on average. Subtract that, and what is left is the slot's
+quantisation: -1.5 to +1.5 ticks, or -2 to +1 when the target is a whole tick.
+
+- `uart_rx`, `sbus_rx` and `modbus_rtu` put their first sample 1.5 bits after the edge this
+  way: `RDTIME` two instructions after the `WAITP`, then `ADDI` of `(3 * BIT - 23) // 2`
+  (`uart_rx` writes it as `FIRST - 8`).
+- `test_receivers_sample_at_the_bit_centre` measures every phase.
+- The `JNZ` that handles a `WAITP` timeout counts. `uart_rx` once left it out, the other
+  two copied its constant, and all three sampled 3.5 ticks late on average.
+
+When the exact tick matters more than reaction time, use the capture unit. It stamps
+every change of a watched pin with its tick, all delayed alike by the synchroniser. That
+is how `freq_meter` measures to one tick.
+
 ## Budgeting a protocol
 
 - One instruction takes 4 ticks: a 3-instruction bit loop (`EMITX`, `ADDT`, `DJNZ`)

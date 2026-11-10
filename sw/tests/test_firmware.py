@@ -134,6 +134,69 @@ def _uart_rx_gaps(baud, khz, gaps):
     return bad
 
 
+# Receivers that anchor their sampling on the RDTIME after a WAITP (docs/14 idiom 15):
+# (module, its parameters, context, pin, start level, ticks per bit, first edge, bits from
+# one start edge to the next back to back, bits at the start level for a 0x00 byte (start,
+# data, even parity), the new constant, the old one)
+NEW, OLD = "(3 * BIT - 23) // 2", "(3 * BIT) // 2 - 8"
+ANCHORED = {
+    "uart_rx 217": ("uart_rx", "", 1, 1, 0, 217, 1000, 10, 9, "FIRST - 8", "FIRST - 4"),
+    "uart_rx 28": ("uart_rx", ".equ uart_rx.CLK_KHZ, 3226\n", 1, 1, 0, 28, 1000, 10, 9,
+                   "FIRST - 8", "FIRST - 4"),
+    "sbus_rx 250": ("sbus_rx", "", 0, 0, 1, 250, 20000, 12, 10, NEW, OLD),
+    "sbus_rx 40": ("sbus_rx", ".equ sbus_rx.BAUD, 625000\n", 0, 0, 1, 40, 20000, 12, 10, NEW, OLD),
+    "modbus_rtu 1302": ("modbus_rtu", "", 0, 1, 0, 1302, 120000, 11, 10, NEW, OLD),
+    "modbus_rtu 100": ("modbus_rtu", ".equ modbus_rtu.BAUD, 250000\n", 0, 1, 0, 100, 120000, 11,
+                       10, NEW, OLD),
+}
+
+
+def _anchor_errors(case, old=False):
+    """For a start edge at each of 8 consecutive ticks (every phase of the slot, twice), and
+    for a second byte back to back after it: tmr after the SETT minus the ideal centre of
+    data bit 0 (edge + 1.5 bits). The bytes are 0x00 (start, data and even parity at the
+    start level). With `old`, the module's earlier constant."""
+    from escasm import assemble
+    from esciss import Machine
+    mod, params, ctx, pin, lvl, bit, e0, nxt, act, new_c, old_c = ANCHORED[case]
+    src = (FW / f"{mod}.asm").read_text()
+    assert src.count(new_c) >= 1
+    if old:
+        src = src.replace(new_c, old_c)
+    image = assemble(params.replace(f"{mod}.", "") + src, base_dir=FW)
+
+    class Frames(Device):
+        def __init__(self, starts):
+            self.starts = starts
+
+        def step(self, t, bus):
+            active = any(s <= t < s + act * bit for s in self.starts)
+            return (1 << pin, 0) if active != bool(lvl) else (0, 0)    # (1 << pin): low
+
+    errs = []
+    for e in range(e0, e0 + 8):
+        m = Machine(image, board=Board(Frames([e, e + nxt * bit])))
+        m.run(e + (nxt + 3) * bit, stop_when_idle=False)
+        for edge in (e, e + nxt * bit):
+            tmr = next(c["post"]["tmr"] for c in m.commits if c["ctx"] == ctx and c["t"] > edge
+                       and edge + 1.25 * bit <= c["post"]["tmr"] <= edge + 1.75 * bit)
+            errs.append(tmr - (edge + 1.5 * bit))
+    return errs
+
+
+@pytest.mark.parametrize("case", sorted(ANCHORED))
+def test_receivers_sample_at_the_bit_centre(case):
+    """The anchor error is the slot's quantisation only, centred: -1.5..+1.5 ticks for an odd
+    number of ticks per bit, -2..+1 for an even one; first byte and back to back. The
+    earlier uart_rx took RDTIME as one slot after WAITP (a JNZ sits between: two), and
+    sbus_rx and modbus_rtu copied its constant: each sampled 3.5 ticks late on average, 5 at
+    worst. The negative control puts the old constant back."""
+    errs = _anchor_errors(case)
+    worst = 1.5 if ANCHORED[case][5] % 2 else 2.0
+    assert max(abs(x) for x in errs) <= worst and abs(sum(errs) / len(errs)) <= 0.5, errs
+    assert max(_anchor_errors(case, old=True)) >= 4.5
+
+
 def test_uart_rx_every_gap_from_54_ticks_per_bit():
     """Every gap between bytes, back to back to 4 idle bits, at 54.3 ticks per bit (460800
     baud at 25 MHz). The earlier firmware pushed each byte before watching the line again

@@ -786,6 +786,26 @@ would fail on the old code:
   status 03h while busy. `spi_flash` polls BUSY alone, so its results do not change;
   the model now reads as the data sheet and the real part do.
 
+One more bug, in three receivers, came from measuring the sampling point on the
+simulator rather than from a device. **`uart_rx`, `sbus_rx` and `modbus_rtu` sampled 3.5
+ticks late on average, 5 at worst.**
+
+- Each takes the start edge's time from an RDTIME after the WAITP that sees the edge.
+  `uart_rx` assumed that RDTIME commits one slot later, but a JNZ sits between the two,
+  so it is two slots later. `sbus_rx` and `modbus_rtu` copied its constant.
+- With the lag counted, the error is only the slot's quantisation: -1.5 to +1.5 ticks for
+  an odd number of ticks per bit, -2 to +1 for an even one.
+- In `uart_rx`, the earlier deadline left the back-to-back path too slow at the 28-tick
+  floor: the floor's sweep had passed only because the samples came late. That path now
+  queues data bit 0's sample straight after setting the time, 12 ticks after the RDTIME
+  instead of 32, and the floor's sweep passes.
+- `test_receivers_sample_at_the_bit_centre` measures the error for every slot phase, for
+  the first byte and one back to back, at each program's default rate and its floor. Its
+  negative control puts the old constant back and must see +5.
+- The other receivers were checked too. `lin_resp` counts its three instructions
+  correctly (-0.5 on average). The rest sample in windows of microseconds or more, or
+  relative to edges they drive themselves.
+
 Where a real device and the chip legitimately differ, the test says so: the FX2's first
 read is at the EEPROM's current address, which the 24LC02B data sheet leaves undefined
 at power-up (the real one sent 0x00, the firmware starts at word 0); the GPS capture
@@ -796,7 +816,7 @@ sentence later; the Wiegand reader's notes say 36 bits, and it sends 34.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,257 | Pass (34 need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,263 | Pass (34 need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |

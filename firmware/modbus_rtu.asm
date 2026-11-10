@@ -41,7 +41,8 @@
 .assert 1 <= NREG <= 0x80 - REGS, the registers sit below the frame buffer
 .equ BIT, (CLK_KHZ * 1000 + BAUD // 2) // BAUD
 .assert BIT >= 100, the receive path between a stop bit and the next start bit needs half a bit of 50 ticks
-.equ FIRST, (3 * BIT) // 2 - 8              ; data bit 0's centre from the RDTIME after WAITP (uart_rx.asm)
+.equ FIRST, (3 * BIT - 23) // 2             ; data bit 0's centre from the RDTIME two instructions
+                                            ; after WAITP: edge + 3.5 + 8 on average (docs/14 idiom 15)
 .equ CHAR35, 77 * BIT // 2                  ; 3.5 characters of 11 bits
 .equ MIN35, CLK_KHZ * 7 // 4                ; 1.75 ms
 .equ T35, BIT // 2 + CHAR35 + (MIN35 - CHAR35) * (MIN35 > CHAR35)   ; from the last stop bit's centre

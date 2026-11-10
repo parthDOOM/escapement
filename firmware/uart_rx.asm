@@ -3,10 +3,13 @@
 ; (the byte is still pushed, with bit 8 set).
 ;
 ; The start edge is found with WAITP (quantised to the 4-tick slot plus the 2-tick
-; synchroniser: the edge happened 2..6 ticks before the observing commit). Data bits
+; synchroniser: the edge happened 2..5 ticks before the observing commit). Data bits
 ; are then captured by SAMPLE events at exact ticks: bit k centre = edge + (k+1.5)*BIT,
-; using edge ~= observed - 4, so the worst-case sampling error is +/-2 ticks (1% of a bit
-; at 25 MHz).
+; using edge ~= observed - 3.5, so the sampling error is -1.5..+1.5 ticks for an odd BIT
+; and -2..+1 for an even one, over the edge's four slot phases (sw/tests/test_firmware.py
+; measures it). The edge time comes from RDTIME, which commits two slots (8 ticks) after
+; the WAITP, the JNZ between them; an earlier version took one slot and sampled 3.5 ticks
+; late on average (5 at worst, a third of a half bit at 28 ticks per bit).
 ;
 ; Back to back (a sender that starts the next byte straight after a stop bit, as most
 ; UARTs do), the next start edge comes half a bit after the stop bit's centre, so the line
@@ -30,7 +33,7 @@
 .default CLK_KHZ, 25000
 .default BAUD, 115200
 .equ BIT,    (CLK_KHZ * 1000 + BAUD // 2) // BAUD
-.equ FIRST,  (3 * BIT) // 2 - 4    ; 1.5 bits after the edge, minus the mean detection lag
+.equ FIRST,  (3 * BIT - 7) // 2    ; 1.5 bits after the edge, minus the mean detection lag (3.5)
 .equ NONE,   0xFFFF                ; r2: no byte waiting to be pushed
 .equ WIN,    (5 * BIT) // 2        ; 2.5 bits after the stop's centre: gaps of up to 2 idle bits
 .assert BIT >= 28, "escert certifies uart_rx from 28 ticks per bit"
@@ -56,7 +59,7 @@ rearm:
     WAITP RX, 0                ; wait for the line to go low (start bit)
     JNZ   rearm                ; timeout: keep waiting
     RDTIME r1
-    ADDI  r1, FIRST - 4        ; RDTIME commits one slot (4 ticks) after the WAITP
+    ADDI  r1, FIRST - 8        ; RDTIME commits two slots (8 ticks) after the WAITP
     SETT  r1                   ; tmr = centre of data bit 0
     MOVI  r2, NONE             ; no byte before this one to push
 go:
@@ -82,9 +85,12 @@ watch:
     JNZ   idle
 chain:
     RDTIME r1                  ; as after rearm: the same lag from WAITP
-    ADDI  r1, FIRST - 4
+    ADDI  r1, FIRST - 8
     SETT  r1
+    SAMPLE RX_PIN, LSB         ; data bit 0 at once: 12 ticks after RDTIME, not 32 (at 28
+    ADDT  BIT                  ; ticks per bit its centre is 30 after RDTIME)
     SHL   r2, 8                ; 0x100: stop bit seen
     XOR   r2, r3               ; 0x100: no stop bit
     OR    r2, r0               ; this byte, pushed after the next one's samples are queued
-    JMP   go
+    LDLC  7                    ; data bits 1 to 7
+    JMP   bits
