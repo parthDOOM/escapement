@@ -419,8 +419,12 @@ class Machine:
     def host_ctx_start(self, mask: int) -> None:
         """v1.7 (S3) CTX_START: each context in mask restarts at the edge ending the cycle
         before its first slot (k, or min(k, k^2) when paired), as at a run start at that
-        frame: registers cleared, PC = entry, tmr = the frame base, RUNNING if enabled."""
-        self._ctx_start |= mask & 0xF
+        frame: registers cleared, PC = entry, tmr = the frame base, RUNNING if enabled.
+        A context not enabled, or RUNNING in the strobe's cycle, is left out (the host
+        refuses both, the second a cycle earlier, which a pending restart landing on that
+        edge can make stale)."""
+        self._ctx_start |= mask & 0xF & sum(1 << k for k in range(N_CTX)
+                                            if self.ctx_enable[k] and self.ctx[k].state != RUNNING)
 
     def imem_write(self, addr: int, word: int) -> None:
         """v1.7 (S3) a program word written during a run (the chip writes it in a cycle with

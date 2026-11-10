@@ -764,7 +764,9 @@ min(k, k ^ 2) if k is paired, so that cycle t + 1 is k's first slot of the frame
 the per-context items: registers, PC = entry_pc[k], FIFO, checker, statistics, IRQ,
 mailboxes), RUNNING, with `tmr = 4m` (the frame's first tick) instead of 0. Pins and line
 unit ownership are unchanged (k's pins stay released until k drives them). A context stop
-or run stop before that edge cancels the pending restart. At E_t nothing of k commits (k is
+or run stop before that edge cancels the pending restart. A `ctx_start[k]` for k not enabled, or in a
+cycle where k is RUNNING, is ignored: the host refuses both, but decides a cycle before its
+strobe, when a pending restart of k may be landing. At E_t nothing of k commits (k is
 not RUNNING), so k sees from E_t on exactly what a run started at that frame shows it: its
 first fetch is at t + 1 and its timing certificate holds unchanged.
 

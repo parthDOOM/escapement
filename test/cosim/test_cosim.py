@@ -604,10 +604,13 @@ class Reload:
     """v1.7 (S3) a live reload during a run: CTX_STOP `mask` during cycle stop_at, the new
     image's differing words written in cycles the core leaves the program store free
     (imem_free), CTX_START `mask` in the first cycle at or after start_at once every word is
-    in. The RTL run records when each word and the start went in; iss_run replays them."""
+    in. The RTL run records when each word and the start went in; iss_run replays them.
+    `extra` maps a cycle offset after the start strobe to a further CTX_START mask (the core
+    drops one for a context not enabled or RUNNING)."""
 
-    def __init__(self, mask, old, new, stop_at, start_at):
+    def __init__(self, mask, old, new, stop_at, start_at, extra=None):
         self.mask, self.stop_at, self.start_want = mask, stop_at, start_at
+        self.extra = extra or {}
         self.todo = [(a, new.words[a]) for a in range(256) if old.words[a] != new.words[a]]
         self.writes, self.start_at = [], None
 
@@ -617,6 +620,8 @@ class Reload:
         dut.load_we.value = 0
         if t >= n:
             return
+        if self.start_at is not None and t - self.start_at in self.extra:
+            dut.ctx_start.value = self.extra[t - self.start_at]
         if t > self.stop_at and self.todo and int(dut.imem_free.value):
             a, w = self.todo.pop(0)
             dut.load_space.value = 0
@@ -638,6 +643,8 @@ class Reload:
                 m.host_ctx_stop(self.mask)
             if t == self.start_at:
                 m.host_ctx_start(self.mask)
+            if self.start_at is not None and t - self.start_at in self.extra:
+                m.host_ctx_start(self.extra[t - self.start_at])
             m.run(1, stop_when_idle=False)
             for a, w in at.get(t, []):           # written at E_t: fetched from t + 1 on
                 m.imem_write(a, w)
@@ -667,17 +674,23 @@ b:  ADDT {{up}}
 async def test_v17_live_reload(dut):
     """v1.7 (S3): context k is stopped during a run, its program rewritten in free slots and
     restarted at its first slot (k = 1; and k = 3 paired, first slot 1), at every slot phase
-    of the stop. Every commit, pin and final state must match the ISS."""
+    of the stop; and once with further strobes for k and for a disabled context, which must
+    change nothing. Every commit, pin and final state must match the ISS."""
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
     from esciss.machine import default_board
     failures, n = [], 1200
     for pair, k in (("", 1), (".pair 3", 3)):
         src = RELOAD_PROG.format(pair=pair, k=k)
         old, new = assemble(src.format(up=24, down=24)), assemble(src.format(up=56, down=12))
-        for stop_at in (301, 302, 303, 304, 517):
-            r = Reload(1 << k, old, new, stop_at, stop_at + 2)
+        # and, after the start at 301, a strobe for k in each of the next 6 cycles (pending,
+        # then RUNNING: one restart only) and for a disabled context (ctx 2; paired: k's
+        # partner 1, whose first slot is k's)
+        cases = [(s, None) for s in (301, 302, 303, 304, 517)]
+        cases.append((301, {d: (1 << k) | (1 << (k ^ 2 if pair else 2)) for d in range(1, 7)}))
+        for stop_at, extra in cases:
+            r = Reload(1 << k, old, new, stop_at, stop_at + 2, extra)
             _, rtl_commits, rtl_pins, rtl_final = await run_rtl(dut, old, default_board, n, reload=r)
-            name = f"reload k{k} stop{stop_at}"
+            name = f"reload k{k} stop{stop_at}" + (" restrobed" if extra else "")
             if r.start_at is None or r.todo:
                 failures.append(name)
                 dut._log.error(f"[{name}] the reload did not complete: {len(r.todo)} words left")
@@ -685,6 +698,11 @@ async def test_v17_live_reload(dut):
             m = r.iss_run(old, default_board, n)
             restarted = [c for c in m.commits if c["ctx"] == k and c["t"] > r.start_at]
             errs = compare(name, old, m, rtl_commits, rtl_pins, rtl_final, dut._log)
+            if extra is None and stop_at == 301:
+                plain = m.commits
+            elif extra and m.commits != plain:
+                errs.append("the extra strobes changed the run (the ISS's commits differ "
+                            "from the run without them)")
             if not restarted:
                 errs.append("the restarted context never committed")
             if errs:
