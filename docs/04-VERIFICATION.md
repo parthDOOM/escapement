@@ -756,6 +756,7 @@ a PS/2 host's own CLK holds), and the strict defaults are unchanged.
 | flashrom reading, writing and erasing a Macronix MX25L1605D (FT2232H) | W25Q80DV flash model | All 168 pages read, byte for byte; every status read during 84 page programs and 4 sector erases; the programmed pages and the erased sectors |
 | A PS/2 keyboard typing into a PC, passive and inhibiting after every frame | `ps2_device` before a host inhibiting as that PC does; PS/2 host model | The 18 make and break codes, every timing rule (the model); the firmware's frames, each 50 µs after CLK is let go |
 | An Arduino UNO driving four cascaded MAX7219s with a published test sketch | MAX7219 chain model | Every packet latched into the chip it is for, and exactly the sketch's three intentional errors flagged |
+| OpenOCD through an ST-Link and an FTDI adapter initialising a Nordic nRF51822, and writing 20 words into its RAM | SW-DP target model (which judges `swd_idcode`) | The JTAG-to-SWD select, the line reset and every one of 416 requests: each ACK and the DPIDR as the real part's, every real read parity good; no contention but in reads whose data the model, having no memory, cannot know |
 | Eleven EM4100 tags, ten on an RDM630 reader and one on a reader coil | Reader model | Every tag's number and parities; for the ten, the number the RDM630 reports on its own UART |
 | Pollin DCF1 receiver off the air, 2 and 30 minutes | DCF77 receiver model | Every minute's time and parities |
 | Smoothieware and GRBL step/direction, a tams EasyControl DCC command station, a SENT position sensor | Step, DCC and SENT models | 32,000 steps on each of Smoothieware's axes and back to the start, GRBL's 56,903, each within the A4988's timing; accessory and loco packets with their check bytes; 11 frames with their CRCs |
@@ -795,7 +796,7 @@ sentence later; the Wiegand reader's notes say 36 bits, and it sends 34.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,253 | Pass (34 need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,257 | Pass (34 need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 7 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
 | Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |

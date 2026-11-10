@@ -1112,3 +1112,102 @@ def test_ps2_device_waits_out_a_real_pcs_inhibit():
         assert _ps2_device_under(hold) == []
         old = _ps2_device_under(hold, idle_check=False)
         assert len(old) == 3 and all("CLK high before the start bit" in v for v in old), old
+
+
+SWD_NRF51822 = [("swd_nrf51822_stlink_init.sr", 37), ("swd_nrf51822_stlink_write.sr", 243),
+                ("swd_nrf51822_ftdi_init.sr", 53), ("swd_nrf51822_ftdi_write.sr", 83)]
+
+
+def _swd_session(name, before_edge=True):
+    """OpenOCD's session (probe 0 SWCLK, probe 1 SWDIO) played into the SW-DP model, and
+    the bits on SWDIO at each rising edge of SWCLK, as (tick, bit). Host and target both
+    change SWDIO on that edge, so the bit an edge samples is SWDIO as it was before it:
+    with `before_edge` the model is given that level on the edge's sample; without it, the
+    level the capture shows on the edge's own sample, which is the new one where SWDIO moved
+    on the edge. A capture that begins with SWCLK already high was triggered by that edge:
+    a sample with SWCLK low is put in front, so the edge is seen."""
+    from esctape.export import read_sr
+    from escmodels.swd import SwdTarget
+    recs = read_sr(DATA / name)[0]
+    if recs[0][1] & 1:
+        recs = [(recs[0][0] - 1, recs[0][1] & ~1)] + recs
+    m = SwdTarget(0, 1, dpidr=0x0BB11477)                 # the nRF51822's DPIDR
+    edges, prev, line = [], None, {}
+    for t, v in recs:
+        bus = v & 3
+        line[t] = v >> 1 & 1
+        if prev is not None and v & 1 and not prev & 1:
+            edges.append((t, prev >> 1 & 1))
+            if before_edge:
+                bus = (v & 1) | (prev & 2)
+        m.step(t, bus)
+        prev = v
+    return m, edges, line
+
+
+def _swd_unexplained(m, edges, line):
+    """The model's reports that its not knowing the target's memory does not explain. The
+    model drives read data of its own (it has no RAM and no real CTRL/STAT), so where a read's
+    data differs from the real target's, the two drive SWDIO against each other from the last
+    ACK edge to the parity's turnaround; and on a rising edge's sample it already drives its
+    next bit while it is shown the level before the edge. Everything else (contention in a
+    header, a turnaround or an ACK; any other complaint) is returned."""
+    import bisect
+    import re
+    val = lambda bs: sum(b << i for i, b in enumerate(bs))
+    et, bits = [t for t, _ in edges], [b for _, b in edges]
+    at = {t: i for i, t in enumerate(et)}
+    unknown = [(at[r["t"]] + 4, at[r["t"]] + 38) for r in m.log if r["rnw"] and r["ack"] == 1
+               and val(bits[at[r["t"]] + 5:at[r["t"]] + 37]) != r["data"]]
+    out = []
+    for s in m.violations:
+        c = re.match(r"t=(\d+): contention: target drives SWDIO (\d), line is \d$", s)
+        if not c:
+            if not s.endswith("not modelled"):
+                out.append(s)
+            continue
+        t, drv = int(c.group(1)), int(c.group(2))
+        e = bisect.bisect_right(et, t) - 1
+        if not (t in at and line[t] == drv) and not any(lo <= e < hi for lo, hi in unknown):
+            out.append(s)
+    return out
+
+
+@pytest.mark.parametrize("name,accesses", SWD_NRF51822)
+def test_swd_model_answers_as_a_real_nrf51822_under_openocd(name, accesses):
+    """OpenOCD initialising a real nRF51822 (and writing 20 words into its RAM), through an
+    ST-Link and through an FTDI adapter, played into the SW-DP model that judges the
+    swd_idcode firmware. The model sees the JTAG-to-SWD select and one line reset, answers
+    every request, and gives every ACK the real target gave; its DPIDR is the part's. Every
+    read data parity the real target sent is good. The model reports one protocol error:
+    the first eight ones of the line reset that follows the select, which it reads as a
+    header with a bad stop bit and leaves unanswered, as ADIv5 B4.2.5 says a target does
+    (the line reset then completes). It has no memory, so AP, RDBUFF and CTRL/STAT read data
+    are not compared, and where they differ it reports contention in that read's data phase;
+    it reports none in a header, a turnaround or an ACK. Fed SWDIO as sampled on SWCLK's
+    rising edge instead of before it, it does: the levels it then sees there are the next
+    bits."""
+    val = lambda bs: sum(b << i for i, b in enumerate(bs))
+    m, edges, line = _swd_session(name)
+    assert m.switches == 1 and m.line_resets == 1 and len(m.log) == accesses
+    assert _swd_unexplained(m, edges, line) == []
+    at = {t: i for i, (t, _) in enumerate(edges)}
+    bits = [b for _, b in edges]
+    for r in m.log:
+        k = at[r["t"]]
+        real = bits[k + 2:k + 2 + 3 + 34]                  # turnaround, ACK, data, parity
+        assert len(real) == 37 and val(real[:3]) == r["ack"] == 1, r
+        if r["rnw"]:
+            assert bin(val(real[3:35])).count("1") % 2 == real[35], r
+            if not r["apndp"] and r["a"] == 0:
+                assert val(real[3:35]) == r["data"] == 0x0BB11477
+    assert any(not r["apndp"] and r["a"] == 0 and r["rnw"] for r in m.log)
+    assert len(m.protocol_errors) == 1
+    k = at[m.protocol_errors[0]]
+    ones = 0
+    while bits[k - 7 + ones]:
+        ones += 1
+    assert ones >= 50 and bits[k - 7 + ones:k - 5 + ones] == [0, 0]   # inside a line reset
+    m, edges, line = _swd_session(name, before_edge=False)
+    bad = _swd_unexplained(m, edges, line)
+    assert bad and all("contention" in v for v in bad), bad[:3]

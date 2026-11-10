@@ -56,3 +56,5 @@ instead (address 0x00 then 0xFF, every command byte then its complement).
 | spiflash_mx25l1605d_flashrom_*.sr | spi/mx25l1605d/mx25l1605d_read.sr, _write.sr, _erase.sr | SPI flash: flashrom on an FT2232H (openbiosprog-spi) reading, writing and erasing a Macronix MX25L1605D holding "HelloWorld" over and over, 25 MHz |
 | ps2_keyboard_asdfgh_pc_inhibits.sr | ps2/keyboard/ps2_keyboard_asdfgh.sr | PS/2: a keyboard typing a s d f g h into a PC that inhibits after every frame, 24 MHz |
 | ps2_keyboard_asdfgh_no_inhibit.sr | ps2/keyboard/ps2_keyboard_asdfgh_no_inhibit.sr | PS/2: the same keys, the PC passive (its README lists a to g; h is there too), 24 MHz |
+| swd_nrf51822_stlink_init.sr, swd_nrf51822_stlink_write.sr | swd/stlink_openocd/init.sr, init_write_0xabbabeeb.sr | SWD: OpenOCD 0.9.0 through an ST-Link V2 initialising a Nordic nRF51822 (DPIDR read, power-up), then also writing 20 words of 0xABBABEEB into its RAM |
+| swd_nrf51822_ftdi_init.sr, swd_nrf51822_ftdi_write.sr | swd/ftdi_openocd/init.sr, init_write_0xabbabeeb.sr | SWD: the same sessions through an FTDI adapter (OpenOCD's resistor hack); the captures begin on a rising SWCLK edge |
