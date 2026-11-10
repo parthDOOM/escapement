@@ -174,6 +174,8 @@ FAULTS = [
     ("bank B output 1 stuck high", {"ob_stuck": (1, 1)}, {}, 4,
      "Outputs B1 (uo[4]) never read 0"),
     ("bank B input 3 stuck high", {"ib_stuck": (3, 1)}, {}, 4, "Input B3 stuck at 1"),
+    ("tripwire 8 set (v2, S-C)", {"tripwire": 1 << 8}, {}, 2,
+     "tripwires set after stage 2 (0x100): bit 8: S3 a commit on a restart edge"),
 ]
 
 

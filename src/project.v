@@ -29,6 +29,9 @@ module tt_um_escapement (
   // v2 feature switch (runbook 28 §5): program pages, S-A. 4: four pages; 1: the v1.7
   // store and host interface, cycle for cycle.
   localparam integer PAGES = 4;
+  // v2 feature switch (runbook 28 §5): proof tripwires, S-C. 1: on; 0: the v1.7 core (debug
+  // select 27 reads 0), cycle for cycle.
+  localparam integer TRIPWIRES = 1;
 
   // ------------------------------------------------------------------ host
   wire         start, stop, running, fault_valid, miso;
@@ -114,7 +117,7 @@ module tt_um_escapement (
 
   // ------------------------------------------------------------------ core
   /* verilator lint_off PINCONNECTEMPTY */
-  esc_core u_core (
+  esc_core #(.TRIPWIRES(TRIPWIRES)) u_core (
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop),
       .ctx_stop(ctx_stop), .ctx_start(ctx_start),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),

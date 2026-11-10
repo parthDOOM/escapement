@@ -509,7 +509,11 @@ class Machine:
             lu = self.lu
             return {16: self.dg, 17: self.cap.status(), 18: self.cap.config(),
                     19: self.cap.ovf_tick, 20: self.cap.rptr,
-                    21: lu.status(), 25: lu.e, 26: lu.dbg26()}.get(sel, 0)
+                    21: lu.status(), 25: lu.e, 26: lu.dbg26(),
+                    # v2 (S-C) 27, the tripwires: 0. The model keeps every invariant by
+                    # construction, so the cosim's end-of-case read of 27 requires the
+                    # RTL's tripwires to be 0 in every case
+                    27: 0}.get(sel, 0)
         if sel <= 3:
             return x.r[sel]
         if sel == 4:

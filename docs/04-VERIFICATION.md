@@ -192,6 +192,45 @@ capture overflow, region full, ring wrap, a drain and a push with two records st
 and (v1.4) the line unit driving its pins, receiving, and a CONFIG faulting its owner. The clock-gate proof has teeth: a naive `clk & en` gate fails G3 at the first
 step.
 
+### Proof tripwires (v2)
+
+Twelve of the proved invariants are also watched in silicon. A 12-bit register `tw`
+(`esc_core.v`, debug select 27) has one bit per invariant. Bit i sets on the first clock
+edge at which its invariant is seen broken, and holds until reset. The proofs say every
+bit stays 0, so a set bit on a real chip is a broken invariant, named. The bank is a
+clock-gated `esc_greg` enabled only when a monitor fires, so in a correct chip it is never
+clocked. Nothing but select 27 reads `tw`, so behaviour, non-interference and the digest
+are untouched. The switch `TRIPWIRES = 0` in `project.v` removes it.
+
+| Bit | Fires when | Property |
+| --- | --- | --- |
+| 0 | a FIFO head is past its deadline | P2 never late |
+| 1 | an open-drain pin drives high | P1 |
+| 2 | a FIFO holds more than 4 entries | P4 |
+| 3 | an unowned pin is driven | P3 |
+| 4 | a FAULTED context drives one of its pins | P5 |
+| 5 | a pin is driven while stopped | the P3/P5 strengthening |
+| 6 | the line unit claims a pin its owner does not own | L1 |
+| 7 | an unowned line unit claims, drives or releases a pin | `lu_bank` group |
+| 8 | a commit on a restart edge | S3 |
+| 9 | a fetch in a cycle given to a host program write | S3 |
+| 10 | with no context paired, the fetch is not v1.6's | v1.7 fetch |
+| 11 | the slot counter disagrees with the tick | B0 (`ahead`) |
+
+Each monitor is its property's negation, written on the same nets. Three checks tie each
+bit to its proof:
+
+- The `tw` task of `esc_core.sby` proves, by induction, that the twelve properties as
+  written imply `tw == 0`. So a monitor that could fire while its property holds fails it.
+- A unit test (`test_tripwires_teeth`) forces each monitor's source nets into the
+  forbidden state. Its bit, and no other, must set, hold for 1,000 cycles and clear on
+  reset. This is what kills a mutant of a monitor.
+- The cosim reads select 27 at the end of every case against the ISS's 0. So a monitor
+  that fires in normal operation fails every case.
+
+`sw/rp2350/bringup.py` reads the tripwires after every stage and names any bit that is
+set.
+
 ## RTL to netlist equivalence
 
 The proofs above are about the RTL; the chip is built from the netlist that synthesis,

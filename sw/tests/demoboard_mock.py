@@ -106,13 +106,15 @@ def _force(v: int, stuck) -> int:
 class SimChip:
     def __init__(self, *, version=10, clock_scale=1.0, clock_dead=False, miso_stuck=None,
                  mosi_stuck=None, mem_faults=None, uio_out_dead=0, uio_in_stuck=None,
-                 uio_ext_low=0, ob_stuck=None, ib_stuck=None, exec_fault=None, seed=1):
+                 uio_ext_low=0, ob_stuck=None, ib_stuck=None, exec_fault=None, tripwire=0,
+                 seed=1):
         self.version, self.clock_scale, self.clock_dead = version, clock_scale, clock_dead
         self.miso_stuck, self.mosi_stuck = miso_stuck, mosi_stuck
         self.mem_faults = mem_faults or {}
         self.uio_out_dead, self.uio_in_stuck, self.uio_ext_low = uio_out_dead, uio_in_stuck, uio_ext_low
         self.ob_stuck, self.ib_stuck = ob_stuck, ib_stuck      # (bank B bit, level)
         self.exec_fault = exec_fault
+        self.tripwire = tripwire           # v2 (S-C): select 27 reads these bits (a chip that broke one)
         rng = random.Random(seed)
         # powers up undefined; v2 (S-A): the program store is four pages of 256 words
         self.pages = version >= 10
@@ -339,6 +341,8 @@ class SimChip:
                 self.tx = (self.tx << 1) & 0xFF
 
     def _dbg(self) -> int:
+        if self.dbg_sel == 27 and self.tripwire:
+            return self.tripwire
         return self.m.dbg_read(self.dbg_ctx, self.dbg_sel)
 
     def _next_tx(self, rx: int) -> int:

@@ -342,6 +342,15 @@ class Bringup:
         h.write_cfg(*cfg)
         h.clear_err()
 
+    def check_tripwires(self, num):
+        """v2 (S-C): after every stage with a host link, the proof tripwires must read 0.
+        A set bit is an invariant the proofs say cannot break, seen broken on this chip."""
+        tw = self.host.tripwires()
+        if tw:
+            raise Fail("tripwires set after stage %d (0x%03x): %s. The chip broke an invariant "
+                       "the proofs cover: report the chip, with this line"
+                       % (num, tw, "; ".join(P.tripwire_names(tw))))
+
     # -- 0
     def stage0(self):
         io = self.io
@@ -1042,6 +1051,8 @@ def run(bundles="bundles", stages=None, keep_going=False, optional=False, quick=
         out("[%d] %s ..." % (num, title))
         try:
             detail = getattr(b, meth)()
+            if num >= 2:
+                b.check_tripwires(num)
             b.results.append((num, True, detail))
             out("[%d] PASS  %s" % (num, detail))
         except Fail as x:

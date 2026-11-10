@@ -161,6 +161,33 @@ def plan_read_dbg(ctx, sel):
     return bytes((READ_DBG, sb, 0, 0, 0, 0, 0)), lambda r: _r32(r, 3)
 
 
+# v2 (S-C): debug select 27, the proof tripwires. Bit i is set if invariant i was ever seen
+# broken since reset (docs/04, "Proof tripwires"). An older chip reads 0.
+TRIPWIRE_SEL = 27
+TRIPWIRES = ("P2 never late (a FIFO head past its deadline)",
+             "P1 an open-drain pin driven high",
+             "P4 a FIFO over 4 entries",
+             "P3 an unowned pin driven",
+             "P5 a FAULTED context driving its pins",
+             "a pin driven while stopped",
+             "L1 the line unit outside its owner's pins",
+             "an unowned line unit active",
+             "S3 a commit on a restart edge",
+             "S3 a fetch in a host program-write cycle",
+             "an unpaired fetch not v1.6's",
+             "B0 the slot counter off the tick")
+
+
+def plan_tripwires():
+    return plan_read_dbg(0, TRIPWIRE_SEL)
+
+
+def tripwire_names(tw):
+    """The invariants a tripwire word reports broken, bit 0 first."""
+    return ["bit %d: %s" % (i, n) for i, n in enumerate(TRIPWIRES) if (tw >> i) & 1] + \
+        (["bits above 11: 0x%x (not tripwires)" % (tw >> 12)] if tw >> 12 else [])
+
+
 def plan_mbx_push(ctx, word):
     return bytes((MBX_PUSH, ctx & 3)) + _w32(word), _st
 
@@ -195,6 +222,7 @@ PLANS = {
     "write_tape": plan_write_tape, "read_tape": plan_read_tape,
     "tape_ack": plan_tape_ack, "ctx_stop": plan_ctx_stop, "ctx_start": plan_ctx_start,
     "imem_page": plan_imem_page,
+    "tripwires": plan_tripwires,                                  # v2 (S-C)
 }
 
 

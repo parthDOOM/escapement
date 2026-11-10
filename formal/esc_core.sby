@@ -7,12 +7,16 @@
 #           registered tests B1-B5, v1.6's X-stage decode B6-B7 and registered operands
 #           B8-B9; v1.7: B0, the slot registers), which every other task assumes; the
 #           other assertions are removed
+#   tw    : v2 (S-C) UNBOUNDED, by k-induction: the twelve tripwire properties (each proved
+#           by the tasks above) imply that the tripwire bank stays 0 (tw_zero); the other
+#           assertions are removed
 [tasks]
 bmc
 cover
 pdr
 kind
 ahead
+tw
 
 [options]
 bmc: mode bmc
@@ -24,6 +28,8 @@ kind: mode prove
 kind: depth 12
 ahead: mode prove
 ahead: depth 8
+tw: mode prove
+tw: depth 2
 
 [engines]
 bmc: smtbmc yices
@@ -31,13 +37,16 @@ cover: smtbmc yices
 pdr: abc pdr
 kind: smtbmc yices
 ahead: smtbmc yices
+tw: smtbmc yices
 
 [script]
 ahead: read -define ESC_AHEAD_CHECK
+tw: read -define ESC_TW_CHECK
 ~pdr: read -formal -DFORMAL -DFORMAL_ANYNOW esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v
 pdr: read -formal -DFORMAL -DESC_CORE_PDR esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v
 prep -top esc_core
 ahead: chformal -assert -remove n:$assert$*
+tw: chformal -assert -remove c:* c:tw_zero %d
 # PDR needs defined initial values: every flop is async-reset and step 0 is assumed to be
 # in reset, so the pre-reset contents are irrelevant; the unbounded run reaches the 2^32
 # wrap without FORMAL_ANYNOW.

@@ -1464,3 +1464,104 @@ async def test_checker_at_kill_edge(dut):
     await env.run(10)
     assert env.trace[0]["running"] == 1
     assert env.commit_summary() == [(3, 0, 0, C), (7, 0, 1, C)]
+
+
+# --------------------------------------------------------------------------- v2 (S-C)
+# Proof tripwires, simulation teeth (x84notes/tripwires-DESIGN.md sec. 4.4). For each bit, the
+# monitor's own source nets are forced into the forbidden state for a few cycles (hierarchical
+# force and release). The bit must set, hold for 1,000 cycles, read as only that bit, and clear
+# on reset. This is what kills a mutant of a monitor (a dropped term, a wrong polarity), which
+# the formal teeth cannot, since mutation runs in simulation.
+TW_SRC = """
+.entry 0, l
+.own 0, 0
+.od 0
+l: JMP l
+"""
+
+
+def _tw_now(dut):
+    return int(dut.u_core.now.value) & 3
+
+
+async def _tw_reset(env):
+    """Env.reset without starting a second clock (it already runs)."""
+    d = env.dut
+    d.rst_n.value = 0
+    for name in ("start", "stop", "ld_en", "ld_we", "lb"):
+        getattr(d, name).value = 0
+    for _ in range(3):
+        await FallingEdge(d.clk)
+    d.rst_n.value = 1
+    await FallingEdge(d.clk)
+
+
+# bit -> (stopped first?, [(net, value or callable(dut) -> value)], cycles forced)
+TW_TEETH = {
+    0: (False, [("c_late", 0b0001)], 1),
+    1: (False, [("uio_oe", 0b1), ("uio_out", 0b1)], 1),                 # pin 0 is open drain
+    2: (False, [("c_cnt", 5)], 1),                                       # context 0's FIFO: 5
+    3: (False, [("pin_oe", 0b10)], 1),                                   # pin 1: nobody owns it
+    4: (False, [("c_state", 0b11), ("pin_oe", 0b1)], 1),                 # FAULTED, pin 0 driven
+    5: (True, [("pin_oe", 0b1)], 1),                                     # stopped, pin 0 driven
+    6: (False, [("lu_owned", 1), ("lu_owner", 0), ("lu_claimed", 0b10)], 1),
+    7: (False, [("lu_drv", 0b1)], 1),
+    8: (False, [("rs_any", 1)], 4),                                      # over a commit
+    9: (False, [("free_q", 1)], 4),                                      # over a fetch
+    10: (False, [("fq", lambda d: (_tw_now(d) + 1) & 3)], 1),
+    11: (False, [("sq", lambda d: _tw_now(d))], 1),
+}
+# After the release, state a forced net left wrong is put right, so that only the forced
+# instant breaks the invariant: sq counts itself, so a forced value would stay off by one
+# (and the fetch registers derived from it would then break bit 10's invariant too).
+TW_FIX = {11: ("sq", lambda d: (_tw_now(d) + 1) & 3)}
+
+
+@cocotb.test()
+async def test_tripwires_teeth(dut):
+    from cocotb.handle import Force, Release
+    env = await new_env(dut)
+    for bit, (stopped, nets, n) in TW_TEETH.items():
+        await _tw_reset(env)
+        await env.load_and_start(TW_SRC)
+        await env.run(20)
+        assert await env.rd(27) == 0, f"bit {bit}: tripwires set before the fault"
+        if stopped:
+            dut.stop.value = 1
+            await FallingEdge(dut.clk)
+            dut.stop.value = 0
+            await env.run(8)
+            assert await env.rd(27) == 0, f"bit {bit}: set by the stop"
+        for name, v in nets:
+            getattr(dut.u_core, name).value = Force(v(dut) if callable(v) else v)
+        for _ in range(n):
+            await FallingEdge(dut.clk)
+        for name, _ in nets:
+            getattr(dut.u_core, name).value = Release()
+        if bit in TW_FIX:
+            await Timer(1, unit="ns")
+            name, v = TW_FIX[bit]
+            getattr(dut.u_core, name).value = v(dut)
+        await FallingEdge(dut.clk)
+        got = await env.rd(27)
+        assert got == 1 << bit, f"bit {bit}: tripwires read 0x{got:03x} after the fault"
+        await env.run(1000)
+        got = await env.rd(27)
+        assert got == 1 << bit, f"bit {bit}: 0x{got:03x} 1,000 cycles later (must hold)"
+        await _tw_reset(env)
+        assert await env.rd(27) == 0, f"bit {bit}: not cleared by reset"
+        dut._log.info(f"tripwire bit {bit}: sets, holds 1,000 cycles, alone, clears on reset")
+
+
+@cocotb.test()
+async def test_tripwires_zero_in_normal_runs(dut):
+    """The negative case: the unit suite's own programs leave every tripwire at 0 (the
+    cosim checks the same at the end of every case, against the ISS's 0)."""
+    env = await new_env(dut)
+    await env.load_and_start(TW_SRC)
+    await env.run(200)
+    dut.stop.value = 1
+    await FallingEdge(dut.clk)
+    dut.stop.value = 0
+    await env.run(20)
+    assert await env.rd(27) == 0

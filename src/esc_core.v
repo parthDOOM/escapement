@@ -37,7 +37,9 @@
  * the registered dbg_commit_ctx.
  */
 `default_nettype none
-module esc_core (
+module esc_core #(
+    parameter integer TRIPWIRES = 1   // v2 (S-C): 0 removes the tripwire bank (select 27 reads 0)
+) (
     input  wire         clk,
     input  wire         rst_n,
     input  wire         start,
@@ -1149,6 +1151,44 @@ module esc_core (
       default: dcs = cs_ish;
     endcase
   end
+  // ------------------------------------------------------------------ tripwires (v2, S-C)
+  // Twelve proved invariants, watched in silicon. Bit i sets on the first edge its invariant
+  // is seen broken and holds until reset; debug select 27 reads them. Nothing else reads tw,
+  // so behaviour, NI and the digest are untouched. The bank is clocked only when a monitor
+  // fires (esc_greg, en = |tw_v): never, in a correct chip. Each monitor is its property's
+  // negation, written from the same nets (the formal section below); the `tw` task of
+  // esc_core.sby proves that the properties imply tw == 0. docs/04 has the table.
+  reg  [3:0] tw_cnt, tw_flt;            // per context: FIFO over 4; FAULTED yet driving
+  integer    twk;
+  always @* begin
+    for (twk = 0; twk < 4; twk = twk + 1) begin
+      tw_cnt[twk] = c_cnt[3*twk +: 3] > 3'd4;
+      tw_flt[twk] = (c_state[2*twk +: 2] == 2'd3) && ((pin_oe & pown[13*twk +: 13]) != 13'd0);
+    end
+  end
+  wire [11:0] tw_v = {
+      run && (sq != now[1:0] + 2'd1),                                    // 11 B0 slot counter
+      run && (pair_on == 4'd0) && (f_chain || fq != now[1:0]),           // 10 unpaired fetch
+      free_q && imem_re,                                                 //  9 S3 host-write cycle
+      rs_any && commit_valid,                                            //  8 S3 restart edge
+      !lu_owned && ((lu_claimed | lu_drv | lu_rel) != 8'd0),             //  7 unowned line unit
+      lu_owned && ((lu_claimed & ~owned_by[8*lu_owner +: 8]) != 8'd0),   //  6 L1 owner's pins
+      !run && (pin_oe != 13'd0),                                         //  5 stopped drives
+      |tw_flt,                                                           //  4 P5 faulted drives
+      (pin_oe & ~pin_owned) != 13'd0,                                    //  3 P3 unowned pin
+      |tw_cnt,                                                           //  2 P4 FIFO bound
+      (pin_od & uio_oe & uio_out) != 8'd0,                               //  1 P1 open drain high
+      c_late != 4'd0};                                                   //  0 P2 never late
+  wire [11:0] tw;
+  generate
+    if (TRIPWIRES != 0) begin : g_tw
+      esc_greg #(12) u_tw (.clk(clk), .rst_n(rst_n), .en(|tw_v), .d(tw | tw_v), .q(tw));
+    end else begin : g_no_tw
+      assign tw = 12'd0;
+      wire _unused_tw = &{tw_v, 1'b0};
+    end
+  endgenerate
+
   // While stopped the registers hold still, so dbg_cs loads once after the stop and again
   // only when the host selects another field or context (dcs_tag): no clock otherwise.
   wire [31:0] dbg_cs;
@@ -1180,6 +1220,7 @@ module esc_core (
       5'd21: dbg_rdata = lu_status;                                            // v1.4
       5'd25: dbg_rdata = lu_e;
       5'd26: dbg_rdata = {lu_owned, 1'b0, lu_owner, 1'b0, lu_mode, 3'd0, lu_conf, 20'd0};
+      5'd27: dbg_rdata = {20'd0, tw};                                         // v2 (S-C)
       default: dbg_rdata = 32'd0;
     endcase
   end
@@ -1285,6 +1326,27 @@ module esc_core (
   // bank B: low, since a released split pin is high)
   wire [12:0] f_driven = {~ob_out, uio_oe};
   integer fk;
+`ifdef ESC_TW_CHECK
+  // v2 (S-C) tw task (esc_core.sby): the twelve properties, stated as written above (each
+  // proved by its own task), imply that no monitor ever fires, so tw stays 0. 1-inductive.
+  integer twf;
+  always @(*) if (rst_n) begin
+    assume (c_late == 4'd0);
+    assume ((pin_od & uio_oe & uio_out) == 8'd0);
+    for (twf = 0; twf < 4; twf = twf + 1) assume (c_cnt[3*twf +: 3] <= 3'd4);
+    assume ((pin_oe & ~pin_owned) == 13'd0);
+    for (twf = 0; twf < 4; twf = twf + 1)
+      if (c_state[2*twf +: 2] == 2'd3) assume ((pin_oe & pown[13*twf +: 13]) == 13'd0);
+    if (!run) assume (pin_oe == 13'd0);
+    if (lu_owned) assume ((lu_claimed & ~owned_by[8*lu_owner +: 8]) == 8'd0);
+    if (!lu_owned) assume (lu_claimed == 8'd0 && lu_drv == 8'd0 && lu_rel == 8'd0);
+    assume (!rs_any || !commit_valid);
+    assume (!free_q || !imem_re);
+    if (run && pair_on == 4'd0) assume (!f_chain && fq == now[1:0]);
+    if (run) assume (sq == now[1:0] + 2'd1);
+    tw_zero: assert (tw == 12'd0);
+  end
+`endif
   always @(*) if (rst_n) begin
     // P1 electrical: an open-drain pin never drives high (§5).
     assert ((pin_od & uio_oe & uio_out) == 8'd0);
