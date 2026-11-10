@@ -110,7 +110,13 @@ module esc_core (
     // fetch slot owner, for the non-interference miter of two cores
     , output wire [1279:0] f_ctx_obs,
     output wire [25:0]   f_pins,
-    output wire [1:0]    f_fq
+    output wire [1:0]    f_fq,
+    // and for the inductive invariant (formal/esc_ni_ind.sby): every flip-flop of each
+    // context, and the core's schedule, input synchronisers, pipeline stages and deferred
+    // tape load (layout: the concatenation at the end of this file)
+    output wire [3463:0] f_ctx_all,
+    output wire [336:0]  f_core,
+    output wire [32:0]   f_lu             // {lu_el, lu_port, lu_rel, lu_drv, lu_mode, lu_bank}
 `endif
 );
 
@@ -285,6 +291,9 @@ module esc_core (
   // cycle behind is never seen (formal: lu_bank below). Off the high-fanout ctx_bank and
   // lu_owner nets, the line unit's input view and pin writes start from one flop.
   reg         lu_bank;
+`ifdef ESC_NI
+  wire [11:0] lu_el;
+`endif
   wire [31:0] lu_status, lu_e, lu_pwdata;
   wire        lu_mine   = lu_owned & (lu_owner == cctx);     // the committing context owns it
   wire [7:0]  claimed_c = lu_mine ? lu_claimed : 8'd0;
@@ -708,8 +717,14 @@ module esc_core (
   // and the frame base to k's banks as at a run start, and the next cycle is k's fetch slot.
   // k then sees what a run started at that frame shows it (tmr = the frame base), so its
   // certificate holds unchanged.
+  // A strobe for a context not enabled, or RUNNING in its cycle, is dropped. The host refuses
+  // both, but the core does not rely on it: a disabled context's first slot may be its
+  // partner's (pair mode), where the partner commits; and the host checks a cycle before its
+  // strobe, so a pending restart of k can land on the very edge where the host accepts a
+  // second CTX_START for k, and k would restart again mid-program.
   reg  [3:0]  rs_pend;
-  wire [3:0]  rs_want = rs_pend | ctx_start;
+  wire [3:0]  c_runv;                  // k RUNNING in this cycle
+  wire [3:0]  rs_want = rs_pend | (ctx_start & ctx_enable & ~c_runv);
   wire [3:0]  rs_k;                    // k restarts at this edge
   wire [3:0]  cs_k;                    // k stops at this edge (a restart or a run start wins)
   wire        rs_any  = |rs_k;
@@ -719,6 +734,7 @@ module esc_core (
   endfunction
   generate
     for (gk = 0; gk < 4; gk = gk + 1) begin : g_rs
+      assign c_runv[gk] = c_state[2*gk +: 2] == ST_RUN;
       assign rs_k[gk] = run & ~start & ~stop & rs_want[gk] & (sq == first(gk[1:0], pair_on));
       assign cs_k[gk] = ctx_stop[gk] & ~start & ~stop & ~rs_k[gk];
     end
@@ -774,7 +790,11 @@ module esc_core (
       .engaged(lu_engaged), .busy(lu_busy), .status(lu_status), .e(lu_e), .mode(lu_mode),
       .flt_owner(lu_flto), .flt_config(lu_fltc), .send_rd(lu_srd),
       .port(lu_port), .port_we(lu_pwe), .port_addr(lu_paddr), .port_wdata(lu_pwdata),
-      .rel_m(lu_rel), .drv_m(lu_drv), .drv_val(lu_dval), .drv_oe(lu_doe));
+      .rel_m(lu_rel), .drv_m(lu_drv), .drv_val(lu_dval), .drv_oe(lu_doe)
+`ifdef ESC_NI
+      , .f_el(lu_el)
+`endif
+      );
 
   // ------------------------------------------------------------------ contexts
   generate
@@ -881,6 +901,9 @@ module esc_core (
           .o_line_ret  (c_lret[gk])
 `ifdef FORMAL
           , .f_owned   (owned_by[8*gk +: 8])
+`endif
+`ifdef ESC_NI
+          , .f_all     (f_ctx_all[866*gk +: 866])
 `endif
       );
     end
@@ -1239,6 +1262,10 @@ module esc_core (
   endgenerate
   assign f_pins = {pin_oe, pin_val};
   assign f_fq   = fq;
+  assign f_core = {lu_owner, lu_owned, q_ld, rs_pend, q_ldk, ld_rd, ld_ctx, ld_v, lead16,
+                   ahd_lee, ahd_tail, rch_tmr, ahd_now, opb, opa, illegal, d_op, p3ok, p3_insn,
+                   p3v, p2_insn, p2_spc, p2v, p1_spc, p1v, s2, s1, fq, nq, cq, sq, now, run};
+  assign f_lu   = {lu_el, lu_port, lu_rel, lu_drv, lu_mode, lu_bank};
 `endif
   // v1.7 S3: a restart edge has no commit (the shared latch write flops are free for the
   // restarted context's zeros), and a cycle given to a host program write reads nothing.

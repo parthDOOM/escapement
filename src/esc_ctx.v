@@ -140,6 +140,11 @@ module esc_ctx (
 `ifdef FORMAL
     , input wire [7:0] f_owned        // formal only: pins this context owns (for H4)
 `endif
+`ifdef ESC_NI
+    // formal only (formal/esc_ni_ind.sby): every flip-flop of this context, for the
+    // non-interference miter's inductive invariant
+    , output wire [865:0] f_all
+`endif
 );
 
   localparam [1:0] ST_IDLE = 2'd0, ST_RUN = 2'd1, ST_HALT = 2'd2, ST_FAULT = 2'd3;
@@ -387,7 +392,10 @@ module esc_ctx (
   wire        en_sh = st | (live & cm_ok & w_sh_we);
   wire        en_tmr = st | (live & cm_ok & w_tmr_we);
   wire        en_lee = st | (live & cm_ok & w_exp_admit);
-  wire [31:0] d_sh = st ? 32'd0 : w_sh, d_tmr = st ? start_tmr : w_tmr, d_lee = st ? 32'd0 : w_lee;
+  // lee shares tmr's write register (q_tmr), which a start loads with start_tmr: so does d_lee
+  // (D-40: the flip-flop model must hold what the latch takes). A restart's frame base, never
+  // read: lee counts only once exp_seen, which the start clears and each admit sets with lee.
+  wire [31:0] d_sh = st ? 32'd0 : w_sh, d_tmr = st ? start_tmr : w_tmr, d_lee = st ? start_tmr : w_lee;
   esc_lreg #(32) g_r0 (.clk(clk), .rst_n(rst_n), .en(en_r0), .d(d_r), .dq(dq_r), .q(o_r0));
   esc_lreg #(32) g_r1 (.clk(clk), .rst_n(rst_n), .en(en_r1), .d(d_r), .dq(dq_r), .q(o_r1));
   esc_lreg #(32) g_r2 (.clk(clk), .rst_n(rst_n), .en(en_r2), .d(d_r), .dq(dq_r), .q(o_r2));
@@ -427,6 +435,16 @@ module esc_ctx (
       .d(w_tx_data), .dq(q_wr), .q(tx0));
   esc_lreg #(32) g_tx1 (.clk(clk), .rst_n(rst_n), .en(en_tx & tx_wi),
       .d(w_tx_data), .dq(q_wr), .q(tx1));
+
+`ifdef ESC_NI
+  assign f_all = {o_lc, o_pc, o_lr, o_z, o_c, o_state, o_cnt, o_tail_dl, o_act, o_pass, o_fail,
+                  o_failed, o_exp_seen, o_min_lead, o_max_occ, o_wait_full, o_irq_p, o_irq_code,
+                  head, due_q, late_q, h_q, ck_mask, ck_level, ck_mode, ck_rem,
+                  rx_cnt, tx_cnt, rx_rp, tx_rp,
+                  o_r0, o_r1, o_r2, o_r3, o_sh, o_tmr, o_lee, o_ish,
+                  o_ff_tick, o_ff_obs, o_ff_mask, o_ff_level,
+                  ent0, ent1, ent2, ent3, rx0, rx1, tx0, tx1};
+`endif
 
 `ifdef FORMAL
 `ifndef ESC_CTX_ENV

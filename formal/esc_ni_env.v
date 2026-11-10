@@ -62,7 +62,7 @@ module esc_ni_env (
   wire [7:0]    cpa, cpb;
   wire [31:0]   cia, cib;
 
-`define NI_CORE(N, RD, CSTOP, CSTART, IRQC, PUSH, PDATA, POP, IA, RE, O, P, FQ, CV, CC, CP, CI, CO) \
+`define NI_CORE(N, RD, CSTOP, CSTART, IRQC, PUSH, PDATA, POP, IA, RE, O, P, FQ, CV, CC, CP, CI, CO, CA, FC, LU) \
   esc_core N ( \
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop), .ctx_stop(CSTOP), .ctx_start(CSTART), \
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs), .pin_owned(pin_owned), .pin_owner(pin_owner), \
@@ -79,9 +79,12 @@ module esc_ni_env (
       .dbg_sel_ctx(dbg_sel_ctx), .dbg_sel(dbg_sel), .dbg_rdata(), \
       .tape_addr(), .tape_re(), .tape_we(), .tape_wdata(), .tape_rdata(tape_rdata), .tape_busy(), \
       .tape_host_we(tape_host_we), .tape_ack(tape_ack), .tape_ack_v(tape_ack_v), \
-      .f_ctx_obs(O), .f_pins(P), .f_fq(FQ));
-  `NI_CORE(u_a, rd_a, cstop_a, cstart_a, irqc_a, push_a, pdata_a, pop_a, ia, rea, oa, pa, fqa, cva, cca, cpa, cia, coa)
-  `NI_CORE(u_b, rd_b, cstop_bj, cstart_bj, irqc_bj, push_bj, pdata_bj, pop_bj, ib, reb, ob, pb, fqb, cvb, ccb, cpb, cib, cob)
+      .f_ctx_obs(O), .f_pins(P), .f_fq(FQ), .f_ctx_all(CA), .f_core(FC), .f_lu(LU));
+  wire [3463:0] caa, cab;
+  wire [336:0]  fca, fcb;
+  wire [32:0]   lua, lub;
+  `NI_CORE(u_a, rd_a, cstop_a, cstart_a, irqc_a, push_a, pdata_a, pop_a, ia, rea, oa, pa, fqa, cva, cca, cpa, cia, coa, caa, fca, lua)
+  `NI_CORE(u_b, rd_b, cstop_bj, cstart_bj, irqc_bj, push_bj, pdata_bj, pop_bj, ib, reb, ob, pb, fqb, cvb, ccb, cpb, cib, cob, cab, fcb, lub)
 
   // The program store: a word fetched for j at the same address in both copies is the same
   // word (j's words are the same in both); every other read is free in each copy.
@@ -117,4 +120,146 @@ module esc_ni_env (
     ni_commit: assert ((cva && cca == j) == (cvb && ccb == j));
     if (cva && cca == j) ni_record: assert ({cpa, cia, coa} == {cpb, cib, cob});
   end
+
+`ifdef ESC_NI_IND
+  // ---- the inductive strengthening (formal/esc_ni_ind.sby) ----------------------------
+  // What makes the four lines above hold, stated so that it carries itself from one cycle
+  // to the next: the schedule and the input synchronisers are the same in both copies
+  // (they depend only on shared inputs); a pipeline stage holding j's instruction holds the
+  // same one (stage owners: fetch own(now), p1 own(sq+2), p2 nq, p3 and commit cq, where
+  // own() maps a slot to its owner under pair mode); every flip-flop of j's context is the
+  // same; j's deferred tape load is the same; and j never owns the line unit (its words
+  // use none of its instructions). The core fields, as esc_core.v concatenates them:
+  wire [1:0] a_lu_owner;
+  wire a_lu_owned;
+  wire [31:0] a_q_ld;
+  wire [3:0] a_rs_pend;
+  wire [3:0] a_q_ldk;
+  wire [1:0] a_ld_rd;
+  wire [1:0] a_ld_ctx;
+  wire a_ld_v;
+  wire [15:0] a_lead16;
+  wire a_ahd_lee;
+  wire a_ahd_tail;
+  wire a_rch_tmr;
+  wire a_ahd_now;
+  wire [31:0] a_opb;
+  wire [31:0] a_opa;
+  wire a_illegal;
+  wire [52:0] a_d_op;
+  wire a_p3ok;
+  wire [31:0] a_p3_insn;
+  wire a_p3v;
+  wire [31:0] a_p2_insn;
+  wire [7:0] a_p2_spc;
+  wire a_p2v;
+  wire [7:0] a_p1_spc;
+  wire a_p1v;
+  wire [12:0] a_s2;
+  wire [12:0] a_s1;
+  wire [1:0] a_fq;
+  wire [1:0] a_nq;
+  wire [1:0] a_cq;
+  wire [1:0] a_sq;
+  wire [31:0] a_now;
+  wire a_run;
+  assign {a_lu_owner, a_lu_owned, a_q_ld, a_rs_pend, a_q_ldk, a_ld_rd, a_ld_ctx, a_ld_v,
+      a_lead16, a_ahd_lee, a_ahd_tail, a_rch_tmr, a_ahd_now, a_opb, a_opa, a_illegal, a_d_op,
+      a_p3ok, a_p3_insn, a_p3v, a_p2_insn, a_p2_spc, a_p2v, a_p1_spc, a_p1v, a_s2, a_s1, a_fq,
+      a_nq, a_cq, a_sq, a_now, a_run} = fca;
+  wire [1:0] b_lu_owner;
+  wire b_lu_owned;
+  wire [31:0] b_q_ld;
+  wire [3:0] b_rs_pend;
+  wire [3:0] b_q_ldk;
+  wire [1:0] b_ld_rd;
+  wire [1:0] b_ld_ctx;
+  wire b_ld_v;
+  wire [15:0] b_lead16;
+  wire b_ahd_lee;
+  wire b_ahd_tail;
+  wire b_rch_tmr;
+  wire b_ahd_now;
+  wire [31:0] b_opb;
+  wire [31:0] b_opa;
+  wire b_illegal;
+  wire [52:0] b_d_op;
+  wire b_p3ok;
+  wire [31:0] b_p3_insn;
+  wire b_p3v;
+  wire [31:0] b_p2_insn;
+  wire [7:0] b_p2_spc;
+  wire b_p2v;
+  wire [7:0] b_p1_spc;
+  wire b_p1v;
+  wire [12:0] b_s2;
+  wire [12:0] b_s1;
+  wire [1:0] b_fq;
+  wire [1:0] b_nq;
+  wire [1:0] b_cq;
+  wire [1:0] b_sq;
+  wire [31:0] b_now;
+  wire b_run;
+  assign {b_lu_owner, b_lu_owned, b_q_ld, b_rs_pend, b_q_ldk, b_ld_rd, b_ld_ctx, b_ld_v,
+      b_lead16, b_ahd_lee, b_ahd_tail, b_rch_tmr, b_ahd_now, b_opb, b_opa, b_illegal, b_d_op,
+      b_p3ok, b_p3_insn, b_p3v, b_p2_insn, b_p2_spc, b_p2v, b_p1_spc, b_p1v, b_s2, b_s1, b_fq,
+      b_nq, b_cq, b_sq, b_now, b_run} = fcb;
+  wire [3:0] pair_on = ctx_pair & ~{ctx_enable[1:0], ctx_enable[3:2]};
+  function [1:0] own(input [1:0] s, input [3:0] pr);
+    own = pr[s ^ 2'd2] ? (s ^ 2'd2) : s;
+  endfunction
+  // j's context, every flop; but h_q (the head's kind and payload, f_all[727:702]) loads the
+  // shared commit entry on every cycle its FIFO is empty (o_cnt, f_all[829:827], is 0), whoever
+  // commits, and is read only when the FIFO holds an entry: compared only then
+  wire [865:0] ctx_ja = caa[866*j +: 866], ctx_jb = cab[866*j +: 866];
+  wire [865:0] ctx_m  = (ctx_ja[829:827] == 3'd0) ? ~({26{1'b1}} << 702) : {866{1'b1}};
+  function ni_ok_op(input [7:0] o);
+    ni_ok_op = o != 8'h36 && o != 8'h37 && o != 8'h2D && o != 8'h3C && o != 8'h3D;
+  endfunction
+  wire j_p1 = a_run && own(a_sq + 2'd2, pair_on) == j;
+  wire j_p2 = a_run && a_nq == j;
+  wire j_p3 = a_run && a_cq == j;
+  always @(*) if (f_past && rst_n && !init) begin
+    inv_sched: assert ({a_run, a_now, a_sq, a_cq, a_nq, a_fq, a_s1, a_s2, a_ld_ctx}
+                    == {b_run, b_now, b_sq, b_cq, b_nq, b_fq, b_s1, b_s2, b_ld_ctx});
+    inv_ctx:   assert ((ctx_ja & ctx_m) == (ctx_jb & ctx_m));
+    if (j_p1) inv_p1: assert (a_p1v == b_p1v && (!a_p1v || a_p1_spc == b_p1_spc));
+    // the program-store assumption's records (fj_*, fa_*: last cycle's fetch was j's, at this
+    // address) agree with the stage that holds that fetch now
+    if (j_p1 && a_p1v) inv_fetch: assert (fj_a && fj_b && fa_a == a_p1_spc && fa_b == b_p1_spc);
+    // the exclusions hold for j's words in flight too (the assumption above applies at fetch)
+    if (j_p2 && a_p2v) inv_op2: assert (ni_ok_op(a_p2_insn[31:24]));
+    if (j_p3 && a_p3v) inv_op3: assert (ni_ok_op(a_p3_insn[31:24]));
+    if (j_p2) inv_p2: assert (a_p2v == b_p2v && (!a_p2v || {a_p2_spc, a_p2_insn} == {b_p2_spc, b_p2_insn}));
+    if (j_p3) inv_p3: assert (a_p3v == b_p3v && (!a_p3v ||
+        {a_p3_insn, a_p3ok, a_d_op, a_illegal, a_opa, a_opb, a_ahd_now, a_rch_tmr, a_ahd_tail, a_ahd_lee, a_lead16}
+        == {b_p3_insn, b_p3ok, b_d_op, b_illegal, b_opa, b_opb, b_ahd_now, b_rch_tmr, b_ahd_tail, b_ahd_lee, b_lead16}));
+    if (a_ld_ctx == j) inv_ld: assert (a_ld_v == b_ld_v && (!a_ld_v || a_ld_rd == b_ld_rd));
+    inv_ldk:   assert (a_q_ldk[j] == b_q_ldk[j] && (!a_q_ldk[j] || a_q_ld == b_q_ld));
+    inv_rs:    assert (a_rs_pend[j] == b_rs_pend[j]);
+    inv_lu:    assert (!(a_lu_owned && a_lu_owner == j) && !(b_lu_owned && b_lu_owner == j));
+    // esc_core's lu_bank lemma without $past (which constrains nothing at an induction's
+    // first step): an owned unit in a run either has its owner's bank registered or is
+    // loading a CONFIG and drives and releases nothing (lu_mode 1); so its logical pins
+    // never land on another context's physical ones
+    if (a_run && a_lu_owned) inv_lub_a: assert (lua[0] == ctx_bank[a_lu_owner]
+        || (lua[3:1] == 3'd1 && lua[19:4] == 16'd0));
+    if (b_run && b_lu_owned) inv_lub_b: assert (lub[0] == ctx_bank[b_lu_owner]
+        || (lub[3:1] == 3'd1 && lub[19:4] == 16'd0));
+    // the line unit takes the tape port only in its owner's commit cycles (TX/RX in own_cyc;
+    // CONFIG and CRC words 4k cycles after the owner's op), so never in j's: j's LDT/STT
+    // never waits for another context's unit
+    if (a_run && lua[20]) inv_port_a: assert (a_lu_owned && a_cq == a_lu_owner);
+    if (b_run && lub[20]) inv_port_b: assert (b_lu_owned && b_cq == b_lu_owner);
+    // what makes it carry: a CONFIG or CRC job counts el from the edge after its op, which
+    // committed in one of the owner's slots, so own(now - el) is the owner; TX/RX use the port
+    // in own_cyc, the owner's own slot, which an enabled owner never lends to its partner
+    if (a_run && (lua[3:1] == 3'd1 || lua[3:1] == 3'd6))
+      inv_el_a: assert (a_lu_owned && own(a_now[1:0] - lua[22:21], pair_on) == a_lu_owner);
+    if (b_run && (lub[3:1] == 3'd1 || lub[3:1] == 3'd6))
+      inv_el_b: assert (b_lu_owned && own(b_now[1:0] - lub[22:21], pair_on) == b_lu_owner);
+    if (a_lu_owned) inv_en_a: assert (ctx_enable[a_lu_owner]);
+    if (b_lu_owned) inv_en_b: assert (ctx_enable[b_lu_owner]);
+  end
+`endif
 endmodule

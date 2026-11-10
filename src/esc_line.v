@@ -80,6 +80,9 @@ module esc_line (
     output reg  [7:0]  drv_m,          // val <= drv_val, oe <= drv_oe
     output reg  [7:0]  drv_val,
     output reg         drv_oe
+`ifdef ESC_NI
+    , output wire [11:0] f_el           // formal only (esc_ni_ind.sby): the tick counter
+`endif
 );
   localparam [2:0] IDLE = 3'd0, CFG = 3'd1, PEND = 3'd2, TX = 3'd3, ARM = 3'd4, RX = 3'd5,
                    CRCM = 3'd6;
@@ -101,6 +104,9 @@ module esc_line (
   reg  [2:0]  job, cause;
   reg  [8:0]  count;
   reg  [11:0] el;                          // tick counter (see header)
+`ifdef ESC_NI
+  assign f_el = el;
+`endif
   reg  [8:0]  acc;                         // alpha + P_frac of the current bit; [8] = carry
   reg         ext;                         // the current bit is P_int + 1 long: one more tick
   reg  [3:0]  rn;                          // stuffing run; idle bit times in ARM

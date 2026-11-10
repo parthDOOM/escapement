@@ -1,0 +1,85 @@
+# Non-interference between contexts (v1.7, S3: live reload), unbounded, by induction:
+# formal/esc_ni_env.v with ESC_NI_IND, two cores that differ only in what is aimed at
+# contexts other than j, and an invariant that carries itself from cycle to cycle (the
+# schedule and input synchronisers equal; each pipeline stage holding j's instruction equal;
+# every flip-flop of j's context equal; j's deferred tape load equal; j never owns the line
+# unit). The plain miter (esc_ni_x.sby) gave no verdict in 4 h of bmc3 (depth 15) or 8 h of
+# pdr (frame 10): the solvers had to find this invariant themselves.
+#   kind: k-induction (smtbmc): proves every assertion, the four ni_* among them, if the
+#         invariant is inductive; a failing step names the assertion and leaves a trace.
+#   pdr:  ABC's PDR on the strengthened property.
+#   base: bmc3 to depth 10, a quick check that the invariant holds where the chip can go.
+# The cores' own assertions are removed (esc_core.sby, esc_ctx.sby prove them); from reset
+# that only drops checks, so every task here is sound.
+[tasks]
+kind
+kind2
+kindr
+kinda
+kinda2
+pdr
+base
+
+[options]
+kind: mode prove
+kind: depth 1
+kind2: mode prove
+kind2: depth 2
+kindr: mode prove
+kindr: depth 1
+kinda: mode prove
+kinda: depth 1
+kinda2: mode prove
+kinda2: depth 2
+pdr: mode prove
+base: mode bmc
+base: depth 10
+
+[engines]
+kind: smtbmc yices
+kind2: smtbmc yices
+kindr: smtbmc yices
+kinda: smtbmc yices
+kinda2: smtbmc yices
+pdr: abc pdr
+base: abc bmc3
+
+[script]
+read -formal -DFORMAL -DESC_NI -DESC_NI_IND esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v esc_ni_env.v
+prep -top esc_ni_env
+# The units' own invariants, proved on their own (esc_ctx.sby, esc_line.sby: k-induction; the
+# esc_core ahead lemmas are assumptions already, ESC_AHEAD), are assumed here, in both copies:
+# induction starts from any state, and these rule out states no chip reaches (a line unit
+# claiming pins its owner does not own, say). Sound while those proofs pass on this RTL, and
+# esc_core.sby's (whose assertions check the units' environment assumptions) on the final one.
+# kindr: the same induction with the units' assertions removed instead (sound with no unit
+# proof at all; only the ESC_AHEAD lemmas, assumptions in esc_core, still rest on esc_core.sby
+# ahead, an unbounded k-induction).
+# kinda: esc_ctx's and esc_line's assertions stay assertions, proved here jointly with the
+# invariant (assumed at the induction's first step, checked at the next), esc_core's and
+# esc_cap's checks removed: sound with no other proof but the ahead lemmas'. kinda2: depth 2,
+# for the units' $past assertions (esc_line's buf_q, esc_ctx's write-data registers).
+kinda: chformal -assert -remove esc_core esc_cap
+kinda2: chformal -assert -remove esc_core esc_cap
+kind: chformal -assert2assume esc_core esc_ctx esc_cap esc_line esc_greg esc_lreg
+kind2: chformal -assert2assume esc_core esc_ctx esc_cap esc_line esc_greg esc_lreg
+pdr: chformal -assert2assume esc_core esc_ctx esc_cap esc_line esc_greg esc_lreg
+base: chformal -assert2assume esc_core esc_ctx esc_cap esc_line esc_greg esc_lreg
+kindr: chformal -assert -remove esc_core esc_ctx esc_cap esc_line esc_greg esc_lreg
+# ABC takes no x constants: each becomes a free value (more behaviours, so a pass still proves).
+# Lower first: SymbiYosys's AIGER step runs techmap after this script, and techmap turns every
+# variable part-select ($shiftx) into x constants that its own setundef (undriven only) leaves.
+flatten
+memory_nordff
+opt -full
+techmap
+opt -fast
+setundef -anyseq
+
+[files]
+../src/esc_greg.v
+../src/esc_ctx.v
+../src/esc_cap.v
+../src/esc_line.v
+../src/esc_core.v
+esc_ni_env.v

@@ -1,0 +1,51 @@
+# Non-interference between contexts (v1.7, S3: live reload): formal/esc_ni_env.v, two cores
+# that differ only in what is aimed at contexts other than j. Run: sby -f esc_ni.sby TASK
+# The cores' own assertions are removed (formal/esc_core.sby, esc_ctx.sby prove them); from
+# reset that only drops checks, so every task here is sound. bmc3 and pdr (ABC, bit-level) are
+# the ones that scale: smtbmc reached step 10 of 40 in 2.6 h on two full cores.
+[tasks]
+bmc
+kind
+bmc3
+pdr
+smoke
+
+[options]
+bmc: mode bmc
+bmc: depth 40
+kind: mode prove
+kind: depth 12
+bmc3: mode bmc
+bmc3: depth 40
+pdr: mode prove
+smoke: mode bmc
+smoke: depth 5
+
+[engines]
+bmc: smtbmc yices
+kind: smtbmc yices
+bmc3: abc bmc3
+pdr: abc pdr
+smoke: abc bmc3
+
+[script]
+read -formal -DFORMAL -DESC_NI esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v esc_ni_env.v
+prep -top esc_ni_env
+chformal -assert -remove esc_core esc_ctx esc_cap esc_line esc_greg esc_lreg
+# ABC takes no x constants: each becomes a free value (more behaviours, so a pass still proves).
+# Lower first: SymbiYosys's AIGER step runs techmap after this script, and techmap turns every
+# variable part-select ($shiftx) into x constants that its own setundef (undriven only) leaves.
+flatten
+memory_nordff
+opt -full
+techmap
+opt -fast
+setundef -anyseq
+
+[files]
+../src/esc_greg.v
+../src/esc_ctx.v
+../src/esc_cap.v
+../src/esc_line.v
+../src/esc_core.v
+esc_ni_env.v
