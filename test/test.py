@@ -405,6 +405,6 @@ async def test_slow_bitbang_host_like_the_demo_board(dut):
 
     good = await xfer([0x00, 0, 0, 0])
     st = good[0]
-    assert st & 0x0F == 9 and not st & 0x80, hex(st)
+    assert st & 0x0F == 10 and not st & 0x80, hex(st)   # v2 with pages: protocol version 10
     bad = await xfer([0x00, 0, 0, 0], sample_before=False)
     assert bad != good                          # the wrong discipline really is wrong
