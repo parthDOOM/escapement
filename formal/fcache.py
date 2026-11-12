@@ -78,6 +78,62 @@ def task_key(sby, task, extra=""):
     return h.hexdigest()
 
 
+def solve_secs(log):
+    """The solver's own seconds in an sby logfile: from the first engine's start to the last
+    engine's finish. sby's elapsed clock also counts building the model and, in a split run,
+    waiting in the job queue. None if the engines never started or never finished."""
+    def stamps(what):
+        return [int(h) * 3600 + int(m) * 60 + int(s) for h, m, s in re.findall(
+            r"^SBY +(\d+):(\d\d):(\d\d) \[[^\]]+\] engine_\d+: " + what, log, re.M)]
+    start, end = stamps("starting process"), stamps(r"finished \(")
+    if not start or not end:
+        return None
+    return (max(end) - min(start)) % 86400      # a run that crosses midnight
+
+
+def group_id(task, text):
+    """What identifies an assertion group across commits: a lemma group's name, or the
+    assertion's text for a group named after its source line (line numbers move)."""
+    return text if re.search(r"_\d+$", task) else task
+
+
+def history(path):
+    """{group_id: solver seconds} of the groups that passed in a split tool's --json FILE
+    (two groups with the same assertion text keep the longer time)."""
+    out = {}
+    for t in json.loads(Path(path).read_text())["tasks"]:
+        secs = t["solve_secs"] if t.get("solve_secs") is not None else t.get("secs")
+        if t["status"] == "PASS" and secs is not None:
+            g = group_id(t["task"], t.get("text", ""))
+            out[g] = max(out.get(g, 0), secs)
+    return out
+
+
+def history_limit(secs, factor, timeout, floor=600):
+    """A group's time limit from its last PASS: factor x as long, at least floor, at most
+    timeout. A proof that used to take seconds and stalls then stops in minutes, as a
+    TIMEOUT (a failure to investigate), instead of running to the general limit."""
+    return timeout if secs is None else min(timeout, max(floor, int(factor * secs)))
+
+
+def run_tasks(sby, tasks, jobs, cwd=HERE):
+    """Run the named tasks of one .sby file, `jobs` at a time, one sby process per task.
+    Not `sby -j`: sby starts every task's clock when it creates the task, so under -j a
+    queued task's timeout also counts the time it waited for a job slot (sby_core.py,
+    SbyTask.start_clock_time); here a task's clock starts when its process does.
+    Each process gets its work directory by -d (the name sby would give it, FILE_TASK):
+    without -d, every task of a file shares FILE/status.sqlite, and each `sby -f` deletes
+    that database at its start while the others are still writing it (libexec/sby,
+    remove_db), which crashed tasks running side by side."""
+    from concurrent.futures import ThreadPoolExecutor
+    stem = Path(sby).name[:-4]
+    def one(t):
+        subprocess.run(["sby", "-f", "-d", f"{stem}_{t}", str(sby), t], cwd=cwd,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        list(pool.map(one, tasks))
+
+
 class Cache:
     def __init__(self, path=CACHE):
         self.path = Path(path)

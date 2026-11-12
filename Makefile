@@ -92,10 +92,12 @@ formal: formal-quick formal-pdr
 # last PASS (formal/fcache.py); every skip is printed. For iterating, never for a release.
 SKIP_FLAG = $(if $(SKIP),--skip)
 
-# the unbounded core proof, one PDR task per assertion group, JOBS side by side
+# the unbounded core proof, one PDR task per assertion group, JOBS side by side.
+# FORMAL_HISTORY=FILE (an earlier FORMAL_JSON): a group that passed there is limited to 10x
+# its solver time (at least 600 s), so a proof that stops converging fails in minutes.
 formal-pdr:
 	cd formal && $(PYTHON) split_core.py $(SKIP_FLAG) --jobs $(JOBS) $(if $(FORMAL_TIMEOUT),--timeout $(FORMAL_TIMEOUT)) \
-	  $(if $(FORMAL_JSON),--json $(abspath $(FORMAL_JSON)))
+	  $(if $(FORMAL_JSON),--json $(abspath $(FORMAL_JSON))) $(if $(FORMAL_HISTORY),--history $(abspath $(FORMAL_HISTORY)))
 
 formal-quick: formal-bmc formal-props
 
@@ -103,7 +105,8 @@ formal-quick: formal-bmc formal-props
 # (formal/split_bmc.py, boolector), BMC_JOBS side by side: each solver can need about 2.5 GB
 BMC_JOBS ?= 1
 formal-bmc:
-	cd formal && $(PYTHON) split_bmc.py $(SKIP_FLAG) --jobs $(BMC_JOBS) $(if $(BMC_JSON),--json $(abspath $(BMC_JSON)))
+	cd formal && $(PYTHON) split_bmc.py $(SKIP_FLAG) --jobs $(BMC_JOBS) $(if $(BMC_JSON),--json $(abspath $(BMC_JSON))) \
+	  $(if $(BMC_HISTORY),--history $(abspath $(BMC_HISTORY)))
 
 # each proof runs (fcache.py runs them all and fails if any fails)
 formal-props:
