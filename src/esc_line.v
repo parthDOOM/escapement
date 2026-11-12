@@ -724,8 +724,10 @@ module esc_line (
   always @(posedge clk) f_pv <= 1'b1;
   always @(posedge clk)
     if (f_pv && rst_n && $past(rst_n) && $past(cfg_done)) assert ($stable(buf_q));
-  // v2 (11-12): the one-hot owner copy, and the CONFIG fault terms registered a cycle early
-  always @(*) if (rst_n) assert (sel == (owned ? 4'd1 << owner : 4'd0));  // lemma-group: sel_def
+  // v2 (11-12): the one-hot owner copy (sel_def), and the CONFIG fault terms registered a
+  // cycle early. sel_def is proved in the core's commit group, whose "no fault at a commit"
+  // reads lu_sel: alone, that group's PDR did not converge in 3 h (10 s with sel_def).
+  always @(*) if (rst_n) assert (sel == (owned ? 4'd1 << owner : 4'd0));  // lemma-group: commit (sel_def)
   always @(*)
     if (rst_n && cfg_on && el >= 12'd2) begin  // lemma-group: cfg_pre (W0 is in buf_q from el 1)
       assert (own_bad_q == own_bad);
