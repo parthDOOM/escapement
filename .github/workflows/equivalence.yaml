@@ -51,7 +51,7 @@ jobs:
           git clone -q --filter=blob:none --no-checkout https://github.com/IHP-GmbH/IHP-Open-PDK pdk
           cd pdk
           git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/'
-          git checkout -q 2bbec755dc67ca3db0261c3d6163e15735d66710
+          git checkout -q 89d42ee6d2fd9b50b86a1aada6fee6673c3e6008
 
       - uses: ./.github/actions/oss-cad-suite
 

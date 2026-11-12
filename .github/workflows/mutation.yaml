@@ -55,7 +55,7 @@ jobs:
           cd pdk
           git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/' \
             '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/'
-          git checkout -q 2bbec755dc67ca3db0261c3d6163e15735d66710
+          git checkout -q 89d42ee6d2fd9b50b86a1aada6fee6673c3e6008
 
       - name: Mutants
         env:
@@ -101,7 +101,7 @@ jobs:
           cd pdk
           git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/' \
             '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/'
-          git checkout -q 2bbec755dc67ca3db0261c3d6163e15735d66710
+          git checkout -q 89d42ee6d2fd9b50b86a1aada6fee6673c3e6008
 
       - name: Baseline and canaries
         env:

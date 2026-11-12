@@ -1,8 +1,11 @@
 name: gds
 
 # Pinned to the exact revisions in scripts/versions.txt (docs/05-TOOLCHAIN.md).
-# tt-gds-action@ihp-cmos5l = 3412659 (LibreLane 3.1.0.dev3, IHP-Open-PDK 2bbec755)
-# tt-support-tools@ihp-sg13cmos5l = d66cf17
+# The ttihp27a shuttle's release (v2.0 on): tt-gds-action tag ttihp27a = e7a50f8, which installs
+# LibreLane 3.1.0.dev4 for ihp-sg13cmos5l (given explicitly below) and whose precheck and GL test
+# use IHP-Open-PDK 89d42ee; tt-support-tools 9d13ff3 (the action's default, main, pinned).
+# v1.2-v1.6 were signed off on the pre-release pins (action 3412659, tools d66cf17, LibreLane
+# 3.1.0.dev3, PDK 2bbec755): docs/05-TOOLCHAIN.md.
 # The template's `viewer` job (GDS viewer on GitHub Pages) is not used.
 
 on:
@@ -31,20 +34,20 @@ jobs:
           submodules: recursive
 
       - name: Build GDS
-        uses: TinyTapeout/tt-gds-action@3412659307918422f3f0727917cf9b499aaca588
+        uses: TinyTapeout/tt-gds-action@e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6
         with:
           pdk: ihp-sg13cmos5l
-          tools-ref: d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
-          librelane-version: 3.1.0.dev3
+          tools-ref: 9d13ff3e3e6202090740110438c6a10c1d62ca0f
+          librelane-version: 3.1.0.dev4
 
   precheck:
     needs: gds
     runs-on: ubuntu-24.04
     steps:
       - name: Run Tiny Tapeout Precheck
-        uses: TinyTapeout/tt-gds-action/precheck@3412659307918422f3f0727917cf9b499aaca588
+        uses: TinyTapeout/tt-gds-action/precheck@e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6
         with:
-          tools-ref: d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
+          tools-ref: 9d13ff3e3e6202090740110438c6a10c1d62ca0f
 
   gl_test:
     needs: gds
@@ -56,4 +59,4 @@ jobs:
           submodules: recursive
 
       - name: GL test
-        uses: TinyTapeout/tt-gds-action/gl_test@3412659307918422f3f0727917cf9b499aaca588
+        uses: TinyTapeout/tt-gds-action/gl_test@e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6

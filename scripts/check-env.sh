@@ -27,7 +27,7 @@ check yosys-abc "RTL to netlist equivalence (make equiv)"
 check nextpnr-ice40 "optional FPGA validation"
 
 echo "Physical flow (pinned in scripts/versions.txt):"
-check librelane "LibreLane 3.1.0.dev3 (pip, Python 3.11)"
+check librelane "LibreLane 3.1.0.dev4 (pip, Python 3.11)"
 check klayout   "DRC / precheck"
 check magic     "LVS extraction; >= 8.3.657 for CMOS5L"
 
