@@ -19,10 +19,19 @@
  * escapement_sram on addr[7:0] (addr[9:8] unused, and 0 from the host and the core): the
  * v1.7 store, cycle for cycle. Instance names (`g_one.u0.sram`, `g_pages.u_p<k>.sram`)
  * are the flattened paths src/config.json names.
+ *
+ * MACROS (with PAGES = 4; 11-12, the layout trade): how the 1,024 words are built, behind
+ * the same contract.
+ *   4  four 256x32 macros, one per page (`g_pages.u_p<k>.sram`), a 4:1 mux on rdata;
+ *   2  two 512x32 macros, pages 0-1 and 2-3 (`g_half.u_h<k>.sram`), a 2:1 mux on rdata;
+ *   1  one 1024x32 macro (`g_whole.u0.sram`), no mux.
+ * Only the macro holding the address is enabled. Five macros (with the tape) did not route
+ * at 8x4 (G0.md, floorplans a and c); 2 and 1 keep the v1.7 floorplan's shape.
  */
 `default_nettype none
 module escapement_pstore #(
-    parameter integer PAGES = 4
+    parameter integer PAGES  = 4,
+    parameter integer MACROS = 4
 ) (
     input  wire        clk,
     input  wire        rst_n,
@@ -37,7 +46,26 @@ module escapement_pstore #(
       escapement_sram u0 (.clk(clk), .rst_n(rst_n), .addr(addr[7:0]), .re(re), .we(we),
                           .wdata(wdata), .rdata(rdata));
       wire _unused = &{addr[9:8], 1'b0};
-    end else begin : g_pages
+    end
+    if (PAGES != 1 && MACROS == 1) begin : g_whole
+      escapement_sram1024 u0 (.clk(clk), .rst_n(rst_n), .addr(addr), .re(re), .we(we),
+                              .wdata(wdata), .rdata(rdata));
+    end
+    if (PAGES != 1 && MACROS == 2) begin : g_half
+      wire [1:0]  sel = 2'd1 << addr[9];
+      wire [63:0] d;
+      reg         rhalf;
+      // the macro that read at this edge (escapement_sram512 reads when re & ~we)
+      always @(posedge clk or negedge rst_n)
+        if (!rst_n)         rhalf <= 1'b0;
+        else if (re && !we) rhalf <= addr[9];
+      escapement_sram512 u_h0 (.clk(clk), .rst_n(rst_n), .addr(addr[8:0]), .re(re & sel[0]),
+                               .we(we & sel[0]), .wdata(wdata), .rdata(d[31:0]));
+      escapement_sram512 u_h1 (.clk(clk), .rst_n(rst_n), .addr(addr[8:0]), .re(re & sel[1]),
+                               .we(we & sel[1]), .wdata(wdata), .rdata(d[63:32]));
+      assign rdata = rhalf ? d[63:32] : d[31:0];
+    end
+    if (PAGES != 1 && MACROS == 4) begin : g_pages
       wire [3:0]   sel = 4'd1 << addr[9:8];
       wire [127:0] d;
       reg  [1:0]   rpage;
@@ -54,6 +82,9 @@ module escapement_pstore #(
       escapement_sram u_p3 (.clk(clk), .rst_n(rst_n), .addr(addr[7:0]), .re(re & sel[3]),
                             .we(we & sel[3]), .wdata(wdata), .rdata(d[127:96]));
       assign rdata = d[32*rpage +: 32];
+    end
+    if (PAGES != 1 && MACROS != 1 && MACROS != 2 && MACROS != 4) begin : g_bad
+      escapement_pstore_MACROS_must_be_1_2_or_4 u_bad ();   // no such module: elaboration fails
     end
   endgenerate
 endmodule

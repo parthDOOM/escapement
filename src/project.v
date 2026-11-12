@@ -29,6 +29,8 @@ module tt_um_escapement (
   // v2 feature switch (runbook 28 §5): program pages, S-A. 4: four pages; 1: the v1.7
   // store and host interface, cycle for cycle.
   localparam integer PAGES = 4;
+  // How the four pages are built (escapement_pstore.v): 4 x 256x32, 2 x 512x32 or 1 x 1024x32.
+  localparam integer STORE_MACROS = 4;
   // v2 feature switch (runbook 28 §5): proof tripwires, S-C. 1: on; 0: the v1.7 core (debug
   // select 27 reads 0), cycle for cycle.
   localparam integer TRIPWIRES = 1;
@@ -85,7 +87,7 @@ module tt_um_escapement (
   wire [9:0] core_imem_addr;
   wire       core_imem_re;
   assign     imem_wgnt = imem_wpend & (core_imem_free | ~running);
-  escapement_pstore #(.PAGES(PAGES)) u_sram (
+  escapement_pstore #(.PAGES(PAGES), .MACROS(STORE_MACROS)) u_sram (
       .clk  (clk),
       .rst_n(rst_n),
       .addr ((running & ~imem_wgnt) ? core_imem_addr : {host_mem_page, host_mem_addr}),
