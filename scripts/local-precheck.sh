@@ -9,21 +9,35 @@
 set -euo pipefail
 RUN=$(realpath "$1")
 EDA="${EDA:-$HOME/eda}"
-export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ihp-2bbec755dc67ca3db0261c3d6163e15735d66710}"
 export PDK=ihp-sg13cmos5l
+# FLOW as for scripts/local-harden.sh: run the precheck of the release the harden used.
+#   pre       tt-support-tools d66cf17's precheck, IHP-Open-PDK 2bbec755, KLayout from LibreLane 3.1.0.dev3
+#   ttihp27a  the shuttle's (tools 9d13ff3, the ./tt checkout local-harden.sh makes for it): its PDK
+#             89d42ee from ciel and KLayout + Magic from LibreLane 3.1.0.dev4 (KLayout 0.30.12, Magic
+#             8.3.677; its tool-versions.json pins 0.30.4 / 8.3.568: the CI precheck job is the authority)
+FLOW="${FLOW:-pre}"
+case "$FLOW" in
+  pre)      export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ihp-2bbec755dc67ca3db0261c3d6163e15735d66710}"
+            IMG=ghcr.io/librelane/librelane:3.1.0.dev3; PVENV="$EDA/precheck-venv" ;;
+  ttihp27a) export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ciel/ciel/ihp-sg13/versions/89d42ee6d2fd9b50b86a1aada6fee6673c3e6008}"
+            IMG=ghcr.io/librelane/librelane:3.1.0.dev4; PVENV="$EDA/precheck-venv-ttihp27a" ;;
+  *) echo "FLOW must be pre or ttihp27a" >&2; exit 2 ;;
+esac
 cd "$(dirname "$0")/.."
+[[ -f tt/precheck/precheck.py ]] || { echo "no tt/precheck (run local-harden.sh with the same FLOW first)"; exit 1; }
 
-if [[ ! -x "$EDA/precheck-venv/bin/python" ]]; then
-  "$EDA/venv/bin/python3.11" -m venv "$EDA/precheck-venv"
-  "$EDA/precheck-venv/bin/pip" install -q -r tt/precheck/requirements.txt
+if [[ ! -x "$PVENV/bin/python" ]]; then
+  "$EDA/venv/bin/python3.11" -m venv "$PVENV"
+  "$PVENV/bin/pip" install -q -r tt/precheck/requirements.txt
 fi
-mkdir -p "$EDA/klayout-docker"
-cat > "$EDA/klayout-docker/klayout" <<'EOF'
+TOOLS="$EDA/precheck-docker-$FLOW"; mkdir -p "$TOOLS"
+for t in klayout magic; do
+  cat > "$TOOLS/$t" <<EOF
 #!/usr/bin/env bash
-exec docker run --rm -i -v "$HOME:$HOME" -v /tmp:/tmp -w "$PWD" -e PDK_ROOT -e PDK \
-  ghcr.io/librelane/librelane:3.1.0.dev3 klayout "$@"
+exec docker run --rm -i -v "\$HOME:\$HOME" -v /tmp:/tmp -w "\$PWD" -e PDK_ROOT -e PDK $IMG $t "\$@"
 EOF
-chmod +x "$EDA/klayout-docker/klayout"
+  chmod +x "$TOOLS/$t"
+done
 
 GDS="$RUN/final/gds/tt_um_escapement.gds"
 [[ -f "$GDS" ]] || { echo "no GDS at $GDS"; exit 1; }
@@ -35,4 +49,4 @@ cp "$RUN/final/lef/tt_um_escapement.lef" "$WORK/tt_um_escapement.lef"
 cp "$RUN/final/nl/tt_um_escapement.nl.v" "$WORK/tt_um_escapement.v"
 cp info.yaml "$WORK/info.yaml"
 cd tt/precheck
-PATH="$EDA/klayout-docker:$PATH" "$EDA/precheck-venv/bin/python" precheck.py --gds "$WORK/tt_um_escapement.gds"
+PATH="$TOOLS:$PATH" "$PVENV/bin/python" precheck.py --gds "$WORK/tt_um_escapement.gds"
