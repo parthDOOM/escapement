@@ -89,6 +89,11 @@ module esc_line_env (
     if (op_recv | op_crc) assume (conf);
     if (op_send) assume (claimed != 8'd0);
   end
+  // v2 (11-12): the owner's pins do not change while a CONFIG runs (esc_core proves it:
+  // owns_cfg); the unit registers its CONFIG fault terms a cycle early on that basis
+  always @(posedge clk)
+    if (f_past_valid && $past(rst_n) && rst_n && mode == 3'd1 && $past(mode) == 3'd1)
+      assume ($stable(owns));
   // lemmas for the induction: a busy unit belongs to a run (a stop kills it, at the edge
   // that stops the run), and pins are claimed only under a configuration
   always @(*) if (rst_n && mode != 3'd0) assert (run);

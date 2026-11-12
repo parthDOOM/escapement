@@ -298,7 +298,10 @@ module esc_core #(
   wire [11:0] lu_el;
 `endif
   wire [31:0] lu_status, lu_e, lu_pwdata;
-  wire        lu_mine   = lu_owned & (lu_owner == cctx);     // the committing context owns it
+  // v2 (timing, 11-12): the unit's one-hot owner register (u_line.sel = owned ? 1 << owner
+  // : 0, formal: sel_def), so lu_sel, lu_mine and the owner's line return start at a flop
+  wire [3:0]  lu_selq;
+  wire        lu_mine   = lu_selq[cctx];                    // the committing context owns it
   wire [7:0]  claimed_c = lu_mine ? lu_claimed : 8'd0;
   wire        lu_cfgf   = lu_flto | lu_fltc;                 // a CONFIG completing now faults
 
@@ -706,7 +709,7 @@ module esc_core #(
   generate
     for (gk = 0; gk < 4; gk = gk + 1) begin : g_sel
       assign cm_sel[gk]  = (cctx == gk[1:0]);
-      assign lu_sel[gk]  = lu_owned & (lu_owner == gk[1:0]);
+      assign lu_sel[gk]  = lu_selq[gk];                     // = lu_owned & (lu_owner == gk)
       assign fault_k[gk] = ~start & ~stop & ((cm_fault & cm_sel[gk]) | c_late[gk]
                                              | (lu_cfgf & lu_sel[gk]));
     end
@@ -787,9 +790,9 @@ module esc_core #(
       .op_off(lu_cm & (l_op == 4'd0)), .op_recv(lu_cm & (l_op == 4'd1)),
       .op_crc(lu_cm & (l_op == 4'd2)), .op_cfg(lu_cm & (l_op == 4'd3)),
       .op_ctx(cctx), .op_v(opb[29:0]),
-      .line_ret(c_lret[lu_owner] & lu_owned), .halt_done(cm_ok & w_halt & lu_mine),
+      .line_ret(|(c_lret & lu_selq)), .halt_done(cm_ok & w_halt & lu_mine),
       .kill(stop_q | (|((fault_k | cs_k) & lu_sel))), .rdata(tape_rdata),
-      .owned(lu_owned), .owner(lu_owner), .conf(lu_conf), .claimed(lu_claimed),
+      .owned(lu_owned), .owner(lu_owner), .sel(lu_selq), .conf(lu_conf), .claimed(lu_claimed),
       .engaged(lu_engaged), .busy(lu_busy), .status(lu_status), .e(lu_e), .mode(lu_mode),
       .flt_owner(lu_flto), .flt_config(lu_fltc), .send_rd(lu_srd),
       .port(lu_port), .port_we(lu_pwe), .port_addr(lu_paddr), .port_wdata(lu_pwdata),
@@ -1452,6 +1455,12 @@ module esc_core #(
       else
         assert (lu_mode == 3'd1 && lu_drv == 8'd0 && lu_rel == 8'd0);  // lemma-group: lubank
     end
+  // LI (v2, 11-12) owns_cfg: the owner's pins hold while the unit stays in CONFIG (the owner is
+  // fixed at the CONFIG's start, pin ownership static in a run). esc_line_env.v assumes it;
+  // the unit registers its CONFIG fault terms a cycle early on that basis.
+  always @(posedge clk)
+    if (f_past_valid && rst_n && $past(rst_n) && lu_mode == 3'd1 && $past(lu_mode) == 3'd1)
+      assert ($stable(owned_by[8*lu_owner +: 8]));  // lemma-group: lineio
 
   // P7 fixed slot timing: a commit observed during cycle c+1 belongs to the owner of slot
   // (c+1) mod 4 (v1.6: context (c+1) mod 4; v1.7: its partner when that one is paired and

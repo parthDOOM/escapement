@@ -59,6 +59,9 @@ module esc_line (
     // state during this cycle
     output reg         owned,
     output reg  [1:0]  owner,
+    // v2 (timing, 11-12): (owned ? 1 << owner : 0), a second register written by the same
+    // assignments, so the core's per-context selects start at a flop (formal: sel_def)
+    (* keep *) output reg [3:0] sel,
     output reg         conf,
     output wire [7:0]  claimed,        // logical pins of the owner the unit claims
     output wire        engaged,
@@ -229,10 +232,24 @@ module esc_line (
   wire [2:0]  n_d = buf_q[2:0], n_n = buf_q[5:3];
   wire        n_diff = buf_q[9], n_tx = buf_q[20];
   wire [7:0]  n_cl = n_tx ? (dec8(n_d) | (n_diff ? dec8(n_n) : 8'd0)) : 8'd0;
+`ifdef FORMAL
+  // the definition (v1.4), which the registered terms below must reproduce (cfg_pre)
   wire        n_valid = (cfg_x & (w3[2:0] != 3'd0)) ? (w1[11:0] >= 12'd2)
                       : (w1[11:0] >= 12'd8) & (w1[31:20] >= 12'd4) & (w1[31:20] < w1[11:0]);
-  assign flt_owner  = cfg_done & n_tx & (~owns[n_d] | (n_diff & (~owns[n_n] | (n_d == n_n))));
-  assign flt_config = cfg_done & ~flt_owner & ~n_valid;
+`endif
+  // v2 (timing, 11-12): the fault terms are registered at the edge before they are used.
+  // Every input is final by then: W0's fields (buf_q) from el 1 of the CONFIG (registered from el 2); owns all
+  // CONFIG long (the owner is fixed at its start and pin ownership is static in a run, the
+  // LI rule `owns_cfg`); w1 from el 5 and w3 from el 13, against completion at el 8 or 16.
+  // So the registered terms equal the definitions at every completing edge (formal:
+  // cfg_pre) and the faults are the same cycle for cycle, with the ownership mux and the
+  // pin compare off the paths from completion to fault, release and kill.
+  wire        own_bad = n_tx & (~owns[n_d] | (n_diff & (~owns[n_n] | (n_d == n_n))));
+  wire        v_norm  = (w1[11:0] >= 12'd8) & (w1[31:20] >= 12'd4) & (w1[31:20] < w1[11:0]);
+  reg         own_bad_q, v_norm_q, v_ext_q, w3x_q;
+  wire        n_valid_p = (cfg_x & w3x_q) ? v_ext_q : v_norm_q;
+  assign flt_owner  = cfg_done & own_bad_q;
+  assign flt_config = cfg_done & ~flt_owner & ~n_valid_p;
   wire [31:0] n_m    = pfx(cfg_x ? {rdata[15:0], w2[15:0]} : {rdata[15:0], 16'd0});
   wire        n_init = cfg_x ? w2[16] : rdata[16];
   // the new configuration's idle levels: d = L (0 with ilow), n = not L, or cidle with clk
@@ -483,9 +500,13 @@ module esc_line (
     if (!rst_n)                  nxt_q <= 32'd0;
     else if (!lu_hold && nx_we)  nxt_q <= rdata;
   end
+  always @(posedge lclk or negedge rst_n)
+    if (!rst_n)        {own_bad_q, v_norm_q, v_ext_q, w3x_q} <= 4'd0;
+    else if (!lu_hold) {own_bad_q, v_norm_q, v_ext_q, w3x_q} <=
+                         {own_bad, v_norm, w1[11:0] >= 12'd2, w3[2:0] != 3'd0};
   always @(posedge lclk or negedge rst_n) begin
     if (!rst_n) begin
-      owned <= 1'b0; owner <= 2'd0; conf <= 1'b0; mode <= IDLE;
+      owned <= 1'b0; owner <= 2'd0; sel <= 4'd0; conf <= 1'b0; mode <= IDLE;
       buf_q <= 32'd0; ld <= 1'b0; ldn <= 1'b0; crc <= 32'd0;
       job <= 3'd0; cause <= 3'd0; count <= 9'd0;
       el <= 12'd0; acc <= 9'd0; ext <= 1'b0; rn <= 4'd0; rb <= 1'b0; kc <= 9'd0;
@@ -496,7 +517,7 @@ module esc_line (
       dq_go <= 1'b0; dq_oe <= 1'b0; dq_val <= 8'd0; es0_q <= 3'd5; pbx_q <= 1'b0;
     end else if (lu_hold) begin
     end else if (start) begin
-      owned <= 1'b0; owner <= 2'd0; conf <= 1'b0; mode <= IDLE; ld <= 1'b0; ldn <= 1'b0;
+      owned <= 1'b0; owner <= 2'd0; sel <= 4'd0; conf <= 1'b0; mode <= IDLE; ld <= 1'b0; ldn <= 1'b0;
       req <= 1'b0; reqn <= 1'b0; fin <= 1'b0; crc <= 32'd0; job <= 3'd0; cause <= 3'd0;
       count <= 9'd0;
     end else if (kill) begin                             // as OFF; fault and stop release pins
@@ -532,7 +553,7 @@ module esc_line (
         end
       end
       if (op_cfg) begin
-        if (!owned) begin owned <= 1'b1; owner <= op_ctx; end
+        if (!owned) begin owned <= 1'b1; owner <= op_ctx; sel <= 4'd1 << op_ctx; end
         mode <= CFG; job <= 3'd3; cause <= OK; count <= 9'd0; el <= 12'd0;
       end
       if (!anyop) begin
@@ -703,6 +724,16 @@ module esc_line (
   always @(posedge clk) f_pv <= 1'b1;
   always @(posedge clk)
     if (f_pv && rst_n && $past(rst_n) && $past(cfg_done)) assert ($stable(buf_q));
+  // v2 (11-12): the one-hot owner copy, and the CONFIG fault terms registered a cycle early
+  always @(*) if (rst_n) assert (sel == (owned ? 4'd1 << owner : 4'd0));  // lemma-group: sel_def
+  always @(*)
+    if (rst_n && cfg_on && el >= 12'd2) begin  // lemma-group: cfg_pre (W0 is in buf_q from el 1)
+      assert (own_bad_q == own_bad);
+      if (el >= 12'd6)  assert (v_norm_q == v_norm && v_ext_q == (w1[11:0] >= 12'd2));
+      if (el >= 12'd14) assert (w3x_q == (w3[2:0] != 3'd0));
+    end
+  always @(*) if (rst_n && cfg_done) assert (flt_owner == (cfg_done & own_bad)
+      && flt_config == (cfg_done & ~own_bad & ~n_valid));  // lemma-group: cfg_pre
 `endif
 endmodule
 
