@@ -1,9 +1,10 @@
 name: formal
 
-# Every SymbiYosys proof (docs/04-VERIFICATION.md): formal-quick (bounded core, cover, ahead,
-# never late per context, clock gates, latches, configuration, line unit), then the unbounded core proof with
-# one PDR task per assertion. The result goes to the results page on the site. A second job
-# runs the v2 proofs (make formal-v2) and the teeth (make formal-teeth).
+# Every SymbiYosys proof (docs/04-VERIFICATION.md), in three jobs side by side: formal-props
+# (cover, ahead, never late per context, clock gates, latches, configuration, line unit) and the
+# unbounded core proof with one PDR task per assertion (its result goes to the results page);
+# the bounded core check split per assertion group (formal-bmc); the v2 proofs (formal-v2) and
+# the teeth (formal-teeth).
 
 on:
   push:
@@ -28,7 +29,7 @@ jobs:
       - name: Proofs
         # PDR run times vary between machines: a task that takes 18 min locally took over an
         # hour on the 4-vCPU runner, so CI allows each task 3 hours
-        run: make formal JOBS=4 FORMAL_TIMEOUT=10800 PYTHON=python3 FORMAL_JSON=results/formal-split.json
+        run: make formal-props formal-pdr JOBS=4 FORMAL_TIMEOUT=10800 PYTHON=python3 FORMAL_JSON=results/formal-split.json
 
       - name: Summary
         if: always()
@@ -50,6 +51,30 @@ jobs:
             formal/*/logfile.txt
             formal/*/status
             results/formal-split.json
+
+  # the bounded core check from reset, one task per assertion group (formal/split_bmc.py, boolector;
+  # as one task it did not finish in 16.8 h), three side by side
+  formal-bmc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+
+      - uses: ./.github/actions/oss-cad-suite
+
+      - name: Bounded check
+        run: make formal-bmc BMC_JOBS=3 PYTHON=python3 BMC_JSON=results/formal-bmc.json
+
+      - name: Upload proof logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: formal-bmc-logs
+          path: |
+            formal/esc_core_bmcsplit_*/logfile.txt
+            formal/esc_core_bmcsplit_*/status
+            results/formal-bmc.json
 
   # v2: the tripwire proof, the line unit bounded from reset, non-interference (kind + base), then
   # the teeth: each planted bug must make its proof fail (formal/teeth.sh)

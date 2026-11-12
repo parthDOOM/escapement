@@ -5,7 +5,7 @@ PYTHON ?= python3
 # from data, so it is checked by the replay tests instead of by escert.
 FIRMWARE := $(filter-out firmware/replay.asm,$(wildcard firmware/*.asm))
 
-.PHONY: help env sw-test cert proof-table fw-mutants test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test lint formal formal-quick formal-v2 formal-teeth equiv mutation harden precheck clean
+.PHONY: help env sw-test cert proof-table fw-mutants test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test lint formal formal-quick formal-bmc formal-props formal-pdr formal-v2 formal-teeth equiv mutation harden precheck clean
 
 help:
 	@echo "sw-test    assembler, ISS, certificate checker and bus-model tests (pytest)"
@@ -23,8 +23,10 @@ help:
 	@echo "unit-test  directed core tests"
 	@echo "line-test  line unit RTL against the ISS model, every output every cycle (LINE_SEEDS, default 8)"
 	@echo "lint       Verilator lint of the core"
-	@echo "formal     all SymbiYosys proofs, with the unbounded core proof split over JOBS cores (81 min at 2 jobs)"
-	@echo "formal-quick  bounded core proof, cover, ahead, never-late, clock-gate, configuration and line unit proofs (~61 min, mostly the bounded check)"
+	@echo "formal     formal-quick, then the unbounded core proof split over JOBS cores (formal-pdr)"
+	@echo "formal-quick  formal-bmc and formal-props"
+	@echo "formal-bmc    the bounded core check from reset, one task per assertion group (BMC_JOBS side by side)"
+	@echo "formal-props  cover, ahead, never-late, clock-gate, latch, configuration and line unit proofs"
 	@echo "formal-v2  the v2 proofs: tripwires (esc_core tw), the line unit bounded from reset, non-interference (esc_ni_ind kind + base)"
 	@echo "formal-teeth  known bugs planted one at a time (formal/teeth.sh): each proof they stand for must fail"
 	@echo "equiv      the gate-level netlist is sequentially equivalent to the RTL (yosys, ABC; ~4 min)"
@@ -84,12 +86,23 @@ line-test:
 lint:
 	cd test/rtl_unit && $(MAKE) lint
 
-formal: formal-quick
+formal: formal-quick formal-pdr
+
+# the unbounded core proof, one PDR task per assertion group, JOBS side by side
+formal-pdr:
 	cd formal && $(PYTHON) split_core.py --jobs $(JOBS) $(if $(FORMAL_TIMEOUT),--timeout $(FORMAL_TIMEOUT)) \
 	  $(if $(FORMAL_JSON),--json $(abspath $(FORMAL_JSON)))
 
-formal-quick:
-	cd formal && sby -f esc_core.sby bmc && sby -f esc_core.sby cover \
+formal-quick: formal-bmc formal-props
+
+# the bounded core check from reset (esc_core.sby bmc's depth), one task per assertion group
+# (formal/split_bmc.py, boolector), BMC_JOBS side by side: each solver can need about 2.5 GB
+BMC_JOBS ?= 1
+formal-bmc:
+	cd formal && $(PYTHON) split_bmc.py --jobs $(BMC_JOBS) $(if $(BMC_JSON),--json $(abspath $(BMC_JSON)))
+
+formal-props:
+	cd formal && sby -f esc_core.sby cover \
 	  && sby -f esc_core.sby ahead && sby -f esc_ctx.sby kind && sby -f esc_greg.sby && sby -f esc_lreg.sby && sby -f esc_host.sby \
 	  && sby -f esc_line.sby kind
 

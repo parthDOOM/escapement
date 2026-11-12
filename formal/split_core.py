@@ -45,23 +45,32 @@ def sections(text):
     return out
 
 
-def pdr_lines(lines):
-    """The lines of a section that apply to the `pdr` task, prefixes removed."""
+def task_names(sec):
+    """The tasks esc_core.sby declares (its [tasks] section)."""
+    return {s.strip() for s in sec["tasks"] if s.strip() and not s.strip().startswith("#")}
+
+
+def task_lines(lines, task, tasks):
+    """The lines of a section that apply to `task`, prefixes removed. A prefix is any task
+    the file declares (`t:` and `~t:`), so a task added to esc_core.sby later is handled
+    without changing this script (v2's `tw` once leaked through a fixed list)."""
     res = []
     for line in lines:
         s = line.strip()
         if not s or s.startswith("#"):
             continue
         m = re.match(r"(~?)(\w+):\s*(.*)", s)
-        if m and m.group(2) in ("pdr", "bmc", "cover", "kind", "ahead"):
-            if (m.group(1) == "") == (m.group(2) == "pdr"):
+        if m and m.group(2) in tasks:
+            if (m.group(1) == "") == (m.group(2) == task):
                 res.append(m.group(3))
+        elif m:
+            sys.exit(f"esc_core.sby: '{s}' is prefixed by a task the file does not declare")
         else:
             res.append(s)
     return res
 
 
-def assertion_groups(script, files):
+def assertion_groups(script, files, listing_name="esc_core_split.list"):
     """(file, line) of every assertion cell in the design the pdr task proves."""
     srcdir = HERE.parent / "src"
     cmds = []
@@ -69,7 +78,7 @@ def assertion_groups(script, files):
         cmds.append(s)
         if s.startswith("prep"):
             break
-    listing = HERE / "esc_core_split.list"
+    listing = HERE / listing_name
     cmds.append(f"tee -q -o {listing} select -list n:$assert$*")
     subprocess.run(["yosys", "-q", "-p", "; ".join(cmds)], cwd=srcdir, check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -88,7 +97,8 @@ def main():
     a = ap.parse_args()
 
     sec = sections(SBY.read_text())
-    script, files = pdr_lines(sec["script"]), [f.strip() for f in sec["files"] if f.strip()]
+    script = task_lines(sec["script"], "pdr", task_names(sec))
+    files = [f.strip() for f in sec["files"] if f.strip()]
     groups = assertion_groups(script, files)
     src = {f: (HERE.parent / "src" / f).read_text().splitlines() for f, _ in groups}
 
