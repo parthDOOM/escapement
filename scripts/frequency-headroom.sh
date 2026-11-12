@@ -9,7 +9,7 @@
 # DUTY           the clock's high time in percent of the period (default 50): a board that
 #                cannot make an exact 50% clock, checked at the rated period with slow:20 typ:20 fast:20
 #
-# OpenSTA in the pinned LibreLane container reads the final netlist and its extracted
+# OpenSTA in the pinned LibreLane container (FLOW, default ttihp27a) reads the final netlist and its extracted
 # parasitics with the sign-off constraints (src/escapement.sdc: latches modelled, time
 # borrowing allowed), the period shortened and the 20% I/O delays scaled with it. Setup
 # holds when the worst slack is >= 0; a latch input that borrows reports exactly 0 (printed
@@ -29,10 +29,15 @@ DUTY=${DUTY:-50}
 
 REPO=$(realpath "$(dirname "$0")/..")
 EDA="${EDA:-$HOME/eda}"
-export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ihp-2bbec755dc67ca3db0261c3d6163e15735d66710}"
-IMAGE=ghcr.io/librelane/librelane:3.1.0.dev3
+# FLOW as for scripts/local-harden.sh (default ttihp27a): the PDK and container the run used
+case "${FLOW:-ttihp27a}" in
+  pre)      export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ihp-2bbec755dc67ca3db0261c3d6163e15735d66710}"
+            IMAGE=ghcr.io/librelane/librelane:3.1.0.dev3 ;;
+  ttihp27a) export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ciel/ciel/ihp-sg13/versions/89d42ee6d2fd9b50b86a1aada6fee6673c3e6008}"
+            IMAGE=ghcr.io/librelane/librelane:3.1.0.dev4 ;;
+  *) echo "FLOW must be pre or ttihp27a" >&2; exit 2 ;;
+esac
 LIB=$PDK_ROOT/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib
-MAC=$REPO/macro/RM_IHPSG13_1P_256x32_c2_bm_bist
 ART=$(ls "$REPO"/macro/escapement_art/lib/*.lib 2>/dev/null | head -n 1 || true)
 OUT=$RUN/frequency
 mkdir -p "$OUT"
@@ -52,7 +57,11 @@ for pt in "${POINTS[@]}"; do
   fi
   {
     echo "read_liberty $LIB/sg13cmos5l_stdcell_${STD[$c]}.lib"
-    echo "read_liberty $MAC/RM_IHPSG13_1P_256x32_c2_bm_bist_${SRAM[$c]}.lib"
+    # every SRAM macro's liberty at the corner (v2: the 1024x32 store and the 256x32 tape);
+    # one the netlist does not use is never linked
+    for m in "$REPO"/macro/RM_IHPSG13_1P_*x32_c2_bm_bist; do
+      echo "read_liberty $m/$(basename "$m")_${SRAM[$c]}.lib"
+    done
     [[ -n "$ART" ]] && echo "read_liberty $ART"
     echo "read_verilog $RUN/final/nl/tt_um_escapement.nl.v"
     echo "link_design tt_um_escapement"
