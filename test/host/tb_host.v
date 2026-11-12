@@ -3,6 +3,11 @@
 // project.v (the host gets it in every cycle core_busy is low, while running too).
 // SPDX-License-Identifier: Apache-2.0
 `default_nettype none
+`ifndef ESC_STORE_MACROS
+  // test/sim.mk sets it from src/project.v STORE_MACROS (the shipped store build); unset, this
+  // names an undefined identifier, so the bench does not build on the wrong store.
+  `define ESC_STORE_MACROS ESC_STORE_MACROS_not_set_by_test_sim_mk
+`endif
 `timescale 1ns / 1ps
 module tb_host (
     input  wire clk, rst_n,
@@ -53,7 +58,7 @@ module tb_host (
   wire       imem_wpend;
   reg        tb_free = 1'b1;
   wire       imem_wgnt = imem_wpend & (tb_free | ~running);
-  escapement_pstore u_sram (.clk(clk), .rst_n(rst_n), .addr({mem_page, mem_addr}), .re(mem_re & ~mem_space),
+  escapement_pstore #(.MACROS(`ESC_STORE_MACROS)) u_sram (.clk(clk), .rst_n(rst_n), .addr({mem_page, mem_addr}), .re(mem_re & ~mem_space),
                           .we((mem_we & ~running & ~mem_space) | imem_wgnt),
                           .wdata(mem_wdata), .rdata(imem_rdata));
   // the stand-in core never really accesses the tape: while busy it only holds the port

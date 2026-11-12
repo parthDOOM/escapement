@@ -10,6 +10,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 `default_nettype none
+`ifndef ESC_STORE_MACROS
+  // test/sim.mk sets it from src/project.v STORE_MACROS (the shipped store build); unset, this
+  // names an undefined identifier, so the bench does not build on the wrong store.
+  `define ESC_STORE_MACROS ESC_STORE_MACROS_not_set_by_test_sim_mk
+`endif
 `timescale 1ns / 1ps
 
 module esc_tb (
@@ -89,7 +94,7 @@ module esc_tb (
   wire        imem_re;
   wire [31:0] imem_rdata;
 
-  escapement_pstore u_sram (
+  escapement_pstore #(.MACROS(`ESC_STORE_MACROS)) u_sram (
       .clk  (clk),
       .rst_n(rst_n),
       .addr ((load_we & ~load_space) ? load_addr : imem_addr),

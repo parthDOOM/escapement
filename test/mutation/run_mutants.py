@@ -10,6 +10,7 @@ against the copy, cheapest first, and the first that fails kills it:
     escapement_host.v  host, chip tests, pin tests
     escapement_sram.v  host, cosim, chip tests
     escapement_pstore.v  host, cosim, chip tests (v2, S-A)
+    escapement_sram_big.v  host, cosim, chip tests (v2: the 512x32 / 1024x32 store builds)
     project.v          chip tests, pin tests
 
 A suite that hangs past its time limit counts as a kill. A mutant that no suite kills is
@@ -469,6 +470,7 @@ PIPELINE = {
     "escapement_host.v": ["host", "chip", "pins"],
     "escapement_sram.v": ["host", "cosim", "chip"],
     "escapement_pstore.v": ["host", "cosim", "chip"],
+    "escapement_sram_big.v": ["host", "cosim", "chip"],
     "project.v": ["chip", "pins"],
 }
 CORE_PIPELINE = ["cosim", "unit", "chip", "pins"]

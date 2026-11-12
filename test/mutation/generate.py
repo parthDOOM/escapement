@@ -27,7 +27,7 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 FILES = ["esc_core.v", "esc_ctx.v", "esc_cap.v", "esc_line.v", "esc_greg.v", "escapement_host.v",
-         "escapement_sram.v", "escapement_pstore.v", "project.v"]
+         "escapement_sram.v", "escapement_sram_big.v", "escapement_pstore.v", "project.v"]
 RATE = 0.30            # fraction of all sites taken; about 400 mutants on v1.3
 SALT = "escapement-mutation-1"
 # macros only formal/*.sby define: code under `ifdef of one of them is never synthesised
