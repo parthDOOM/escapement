@@ -22,7 +22,7 @@ from esctape import decode_capture, decode_records, edges
 from spi_master import SpiMaster
 
 FW = Path(__file__).resolve().parents[1] / "firmware"
-CLK_NS = float(os.environ.get("CLK_NS", 40))  # 25 MHz by default (rated up to 33 MHz, D-5);
+CLK_NS = float(os.environ.get("CLK_NS", 40))  # 25 MHz by default (rated up to 50 MHz, D-5);
 # set for gate-level timing runs (test/Makefile SDF=...) and their overclocked control
 
 

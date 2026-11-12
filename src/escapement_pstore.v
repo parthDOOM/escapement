@@ -1,7 +1,7 @@
 /*
- * escapement_pstore.v - the program store (v2, S-A): 1,024 words in four pages of 256,
- * one IHP 1P 256x32 SRAM macro per page (owner's choice, 11-10: today's energy per read
- * and today's clock to data out, for area the 8x4 tile gives).
+ * escapement_pstore.v - the program store (v2, S-A): 1,024 words in four pages of 256.
+ * The chip builds them as one IHP 1P 1024x32 SRAM macro (MACROS = 1, set in project.v;
+ * the 8x4 layout trade of 11-12, below); four 256x32 macros remain a build option.
  *
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
