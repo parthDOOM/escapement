@@ -8,16 +8,22 @@ for bit, in CI or locally.
 
 | Component | Revision |
 | --- | --- |
-| Tiny Tapeout template | `ttihp-verilog-template` branch `cmos5l` @ `b86a2a7` |
-| GDS action | `TinyTapeout/tt-gds-action` @ `3412659` (branch `ihp-cmos5l`) |
-| Support tools and precheck | `TinyTapeout/tt-support-tools` @ `d66cf17` (branch `ihp-sg13cmos5l`) |
-| PDK | `IHP-GmbH/IHP-Open-PDK` @ `2bbec755` (SG13CMOS5L) |
-| LibreLane | 3.1.0.dev3, container `ghcr.io/librelane/librelane:3.1.0.dev3` (digest in `versions.txt`) |
+| Tiny Tapeout template | `ttihp-verilog-template` branch `main` @ `4b1204a` (the ttihp27a shuttle's) |
+| GDS action | `TinyTapeout/tt-gds-action` @ `e7a50f8` (tag `ttihp27a`) |
+| Support tools and precheck | `TinyTapeout/tt-support-tools` @ `9d13ff3` (`main`, the action's default) |
+| PDK | `IHP-GmbH/IHP-Open-PDK` @ `89d42ee` (SG13CMOS5L), installed by ciel |
+| LibreLane | 3.1.0.dev4, container `ghcr.io/librelane/librelane:3.1.0.dev4` (digest in `versions.txt`) |
 | Python | 3.11 |
 | Simulation and formal | OSS CAD Suite release 2026-10-04 (Yosys and ABC, Verilator, SymbiYosys); Icarus Verilog 13.0 (built from its `v13_0` tag in CI, `.github/actions/iverilog`); cocotb 2.0.1 |
 
 The workflows reference the action and the tools by commit SHA, not by branch, so an
 upstream change cannot silently alter a harden.
+
+Version 2.0 is signed off on the March 2027 shuttle's release (`ttihp27a`). Versions 1.2 to
+1.6 were signed off on the pre-release flow: action `3412659` (branch `ihp-cmos5l`), tools
+`d66cf17`, PDK `2bbec755`, LibreLane 3.1.0.dev3. `FLOW=pre` in the local scripts reproduces
+that flow. The cell models and liberty that ciel installs at `89d42ee` are byte-identical to
+the IHP-Open-PDK tree at that commit, which the CI simulation and equivalence jobs check out.
 
 ## Implementation languages
 
@@ -33,7 +39,7 @@ upstream change cannot silently alter a harden.
 | Workflow | Runs |
 | --- | --- |
 | `test.yaml` | The chip-level cocotb tests on the RTL; then, in a second job, `sw-test`, `cert`, `cosim-parallel`, `proof-table` (on the co-simulation's RTL telemetry) and `pin-test`, and the co-simulation and line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
-| `formal.yaml` | `make formal`: the quick proofs, then the unbounded core proof as parallel tasks |
+| `formal.yaml` | Three jobs side by side: the property proofs (`make formal-props`) and the unbounded core proof as parallel PDR tasks (`make formal-pdr`); the bounded core check from reset, one task per assertion group (`make formal-bmc`); the v2 proofs (tripwires, the line unit from reset, non-interference: `make formal-v2`) and the teeth (`make formal-teeth`) |
 | `mutation.yaml` | The mutation campaign in sixteen shards dealt by cost, after a baseline of every suite on the unmutated RTL, with the canaries in a job of their own |
 | `gds.yaml` | The Tiny Tapeout harden (LibreLane), then the precheck and the gate-level test on the hardened netlist |
 | `equivalence.yaml` | After a successful harden on master: that netlist against the RTL of its commit |
@@ -56,7 +62,8 @@ make help                        # all test, formal and hardening entry points
 ## Local hardening
 
 [`scripts/local-harden.sh`](../scripts/local-harden.sh) runs the same LibreLane flow as
-the CI job, with the same tools revision, PDK and container, but on every local core:
+the CI job, with the same tools revision, PDK and container (`FLOW=ttihp27a`, the default;
+`FLOW=pre` for the v1.2-v1.6 flow), but on every local core:
 
 ```sh
 scripts/local-harden.sh --tag NAME                    # full flow into runs/NAME

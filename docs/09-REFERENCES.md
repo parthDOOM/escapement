@@ -5,10 +5,10 @@
 | Source | Used for |
 | --- | --- |
 | [Jane Street: protocol emulator ASIC competition](https://blog.janestreet.com/protocol-emulator-asic-competition/) | Brief: IHP 130 nm CMOS5L via Tiny Tapeout, tile allocation, protocol targets |
-| [Tiny Tapeout IHP template, `cmos5l` @ b86a2a7](https://github.com/TinyTapeout/ttihp-verilog-template/tree/b86a2a781484bcab7ba522dc5de540086695a430) | Repository layout, workflows, base flow configuration |
-| [tt-gds-action, `ihp-cmos5l` @ 3412659](https://github.com/TinyTapeout/tt-gds-action/tree/ihp-cmos5l) | CI harden, precheck and gate-level test actions |
-| [tt-support-tools, `ihp-sg13cmos5l` @ d66cf17](https://github.com/TinyTapeout/tt-support-tools/tree/ihp-sg13cmos5l) | Tile sizes (`tech/ihp-sg13cmos5l/tile_sizes.yaml`) and the precheck |
-| [LibreLane](https://github.com/librelane/librelane) and its [configuration reference](https://librelane.readthedocs.io/en/latest/reference/configuration.html) | RTL-to-GDS flow, version 3.1.0.dev3 |
+| [Tiny Tapeout IHP template, `main` @ 4b1204a](https://github.com/TinyTapeout/ttihp-verilog-template/tree/4b1204ab387b5ab94db1d57067051d8d89a2f83c) (v1.2-v1.6: `cmos5l` @ b86a2a7) | Repository layout, workflows, base flow configuration |
+| [tt-gds-action, tag `ttihp27a` @ e7a50f8](https://github.com/TinyTapeout/tt-gds-action/tree/ttihp27a) (v1.2-v1.6: `ihp-cmos5l` @ 3412659) | CI harden, precheck and gate-level test actions |
+| [tt-support-tools, `main` @ 9d13ff3](https://github.com/TinyTapeout/tt-support-tools/tree/9d13ff3e3e6202090740110438c6a10c1d62ca0f) (v1.2-v1.6: `ihp-sg13cmos5l` @ d66cf17) | Tile sizes (`tech/ihp-sg13cmos5l/tile_sizes.yaml`) and the precheck |
+| [LibreLane](https://github.com/librelane/librelane) and its [configuration reference](https://librelane.readthedocs.io/en/latest/reference/configuration.html) | RTL-to-GDS flow, version 3.1.0.dev4 (v1.2-v1.6: 3.1.0.dev3) |
 | [LibreLane issue #1039](https://github.com/librelane/librelane/issues/1039) | `-threads None` in 3.1.0.dev3 (D-23) |
 | [Tiny Tapeout local hardening guide](https://www.tinytapeout.com/guides/local-hardening/) | Local flow setup |
 | [Tiny Tapeout demo board](https://tinytapeout.com/specs/pcb-etr/) | RP2350 host, Pmod headers |
@@ -18,7 +18,7 @@
 
 | Source | Used for |
 | --- | --- |
-| [IHP-Open-PDK @ 2bbec755](https://github.com/IHP-GmbH/IHP-Open-PDK/tree/2bbec755dc67ca3db0261c3d6163e15735d66710) | SG13CMOS5L standard cells, I/O and SRAM views |
+| [IHP-Open-PDK @ 89d42ee](https://github.com/IHP-GmbH/IHP-Open-PDK/tree/89d42ee6d2fd9b50b86a1aada6fee6673c3e6008) (v1.2-v1.6: [2bbec755](https://github.com/IHP-GmbH/IHP-Open-PDK/tree/2bbec755dc67ca3db0261c3d6163e15735d66710)) | SG13CMOS5L standard cells, I/O and SRAM views (v2: the 1024x32 and 512x32 macros from ciel's install of 89d42ee) |
 | [SG13G2 SRAM views](https://github.com/IHP-GmbH/IHP-Open-PDK/tree/2bbec755dc67ca3db0261c3d6163e15735d66710/ihp-sg13g2/libs.ref/sg13g2_sram) | The `RM_IHPSG13_1P_256x32_c2_bm_bist` macro (re-exported as `sg13cmos5l_sram`) |
 | [IHP SRAM documentation](https://ihp-open-pdk-docs.readthedocs.io/en/latest/contents/reference_libraries/sram.html) | Macro family and interface |
 | [Loom: CMOS5L SRAM integration notes](https://github.com/thomasgilbert481/tt_um_loom/blob/main/docs/tt_cmos5l_facts.md) (Apache-2.0) | The SRAM integration recipe and PDN script that ours is adapted from |
