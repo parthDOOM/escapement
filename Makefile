@@ -5,7 +5,7 @@ PYTHON ?= python3
 # from data, so it is checked by the replay tests instead of by escert.
 FIRMWARE := $(filter-out firmware/replay.asm,$(wildcard firmware/*.asm))
 
-.PHONY: help env sw-test cert proof-table fw-mutants test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test lint formal formal-quick equiv mutation harden precheck clean
+.PHONY: help env sw-test cert proof-table fw-mutants test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test lint formal formal-quick formal-v2 formal-teeth equiv mutation harden precheck clean
 
 help:
 	@echo "sw-test    assembler, ISS, certificate checker and bus-model tests (pytest)"
@@ -25,6 +25,8 @@ help:
 	@echo "lint       Verilator lint of the core"
 	@echo "formal     all SymbiYosys proofs, with the unbounded core proof split over JOBS cores (81 min at 2 jobs)"
 	@echo "formal-quick  bounded core proof, cover, ahead, never-late, clock-gate, configuration and line unit proofs (~61 min, mostly the bounded check)"
+	@echo "formal-v2  the v2 proofs: tripwires (esc_core tw), the line unit bounded from reset, non-interference (esc_ni_ind kind + base)"
+	@echo "formal-teeth  known bugs planted one at a time (formal/teeth.sh): each proof they stand for must fail"
 	@echo "equiv      the gate-level netlist is sequentially equivalent to the RTL (yosys, ABC; ~4 min)"
 	@echo "mutation   RTL mutation campaign against the co-simulation (JOBS in parallel)"
 	@echo "harden     local LibreLane harden with the pinned CI toolchain (TAG=name)"
@@ -90,6 +92,15 @@ formal-quick:
 	cd formal && sby -f esc_core.sby bmc && sby -f esc_core.sby cover \
 	  && sby -f esc_core.sby ahead && sby -f esc_ctx.sby kind && sby -f esc_greg.sby && sby -f esc_lreg.sby && sby -f esc_host.sby \
 	  && sby -f esc_line.sby kind
+
+# v2: the tripwire proof, the line unit bounded from reset (depth 40), and non-interference
+# for live reload, by induction (kind) and bounded from reset (base)
+formal-v2:
+	cd formal && sby -f esc_core.sby tw && sby -f esc_line.sby bmc \
+	  && sby -f esc_ni_ind.sby kind && sby -f esc_ni_ind.sby base
+
+formal-teeth:
+	bash formal/teeth.sh
 
 equiv:
 	bash formal/equiv.sh

@@ -2,7 +2,8 @@ name: formal
 
 # Every SymbiYosys proof (docs/04-VERIFICATION.md): formal-quick (bounded core, cover, ahead,
 # never late per context, clock gates, latches, configuration, line unit), then the unbounded core proof with
-# one PDR task per assertion. The result goes to the results page on the site.
+# one PDR task per assertion. The result goes to the results page on the site. A second job
+# runs the v2 proofs (make formal-v2) and the teeth (make formal-teeth).
 
 on:
   push:
@@ -49,3 +50,29 @@ jobs:
             formal/*/logfile.txt
             formal/*/status
             results/formal-split.json
+
+  # v2: the tripwire proof, the line unit bounded from reset, non-interference (kind + base), then
+  # the teeth: each planted bug must make its proof fail (formal/teeth.sh)
+  formal-v2:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+
+      - uses: ./.github/actions/oss-cad-suite
+
+      - name: Proofs
+        run: make formal-v2
+
+      - name: Teeth
+        run: make formal-teeth
+
+      - name: Upload proof logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: formal-v2-logs
+          path: |
+            formal/*/logfile.txt
+            formal/*/status
