@@ -30,7 +30,7 @@ module tt_um_escapement (
   // store and host interface, cycle for cycle.
   localparam integer PAGES = 4;
   // How the four pages are built (escapement_pstore.v): 4 x 256x32, 2 x 512x32 or 1 x 1024x32.
-  localparam integer STORE_MACROS = 4;
+  localparam integer STORE_MACROS = 1;
   // v2 feature switch (runbook 28 §5): proof tripwires, S-C. 1: on; 0: the v1.7 core (debug
   // select 27 reads 0), cycle for cycle.
   localparam integer TRIPWIRES = 1;

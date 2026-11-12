@@ -8,8 +8,8 @@ project:
   clock_hz:     25000000       # Clock frequency in Hz (or 0 if not applicable)
 
   # How many tiles your design occupies? Authoritative sizes: tt-support-tools tech/ihp-sg13cmos5l/tile_sizes.yaml.
-  # 6x4 = 1289.28 x 710.64 um (current Jane Street competition maximum).
-  tiles: "6x4"          # Valid values (tools d66cf17): 1x1 ... 6x4, 8x1, 8x2, 8x4
+  # 8x4 = 1724.16 x 710.64 um (the Jane Street competition maximum since 11-09).
+  tiles: "8x4"          # Valid values (tools d66cf17): 1x1 ... 6x4, 8x1, 8x2, 8x4
 
   # Your top module name must start with "tt_um_". Make it unique by including your github username:
   top_module:  "tt_um_escapement"

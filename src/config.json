@@ -15,13 +15,22 @@
   "//": "Users have reported that values up to 80 worked well for them.",
   "//": "D-30: 56, just above our 54.6% utilisation, so cells spread evenly instead of",
   "//": "leaving dense clusters (congestion 24,426 -> 21,635 in the rc6/rc7 A/B).",
-  "PL_TARGET_DENSITY_PCT": 56,
+  "//": "v2 (8x4, 11-12): 60. On 8x4 the cells have room to spread (utilisation 0.50-0.59);",
+  "//": "60 keeps the core about 700 um wide with the floorplan below (v17/G0.md, failure analysis).",
+  "PL_TARGET_DENSITY_PCT": 60,
+  "//": "v2 (8x4, 11-12): timing-driven global placement. Without it the core's commit cone",
+  "//": "spreads over ~700 um and its paths ping-pong across it (m1c: setup -0.89 ns, then the",
+  "//": "post-GRT repair's churn congests the re-route and breaks hold); with it +2.16 ns (m1ctd).",
+  "//": "On 6x4 (utilisation 0.69) it congested detailed routing (trial 5); 8x4 routes at 0 overflow.",
+  "PL_TIMING_DRIVEN": true,
 
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
   "//": "The value is in nanoseconds. Since v1.6 place and route and sign-off use 20 ns, the",
   "//": "rated maximum (50 MHz, D-5; v1.5: 30 ns, 33 MHz); the default clock stays 40 ns ==",
   "//": "25 MHz (info.yaml).",
   "CLOCK_PERIOD": 20,
+  "//": "LibreLane 3.1.0.dev4 (the ttihp27a flow) changed the default SYNTH_STRATEGY from AREA 0 to DELAY 4; v1.2-v1.6 were synthesised with AREA 0, and DELAY 4 adds ~100,000 um2 of buffering that 6x4 cannot place.",
+  "SYNTH_STRATEGY": "AREA 0",
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
   "//": "v1.2: 0.2 after CTS (was 0.1), then a second hold repair after global routing.",
@@ -31,9 +40,13 @@
   "//": "(with 1,100 more cells). The post-GRT repair sees the routed clock feed and fixes it",
   "//": "with a few dozen cells (docs/03). v1.3: its margin is 0.2 (was 0.1, which left two",
   "//": "fast-corner paths at -0.030 ns after detailed routing).",
-  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.2,
+  "//": "v2 (8x4, 11-12): 0.1 after CTS (0.2 put 2,233 hold buffers in g0x84d60 on the same",
+  "//": "placement as 289 at 0.1) and 0.3 after global routing: at 0.2, six paths (the tripwire",
+  "//": "clock gate, c_fflvl / c_ffmask) lost up to 0.3 ns in detailed routing and ended at",
+  "//": "-0.098 ns fast (m1ctd); every one has >= 8.7 ns of setup slack. At 0.3: +0.200 (m1cth).",
+  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
   "RUN_POST_GRT_RESIZER_TIMING": 1,
-  "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.2,
+  "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.3,
 
   "//": "Setup margins 1 ns after placement, 2 ns after global routing (default 0.025), D-40.",
   "//": "v14g met timing before detailed routing, but its detours put minimum-size gates on",
@@ -59,26 +72,24 @@
   "//": "docs/tt_cmos5l_facts.md section 11) from its 512x16 macro to our 256x32 macro.",
   "//": "Macro views vendored from IHP-Open-PDK 2bbec755 (macro/RM_IHPSG13_1P_256x32_c2_bm_bist/README.md).",
   "//": "instances: key = FLATTENED instance path (tt_um_escapement.u_sram.sram).",
-  "//": "D-30 floorplan (docs/06, 2026-10-14; measured run by run with scripts/congestion_map.tcl):",
-  "//": "program store bottom-left, FS (its 186 Metal2 pins face up, towards the logic); tape",
-  "//": "top-right, N (pins face down). Both flush to the core edge, so no placeable strip is left",
-  "//": "behind a macro: cells stranded there had to route across it. TT's signal pins are at the",
-  "//": "top-left (x 30-191), so the top-right is free. Tape x = 12 + 12 x VPITCH(67.44) = 821.28",
-  "//": "keeps the stripe phase (pdn_cfg.tcl); y = core top 706.86 - 118.78 - 0.02.",
+  "//": "v2 floorplan (8x4, 11-12; v17/G0.md failure analysis and floorplan screens): the tape",
+  "//": "bottom-left, FS (pins up, towards the logic): the line unit sits by it (x 83-523), next to",
+  "//": "the core, instead of the die's free east end, where it landed in every earlier 8x4 run",
+  "//": "(9-12 ns of buffering on the core <-> line-unit paths). The program store, one 1024x32",
+  "//": "(store build 1), bottom-right at x = 12 + 19 x VPITCH(67.44) = 1293.36, FS; two 512x32 or",
+  "//": "the two-macro tree in this shape congest (GRT overflow 2,100-6,200), this routes at 0.",
+  "//": "Macros flush to the core edge (no stranded strip); x on the stripe phase (pdn_cfg.tcl).",
+  "//": "TT's signal pins are at the top-left (x 30-191), clear of every macro.",
   "//": "N/FS/FN/S keep the Metal4 power columns vertical.",
   "//": "lib keys name the PROCESS corner because cmos5l STA corners are nom_typ/nom_fast/nom_slow.",
-  "//": "escapement_art: layout art, isolated Metal2 only (LEF OBS Metal1-4), bottom-right,",
-  "//": "between the Metal4 strap pairs at x 1197.15-1204.87 and 1264.59-1272.31.",
+  "//": "escapement_art: layout art, isolated Metal2 only (LEF OBS Metal1-4), at x 464.88-521.28,",
+  "//": "between the Metal4 strap pairs ending at 463.03 and starting at 522.75 (measured, m1cth).",
   "MACROS": {
     "RM_IHPSG13_1P_256x32_c2_bm_bist": {
       "instances": {
-        "u_sram.sram": {
+        "u_tape.sram": {
           "location": [12, 3.78],
           "orientation": "FS"
-        },
-        "u_tape.sram": {
-          "location": [821.28, 588.06],
-          "orientation": "N"
         }
       },
       "gds": ["dir::../macro/RM_IHPSG13_1P_256x32_c2_bm_bist/RM_IHPSG13_1P_256x32_c2_bm_bist.gds"],
@@ -91,10 +102,27 @@
       "nl": ["dir::./RM_IHPSG13_1P_256x32_c2_bm_bist.v"],
       "spice": ["dir::../macro/RM_IHPSG13_1P_256x32_c2_bm_bist/RM_IHPSG13_1P_256x32_c2_bm_bist.cdl"]
     },
+    "RM_IHPSG13_1P_1024x32_c2_bm_bist": {
+      "instances": {
+        "u_sram.g_whole.u0.sram": {
+          "location": [1293.36, 3.78],
+          "orientation": "FS"
+        }
+      },
+      "gds": ["dir::../macro/RM_IHPSG13_1P_1024x32_c2_bm_bist/RM_IHPSG13_1P_1024x32_c2_bm_bist.gds"],
+      "lef": ["dir::../macro/RM_IHPSG13_1P_1024x32_c2_bm_bist/RM_IHPSG13_1P_1024x32_c2_bm_bist.lef"],
+      "lib": {
+        "*_typ_*": ["dir::../macro/RM_IHPSG13_1P_1024x32_c2_bm_bist/RM_IHPSG13_1P_1024x32_c2_bm_bist_typ_1p20V_25C.lib"],
+        "*_fast_*": ["dir::../macro/RM_IHPSG13_1P_1024x32_c2_bm_bist/RM_IHPSG13_1P_1024x32_c2_bm_bist_fast_1p32V_m55C.lib"],
+        "*_slow_*": ["dir::../macro/RM_IHPSG13_1P_1024x32_c2_bm_bist/RM_IHPSG13_1P_1024x32_c2_bm_bist_slow_1p08V_125C.lib"]
+      },
+      "nl": ["dir::./RM_IHPSG13_1P_1024x32_c2_bm_bist.v"],
+      "spice": ["dir::../macro/RM_IHPSG13_1P_1024x32_c2_bm_bist/RM_IHPSG13_1P_1024x32_c2_bm_bist.cdl"]
+    },
     "escapement_art": {
       "instances": {
         "u_art": {
-          "location": [1206.72, 3.78],
+          "location": [464.88, 3.78],
           "orientation": "N"
         }
       },
@@ -107,8 +135,8 @@
 
   "//": "Both macro supplies (periphery VDD!, array VDDARRAY!) go to the single TT VPWR rail.",
   "PDN_MACRO_CONNECTIONS": [
-    "u_sram.sram VPWR VGND VDD! VSS!",
-    "u_sram.sram VPWR VGND VDDARRAY! VSS!",
+    "u_sram.g_whole.u0.sram VPWR VGND VDD! VSS!",
+    "u_sram.g_whole.u0.sram VPWR VGND VDDARRAY! VSS!",
     "u_tape.sram VPWR VGND VDD! VSS!",
     "u_tape.sram VPWR VGND VDDARRAY! VSS!"
   ],
@@ -161,7 +189,9 @@
   "//": "Buffer nets longer than 500 um during design repair (default 0 = never). rc13 vs rc14:",
   "//": "slow-corner max-slew warnings 314 -> 124, max-cap 40 -> 34, fast hold slack",
   "//": "+0.0007 -> +0.025 ns, still LVS/DRC/antenna 0 and precheck pass.",
-  "DESIGN_REPAIR_MAX_WIRE_LENGTH": 500,
+  "//": "v2 (8x4, 11-12): 300 um after placement and after global routing (trial 6: the long",
+  "//": "ctx-to-line-unit wires buffered ahead of routing).",
+  "DESIGN_REPAIR_MAX_WIRE_LENGTH": 300,
   "//": "v1.5: repair slew, cap and long wires again after global routing, on its wire estimates,",
   "//": "with 30% margins (default 10) for the detours detailed routing adds. Trial hardens v15a",
   "//": "(none), v15b (10%), v15c (30%): slow-corner max-slew 242 -> 26 -> 18, max-cap",
@@ -169,12 +199,16 @@
   "//": "26.0 -> 26.3 -> 25.9 ns; all LVS/DRC/antenna 0. Most of what is left is on the SRAM",
   "//": "macros' pins (docs/03).",
   "RUN_POST_GRT_DESIGN_REPAIR": 1,
-  "GRT_DESIGN_REPAIR_MAX_WIRE_LENGTH": 500,
+  "GRT_DESIGN_REPAIR_MAX_WIRE_LENGTH": 300,
   "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 30,
   "GRT_DESIGN_REPAIR_MAX_CAP_PCT": 30,
   "//": "No 2x-spacing rule on clock nets: with 1,087 clock nets (68 gated subtrees) global",
   "//": "routing spent 40+ minutes relaxing it net by net; at 25 MHz it buys little.",
   "CTS_APPLY_NDR": "none",
+  "//": "v2 (ttihp27a, 11-09): the clock tree from buf_8/4/2/1 with a buf_8 root. The shuttle's",
+  "//": "default list met setup but left 27 shorts (lab Run 2); this list routes clean (G0 trial 3).",
+  "CTS_CLK_BUFFERS": ["sg13cmos5l_buf_8", "sg13cmos5l_buf_4", "sg13cmos5l_buf_2", "sg13cmos5l_buf_1"],
+  "CTS_ROOT_BUFFER": "sg13cmos5l_buf_8",
   "//": "Row-cut halo: 50 um sideways removes the strip right of the tape (48.5 um to the core",
   "//": "edge); 30 um vertically gives each macro's pin side a cell-free escape channel.",
   "FP_MACRO_HORIZONTAL_HALO": 50,
