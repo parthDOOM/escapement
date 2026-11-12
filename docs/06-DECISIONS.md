@@ -393,8 +393,82 @@ Placement variance between otherwise identical runs is about ±5%, so the trend 
 is real. Long wires are buffered at 500 µm, which cut slow-corner slew warnings from
 314 to 124.
 
+## Version 2: 8×4
+
+**D-49 Scope of the release.** Pair mode (D-46), live reload with its non-interference
+proof (D-48), program pages (four pages in one 1,024-word store) and proof tripwires,
+frozen on 2026-11-12 and verified twice from that commit. The edge-anchored wait and the
+symmetric receiver come after this release is done end to end: a feature waits, a check
+never does.
+
+**D-50 The program store is one 1024×32 macro.** The store's contract is fixed (1,024 words,
+read in cycle N, data from N+1, held) and `escapement_pstore` can build it from four
+256×32, two 512×32 or one 1024×32 macro (`STORE_MACROS` in `project.v`). At 8×4 only the
+single 1024×32 routes and meets timing in the floorplan of D-51: with five macros (four
+pages and the tape) the halos leave no room to route (global-route overflow 1,063), and
+two 512×32 in the same shape congested (overflow 2,125 to 6,165). The single macro has a
+slower clock-to-data (7.32 ns slow corner, 5.19 ns plus the page multiplexer for four
+256×32) and a higher energy per read (36.1 pJ against 22.0 pJ), and is the smallest
+(140,183 µm² against 197,954 µm²). Its slower read costs nothing at 50 MHz: in the
+adopted harden every flip-flop path, the fetch included, has at least +1.51 ns at the slow
+corner (D-53).
+
+**D-51 The 8×4 floorplan: the tape at the bottom left.** A measured failure analysis of
+nine 8×4 hardens (worst path into each register family, split into wire, buffer and
+logic delay; register positions from the layout) found one cause behind every timing
+failure. The logic on the failing paths was the same depth as on the 6×4 layout that
+passed (8.5 to 10.6 ns), but the buffering was 7.8 to 12.6 ns against 5.3 to 6.7 ns: on the
+wider die the placer always put the line unit at the free east end, 400 to 600 µm from the
+core and over a millimetre from the pins, and its same-cycle paths to the core crossed that
+gap two or three times. Placement-only screens (each a few minutes) tried the remedies:
+
+| Change | Line unit (register centroid x, µm) | Global-route overflow |
+| --- | ---: | ---: |
+| Previous 8×4 floorplans | 1,198 to 1,540 | 0 to 597 |
+| The tape at the top left (pins down) | 1,382 | (placement only) |
+| Timing-driven placement alone | 1,427 to 1,516 | 0 to 580 |
+| **The tape at the bottom left, pins up (FS)**, store build 1 at the bottom right | **401** | **8** |
+
+Only the tape at the bottom left, its pins facing the logic, anchored the line unit: it
+sits beside the tape and the core packs into about 700 µm. The store is at x 1293.36 and
+the layout art at 464.88, between two pairs of Metal4 power straps; every macro is flush
+to the core edge and on the power-stripe phase (`src/config.json`).
+
+**D-52 Timing-driven global placement.** With D-51's floorplan the remaining failure was the
+core's commit logic spread over about 700 µm (a path from the host's `start` went back and
+forth across it five times: −0.89 ns slow corner). That left 235 endpoints for the repair after global routing,
+whose added cells congested its re-route (overflow 8 → 967) and broke hold through detoured
+clock wiring. Timing-driven placement weights the critical nets during placement: setup
++2.16 ns, overflow 0 at every step. On the fuller 6×4 layout it had congested detailed
+routing; 8×4 has the room.
+
+**D-53 Hold margins 0.1 ns after clock-tree synthesis, 0.3 ns after global routing.** At 0.2
+after clock-tree synthesis the same placement took 2,233 hold buffers instead of 289. After
+global routing, 0.2 left six paths (the tripwires' clock gate and the FIFO level and mask
+registers) that lost up to 0.3 ns in detailed routing and ended at −0.098 ns at the fast
+corner; each has at least 8.7 ns of setup slack, so 0.3 costs nothing: +0.200 ns, no
+violations at any corner. The setup margins stay 2.5 and 3 ns (v1.6): they also stop hold
+repair from slowing paths that become critical after routing.
+
+**D-54 The line unit decides a CONFIG's faults a cycle early.** The faults at the end of a
+CONFIG (the pins not owned, an invalid configuration) depend only on values final at least
+a cycle before (the first configuration word from the CONFIG's first cycle, the owner's pins,
+static during a run, and words written at cycles 4 and 12), so they are registered the cycle
+before they are used, and the owner is also kept one-hot. Behaviour is the same cycle for
+cycle: lemmas prove the registered terms equal their definitions at every completion, and
+that the one-hot owner equals the owner's decode; two planted faults (the one-hot owner stuck,
+the terms sampled too early) each fail them.
+
 ## Measured and rejected
 
+- **Five macros at 8×4 (four 256×32 pages and the tape).** Either the line unit lands at the
+  east end (setup −2.2 ns) or, with the pages as a block on the right, global routing
+  overflows (1,063). D-50.
+- **Two 512×32 for the store.** −4.67 ns in the previous floorplan; overflow 2,125 to 6,165 in
+  D-51's.
+- **The tape at the top left.** The line unit stayed at the east end (D-51).
+- **A lower setup margin after global routing.** The hold violations it was suspected of
+  blocking had over 3 ns of setup slack; the margin was not the cause and stays (D-53).
 - **Latch-based register banks (v1.1; adopted in v1.4, D-40).** A latch is 29.0 µm² in
   this library against 49.0 µm² for the flip-flop it would replace, so converting the
   ~2,600 gated-bank flip-flops saves at most about 52,000 µm², 6% of the die: not a tile
