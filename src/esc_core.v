@@ -1331,6 +1331,18 @@ module esc_core #(
     // v2 (S-A): a context fetches only from its own page
     if (imem_re) assert (imem_addr[9:8] == ctx_page[2*fq +: 2]);
   end
+  // v2 (C6) a live program write waits at most 4 cycles: while some context is not RUNNING
+  // and still owns its own slot (pair mode gives an off context's slot to its partner), the
+  // slot counter brings that slot round within 4 cycles, and imem_free rises for it. A start,
+  // a stop or a restart ends the count (a restarted context is RUNNING again).
+  wire [3:0] f_self   = ~{pair_on[1:0], pair_on[3:2]};   // k fetches in slot k: own(k) == k
+  wire       f_idle   = run & ~start & ~stop & ~rs_any & ((~c_runv & f_self) != 4'd0);
+  reg  [2:0] f_nofree;   // cycles in a row with such a context and imem_free low
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n)                f_nofree <= 3'd0;
+    else if (!f_idle || free_q) f_nofree <= 3'd0;
+    else if (f_nofree != 3'd7) f_nofree <= f_nofree + 3'd1;
+  always @(*) if (rst_n) assert (f_nofree <= 3'd4);
 `undef ESC_AHEAD
 
   // driven(p): physical pin p is away from its released level (bank A: output enabled;

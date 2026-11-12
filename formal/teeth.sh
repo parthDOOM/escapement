@@ -12,6 +12,9 @@
 #   cfg-early    v2 cfg_pre: the CONFIG fault terms sampled at step 0 only    esc_line.sby bmc
 #   ni-stop      v1.7 NI: any context's CTX_STOP holds every context's commit  esc_ni_ind.sby base
 #   bmc-s3       v1.7 S3: both 11-10 restart bugs put back                    split_bmc.py, depth 8
+#   c6-grant     v2 C6: a live write takes the store port at once (G1)       esc_top.sby prove
+#   c6-page      v2 C6: IMEM_PAGE moves the page under a waiting word (P1)   esc_host.sby prove
+#   c6-wait      v2 C6: imem_free only ever in slot 0 (the 4-cycle wait)     split_bmc.py, depth 12
 # Prints one line per tooth; exit status 1 if any tooth did not bite.
 set -u
 cd "$(dirname "$0")/.."
@@ -56,6 +59,8 @@ tooth l2-prefix esc_line.v '/pbx_v *=/s/(c_lsb ? c_pre\[0\] : c_pre\[7\])$/(c_ls
 tooth cfg-sel   esc_line.v "s/sel <= 4'd1 << op_ctx;/sel <= 4'd1;/" "sel <= 4'd1; end" esc_line.sby bmc 3600
 tooth cfg-early esc_line.v "s/    else if (!lu_hold) {own_bad_q, v_norm_q, v_ext_q, w3x_q} <=/    else if (!lu_hold \&\& el == 12'd0) {own_bad_q, v_norm_q, v_ext_q, w3x_q} <=/" "!lu_hold && el == 12'd0) {own_bad_q" esc_line.sby bmc 3600
 tooth ni-stop   esc_core.v 's/& ~ctx_stop\[cctx\];/\& ~(|ctx_stop);/' '& ~(|ctx_stop);' esc_ni_ind.sby base 10800
+tooth c6-grant  project.v 's/assign     imem_wgnt = imem_wpend & (core_imem_free | ~running);/assign     imem_wgnt = imem_wpend;/' 'imem_wgnt = imem_wpend;' esc_top.sby prove 600
+tooth c6-page   escapement_host.v "s/if (wslot) mem_page <= rx_byte\[1:0\]; else host_err <= 1'b1;/mem_page <= rx_byte[1:0];/" '^ *mem_page <= rx_byte\[1:0\];$' esc_host.sby prove 1800
 
 # bmc-s3: the bounded check's own tooth (split_bmc.py at depth 8): the two v1.7 S3 bugs of 11-10
 # put back (d_lee loaded with 0 at a restart; CTX_START taken for a disabled or running context)
@@ -79,6 +84,27 @@ if [ -z "$SEL" ] || [[ " $SEL " == *" bmc-s3 "* ]]; then
     else
       printf "NO-BITE %-10s esc_ctx.v:%s failed %s, esc_core.v:%s failed %s (each must be 1)\n" bmc-s3 "$l1" "$f1" "$l2" "$f2"
       cat "$d/split.log"; fail=1
+    fi
+  fi
+fi
+
+# c6-wait: the core's 4-cycle wait for a live write (split_bmc.py at depth 12): with a free
+# slot only ever in slot 0, an idle context 1, 2 or 3 never frees its slot, and the count passes 4.
+if [ -z "$SEL" ] || [[ " $SEL " == *" c6-wait "* ]]; then
+  d="$W/c6-wait"; mkdir -p "$d"; cp -r "$REPO/src" "$REPO/formal" "$d/"
+  sed -i 's/free_q <= run & ~start & ~stop & (c_state\[2\*fq_n +: 2\] != ST_RUN) & ~rs_k\[fq_n\];/free_q <= run \& ~start \& ~stop \& (c_state[2*fq_n +: 2] != ST_RUN) \& ~rs_k[fq_n] \& (fq_n == 2'"'"'d0);/' "$d/src/esc_core.v"
+  n=$(grep -c "~rs_k\[fq_n\] & (fq_n == 2'd0);" "$d/src/esc_core.v")
+  l=$(grep -n 'assert (f_nofree' "$d/src/esc_core.v" | cut -d: -f1)
+  if [ "$n" != 1 ] || [ -z "$l" ]; then
+    echo "NO-BITE c6-wait    the edit applied $n times (expected once), assertion line '$l'"; fail=1
+  else
+    s=$(date +%s)
+    (cd "$d/formal" && timeout 3600 python3 split_bmc.py --depth 12 "esc_core_$l") > "$d/split.log" 2>&1
+    if grep -qE "^FAIL .*FAILED esc_core.v:$l\." "$d/split.log"; then
+      printf "BITES   %-10s FAIL in %ss: %s\n" c6-wait $(( $(date +%s) - s )) \
+        "$(grep -E '^FAIL' "$d/split.log" | sed -E 's/ +/ /g; s/^FAIL [0-9]+ s //' | cut -c1-60)"
+    else
+      printf "NO-BITE %-10s esc_core.v:%s did not fail\n" c6-wait "$l"; cat "$d/split.log"; fail=1
     fi
   fi
 fi

@@ -26,7 +26,7 @@ help:
 	@echo "formal     formal-quick, then the unbounded core proof split over JOBS cores (formal-pdr)"
 	@echo "formal-quick  formal-bmc and formal-props"
 	@echo "formal-bmc    the bounded core check from reset, one task per assertion group (BMC_JOBS side by side)"
-	@echo "formal-props  cover, ahead, never-late, clock-gate, latch, configuration and line unit proofs"
+	@echo "formal-props  cover, ahead, never-late, clock-gate, latch, configuration, live-write grant and line unit proofs"
 	@echo "formal-v2  the v2 proofs: tripwires (esc_core tw), the line unit bounded from reset, non-interference (esc_ni_ind kind + base)"
 	@echo "formal-teeth  known bugs planted one at a time (formal/teeth.sh): each proof they stand for must fail"
 	@echo "equiv      the gate-level netlist is sequentially equivalent to the RTL (yosys, ABC; ~4 min)"
@@ -88,9 +88,13 @@ lint:
 
 formal: formal-quick formal-pdr
 
+# SKIP=1: skip each proof whose inputs (its .sby, the files it lists, the tools) match its
+# last PASS (formal/fcache.py); every skip is printed. For iterating, never for a release.
+SKIP_FLAG = $(if $(SKIP),--skip)
+
 # the unbounded core proof, one PDR task per assertion group, JOBS side by side
 formal-pdr:
-	cd formal && $(PYTHON) split_core.py --jobs $(JOBS) $(if $(FORMAL_TIMEOUT),--timeout $(FORMAL_TIMEOUT)) \
+	cd formal && $(PYTHON) split_core.py $(SKIP_FLAG) --jobs $(JOBS) $(if $(FORMAL_TIMEOUT),--timeout $(FORMAL_TIMEOUT)) \
 	  $(if $(FORMAL_JSON),--json $(abspath $(FORMAL_JSON)))
 
 formal-quick: formal-bmc formal-props
@@ -99,18 +103,17 @@ formal-quick: formal-bmc formal-props
 # (formal/split_bmc.py, boolector), BMC_JOBS side by side: each solver can need about 2.5 GB
 BMC_JOBS ?= 1
 formal-bmc:
-	cd formal && $(PYTHON) split_bmc.py --jobs $(BMC_JOBS) $(if $(BMC_JSON),--json $(abspath $(BMC_JSON)))
+	cd formal && $(PYTHON) split_bmc.py $(SKIP_FLAG) --jobs $(BMC_JOBS) $(if $(BMC_JSON),--json $(abspath $(BMC_JSON)))
 
+# each proof runs (fcache.py runs them all and fails if any fails)
 formal-props:
-	cd formal && sby -f esc_core.sby cover \
-	  && sby -f esc_core.sby ahead && sby -f esc_ctx.sby kind && sby -f esc_greg.sby && sby -f esc_lreg.sby && sby -f esc_host.sby \
-	  && sby -f esc_line.sby kind
+	cd formal && $(PYTHON) fcache.py $(SKIP_FLAG) esc_core.sby:cover esc_core.sby:ahead esc_ctx.sby:kind \
+	  esc_greg.sby esc_lreg.sby esc_host.sby esc_top.sby esc_line.sby:kind
 
 # v2: the tripwire proof, the line unit bounded from reset (depth 40), and non-interference
 # for live reload, by induction (kind) and bounded from reset (base)
 formal-v2:
-	cd formal && sby -f esc_core.sby tw && sby -f esc_line.sby bmc \
-	  && sby -f esc_ni_ind.sby kind && sby -f esc_ni_ind.sby base
+	cd formal && $(PYTHON) fcache.py $(SKIP_FLAG) esc_core.sby:tw esc_line.sby:bmc esc_ni_ind.sby:kind esc_ni_ind.sby:base
 
 formal-teeth:
 	bash formal/teeth.sh
@@ -134,4 +137,4 @@ clean:
 	  test/results.xml test/results_*.xml test/*/results.xml test/cosim/results_*.xml test/cosim/cosim_failures \
 	  formal/esc_core_cover formal/esc_core_bmc formal/esc_core_pdr formal/esc_core_kind \
 	  formal/esc_ctx_kind formal/esc_ctx_pdr formal/esc_ctx_bmc formal/esc_greg_prove formal/esc_greg_cover
-	rm -rf formal/esc_core_split_* formal/esc_core_split.sby formal/esc_host_prove formal/esc_host_cover formal/equiv_build
+	rm -rf formal/esc_core_split_* formal/esc_core_split.sby formal/esc_host_prove formal/esc_host_cover formal/esc_top_prove formal/esc_top_cover formal/equiv_build

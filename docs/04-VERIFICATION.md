@@ -96,6 +96,7 @@ and the tick counter can start anywhere, so the 32-bit wrap is reachable.
 | G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
 | G4–G5 | (v1.4) A latch bank equals an enable flip-flop at every instant whenever its input is the written value registered at the write edge (G4); every latch bank's input is that value (G5), and the host holds a mailbox word for a cycle after its push (M1) | Unbounded: G4 by k-induction with an unconstrained clock (`formal/esc_lreg_env.v`, its L1 and L2); G5 in the core proof (PDR; the D-40 contract assertions in `src/esc_ctx.v`); M1 on the host interface (PDR) |
 | S1 | The configuration the core runs with (enabled contexts, entry points, pin ownership, open-drain pins, pin banks) never changes during a run | Unbounded (PDR), on the host interface |
+| C6 | (v2) A program word written during a run (live reload) is written intact without touching a running context's fetch: the grant never meets a fetch the core uses and writes the host's word at the host's address (G1–G4, `formal/esc_top.sby`); until granted, the word stays pending with its page, address and data unchanged (P1–P2, host interface); while any context is not RUNNING, a free slot comes within 4 cycles (core) | Unbounded: G1–G4 by induction with every submodule cut free and the core's proved "a free slot reads nothing" as the one assumption; P1–P2 by PDR; the 4-cycle wait by PDR in the core proof |
 
 **Assumptions.** The core proofs assume two things about their environment: reset at
 the first step, and S1. S1 is proved on the host interface (`formal/esc_host.sby`),
@@ -799,6 +800,8 @@ make gl-test gl-pin-test                                         # the same chip
 CELLS=yes make test cosim-parallel                               # the RTL with the real clock-gate and latch cells
 make formal-quick                                                # bounded core proof, cover, ahead, never-late, clock gate, latch bank, host
 make formal JOBS=8                                               # adds the unbounded core proof (81 min for v1.6 at 2 jobs)
+make formal-v2 formal-teeth                                      # tripwires, line unit from reset, non-interference; planted bugs
+make formal SKIP=1                                               # while iterating: skip proofs whose inputs match their last PASS (never for a release)
 make equiv                                                       # final netlist equals the RTL (~4 min)
 CELLS=yes make mutation JOBS=8                                   # mutation campaign, 8 mutants at a time (hours; CI: 16 shards dealt by cost)
 ```

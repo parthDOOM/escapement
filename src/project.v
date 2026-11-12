@@ -87,14 +87,41 @@ module tt_um_escapement (
   wire [9:0] core_imem_addr;
   wire       core_imem_re;
   assign     imem_wgnt = imem_wpend & (core_imem_free | ~running);
+  wire [9:0] store_addr = (running & ~imem_wgnt) ? core_imem_addr : {host_mem_page, host_mem_addr};
+  wire       store_re   = running ? (core_imem_re & ~imem_wgnt) : (host_mem_re & ~host_mem_space);  // D-29
+  wire       store_we   = (host_mem_we & ~running & ~host_mem_space) | imem_wgnt;
   escapement_pstore #(.PAGES(PAGES), .MACROS(STORE_MACROS)) u_sram (
       .clk  (clk),
       .rst_n(rst_n),
-      .addr ((running & ~imem_wgnt) ? core_imem_addr : {host_mem_page, host_mem_addr}),
-      .re   (running ? (core_imem_re & ~imem_wgnt) : (host_mem_re & ~host_mem_space)),  // D-29
-      .we   ((host_mem_we & ~running & ~host_mem_space) | imem_wgnt),
+      .addr (store_addr),
+      .re   (store_re),
+      .we   (store_we),
       .wdata(host_mem_wdata),
       .rdata(imem_rdata));
+
+`ifdef FORMAL
+  // C6 (formal/esc_top.sby): the live-write grant is the one piece of the store arbitration
+  // outside the core, whose proofs cover the fetch side. With every submodule cut free, and
+  // the core's own proved rule as the only assumption (esc_core.v: a free slot reads nothing),
+  //   G1 a granted write never meets a fetch the running core uses;
+  //   G2 a grant cycle writes the host's word at the host's {page, word} and reads nothing
+  //      (while stopped, given no host read then: esc_host.sby P3 proves there is none);
+  //   G3 a waiting word is granted in the first free slot, or at once while stopped;
+  //   G4 otherwise the running core has the port, reading only, at its own address.
+  // With esc_core.sby (a free slot comes within 4 cycles while a context is not RUNNING) and
+  // esc_host.sby (a waiting word holds still), a live word is written intact without
+  // touching any running context's fetch.
+  always @(*) if (rst_n) begin
+    assume (!core_imem_free || !core_imem_re);
+    if (running && imem_wgnt) assert (!core_imem_re);                               // G1
+    if (imem_wgnt && (running || !host_mem_re))                                    // G2
+      assert (store_we && !store_re && store_addr == {host_mem_page, host_mem_addr});
+    if (imem_wpend && (core_imem_free || !running)) assert (imem_wgnt);             // G3
+    if (running && !imem_wgnt) assert (!store_we && store_re == core_imem_re
+                                        && store_addr == core_imem_addr);           // G4
+    cover (running && imem_wgnt);                                                  // a live write
+  end
+`endif
 
   // ------------------------------------------------------------------ tape (v1.1)
   // The core has the port in the cycles it uses it (tape_busy: an LDT/STT commit or a

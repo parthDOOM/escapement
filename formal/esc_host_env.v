@@ -9,7 +9,10 @@
  * `start`, cleared after `stop`, start winning). A PASS discharges the core proofs'
  * only environment assumption besides reset. v1.3 adds T1/T2 on the tape port, v1.4 M1.
  * v2 adds ctx_page (S-A) and ctx_pair, which the core has assumed stable since v1.7, and
- * P1: the program-store page a waiting live word was aimed at does not move under it.
+ * P1/P2 on a live write (a program word written during a run): until the top grants it a
+ * cycle, the word stays pending and its page, address and data hold still. The grant is
+ * modelled exactly as project.v forms it, `imem_wpend & (core_imem_free | ~running)`,
+ * with the core's free-slot flag left free (esc_top.sby and esc_core.sby cover that side).
  * SPDX-License-Identifier: Apache-2.0
  */
 `default_nettype none
@@ -27,7 +30,8 @@ module esc_host_env (
     input wire [3:0]   mbx_rx_full,
     input wire [127:0] mbx_tx_data,
     input wire [3:0]   mbx_tx_empty,
-    input wire         tape_gnt
+    input wire         tape_gnt,
+    input wire         slot_free     // the core's imem_free: the coming fetch slot is unused
 );
   wire        start, stop;
   wire [3:0]  ctx_enable;
@@ -38,8 +42,10 @@ module esc_host_env (
   wire [7:0]  ctx_page;
   wire [1:0]  mem_page;
   wire        imem_wpend;
+  wire [7:0]  mem_addr;
+  wire [31:0] mem_wdata;
   wire [25:0] pin_owner;
-  wire        mem_we, mem_space, tape_req;
+  wire        mem_we, mem_space, mem_re, tape_req;
   wire [3:0]  rx_push;
   wire [127:0] rx_data;
 
@@ -50,15 +56,19 @@ module esc_host_env (
     else if (start) run <= 1'b1;
     else if (stop)  run <= 1'b0;
 
+  // the live-write grant, as project.v forms it (the core's free flag is the free input)
+  wire imem_wgnt = imem_wpend & (slot_free | ~run);
+
   escapement_host u (
       .clk(clk), .rst_n(rst_n), .cs_n_pin(cs_n_pin), .sck_pin(sck_pin), .mosi_pin(mosi_pin),
       .miso(), .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
-      .ctx_pair(ctx_pair), .ctx_page(ctx_page), .imem_wpend(imem_wpend),
+      .ctx_pair(ctx_pair), .ctx_page(ctx_page), .imem_wpend(imem_wpend), .imem_wgnt(imem_wgnt),
       .irq_clear(),
       .running(run), .ctx_state(ctx_state), .irq_pending(irq_pending),
-      .fault_valid(fault_valid), .mem_we(mem_we), .mem_addr(), .mem_page(mem_page), .mem_wdata(), .mem_space(mem_space),
-      .mem_re(), .mem_rdata(mem_rdata), .tape_req(tape_req), .tape_gnt(tape_gnt),
+      .fault_valid(fault_valid), .mem_we(mem_we), .mem_addr(mem_addr), .mem_page(mem_page),
+      .mem_wdata(mem_wdata), .mem_space(mem_space),
+      .mem_re(mem_re), .mem_rdata(mem_rdata), .tape_req(tape_req), .tape_gnt(tape_gnt),
       .tape_ack(), .tape_ack_v(), .dbg_ctx(), .dbg_sel(), .dbg_rdata(dbg_rdata),
       .mbx_rx_push(rx_push), .mbx_rx_data(rx_data), .mbx_rx_full(mbx_rx_full), .mbx_tx_pop(),
       .mbx_tx_data(mbx_tx_data), .mbx_tx_empty(mbx_tx_empty));
@@ -79,9 +89,21 @@ module esc_host_env (
       assert ($stable(ctx_pair));
       assert ($stable(ctx_page));
     end
-  // P1 (v2, S-A) a waiting live word's page does not move under it
+  // P1 (v2, S-A) and P2 (C6): a live word that waited a cycle without a grant is still
+  // waiting, aimed at the same page and address, with the same data. In the grant cycle the
+  // store takes {mem_page, mem_addr} and mem_wdata as they are then; any of them may move at
+  // that edge (the next word, IMEM_PAGE), after the write.
   always @(posedge clk)
-    if (f_past && rst_n && $past(rst_n) && $past(imem_wpend)) assert ($stable(mem_page));
+    if (f_past && rst_n && $past(rst_n) && $past(imem_wpend && !imem_wgnt)) begin
+      assert (imem_wpend);
+      assert ($stable(mem_page));
+      assert ($stable(mem_addr));
+      assert ($stable(mem_wdata));
+    end
+  // P3 (C6) a word still waiting when the run stops is written in the first stopped cycle,
+  // and no READ_IMEM is under way then (the stop came from a STOP command), so the store
+  // never sees a write and a read together
+  always @(*) if (f_past && rst_n && imem_wgnt && !run) assert (!mem_re);
 
   // T1 (v1.3) the host never writes the tape (or the program store) during a run: the
   // core's port then needs no write arbitration, and a capture drain only ever waits
@@ -104,6 +126,7 @@ module esc_host_env (
     cover (run && tape_req && tape_gnt);                                  // a read in a run
     cover ($past(rx_push != 4'd0));                                       // a mailbox push
     cover ($rose(run) && ctx_page == 8'b11_10_01_00);                     // v2: pages set
+    cover (run && $past(imem_wpend && !imem_wgnt) && imem_wgnt);          // a word waits, then is written
   end
 endmodule
 `default_nettype wire

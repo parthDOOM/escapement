@@ -1,0 +1,30 @@
+# C6: the live-write grant in project.v (G1-G4 there). Every submodule is a blackbox cut
+# free (its outputs take any value in every cycle); the core's proved rule that a free slot
+# reads nothing (esc_core.sby) is the one assumption. Run: sby -f esc_top.sby prove | cover
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+prove: depth 2
+cover: mode cover
+cover: depth 4
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -lib escapement_host.v escapement_pstore.v escapement_sram.v escapement_art.v esc_core.v
+read -formal -DFORMAL project.v
+hierarchy -top tt_um_escapement
+cutpoint -blackbox
+prep -top tt_um_escapement
+
+[files]
+../src/project.v
+../src/escapement_host.v
+../src/escapement_pstore.v
+../src/escapement_sram.v
+../src/escapement_art.v
+../src/esc_core.v

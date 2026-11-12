@@ -26,6 +26,7 @@ import sys
 import time
 from pathlib import Path
 
+from fcache import Cache, task_key
 from split_core import HERE, SBY, assertion_groups, sections, task_lines, task_names
 
 OUT = HERE / "esc_core_bmcsplit.sby"
@@ -39,6 +40,8 @@ def main():
     ap.add_argument("--engine", default="smtbmc boolector")
     ap.add_argument("--timeout", type=int, default=14400, help="seconds per task")
     ap.add_argument("--json", help="also write each task's result to this file")
+    ap.add_argument("--skip", action="store_true",
+                    help="skip a group whose inputs match its last PASS (fcache.py; never in a release campaign)")
     ap.add_argument("only", nargs="*", metavar="TASK", help="run only these tasks")
     a = ap.parse_args()
 
@@ -77,14 +80,30 @@ def main():
     print(f"{len(names)} tasks ({n_assert} assertion lines), engine {a.engine}, depth {a.depth}, "
           f"{a.jobs} at a time, {a.timeout} s each", flush=True)
 
+    # fcache.py's key per group: esc_core.sby, the files it lists and the tools, plus this
+    # group's engine, mode and generated script (the timeout is left out: a PASS is a PASS)
+    cache, keys, skipped = Cache(), {}, {}
+    for n in names:
+        keys[n] = task_key(SBY.name, "bmc-split:" + n,
+                           "\n".join([a.engine, f"mode bmc depth {a.depth}", *[l for l in body if l.startswith(n + ":")]]))
+        when = cache.passed("bmc-split:" + n, keys[n]) if a.skip else None
+        if when:
+            skipped[n] = when
+    run = [n for n in names if n not in skipped]
     t0 = time.time()
-    subprocess.run(["sby", "-f", "-j", str(a.jobs), OUT.name, *names], cwd=HERE,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if run:
+        subprocess.run(["sby", "-f", "-j", str(a.jobs), OUT.name, *run], cwd=HERE,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     wall = time.time() - t0
 
     worst, record = 0, []
     for n in names:
         (f, ln), more = tasks[n][0], len(tasks[n]) - 1
+        if n in skipped:
+            print(f"SKIP     {f}:{ln:<4d} unchanged since its PASS of {skipped[n]}")
+            record.append({"task": n, "where": [f"{g}:{k}" for g, k in tasks[n]], "status": "SKIP",
+                           "passed": skipped[n]})
+            continue
         d = HERE / f"esc_core_bmcsplit_{n}"
         status = (d / "status").read_text().split()[0] if (d / "status").exists() else "ERROR"
         log = (d / "logfile.txt").read_text() if (d / "logfile.txt").exists() else ""
@@ -99,6 +118,8 @@ def main():
         print(f"{status:8s} {secs if secs is not None else '?':>6} s  step {reached}  "
               f"{f}:{ln:<4d} {text[:64]}" + (f"  FAILED {fail.group(2)}" if fail else ""))
         worst = max(worst, {"PASS": 0, "UNKNOWN": 1, "TIMEOUT": 1}.get(status, 2))
+        if status == "PASS":
+            cache.record("bmc-split:" + n, keys[n])
         record.append({"task": n, "where": [f"{g}:{k}" for g, k in tasks[n]], "status": status,
                        "secs": secs, "step_reached": reached,
                        "failed": fail.group(2) if fail else None, "text": text})

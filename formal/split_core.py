@@ -28,6 +28,8 @@ import sys
 import time
 from pathlib import Path
 
+from fcache import Cache, task_key
+
 HERE = Path(__file__).resolve().parent
 SBY = HERE / "esc_core.sby"
 OUT = HERE / "esc_core_split.sby"
@@ -93,6 +95,8 @@ def main():
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     ap.add_argument("--timeout", type=int, default=3600, help="seconds per task")
     ap.add_argument("--json", help="also write each task's result to this file")
+    ap.add_argument("--skip", action="store_true",
+                    help="skip a group whose inputs match its last PASS (fcache.py; never in a release campaign)")
     ap.add_argument("only", nargs="*", metavar="TASK", help="run only these tasks")
     a = ap.parse_args()
 
@@ -124,14 +128,31 @@ def main():
     OUT.write_text("\n".join(body))
 
     print(f"{len(names)} assertion groups, {a.jobs} at a time, {a.timeout} s each")
+
+    # fcache.py's key per group: esc_core.sby, the files it lists and the tools, plus this
+    # group's engine, mode and generated script (the timeout is left out: a PASS is a PASS)
+    cache, keys, skipped = Cache(), {}, {}
+    for n in names:
+        keys[n] = task_key(SBY.name, "pdr-split:" + n,
+                           "\n".join(["abc pdr", "mode prove", *[l for l in body if l.startswith(n + ":")]]))
+        when = cache.passed("pdr-split:" + n, keys[n]) if a.skip else None
+        if when:
+            skipped[n] = when
+    run = [n for n in names if n not in skipped]
     t0 = time.time()
-    subprocess.run(["sby", "-f", "-j", str(a.jobs), OUT.name, *names], cwd=HERE,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if run:
+        subprocess.run(["sby", "-f", "-j", str(a.jobs), OUT.name, *run], cwd=HERE,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     wall = time.time() - t0
 
     worst, record = 0, []
     for n in names:
         (f, ln), more = tasks[n][0], len(tasks[n]) - 1
+        if n in skipped:
+            print(f"SKIP     {f}:{ln:<4d} unchanged since its PASS of {skipped[n]}")
+            record.append({"task": n, "where": [f"{g}:{k}" for g, k in tasks[n]], "status": "SKIP",
+                           "passed": skipped[n]})
+            continue
         d = HERE / f"esc_core_split_{n}"
         status = (d / "status").read_text().split()[0] if (d / "status").exists() else "ERROR"
         log = (d / "logfile.txt").read_text() if (d / "logfile.txt").exists() else ""
@@ -140,6 +161,8 @@ def main():
         text = src[f][ln - 1].strip() if not more else f"group {n}: {f}:{ln} and {more} more"
         print(f"{status:8s} {secs:>6s} s  {f}:{ln:<4d} {text[:70]}")
         worst = max(worst, {"PASS": 0, "UNKNOWN": 1, "TIMEOUT": 1}.get(status, 2))
+        if status == "PASS":
+            cache.record("pdr-split:" + n, keys[n])
         record.append({"task": n, "where": [f"{g}:{k}" for g, k in tasks[n]], "status": status,
                        "secs": int(secs) if secs.isdigit() else None, "text": text})
     print(f"wall time {wall:.0f} s")
