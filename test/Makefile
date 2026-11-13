@@ -45,7 +45,16 @@ else
 # but does not report timing-check violations: a setup failure shows as a wrong value the
 # tests see. CLK_NS (test.py) sets the clock, for the overclocked control.
 SIM_BUILD				= sim_build/gl_sdf
-COMPILE_ARGS    += -gspecify -DSDF_FILE=\"$(abspath $(SDF))\"
+# sdf_prep.py: the flat netlist's escaped instance names (clock-gate latches, gated-clock
+# buffers, the SRAM macros) renamed in copies of both files, which Icarus's SDF reader needs;
+# -ginterconnect: the SDF's wire delays (Icarus drops them without it).
+SDF_DIR         := $(PWD)/sim_build/gl_sdf_prep
+SDF_PREP        := $(shell mkdir -p sim_build && python3 $(PWD)/sdf_prep.py $(PWD)/gate_level_netlist.v $(abspath $(SDF)) $(SDF_DIR) >&2 && echo ok)
+ifneq ($(SDF_PREP),ok)
+$(error sdf_prep.py failed on $(SDF))
+endif
+GL_NETLIST      = $(SDF_DIR)/gate_level_netlist.v
+COMPILE_ARGS    += -gspecify -ginterconnect -DSDF_FILE=\"$(SDF_DIR)/$(notdir $(SDF))\"
 endif
 VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_io/verilog/sg13cmos5l_io.v
 VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/sg13cmos5l_stdcell.v
@@ -55,7 +64,8 @@ VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilo
 VERILOG_SOURCES += $(MACRO_MODELS)
 
 # this gets copied in by the GDS action workflow
-VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
+GL_NETLIST      ?= $(PWD)/gate_level_netlist.v
+VERILOG_SOURCES += $(GL_NETLIST)
 
 endif
 
