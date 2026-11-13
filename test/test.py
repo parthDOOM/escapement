@@ -11,7 +11,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, FallingEdge
+from cocotb.triggers import ClockCycles, FallingEdge, First, ValueChange
 from cocotb.utils import get_sim_time
 
 from escasm import assemble, assemble_file
@@ -103,6 +103,42 @@ async def test_identity_over_spi(dut):
     host = await bring_up(dut, Board())
     s = await host.status()
     assert s["version"] == 10 and not s["running"] and not s["host_err"], s
+
+
+@cocotb.test()
+async def test_output_delays_match_the_build(dut):
+    """Whether this run has live delays, measured on the pins: every uo_out change lags the
+    last input change (clk, rst_n, ena, ui_in, uio_in) by exactly 0 in a zero-delay RTL run,
+    and by more than 0 with SDF delays (test/Makefile SDF=...). The overclocked control
+    alone could not tell dead delays from a design with margin: on 11-13 its 12 ns run passed
+    on live delays (the latch-based core borrows), and 10 ns failed. GL without SDF (unit or
+    zero delays, by cell model) is reported, not judged."""
+    lags, last = [], [0.0]
+
+    async def inputs():
+        sigs = (dut.clk, dut.rst_n, dut.ena, dut.ui_in, dut.uio_in)
+        while True:
+            await First(*(ValueChange(s) for s in sigs))
+            last[0] = get_sim_time(unit="ns")
+
+    async def outputs():
+        while True:
+            await ValueChange(dut.uo_out)
+            lags.append(get_sim_time(unit="ns") - last[0])
+
+    host = await bring_up(dut, Board())
+    cocotb.start_soon(inputs())
+    cocotb.start_soon(outputs())
+    for _ in range(6):
+        await host.status()                  # MISO toggles: about 6 uo_out changes per read
+    assert len(lags) >= 20, lags
+    lo, hi = min(lags), max(lags)
+    dut._log.info("uo_out changes %d, lag after the last input change %.3f..%.3f ns",
+                  len(lags), lo, hi)
+    if os.environ.get("SDF"):
+        assert lo > 0.05, "SDF run without live delays: an output changed %.3f ns after an input" % lo
+    elif os.environ.get("GATES") != "yes":
+        assert hi == 0, "zero-delay RTL run with an output %.3f ns after an input" % hi
 
 
 @cocotb.test()
