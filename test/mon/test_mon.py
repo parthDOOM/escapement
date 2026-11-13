@@ -1,0 +1,100 @@
+# SPDX-FileCopyrightText: © 2026 Escapement contributors
+# SPDX-License-Identifier: Apache-2.0
+"""esc_mon against sw/esciss/monitor.py, every cycle: counts, record and its tick.
+
+Random pins (both slow and fast toggling, so intervals land on both sides of the limits),
+MON writes with MIN/MAX drawn near the intervals the pins produce, clears, starts, and runs
+broken by stops. The test also counts what it covered (early and late violations, records,
+saturated counts) and fails if any kind never happened.
+"""
+import os
+import random
+import sys
+from pathlib import Path
+
+import cocotb
+from cocotb.clock import Clock
+from cocotb.triggers import FallingEdge, RisingEdge
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sw"))
+from esciss.monitor import Monitor  # noqa: E402
+
+CYCLES = int(os.environ.get("MON_CYCLES", "200000"))
+
+
+def rand_rule(rng):
+    k = rng.randint(0, 3)
+    fp, tp = rng.randint(0, 15), rng.randint(0, 15)
+    if rng.random() < 0.7:                       # mostly pins 0..3, where the activity is
+        fp, tp = rng.randint(0, 3), rng.randint(0, 3)
+    fe, te = rng.randint(0, 3), rng.randint(0, 3)
+    mn = rng.choice([0, 0, rng.randint(1, 12), rng.randint(1, 60), rng.getrandbits(16)])
+    mx = rng.choice([0, rng.randint(1, 12), rng.randint(1, 80), rng.getrandbits(16)])
+    a = (rng.choice([1, 1, 1, 0]) << 31 | k << 29 | fp << 25 | fe << 23 | tp << 19 | te << 17
+         | rng.getrandbits(1) << 16 | mn)
+    b = (int(rng.random() < 0.05) << 31 | rng.getrandbits(15) << 16 | mx)
+    return a, b
+
+
+@cocotb.test()
+async def test_mon_lockstep(dut):
+    rng = random.Random(int(os.environ.get("MON_SEED", "1")))
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    for s in ("start", "run", "mon_we", "mon_a", "mon_b", "psync", "now"):
+        getattr(dut, s).value = 0
+    dut.rst_n.value = 0
+    await RisingEdge(dut.clk)
+    await RisingEdge(dut.clk)
+    dut.rst_n.value = 1
+    m = Monitor()
+    pins, rate, running, now = 0, 0.1, False, 0
+    cov = {"early": 0, "late": 0, "record": 0, "sat": 0, "clear": 0}
+    errors = 0
+    for cyc in range(CYCLES):
+        await FallingEdge(dut.clk)
+        # ---- inputs during this cycle
+        if rng.random() < 0.002:
+            rate = rng.choice([0.01, 0.05, 0.2, 0.5])
+        for p in range(13):
+            if rng.random() < (rate if p < 4 else rate / 8):
+                pins ^= 1 << p
+        start = int(rng.random() < 0.0005 or cyc == 5)
+        if start:
+            running = True
+        elif running and rng.random() < 0.0003:
+            running = False                      # this is the stop edge: no evaluation
+        stop_edge = not start and not running and dut.run.value == 1
+        run = int(running and not start)
+        mon = rand_rule(rng) if (run and rng.random() < 0.01) else None
+        dut.psync.value = pins
+        dut.now.value = now
+        dut.start.value = start
+        dut.run.value = run
+        dut.mon_we.value = int(mon is not None)
+        dut.mon_a.value, dut.mon_b.value = mon if mon else (0, 0)
+        # ---- the state during this cycle must match
+        for sel, sig in ((0, dut.counts), (1, dut.rec), (2, dut.rec_tick)):
+            got, want = int(sig.value), m.read(sel)
+            if got != want:
+                errors += 1
+                if errors <= 10:
+                    dut._log.error(f"cycle {cyc} sel {sel}: got {got:08x} want {want:08x}")
+        # ---- the model's edge
+        before = (m.read(0), m.rec_v)
+        if start:
+            m.start()
+            m.prev = pins
+        else:
+            m.edge(now, pins, bool(run), mon)
+        if mon is not None and (mon[1] >> 31):
+            cov["clear"] += 1
+        if m.rec_v and not before[1]:
+            cov["record"] += 1
+            cov["late" if m.rec_late else "early"] += 1
+        if any(r.nv == 0xFF for r in m.rules):
+            cov["sat"] += 1
+        now = (now + 1) & 0xFFFFFFFF
+        _ = stop_edge
+    dut._log.info(f"{CYCLES} cycles, coverage {cov}")
+    assert errors == 0, f"{errors} mismatches"
+    assert all(v > 0 for v in cov.values()), f"a kind never happened: {cov}"

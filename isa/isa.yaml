@@ -89,6 +89,8 @@ opcodes:
   TXREADY: {op: 0x3B, format: N}
   LINE:    {op: 0x3C, format: RS,  wait_class: true}   # v1.4 line unit control
   GETL:    {op: 0x3D, format: RD,  wait_class: true}   # v1.4 line unit status / wait
+  MON:     {op: 0x3E, format: R}                       # v3 bus timing monitor: a rule
+  GETM:    {op: 0x3F, format: I16}                     # v3 bus timing monitor status
 
 fault_causes:
   ILLEGAL: 1

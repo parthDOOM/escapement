@@ -31,7 +31,7 @@ OUT=${2:-$ROOT/formal/equiv_build}
 [ -e "$NET" ] || { echo "equiv.sh: no netlist at $NET" >&2; exit 2; }
 LIB=${LIB:-$PDK_ROOT/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/sg13cmos5l_stdcell_typ_1p20V_25C.lib}
 SRC=$ROOT/src
-RTL="$SRC/project.v $SRC/escapement_host.v $SRC/escapement_sram.v $SRC/escapement_sram_big.v $SRC/escapement_pstore.v $SRC/esc_core.v $SRC/esc_ctx.v $SRC/esc_cap.v $SRC/esc_line.v $SRC/esc_greg.v"
+RTL="$SRC/project.v $SRC/escapement_host.v $SRC/escapement_sram.v $SRC/escapement_sram_big.v $SRC/escapement_pstore.v $SRC/esc_core.v $SRC/esc_ctx.v $SRC/esc_cap.v $SRC/esc_mon.v $SRC/esc_line.v $SRC/esc_greg.v"
 # every program-store build's macro (v2: the build is project.v's STORE_MACROS; 11-12: the 512x32 and
 # 1024x32 were missing, so build 1 did not elaborate here)
 STUB="$SRC/RM_IHPSG13_1P_256x32_c2_bm_bist.v $SRC/RM_IHPSG13_1P_512x32_c2_bm_bist.v $SRC/RM_IHPSG13_1P_1024x32_c2_bm_bist.v $SRC/escapement_art.v"

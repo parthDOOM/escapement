@@ -146,7 +146,8 @@ module esc_core #(
                    OP_GETI = 8'h32, OP_GETX = 8'h33, OP_LDT = 8'h34, OP_STT = 8'h35,
                    OP_CAPT = 8'h36, OP_GETC = 8'h37, OP_POP = 8'h38, OP_PUSH = 8'h39,
                    OP_RXREADY = 8'h3A, OP_TXREADY = 8'h3B,
-                   OP_SEND = 8'h2D, OP_LINE = 8'h3C, OP_GETL = 8'h3D;          // v1.4
+                   OP_SEND = 8'h2D, OP_LINE = 8'h3C, OP_GETL = 8'h3D,          // v1.4
+                   OP_MON = 8'h3E, OP_GETM = 8'h3F;                            // v3 monitor
   // v1.6: bit I_x of the registered decode d_op is set iff the opcode is OP_x
   localparam integer I_NOP = 0, I_HALT = 1, I_IRQ = 2, I_RET = 3, I_MOV = 4, I_MOVI = 5,
                      I_MOVHI = 6, I_ADD = 7, I_SUB = 8, I_AND = 9, I_OR = 10, I_XOR = 11,
@@ -158,7 +159,7 @@ module esc_core #(
                      I_SAMPLE = 37, I_GETP = 38, I_WAITP = 39, I_GETI = 40, I_GETX = 41,
                      I_LDT = 42, I_STT = 43, I_CAPT = 44, I_GETC = 45, I_POP = 46,
                      I_PUSH = 47, I_RXREADY = 48, I_TXREADY = 49, I_SEND = 50, I_LINE = 51,
-                     I_GETL = 52;
+                     I_GETL = 52, I_MON = 53, I_GETM = 54;
 
   // reserved payload bits per format (payload bits not named by the format)
   localparam [23:0] RSV_N = 24'hFFFFFF, RSV_I8 = 24'hFFFF00, RSV_R = 24'h0FFFFF,
@@ -187,7 +188,7 @@ module esc_core #(
   reg  [7:0] p1_spc, p2_spc;           // v1.7: the PC each instruction was fetched from
   reg        p3ok;                     // v1.7: ... equal to its context's PC in X
   reg [31:0] p2_insn, p3_insn;
-  reg [52:0] d_op;                     // v1.6: decode of p3_insn, registered (below)
+  reg [54:0] d_op;                     // v1.6: decode of p3_insn, registered (below)
   reg        illegal;
   reg        ff_valid;
   reg [2:0]  ff_cause, ff_sub;
@@ -210,6 +211,8 @@ module esc_core #(
   wire        cap_drain;
   wire [7:0]  cap_ptr, cap_rptr;
   wire [31:0] cap_head, cap_status, cap_cfg, cap_ovf_tick;
+  wire [31:0] mon_counts, mon_rec, mon_tick;                 // v3 bus timing monitor
+  wire        mon_irq;
 
   // commit-stage write port (broadcast)
   reg         w_rd_we, w_z_we, w_z, w_c_we, w_c, w_sh_we, w_lc_we, w_tmr_we, w_lr_we;
@@ -327,8 +330,8 @@ module esc_core #(
   // One-hot opcode and reserved-bit mask as compare logic: a case table of constants
   // becomes a ROM in Yosys, whose read port can absorb the address register, a hidden
   // state that k-induction starts anywhere.
-  function [52:0] onehot(input [7:0] o);
-    onehot = {o == OP_GETL, o == OP_LINE, o == OP_SEND, o == OP_TXREADY, o == OP_RXREADY,
+  function [54:0] onehot(input [7:0] o);
+    onehot = {o == OP_GETM, o == OP_MON, o == OP_GETL, o == OP_LINE, o == OP_SEND, o == OP_TXREADY, o == OP_RXREADY,
               o == OP_PUSH, o == OP_POP, o == OP_GETC, o == OP_CAPT, o == OP_STT,
               o == OP_LDT, o == OP_GETX, o == OP_GETI, o == OP_WAITP, o == OP_GETP,
               o == OP_SAMPLE, o == OP_EXPECT, o == OP_EMITX, o == OP_EMITR, o == OP_EMIT,
@@ -340,11 +343,11 @@ module esc_core #(
               o == OP_ADD, o == OP_MOVHI, o == OP_MOVI, o == OP_MOV, o == OP_RET,
               o == OP_IRQ, o == OP_HALT, o == OP_NOP};
   endfunction
-  function [23:0] rsv_of(input [52:0] h);
+  function [23:0] rsv_of(input [54:0] h);
     rsv_of = ({24{h[I_NOP] | h[I_HALT] | h[I_RET] | h[I_WAITT] | h[I_RXREADY] | h[I_TXREADY]}} & RSV_N)
            | ({24{h[I_IRQ]}} & RSV_I8)
-           | ({24{h[I_MOV] | h[I_ADD] | h[I_SUB] | h[I_AND] | h[I_OR] | h[I_XOR] | h[I_CMP]}} & RSV_R)
-           | ({24{h[I_MOVI] | h[I_MOVHI] | h[I_TSTI] | h[I_ADDI] | h[I_CMPI]}} & RSV_I16)
+           | ({24{h[I_MOV] | h[I_ADD] | h[I_SUB] | h[I_AND] | h[I_OR] | h[I_XOR] | h[I_CMP] | h[I_MON]}} & RSV_R)
+           | ({24{h[I_MOVI] | h[I_MOVHI] | h[I_TSTI] | h[I_ADDI] | h[I_CMPI] | h[I_GETM]}} & RSV_I16)
            | ({24{h[I_SHL] | h[I_SHR]}} & RSV_SH)
            | ({24{h[I_LDSH] | h[I_SETT] | h[I_ADDTR] | h[I_PUSH] | h[I_CAPT] | h[I_SEND] | h[I_LINE]}} & RSV_RS)
            | ({24{h[I_STSH] | h[I_RDTIME] | h[I_GETP] | h[I_GETI] | h[I_GETX] | h[I_POP] | h[I_GETC] | h[I_GETL]}} & RSV_RD)
@@ -366,7 +369,7 @@ module esc_core #(
   // p3_insn (both load at every edge), so the commit cycle starts from flip-flops instead
   // of the opcode compare and legality trees. Equal to the decode of p3_insn in every
   // cycle (formal, B6 and B7).
-  wire [52:0] d_op_n    = onehot(p2_insn[31:24]);
+  wire [54:0] d_op_n    = onehot(p2_insn[31:24]);
   wire        illegal_n = illegal_of(p2_insn);
 
   // ------------------------------------------------------------------ datapath
@@ -549,6 +552,14 @@ module esc_core #(
         d_op[I_GETC]: begin
           w_rd_we = 1'b1; w_rd_data = cap_status; z_src = 3'd1;
         end
+        // v3: GETM reads the monitor's state during cycle c (sel 0 counts, 1 record, 2 its
+        // tick, else 0); MON writes a rule at E_c (esc_mon)
+        d_op[I_GETM]: begin
+          w_rd_we = 1'b1; z_src = 3'd1;
+          w_rd_data = (f_imm16 == 16'd0) ? mon_counts : (f_imm16 == 16'd1) ? mon_rec
+                    : (f_imm16 == 16'd2) ? mon_tick : 32'd0;
+        end
+        d_op[I_MON]: ;
         // LDT: the tape reads at this edge; the register is written at the next one
         // (ld_* below). STT: tape_we at this edge. CAPT: esc_cap. v1.4: LDT and STT wait
         // in a cycle the line unit uses the port (always one of its owner's cycles).
@@ -694,6 +705,14 @@ module esc_core #(
       .capt_we(cm_ok & d_op[I_CAPT]), .capt_v(opb),
       .drain(cap_drain), .ptr_o(cap_ptr), .head_o(cap_head),
       .status(cap_status), .cfg(cap_cfg), .rptr(cap_rptr), .ovf_tick(cap_ovf_tick));
+
+  // v3: the bus timing monitor, global like the capture unit; it evaluates at every edge of
+  // a run except the stop edge, on the same synchronised pins
+  esc_mon u_mon (
+      .clk(clk), .rst_n(rst_n), .start(start), .run(run & ~stop_q), .now(now), .psync(s2),
+      .mon_we(cm_ok & d_op[I_MON]), .mon_a(opa), .mon_b(opb),
+      .counts(mon_counts), .rec(mon_rec), .rec_tick(mon_tick), .irq(mon_irq));
+  wire _unused_mon = &{1'b0, mon_irq};
 
   // deferred LDT register write: committed at E_c, written at E_(c+1) (sec. 7.6)
   reg       ld_v;
@@ -1036,7 +1055,7 @@ module esc_core #(
       s1 <= 13'd0; s2 <= 13'd0;
       p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
       p2_insn <= 32'd0; p3_insn <= 32'd0;
-      d_op <= 53'd0; illegal <= 1'b1;          // the decode of 0: no opcode, illegal
+      d_op <= 55'd0; illegal <= 1'b1;          // the decode of 0: no opcode, illegal
       opa <= 32'd0; opb <= 32'd0;
       ff_valid <= 1'b0; ff_cause <= 3'd0; ff_sub <= 3'd0; ff_ctx <= 2'd0;
       ff_pc <= 8'd0; ff_tick <= 32'd0;

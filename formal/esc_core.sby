@@ -42,8 +42,8 @@ tw: smtbmc yices
 [script]
 ahead: read -define ESC_AHEAD_CHECK
 tw: read -define ESC_TW_CHECK
-~pdr: read -formal -DFORMAL -DFORMAL_ANYNOW esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v
-pdr: read -formal -DFORMAL -DESC_CORE_PDR esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v
+~pdr: read -formal -DFORMAL -DFORMAL_ANYNOW esc_greg.v esc_ctx.v esc_cap.v esc_mon.v esc_line.v esc_core.v
+pdr: read -formal -DFORMAL -DESC_CORE_PDR esc_greg.v esc_ctx.v esc_cap.v esc_mon.v esc_line.v esc_core.v
 prep -top esc_core
 ahead: chformal -assert -remove n:$assert$*
 tw: chformal -assert -remove c:* c:tw_zero %d
@@ -61,6 +61,7 @@ pdr: setundef -init -zero
 [files]
 ../src/esc_ctx.v
 ../src/esc_cap.v
+../src/esc_mon.v
 ../src/esc_line.v
 ../src/esc_greg.v
 ../src/esc_core.v

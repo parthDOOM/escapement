@@ -24,7 +24,7 @@ module tb_line;
   wire [31:0] status, e, port_wdata;
 
   esc_line dut (
-    .clk(clk), .rst_n(rst_n), .start(start), .now(now), .view(view), .owns(owns),
+    .clk(clk), .rst_n(rst_n), .start(start), .now(now), .view(view), .view_h(view), .owns(owns),
     .op_send(op == 3'd1), .op_off(op == 3'd2), .op_recv(op == 3'd3), .op_crc(op == 3'd4),
     .op_cfg(op == 3'd5), .op_ctx(opctx), .op_v(opv), .line_ret(lret), .halt_done(halt),
     .kill(kill), .rdata(rdata),
@@ -74,7 +74,7 @@ module tb_line;
           check(dut.w0, {x_w0[31:24], x_w0[20:0]}, "w0");
           if (x_mode != 1) begin                          // W1..W4 load early (no debug select)
             check(dut.w1, x_w1, "w1"); check(dut.w2, x_w2[25:0], "w2");
-            if (x_w2[25]) begin check(dut.w3, x_w3[28:0], "w3"); check(dut.w4, x_w4[20:0], "w4"); end
+            if (x_w2[25]) begin check(dut.w3, x_w3[28:0], "w3"); check(dut.w4, x_w4[25:0], "w4"); end
           end
         end
         check(engaged, x_engaged, "engaged");

@@ -118,6 +118,23 @@ class Cfg:
     @property
     def ilow(self): return (self.w4 >> 20) & 1 if self.ext else 0
 
+    # v3 S-D: the receive strobe source, its polarity and long receive (W4[25:21]). W4[24]
+    # (both-edge sampling) is stored and has no effect until the half-tick sampler exists.
+    @property
+    def rxs(self): return (self.w4 >> 21) & 3 if self.ext else 0
+
+    @property
+    def rxpol(self): return (self.w4 >> 23) & 1 if self.ext else 0
+
+    @property
+    def long(self): return (self.w4 >> 25) & 1 if self.ext else 0
+
+    @property
+    def sil(self) -> int:
+        """v3: a packet with the cell decoder or an external clock ends after this many
+        ticks with no strobe (1.5 bit times; 13 bits, so never above 6142)."""
+        return self.P_int + (self.P_int >> 1)
+
     def valid(self) -> bool:
         if self.cells > 1:
             return self.P_int >= 2
@@ -189,6 +206,7 @@ class Request:
     addr: int
     write: bool
     nxt: bool = False            # v1.6 ext transmit: the read fills the next-word buffer
+    data: int = 0                # v3: a receive write's word, handed over when it completed
 
 
 @dataclass
@@ -249,6 +267,9 @@ class LineUnit:
     rx_alpha: int = 0            # accumulator of the current bit's boundary
     rx_nxt: int = 0              # next timed boundary
     rx_sample: Optional[int] = None
+    rx_el: int = 0               # v3: the receive timer of the cell decoder / external clock
+    k_prev: int = 0              # v3: n during the previous cycle (external clock)
+    pb: int = 0                  # v3: the last decoded bit (the 802.3 hunt)
     x_prev: int = 1
     ref: int = 1
     rx_stf: Stuffer = field(default_factory=Stuffer)
@@ -334,7 +355,7 @@ class LineUnit:
         """A write scheduled in cycle t still happens when the job ends at E_t (a scheduled
         read would only load the buffer, which nothing reads afterwards)."""
         if self.access_scheduled(t) and self.req is not None and self.req.write:
-            return self.req.addr, self.buf
+            return self.req.addr, self.req.data
         return None
 
     def _unconfigure(self) -> None:
@@ -436,13 +457,14 @@ class LineUnit:
             self.cfg_words = [tape[self.cfg_addr]]
             return [], None, True
         if o == OP_RECV:
-            if self.cfg.cells > 1:               # v1.6: no receiver for a symbol coding
+            # v1.6: no receiver for a symbol coding; v3: except two cells with the decoder
+            if self.cfg.cells > 1 and not (self.cfg.rxs == 1 and self.cfg.cells == 2):
                 self.last_job, self.mode = JOB_RECV, IDLE
                 self._end(VIOL, 0, t)
                 return [], None, False
             n = (v >> 8) & 0x1F
             self.mode, self.rx_c, self.rx_addr = ARM, t, v & 0xFF
-            self.rx_limit = 8 * (n if n else 32)
+            self.rx_limit = (256 if self.cfg.long else 8) * (n if n else 32)
             self.idle_run = 0
             return [], None, False
         if o == OP_CRC:
@@ -637,12 +659,13 @@ class LineUnit:
         x, se0 = self._line(sync)
         k_need = max(1, c.idle_min * c.P_int)
         if x == 0 and self.idle_run >= k_need:
-            self._rx_start(t, x)
+            self._rx_start(t, x, (sync >> c.n) & 1)
             return
         self.idle_run = self.idle_run + 1 if (x == 1 and not se0) else 0
 
-    def _rx_start(self, t0: int, x: int) -> None:
+    def _rx_start(self, t0: int, x: int, nl: int = 0) -> None:
         c = self.cfg
+        self.rx_el, self.k_prev, self.pb = (c.S if c.rxs == 1 else 1), nl, 0
         self.mode, self.last_job, self.cause, self.count = RX, JOB_RECV, 0, 0
         self.crc = c.crc_start()
         self.rx_t0, self.rx_alpha = t0, 0
@@ -659,18 +682,32 @@ class LineUnit:
         tw: Optional[tuple[int, int]] = None
         used = False
         if self.req is not None and owner_cycle(t, self.owner) and t >= self.req.earliest:
-            tw, used = (self.req.addr, self.buf), True
-            self.buf, self.req = 0, None
+            tw, used = (self.req.addr, self.req.data), True   # v3: the handed-over word
+            self.req = None
             if self.finishing:
                 self.mode, self.finishing = IDLE, False
                 return tw, used
         if self.finishing:
             return tw, used
         x, se0 = self._line(sync)
+        nl = (sync >> c.n) & 1
         if self.eop_s is not None:               # waiting for the end of SE0
             if not se0 or t == self.eop_s + 255:
                 self._eop_end(t)
-            self.x_prev = x
+            self.x_prev, self.k_prev = x, nl
+            return tw, used
+        if c.rxs in (1, 2):                      # v3 S-D: cell decoder or external clock
+            if c.rxs == 1:                       # an edge S or more ticks after the last
+                strobe = x != self.x_prev and self.rx_el + 1 >= c.S
+            else:                                # an edge of n of the chosen polarity
+                strobe = (self.k_prev, nl) == ((1, 0) if c.rxpol else (0, 1))
+            silent = not strobe and self.decoded and self.rx_el >= c.sil
+            self.rx_el = 0 if strobe else min(self.rx_el + 1, 0xFFD)   # saturates as the RTL
+            self.x_prev, self.k_prev = x, nl
+            if strobe:                           # (may meet a buffer write: it takes the full
+                self._sample(t, x, se0)          #  word, then the bit starts the next one)
+            elif silent:
+                self._eop_end(t)
             return tw, used
         if x != self.x_prev and (not c.fall or x == 0):          # resync boundary
             self.rx_alpha = 0
@@ -694,11 +731,14 @@ class LineUnit:
             return
         if not self.storing:
             return
-        if c.nrzi:                               # 2. decode
+        if c.rxs == 1:                           # 2. decode (v3: the level after a mid-bit edge)
+            b = x ^ c.rxpol
+        elif c.nrzi:
             b = 1 if x == self.ref else 0
             self.ref = x
         else:
             b = x
+        pb, self.pb = self.pb, b
         self.decoded = True
         if self.rx_stf.due(c):                   # 3. destuff
             if b == self.rx_stf.stuff_bit(c):
@@ -710,8 +750,8 @@ class LineUnit:
                 self._finish(VIOL, self.count, t)
             return
         self.rx_stf.push(b, c)
-        if self.hunt:                            # 4. sync pattern
-            if b == 1:
+        if self.hunt:                            # 4. sync pattern (v3 decoder: two 1s, an SFD)
+            if b == 1 and (c.rxs != 1 or pb == 1):
                 self.hunt = False
             return
         n = self.count                           # 5. store
@@ -720,7 +760,12 @@ class LineUnit:
             self.crc = crc_step(self.crc, b, c.poly32)
         self.count = n + 1
         if self.count % 32 == 0:
-            self.req = Request(t + 1, (self.rx_addr + self.count // 32 - 1) & 0xFF, True)
+            # v3: the word and its address are handed over now and the buffer starts the next
+            # word, so a bit that arrives before the owner's write slot cannot touch it
+            assert self.req is None, "a receive word completes while the last one is unwritten"
+            self.req = Request(t + 1, (self.rx_addr + self.count // 32 - 1) & 0xFF, True,
+                               data=self.buf)
+            self.nxt, self.buf = self.buf, 0     # (the RTL holds it in the next-word register)
         if self.count == self.rx_limit:
             if c.diff:
                 self.noted, self.storing = FULL, False
@@ -740,8 +785,11 @@ class LineUnit:
         self._end(cause, count, e)
         self.eop_s = None
         self.rx_sample = None
-        if self.req is None and cause not in (SE0, NOSYNC) and self.count % 32:
-            self.req = Request(e + 1, (self.rx_addr + (self.count - 1) // 32) & 0xFF, True)
+        if cause not in (SE0, NOSYNC) and self.count % 32:
+            assert self.req is None, "a last word while the previous one is unwritten"
+            self.req = Request(e + 1, (self.rx_addr + (self.count - 1) // 32) & 0xFF, True,
+                               data=self.buf)
+            self.nxt, self.buf = self.buf, 0
         if self.req is not None:
             self.req.earliest = max(self.req.earliest, e + 1)
             self.finishing = True

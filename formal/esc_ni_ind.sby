@@ -45,7 +45,7 @@ pdr: abc pdr
 base: abc bmc3
 
 [script]
-read -formal -DFORMAL -DESC_NI -DESC_NI_IND esc_greg.v esc_ctx.v esc_cap.v esc_line.v esc_core.v esc_ni_env.v
+read -formal -DFORMAL -DESC_NI -DESC_NI_IND esc_greg.v esc_ctx.v esc_cap.v esc_mon.v esc_line.v esc_core.v esc_ni_env.v
 prep -top esc_ni_env
 # The units' own invariants, proved on their own (esc_ctx.sby, esc_line.sby: k-induction; the
 # esc_core ahead lemmas are assumptions already, ESC_AHEAD), are assumed here, in both copies:
@@ -80,6 +80,7 @@ setundef -anyseq
 ../src/esc_greg.v
 ../src/esc_ctx.v
 ../src/esc_cap.v
+../src/esc_mon.v
 ../src/esc_line.v
 ../src/esc_core.v
 esc_ni_env.v

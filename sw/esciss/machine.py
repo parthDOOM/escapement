@@ -34,6 +34,7 @@ from escasm import Image
 
 from .decode import ADMIT_SUB, EVENT_KIND, FAULT_CAUSE, ISA, decode
 from .line import IDLE as LU_IDLE, LineUnit, OP_CONFIG, OP_OFF, OP_RECV, OP_CRC
+from .monitor import Monitor
 
 M32 = 0xFFFFFFFF
 HALF = 1 << 31
@@ -290,6 +291,7 @@ class Commit:
     ld_val: Optional[int] = None        # §7.6 LDT loaded value (digest folds it at E_(c+1))
     tape_write: Optional[tuple[int, int]] = None   # STT (address, word)
     capt: Optional[int] = None          # CAPT operand
+    mon: Optional[tuple[int, int]] = None   # v3 MON operands (R[rd], R[rs])
     # v1.4
     lu_op: Optional[tuple[str, int, int]] = None   # ("LINE"|"SEND", R[rs], ctx)
 
@@ -359,6 +361,7 @@ class Machine:
         self.ff = FirstFault()
         self.now = 0
         self.cap = Capture()
+        self.mon = Monitor()                       # v3 bus timing monitor
         self.lu = LineUnit()
         self._lu_acc = False
         self._lu_busy_port = False
@@ -375,8 +378,11 @@ class Machine:
         Hence sync during cycle 0 = 0 and sync during cycle 1 = uio_in during cycle -1.
         """
         out, oe = self._pin_outputs()
+        p_start = self.s2                          # psync during cycle -1 (v3 monitor)
         self._sync_shift(self._inputs(-1, out, oe, self._ob()))
         self._apply_start()
+        self.mon.start()                           # v3: at E_-1 rules off, counts cleared;
+        self.mon.prev = p_start & 0x1FFF           # prev follows the pins at every edge
 
     def _apply_start(self) -> None:
         """§9 Start at E_s."""
@@ -605,6 +611,7 @@ class Machine:
         if self._stop_pending:                                 # §9 Stop at E_t
             self._edge_stop()
             self._ctx_stop = self._ctx_start = 0
+            self.mon.prev = psync & 0x1FFF                     # v3: no evaluation at a stop
         else:
             self._fetch(t)                                     # §3
             # v1.7 (S3): restarts at E_t, then stops (a restart wins over a same-edge stop)
@@ -616,6 +623,8 @@ class Machine:
             self._restarted = rs
             commit = self._edge(t, tm, psync, cs, raw_stop, rs)
             self._capture_edge(tm, psync, commit)              # §6.5 (v1.1)
+            self.mon.edge(tm, psync, True,                     # v3 bus timing monitor
+                          commit.mon if (commit is not None and commit.outcome == "C") else None)
             self._digest_edge(out, oe, ob, commit)             # §10.1 (v1.1)
         self._apply_mailboxes(commit)                          # §7.5, §10 host ports
         self._apply_irq_clear(commit)                          # §10 irq_clear (v1.0.1)
@@ -1492,6 +1501,14 @@ def _CAPT(m, x, k, cm, f, c, sync, q, ca):
 
 def _GETC(m, x, k, cm, f, c, sync, q, ca):
     _write(cm, f["rd"], m.cap.status())               # capture state during cycle c
+
+
+def _MON(m, x, k, cm, f, c, sync, q, ca):
+    cm.mon = (cm.r[f["rd"]], cm.r[f["rs"]])            # v3: the rule is written at E_c
+
+
+def _GETM(m, x, k, cm, f, c, sync, q, ca):
+    _write(cm, f["rd"], m.mon.read(f["imm"]))          # v3: monitor state during cycle c
 
 
 # ---- §7.5 host mailboxes

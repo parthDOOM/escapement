@@ -66,6 +66,28 @@ def _tape_op(rng: random.Random, nasty: bool, capt_bank: float = 0.0) -> list[st
             f"    GETI {_reg(rng)}"]
 
 
+def _mon_op(rng: random.Random, nasty: bool) -> list[str]:
+    """v3 bus timing monitor: MON with a rule on pins 0..12 (sometimes 13..15, which never
+    change), limits near the intervals random programs make, or garbage; GETM with each
+    selector (and one past them)."""
+    if rng.random() < 0.6:
+        ra, rb = rng.sample(["r0", "r1", "r2", "r3"], 2)
+        if nasty and rng.random() < 0.2:
+            a, b = rng.randrange(1 << 32), rng.randrange(1 << 32)
+        else:
+            pf = rng.randrange(16) if rng.random() < 0.1 else rng.randrange(13)
+            pt = rng.randrange(16) if rng.random() < 0.1 else rng.randrange(13)
+            mn = rng.choice([0, rng.randrange(1, 12), rng.randrange(1, 200)])
+            mx = rng.choice([0, rng.randrange(1, 20), rng.randrange(1, 400)])
+            a = (int(rng.random() < 0.85) << 31 | rng.randrange(4) << 29 | pf << 25
+                 | rng.randrange(4) << 23 | pt << 19 | rng.randrange(4) << 17 | mn)
+            b = int(rng.random() < 0.1) << 31 | mx
+        return [f"    MOVI {ra}, {a & 0xFFFF}", f"    MOVHI {ra}, {a >> 16}",
+                f"    MOVI {rb}, {b & 0xFFFF}", f"    MOVHI {rb}, {b >> 16}",
+                f"    MON {ra}, {rb}"]
+    return [f"    GETM {_reg(rng)}, {rng.choice([0, 1, 2, 0, 1, 3])}"]
+
+
 LU_CFG = 0xF4      # v1.4: line unit configuration blocks at tape words 0xF4..0xFF
 
 
@@ -179,7 +201,8 @@ def _subroutine(rng: random.Random, name: str, owned: list[int], nasty: bool) ->
 def gen_context(rng: random.Random, k: int, owned: list[int], length: int,
                 nasty: bool = True, capt_bank: float = 0.0,
                 lu: random.Random | None = None, lu_rate: float = 0.0,
-                mb: random.Random | None = None, mb_rate: float = 0.0) -> list[str]:
+                mb: random.Random | None = None, mb_rate: float = 0.0,
+                mo: random.Random | None = None, mo_rate: float = 0.0) -> list[str]:
     lines = [f"ctx{k}_start:"]
     if lu is not None and lu_rate > 0.1:          # the line unit's intended owner
         lines += [f"    MOVI r3, {LU_CFG}", "    MOVHI r3, 0x3000", "    LINE r3"]
@@ -215,6 +238,8 @@ def gen_context(rng: random.Random, k: int, owned: list[int], length: int,
             lines += _line_op(lu, nasty)
         if mb is not None and mb.random() < mb_rate:   # v1.6 subroutines, mailboxes
             lines += _mbx_op(mb, nasty, subs, k, new_label)
+        if mo is not None and mo.random() < mo_rate:   # v3 monitor (own generator)
+            lines += _mon_op(mo, nasty)
         if rng.random() < 0.10:                    # v1.1 tape / capture / GETI-wait
             ops = _tape_op(rng, nasty, capt_bank)
             lines += ops
@@ -339,12 +364,16 @@ def gen_program(seed: int) -> str:
     # v1.6: a third of the seeds call subroutines and use the mailboxes (a fourth generator)
     rngm = random.Random(seed * 15485863 + 0x16)
     use_mb = rngm.random() < MBX_SHARE
+    # v3: a third of the seeds program the bus timing monitor (a fifth generator)
+    rngo = random.Random(seed * 32452843 + 0x3E)
+    use_mo = rngo.random() < 0.35
     body: list[str] = []
     for k in ctxs:
         length = rng.randrange(8, max(9, budget // (n_ctx * 2)))
         body += gen_context(rng, k, owned[k], length, nasty, capt_bank,
                             rngl if use_lu else None, 0.25 if k == ctxs[0] else 0.02,
-                            rngm if use_mb else None, 0.08)
+                            rngm if use_mb else None, 0.08,
+                            rngo if use_mo else None, 0.06)
     # Keep inside 256 words: trim (by context) if the assembler would overflow.
     return "\n".join(out + body) + "\n"
 

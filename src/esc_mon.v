@@ -19,45 +19,44 @@
  *
  * MIN = 0 disables the early check, MAX = 0 the late check. Both checks use the same
  * per-rule tick counter, so a violation is exact to the tick of the synchronised pins
- * (the same view as CAPT). Prototype: configuration by a write port; the ISA (MON / GETM)
- * and the tape-loaded rule table come with the design note.
+ * (the same view as CAPT).
+ *
+ * MON rd, rs (at E_c) writes one rule: R[rd] [31] enable, [30:29] rule, [28:25] from pin,
+ * [24:23] from edge, [22:19] to pin, [18:17] to edge, [15:0] MIN (edges: 1 rise, 2 fall,
+ * 3 any); R[rs] [31] clear every count and the record, [15:0] MAX. Pins 0..12 are psync;
+ * 13..15 never change. The unit evaluates at every edge of a run except a stop edge
+ * (`run` = run & ~stop); `prev` follows the pins at every edge. Reference model:
+ * sw/esciss/monitor.py.
  */
 `default_nettype none
 module esc_mon #(
-    parameter integer RULES = 4,
+    parameter integer RULES = 4,                 // (the MON encoding names rules 0..3)
     parameter integer W     = 16                 // interval counter and limit width (ticks)
 ) (
     input  wire          clk,
     input  wire          rst_n,
     input  wire          start,                  // run initialisation at this edge
-    input  wire          run,                    // the chip is running during this cycle
+    input  wire          run,                    // evaluate at this edge (a run, not its stop)
     input  wire [31:0]   now,
     input  wire [12:0]   psync,                  // synchronised physical pins (both banks)
-    // configuration: one rule per write, at most one write per edge
-    input  wire          cfg_we,
-    input  wire [1:0]    cfg_rule,
-    input  wire          cfg_en,
-    input  wire [3:0]    cfg_from, cfg_to,       // pin index 0..12
-    input  wire [1:0]    cfg_fedge, cfg_tedge,   // 1 rise, 2 fall, 3 any (0: never)
-    input  wire [W-1:0]  cfg_min, cfg_max,
-    input  wire          clr,                    // clear counts and the record at this edge
-    // status
-    output wire [8*RULES-1:0] counts,            // violations per rule, saturating at 255
-    output reg           rec_v,                  // a violation has been recorded
-    output reg  [1:0]    rec_rule,
-    output reg           rec_late,               // 0: below MIN, 1: MAX passed
-    output reg  [31:0]   rec_tick,
-    output reg  [W-1:0]  rec_ivl,
+    input  wire          mon_we,                 // a MON completes at this edge
+    input  wire [31:0]   mon_a, mon_b,           // its R[rd], R[rs]
+    output wire [31:0]   counts,                 // GETM sel 0: rule k in [8k+7:8k]
+    output wire [31:0]   rec,                    // GETM sel 1
+    output reg  [31:0]   rec_tick,               // GETM sel 2
     output wire          irq                     // a violation at this edge
 );
-  reg [12:0] prev;
-  wire [12:0] rise = psync & ~prev;
-  wire [12:0] fall = ~psync & prev;
+  reg  [12:0] prev;
+  wire [15:0] rise = {3'd0, psync & ~prev};
+  wire [15:0] fall = {3'd0, ~psync & prev};
 
   function ev;                                   // the edge of a rule's pin in this cycle
-    input [12:0] r, f; input [3:0] pin; input [1:0] kind;
+    input [15:0] r, f; input [3:0] pin; input [1:0] kind;
     ev = (kind[0] & r[pin]) | (kind[1] & f[pin]);
   endfunction
+
+  wire        clr    = mon_we & mon_b[31];
+  wire [1:0]  w_rule = mon_a[30:29];
 
   reg           en    [0:RULES-1];
   reg [3:0]     from  [0:RULES-1], to [0:RULES-1];
@@ -92,16 +91,16 @@ module esc_mon #(
           if ((early[g] | late[g]) && nv[g] != 8'hFF) nv[g] <= nv[g] + 8'd1;
         end
         if (clr) nv[g] <= 8'd0;
-        if (cfg_we && cfg_rule == g) begin
-          en[g] <= cfg_en; from[g] <= cfg_from; to[g] <= cfg_to;
-          fedge[g] <= cfg_fedge; tedge[g] <= cfg_tedge; mn[g] <= cfg_min; mx[g] <= cfg_max;
-          armed[g] <= 1'b0; cnt[g] <= {W{1'b0}};
+        if (mon_we && w_rule == g) begin
+          en[g] <= mon_a[31]; from[g] <= mon_a[28:25]; fedge[g] <= mon_a[24:23];
+          to[g] <= mon_a[22:19]; tedge[g] <= mon_a[18:17]; mn[g] <= mon_a[W-1:0];
+          mx[g] <= mon_b[W-1:0]; armed[g] <= 1'b0; cnt[g] <= {W{1'b0}};
         end
       end
     end
   end endgenerate
 
-  // the first violation since start or clr: the lowest-numbered rule wins a tie
+  // the first violation since start or a clear: the lowest-numbered rule wins a tie
   wire          any_v = |(early | late);
   reg  [1:0]    v_rule;
   integer i;
@@ -110,6 +109,12 @@ module esc_mon #(
     for (i = RULES - 1; i >= 0; i = i - 1) if (early[i] | late[i]) v_rule = i[1:0];
   end
   assign irq = any_v;
+
+  reg          rec_v, rec_late;
+  reg [1:0]    rec_rule;
+  reg [W-1:0]  rec_ivl;
+  assign rec = {rec_v, rec_late, 12'd0, rec_rule, rec_ivl};
+  wire _unused = &{1'b0, mon_b[30:W], mon_a[16]};
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

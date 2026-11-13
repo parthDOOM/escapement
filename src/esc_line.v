@@ -101,7 +101,9 @@ module esc_line (
   wire [25:0] w4;
   wire [29:0] cmd;                         // SEND command, RECV/CRC/CONFIG operand
   reg  [31:0] buf_q;                       // stream word
-  reg  [31:0] nxt_q;                       // v1.6 ext transmit: the next stream word
+  reg  [31:0] nxt_q;                       // v1.6 ext transmit: the next stream word;
+                                           // v3 receive: the word waiting for its write
+  reg  [7:0]  wa_q;                        // v3 receive: that word's index in the buffer
   reg         ld;                          // the unit read the tape in the previous cycle
   reg         ldn;                         // ... into the next-word buffer
   reg  [31:0] crc;                         // v1.6: 32 bits, the polynomial left-aligned
@@ -162,7 +164,9 @@ module esc_line (
   // both-edge sampling of the receive line, long receive (limit in 32-byte units)
   wire [1:0]  c_rxs   = c_ext ? w4[22:21] : 2'd0;
   wire        c_rxpol = c_ext & w4[23];
-  wire        c_both  = c_ext & w4[24];
+  // both (W4[24]) is stored but has no effect until the half-tick sampler is built
+  wire        c_both  = 1'b0;
+  wire        _unused_both = &{1'b0, w4[24]};
   wire        c_long  = c_ext & w4[25];
 
   function [7:0] dec8(input [2:0] i);
@@ -358,8 +362,8 @@ module esc_line (
   wire        c_acc  = cel_rx & (e1 | e2) & (t_edge >= c_S);
   wire        lvl    = e1 ? xh : x;                            // the level after the edge
   wire        k_ev   = clk_rx & (c_rxpol ? (nkp & ~view[c_n]) : (~nkp & view[c_n]));
-  wire [11:0] sil    = c_P + {1'b0, c_P[11:1]};
-  wire        e_sil  = rx_go & ~eopw & (cel_rx | clk_rx) & ~(c_acc | k_ev) & dec & (el >= sil);
+  wire [12:0] sil    = {1'b0, c_P} + {2'b0, c_P[11:1]};       // 1.5 P, 13 bits (no wrap)
+  wire        e_sil  = rx_go & ~eopw & (cel_rx | clk_rx) & ~(c_acc | k_ev) & dec & ({1'b0, el} >= sil);
   wire        rx_smp = rx_go & ~eopw & (cel_rx ? c_acc : clk_rx ? k_ev
                                         : (~(rs | tb_hit) & (el == c_S)));
   wire        db     = cel_rx ? (lvl ^ c_rxpol) : c_nrzi ? (x == lv) : x;   // decoded bit
@@ -380,8 +384,17 @@ module esc_line (
   wire        rx_fin = f_viol | f_full | e_eop;
   wire        rx_lastw = f_full | ((f_viol | (e_eop & ~hunt)) & (count[4:0] != 5'd0));
   // the word of the last stored bit, (count - 1) / 32 (count is 1..256 when it is used)
-  wire [8:0]  rx_wi9 = count[13:5] - {8'd0, count[4:0] == 5'd0};
-  wire [7:0]  rx_wi = rx_wi9[7:0];
+  // v3: a word is handed over when it completes (or the packet ends with part of one): the
+  // word with this edge's bit goes to nxt_q (unused while receiving) and its tape index to
+  // wa_q, and buf_q starts the next word. The write in the owner's slot takes nxt_q, so a bit
+  // that arrives first (the cell decoder and the external clock can strobe every 2 ticks)
+  // lands in the next word. The next handover needs 8 more bits or 1.5 bit times of silence,
+  // so it never meets an unwritten word (the ISS asserts it).
+  wire [4:0]  bidx   = count[4:0] ^ {5{~c_lsb}};
+  wire [31:0] buf_b  = s_store ? ((buf_q & ~(32'd1 << bidx)) | ({31'd0, db} << bidx)) : buf_q;
+  wire        rx_hand = live & rx_go & ((s_store & (cnt1[4:0] == 5'd0)) | (rx_fin & rx_lastw));
+  wire [13:0] n_aft  = s_store ? cnt1 : count;
+  wire [8:0]  rx_wi9 = n_aft[13:5] - {8'd0, n_aft[4:0] == 5'd0};
   wire        _unused_wi = &{1'b0, rx_wi9[8]};      // count <= 8192: the index is <= 255
 
   // ------------------------------------------------------------------ tape port
@@ -390,9 +403,9 @@ module esc_line (
   // CONFIG words 1..4 at el = 3, 7, 11, 15; a TX read: the word of pos, or with ext the one
   // after it (requested mid-word, while pos is still in the current word)
   wire [7:0] off    = cfg_on ? {6'd0, el[3:2]} + 8'd1 : crc_on ? {5'd0, el_inc[7:5]}
-                    : (mode == TX) ? (pos[12:5] + {7'd0, c_ext}) : rx_wi;
+                    : (mode == TX) ? (pos[12:5] + {7'd0, c_ext}) : wa_q;
   assign port_addr  = cmd[7:0] + off;
-  assign port_wdata = buf_q;
+  assign port_wdata = rx_on ? nxt_q : buf_q;
   wire rd_now = cfg_rd | crc_rd | tx_rd;
   assign send_rd = (op_v[14:8] != 7'd0) | (c_ext & (op_v[29:24] != 6'd0));
   wire rd_commit = op_cfg | (op_crc & (op_v[15:8] != 8'd0)) | (op_send & send_rd);
@@ -528,6 +541,7 @@ module esc_line (
   always @(posedge lclk or negedge rst_n) begin
     if (!rst_n)                  nxt_q <= 32'd0;
     else if (!lu_hold && nx_we)  nxt_q <= rdata;
+    else if (!lu_hold && rx_hand) nxt_q <= buf_b;
   end
   always @(posedge lclk or negedge rst_n)
     if (!rst_n)        {own_bad_q, v_norm_q, v_ext_q, w3x_q} <= 4'd0;
@@ -542,7 +556,7 @@ module esc_line (
       pos <= 13'd0; cel <= 3'd0; sk <= 2'd0; seg <= 3'd0; lv <= 1'b1; xp <= 1'b1;
       req <= 1'b0; reqn <= 1'b0; fin <= 1'b0;
       eopw <= 1'b0; hunt <= 1'b0; dec <= 1'b0; stor <= 1'b0; noted <= 2'd0;
-      nkp <= 1'b0; pb <= 1'b0;
+      nkp <= 1'b0; pb <= 1'b0; wa_q <= 8'd0;
       mon <= 1'b0; abt <= 1'b0; es_q <= 3'd5; pb_q <= 1'b0; sl_q <= 1'b0;
       dq_go <= 1'b0; dq_oe <= 1'b0; dq_val <= 8'd0; es0_q <= 3'd5; pbx_q <= 1'b0;
     end else if (lu_hold) begin
@@ -672,7 +686,7 @@ module esc_line (
         end
         // ---------------------------------------------------------- RX
         if (rx_wr) begin
-          buf_q <= 32'd0; req <= 1'b0;
+          req <= 1'b0;                                 // (v3: buf_q was cleared at the handover)
           if (fin) begin mode <= IDLE; fin <= 1'b0; end
         end
         if (rx_go) begin
@@ -701,7 +715,7 @@ module esc_line (
           if (s_push && !due && hunt && db && (!cel_rx || pb)) hunt <= 1'b0;
           if (s_dec) pb <= db;
           if (s_store) begin
-            buf_q[count[4:0] ^ {5{~c_lsb}}] <= db;
+            buf_q[bidx] <= db;
             if (!c_hdr || count[13:3] != 11'd0) crc <= crc_nx(crc, db, c_poly);
             count <= cnt1;
             if (cnt1[4:0] == 5'd0) req <= 1'b1;
@@ -715,6 +729,7 @@ module esc_line (
             if (rx_lastw) begin req <= 1'b1; fin <= 1'b1; end
             else mode <= IDLE;
           end
+          if (rx_hand) begin buf_q <= 32'd0; wa_q <= rx_wi9[7:0]; end
         end
       end
     end

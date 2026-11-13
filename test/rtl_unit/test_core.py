@@ -609,15 +609,15 @@ async def test_reserved_bits_decode(dut):
 
 @cocotb.test()
 async def test_reserved_bits_fault(dut):
-    """End to end: every word the ISS calls ILLEGAL because of one reserved bit (879, over
-    the 53 opcodes) and every unknown opcode (203) faults ILLEGAL at its first commit, four
+    """End to end: every word the ISS calls ILLEGAL because of one reserved bit (905, over
+    the 55 opcodes; v3 MON and GETM add 20 and 6) and every unknown opcode (201) faults ILLEGAL at its first commit, four
     contexts at a time. Words that differ only in a reserved bit are otherwise never run:
     the random programs draw raw words uniformly, about one in 256 per opcode."""
     from esciss.decode import ISA
     words = [(op << 24) | (1 << b) for op in sorted(ISA.by_op) for b in range(24)
              if _iss_illegal((op << 24) | (1 << b))]
     words += [op << 24 for op in range(256) if op not in ISA.by_op]
-    assert len(words) == 879 + 203
+    assert len(words) == 905 + 201
     env = await new_env(dut)
     d = env.dut
     # configuration of four contexts at pc 0-3, from the assembler

@@ -5,7 +5,7 @@ PYTHON ?= python3
 # from data, so it is checked by the replay tests instead of by escert.
 FIRMWARE := $(filter-out firmware/replay.asm,$(wildcard firmware/*.asm))
 
-.PHONY: help env sw-test cert proof-table fw-mutants test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test lint formal formal-quick formal-bmc formal-props formal-pdr formal-v2 formal-teeth equiv mutation harden precheck clean
+.PHONY: help env sw-test cert proof-table fw-mutants test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test mon-test lint formal formal-quick formal-bmc formal-props formal-pdr formal-v2 formal-teeth equiv mutation harden precheck clean
 
 help:
 	@echo "sw-test    assembler, ISS, certificate checker and bus-model tests (pytest)"
@@ -82,6 +82,9 @@ unit-test:
 
 line-test:
 	$(PYTHON) test/line/run.py --jobs $(JOBS)
+
+mon-test:
+	cd test/mon && $(MAKE) -B
 
 lint:
 	cd test/rtl_unit && $(MAKE) lint

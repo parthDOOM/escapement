@@ -30,6 +30,7 @@ project:
     - "esc_core.v"
     - "esc_ctx.v"
     - "esc_cap.v"
+    - "esc_mon.v"
     - "esc_greg.v"
     - "esc_line.v"
 

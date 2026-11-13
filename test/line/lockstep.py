@@ -50,6 +50,27 @@ def rand_cfg(rng, force=None):
                               1 | 0b01 << 3 | 0b10 << 11,
                               0x04C1 | rng.choice([6, 6, 0, rng.randint(0, 7)]) << 16 | 1 << 19)
         return w0, w1, w2, w3, w4
+    if prof in ("rxcell", "rxclk"):            # v3 S-D receive (forced only)
+        r, n = rng.sample(range(8), 2)
+        w0 = (r << 6 | n << 3 | (rng.randint(0, 1) if prof == "rxclk" else 0) << 10 | rng.randint(0, 1) << 11
+              | rng.choice([0, 0, 0, 5, 6]) << 12 | rng.randint(0, 1) << 15 | rng.randint(0, 1) << 19
+              | rng.choice([0, 0, rng.randint(0, 255)]) << 24)
+        P = rng.choice([4, 5, 6, 8, 10, 16]) if rng.random() < 0.9 else rng.randint(2, 40)
+        S = max(1, min(P - 1, round(0.75 * P) + rng.choice([0, 0, -1, 1])))
+        if rng.random() < 0.05:
+            S = rng.randint(0, P + 2)          # the mask point anywhere, now and then
+        w1 = P | rng.choice([0, 0, rng.randint(0, 255)]) << 12 | S << 20
+        cells = 1 if prof == "rxcell" else 0   # (W3[2:0] = cells - 1)
+        if rng.random() < 0.05:
+            cells = rng.randint(0, 7)          # a coding the receiver refuses, now and then
+        w3 = cells | 0b01 << 3 | 0b10 << 11 | (rng.getrandbits(10) << 19 if rng.random() < 0.3 else 0)
+        w4 = (rng.choice([0x04C1, 0, rng.getrandbits(16)]) | rng.randint(0, 7) << 16
+              | (1 if prof == "rxcell" else 2) << 21 | rng.randint(0, 1) << 23
+              | rng.randint(0, 1) << 24 | rng.choice([0, 0, 1]) << 25)
+        w2, w3, w4 = rand_ext(rng, rng.choice([0x1DB7, 0x8005, 0, rng.getrandbits(16)])
+                              | rng.randint(0, 3) << 16 | rng.randint(0, 1) << 18
+                              | rng.choice([0, 0, rng.randint(0, 15)]) << 21, w3, w4)
+        return w0, w1, w2, w3, w4
     if prof == "spi":                          # clocked: data on d, the clock pattern on n
         d, n = rng.sample(range(8), 2)
         w0 = (d | n << 3 | 1 << 9 | rng.randint(0, 1) << 11 | rng.randint(0, 1) << 18 | 1 << 20
@@ -167,7 +188,9 @@ class Line:
         jit = rng.choice([0, 0, 1])
         self._emit(rng.randint(1, max(2, cfg.idle_min * cfg.P_int + rng.randint(-3, 20))), self._level(cfg, 1))
         bits = []
-        if cfg.sync_skip:
+        if cfg.sync_skip and cfg.rxs == 1:      # v3: an 802.3-style preamble, then 1 1
+            bits += [1, 0] * rng.randint(0, 9) + [1, 1]
+        elif cfg.sync_skip:
             bits += [0] * rng.randint(0, 9) + [1]
         nb = rng.choice([0, 1, 7, 8, 16, 31, 32, 33, 64, 72, rng.randint(0, 300)])
         data = [rng.getrandbits(1) for _ in range(nb)]
@@ -199,6 +222,26 @@ class Line:
             line += [1] * rng.randint(1, 12)       # CAN-style end by violation
         if rng.random() < 0.03:
             line = line[:rng.randint(0, len(line))]
+        if cfg.rxs in (1, 2):                   # v3: two half-bit cells per bit
+            t = 0.0
+            for b in line:
+                if cfg.rxs == 1:                # Manchester: the level after mid-bit = b ^ rxpol
+                    halves = [(b ^ cfg.rxpol ^ 1, None), (b ^ cfg.rxpol, None)]
+                else:                           # a clock on n, its active edge mid-bit
+                    act = cfg.rxpol ^ 1
+                    halves = [(b, act ^ 1), (b, act)]
+                for lv, ck in halves:
+                    t2 = t + P / 2
+                    n = int(round(t2)) - int(round(t)) + (rng.randint(-jit, jit) if jit else 0)
+                    v = self._level(cfg, lv)
+                    if ck is not None:
+                        v = (v & ~(1 << cfg.n)) | (ck << cfg.n)
+                    self._emit(max(1, n), v)
+                    if rng.random() < 0.004:
+                        self._emit(1, v ^ (1 << cfg.r))
+                    t = t2
+            self._emit(rng.randint(1, max(2, int(3 * P))), self._level(cfg, 1))
+            return
         L = 1
         t = 0.0
         for b in line:
@@ -263,8 +306,8 @@ def main():
     now = 0
     stats = {}
 
-    def st(k):
-        stats[k] = stats.get(k, 0) + 1
+    def st(k, n=1):
+        stats[k] = stats.get(k, 0) + n
 
     # config blocks in the tape: refreshed now and then
     def new_cfg_block():
@@ -289,7 +332,9 @@ def main():
         acc = lu.access_scheduled(tm)
         flt = lu.config_fault(tm, lambda j: (owns >> j) & 1) if lu.owner is not None else None
         paddr, pwe = scheduled_addr(lu, tm) if acc else (0, False)
-        pwdata = lu.buf if (acc and pwe) else 0
+        # v3: a receive write takes the word handed over when it completed
+        wsrc = lu.req.data if (lu.req is not None and lu.req.write) else lu.buf
+        pwdata = wsrc if (acc and pwe) else 0
         exp_state = (int(lu.owner is not None), lu.owner or 0, int(lu.configured), lu.claimed,
                      int(lu.engaged()), int(lu.busy()), lu.status(), lu.e, lu.mode,
                      int(flt == "OWNER"), int(flt == "CONFIG"), int(acc), int(pwe), paddr, pwdata,
@@ -408,6 +453,9 @@ def main():
             st(f"mode{exp_state[8]}")
             if lu.mode == IDLE and exp_state[8] in (TX, RX, CRC, CFG):
                 st(f"end{exp_state[8]}_cause{lu.cause}")
+                if exp_state[8] == RX and lu.cfg.rxs:           # v3: the new strobe sources
+                    st(f"rxs{lu.cfg.rxs}_jobs")
+                    st(f"rxs{lu.cfg.rxs}_bits", lu.count)
         lines.append(" ".join(f"{x:x}" for x in (
             tm & M32, view, owns, start, kill, stop, op, opctx, opv & 0x3FFFFFFF, lret, halt,
             ewe, eaddr, edata) + exp_state + (rel, drv, dval, doe)))
