@@ -49,4 +49,6 @@ cp "$RUN/final/lef/tt_um_escapement.lef" "$WORK/tt_um_escapement.lef"
 cp "$RUN/final/nl/tt_um_escapement.nl.v" "$WORK/tt_um_escapement.v"
 cp info.yaml "$WORK/info.yaml"
 cd tt/precheck
-PATH="$TOOLS:$PATH" "$PVENV/bin/python" precheck.py --gds "$WORK/tt_um_escapement.gds"
+# the venv's bin too: the Verilog syntax check runs yowasp-yosys by name (11-13: with a bare PATH
+# it failed "No such file or directory"; earlier runs passed only from a shell with a venv on PATH)
+PATH="$TOOLS:$PVENV/bin:$PATH" "$PVENV/bin/python" precheck.py --gds "$WORK/tt_um_escapement.gds"
