@@ -144,6 +144,14 @@ module tt_um_escapement (
   // Layout art (macro/escapement_art): no ports, nothing to connect.
   (* keep *) escapement_art u_art ();
 
+  // v3: the 13 protocol pins sampled at the falling edge, half a period before the core's
+  // rising-edge synchroniser samples them; the core re-times this through two more flops
+  // (h2, h3), so the line unit's both-edge decoder sees each pin at two points per tick
+  reg [12:0] pin_h;
+  always @(negedge clk or negedge rst_n)
+    if (!rst_n) pin_h <= 13'd0;
+    else        pin_h <= {ui_in[7:3], uio_in};
+
   // ------------------------------------------------------------------ core
   /* verilator lint_off PINCONNECTEMPTY */
   esc_core #(.TRIPWIRES(TRIPWIRES)) u_core (
@@ -154,7 +162,7 @@ module tt_um_escapement (
       .ctx_page(ctx_page),
       .imem_addr(core_imem_addr), .imem_re(core_imem_re), .imem_free(core_imem_free),
       .imem_rdata(imem_rdata),
-      .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ui_in[7:3]), .ob_out(ob_out),
+      .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ui_in[7:3]), .pin_h(pin_h), .ob_out(ob_out),
       .running(running), .ctx_state(ctx_state),
       .irq_pending(irq_pending), .fault_valid(fault_valid), .irq_clear(irq_clear),
       .mbx_rx_push(mbx_rx_push), .mbx_rx_data(mbx_rx_data), .mbx_rx_full(mbx_rx_full),

@@ -62,6 +62,7 @@ OUTCOME_CODE = {"C": 0, "W": 1, "F": 2}
 
 Board = Callable[[int, int, int], int]
 BoardB = Callable[[int, int], int]
+Half = Callable[[int, int, int], int]    # v3: (t, inputs t-1, inputs t) -> pins at the falling edge
 
 
 # --------------------------------------------------------------------------- notation
@@ -305,12 +306,17 @@ class _Done(Exception):
 
 class Machine:
     def __init__(self, image: Image, board: Optional[Board] = None,
-                 board_b: Optional[BoardB] = None):
+                 board_b: Optional[BoardB] = None, half: Optional[Half] = None):
         if len(image.words) not in (256, 1024):
             raise ValueError("image must have 256 words (one page) or 1024 (four pages)")
         self.image = image
         self.board: Board = board or default_board
         self.board_b: BoardB = board_b or no_board_b
+        # v3: the 13 pins at the falling edge inside cycle t (the both-edge sample),
+        # half(t, before, during) with before/during the inputs of cycles t-1 and t. The
+        # default, `before`, is a pin that changes after the falling edge, as every bench
+        # drives them; then the half-tick view equals the previous full-tick view.
+        self.half: Optional[Half] = half
         # v2 (S-A): a 1,024-word program store of four 256-word pages; context k fetches from
         # page ctx_page[k]. A 256-word image is page 0, with every context on it.
         self.imem = [w & M32 for w in image.words] + [0] * (1024 - len(image.words))
@@ -358,6 +364,9 @@ class Machine:
         self.oe = 0
         self.s1 = 0
         self.s2 = 0
+        self.h2 = 0                                # v3: the falling-edge sample, re-timed;
+        self.h3 = 0                                # h3 is half a tick older than s2
+        self.pin_before = 0                        # the inputs of the previous cycle
         self.ff = FirstFault()
         self.now = 0
         self.cap = Capture()
@@ -379,7 +388,7 @@ class Machine:
         """
         out, oe = self._pin_outputs()
         p_start = self.s2                          # psync during cycle -1 (v3 monitor)
-        self._sync_shift(self._inputs(-1, out, oe, self._ob()))
+        self._sync_shift(self._inputs(-1, out, oe, self._ob()), -1)
         self._apply_start()
         self.mon.start()                           # v3: at E_-1 rules off, counts cleared;
         self.mon.prev = p_start & 0x1FFF           # prev follows the pins at every edge
@@ -574,10 +583,15 @@ class Machine:
         return ((self.board(t, out, oe) & 0xFF)
                 | ((self.board_b(t, ob) & 0x1F) << BANK_B))
 
-    def _sync_shift(self, pins_in: int) -> None:
-        """§5 two flip-flop synchroniser, at every edge."""
+    def _sync_shift(self, pins_in: int, t: int) -> None:
+        """§5 two flip-flop synchroniser, at every edge; v3: the falling-edge sample of
+        cycle t and its two re-timing stages."""
+        h = self.pin_before if self.half is None else self.half(t, self.pin_before, pins_in)
         self.s2 = self.s1
         self.s1 = pins_in
+        self.h3 = self.h2
+        self.h2 = h & 0x1FFF
+        self.pin_before = pins_in
 
     def _phys_owned(self, k: int, p: int) -> bool:
         return self.pin_owned[p] and self.pin_owner[p] == k
@@ -623,12 +637,14 @@ class Machine:
             self._restarted = rs
             commit = self._edge(t, tm, psync, cs, raw_stop, rs)
             self._capture_edge(tm, psync, commit)              # §6.5 (v1.1)
-            self.mon.edge(tm, psync, True,                     # v3 bus timing monitor
-                          commit.mon if (commit is not None and commit.outcome == "C") else None)
+            mon_c = commit.mon if (commit is not None and commit.outcome == "C") else None
+            self.mon.edge(tm, psync, True, mon_c)              # v3 bus timing monitor
+            if mon_c is not None and self.mon.owner is None:
+                self.mon.owner = commit.k                      # v3: the first MON takes it
             self._digest_edge(out, oe, ob, commit)             # §10.1 (v1.1)
         self._apply_mailboxes(commit)                          # §7.5, §10 host ports
         self._apply_irq_clear(commit)                          # §10 irq_clear (v1.0.1)
-        self._sync_shift(pins_in)                              # §5
+        self._sync_shift(pins_in, t)                           # §5
         self.now = t + 1                                       # §2
         return idle
 
@@ -777,8 +793,10 @@ class Machine:
             op = commit.lu_op
             halt_done = commit.halt and commit.k == lu_owner
         lu_sync = views[lu_owner] if lu_owner is not None else 0
+        lu_sync_h = view(self.ctx_bank[lu_owner], self.h3) if lu_owner is not None else 0
         lu_pins, lu_tw, _ = lu.step(t, self.tape, lu_sync, owner_faulted=owner_faulted,
-                                    op=op, line_retired=line_retired, halt_completed=halt_done)
+                                    op=op, line_retired=line_retired, halt_completed=halt_done,
+                                    sync_h=lu_sync_h)
         if lu.owner is not None:
             lb = self.ctx_bank[lu.owner]
             for w in lu_pins:
@@ -1504,11 +1522,22 @@ def _GETC(m, x, k, cm, f, c, sync, q, ca):
 
 
 def _MON(m, x, k, cm, f, c, sync, q, ca):
+    # v3: the monitor belongs to the first context whose MON commits in a run (taken at E_c);
+    # another context's MON faults ADMIT/OWNER, like a LINE
+    if m.mon.owner is not None and m.mon.owner != k:
+        Machine._fail(cm, "ADMIT", "OWNER")
     cm.mon = (cm.r[f["rd"]], cm.r[f["rs"]])            # v3: the rule is written at E_c
 
 
 def _GETM(m, x, k, cm, f, c, sync, q, ca):
-    _write(cm, f["rd"], m.mon.read(f["imm"]))          # v3: monitor state during cycle c
+    # v3: monitor state during cycle c (sel 0..2) and the line unit's whole bit count (3) and
+    # CRC register (4) (the status word holds 9 and 16 bits of them), each for its owner only
+    sel, lu = f["imm"], m.lu
+    if sel in (3, 4):
+        v = (lu.count if sel == 3 else lu.crc) if lu.owner == k else 0
+    else:
+        v = m.mon.read(sel) if m.mon.owner == k else 0
+    _write(cm, f["rd"], v & M32)
 
 
 # ---- §7.5 host mailboxes

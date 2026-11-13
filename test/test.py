@@ -11,7 +11,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, FallingEdge, First, ValueChange
+from cocotb.triggers import ClockCycles, FallingEdge, First, Timer, ValueChange
 from cocotb.utils import get_sim_time
 
 from escasm import assemble, assemble_file
@@ -59,12 +59,20 @@ class UoBit:
         return (int(self.dut.uo_out.value) >> self.bit) & 1
 
 
+# v3: protocol pins change a quarter period after the falling edge, not on it: the top level
+# samples them there too (project.v pin_h, the both-edge sample), and on the edge itself a
+# timing run would race that flop. The models still read the outputs at the falling edge.
+PIN_LAG_NS = CLK_NS / 4
+
+
 async def run_board(dut, board):
     """Drive uio_in from the board model once per cycle (mid-cycle)."""
     t = 0
     while True:
         await FallingEdge(dut.clk)
-        dut.uio_in.value = board(t, int(dut.uio_out.value), int(dut.uio_oe.value))
+        v = board(t, int(dut.uio_out.value), int(dut.uio_oe.value))
+        await Timer(PIN_LAG_NS, unit="ns")
+        dut.uio_in.value = v
         t += 1
 
 
@@ -75,6 +83,7 @@ async def run_board_b(dut, board_b):
     while True:
         await FallingEdge(dut.clk)
         ib = board_b(t, int(dut.uo_out.value[7:3])) & 0x1F   # not the host link, uo_out[2:0]
+        await Timer(PIN_LAG_NS, unit="ns")
         cur = (UiBit.shadow[id(dut)] & 0x07) | (ib << 3)
         UiBit.shadow[id(dut)] = cur
         dut.ui_in.value = cur

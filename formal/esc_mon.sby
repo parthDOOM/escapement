@@ -1,0 +1,28 @@
+# v3 bus timing monitor (src/esc_mon.v, ESC_MON_CHECK): properties M1-M6 for all time, every
+# input free after reset (pins, runs, starts, stops, MON writes, clears).
+#   kind : UNBOUNDED, by k-induction
+#   bmc  : bounded from reset (the check that a weakened copy fails)
+#   cover: a late violation recorded, a saturated count
+# Run: sby -f esc_mon.sby kind | bmc | cover
+[tasks]
+kind
+bmc
+cover
+
+[options]
+kind: mode prove
+kind: depth 6
+bmc: mode bmc
+bmc: depth 24
+cover: mode cover
+cover: depth 40
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL -DESC_MON_CHECK esc_mon.v
+prep -top esc_mon
+
+[files]
+../src/esc_mon.v

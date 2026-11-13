@@ -39,6 +39,9 @@ def rand_cfg(rng, force=None):
     prof = force or rng.choice(["usb", "usb", "can", "can", "rand", "rand", "rand", "bad",
                        "eth", "spi", "pulse", "xrand", "xrand"])
     canmon = prof == "canmon"                # (forced only) can with S = P - 1, F = 0
+    longp = prof in ("rxlongc", "rxlongk")   # (forced only) v3 receive, 1.5 P past el's 4,093
+    if longp:
+        prof = "rxcell" if prof == "rxlongc" else "rxclk"
     if canmon:
         prof = "can"
     if prof == "eth":                          # 10BASE-T: Manchester half-bits, CRC-32, TP_IDL
@@ -56,6 +59,8 @@ def rand_cfg(rng, force=None):
               | rng.choice([0, 0, 0, 5, 6]) << 12 | rng.randint(0, 1) << 15 | rng.randint(0, 1) << 19
               | rng.choice([0, 0, rng.randint(0, 255)]) << 24)
         P = rng.choice([4, 5, 6, 8, 10, 16]) if rng.random() < 0.9 else rng.randint(2, 40)
+        if longp or rng.random() < 0.04:
+            P = rng.randint(2729 if longp else 2700, 4095)   # 1.5 P near or past el's 4,093
         both = int(prof == "rxcell" and rng.random() < 0.4)   # P and S then count half ticks
         S = max(1, min(P - 1, round(0.75 * P) + rng.choice([0, 0, -1, 1])))
         if rng.random() < 0.05:
@@ -319,6 +324,7 @@ def main():
     pval = poe = 0               # the owner's logical pin state, as the unit leaves it
     now = 0
     stats = {}
+    cap_seen = 0                 # LineUnit.cap_ends at the last count
 
     def st(k, n=1):
         stats[k] = stats.get(k, 0) + n
@@ -427,6 +433,7 @@ def main():
         pins = []
         if start:
             lu = LineUnit()
+            cap_seen = 0
             pval = poe = 0
         elif stop:
             lu._abort()
@@ -478,6 +485,9 @@ def main():
                     if lu.cfg.rxs == 1 and lu.cfg.both:
                         st("both_jobs")
                         st("both_bits", lu.count)
+                    if lu.cap_ends != cap_seen:                # ended by silence at el's cap
+                        st("sil_cap")
+                        cap_seen = lu.cap_ends
         lines.append(" ".join(f"{x:x}" for x in (
             tm & M32, view, owns, start, kill, stop, op, opctx, opv & 0x3FFFFFFF, lret, halt,
             ewe, eaddr, edata) + exp_state + (rel, drv, dval, doe, view_h)))

@@ -7,8 +7,9 @@
  * Checks the timing of traffic the chip only watches: RULES interval rules on the
  * synchronised pins, each "after an edge of pin A, the next edge of pin B comes no earlier
  * than MIN and no later than MAX ticks". A rule starts on its from-edge and ends on its
- * to-edge; an interval below MIN, or MAX ticks with no to-edge, is a violation, counted per
- * rule and recorded (the first one since the unit was armed: rule, kind, tick, interval).
+ * to-edge; the interval is the ticks between them (cnt is 1 in the cycle after the
+ * from-edge). An interval below MIN, or MAX ticks with no to-edge, is a violation, counted
+ * per rule and recorded (the first one since the unit was armed: rule, kind, tick, interval).
  * EXPECT checks the answers to our own edges; this unit checks edges between other devices.
  *
  *   pulse width   from = to = pin p, rise -> fall        (MIN and/or MAX)
@@ -23,7 +24,8 @@
  *
  * MON rd, rs (at E_c) writes one rule: R[rd] [31] enable, [30:29] rule, [28:25] from pin,
  * [24:23] from edge, [22:19] to pin, [18:17] to edge, [15:0] MIN (edges: 1 rise, 2 fall,
- * 3 any); R[rs] [31] clear every count and the record, [15:0] MAX. Pins 0..12 are psync;
+ * 3 any), [16] keep (write no rule: with clear, a clear alone); R[rs] [31] clear every
+ * count and the record, [15:0] MAX. Pins 0..12 are psync;
  * 13..15 never change. The unit evaluates at every edge of a run except a stop edge
  * (`run` = run & ~stop); `prev` follows the pins at every edge. Reference model:
  * sw/esciss/monitor.py.
@@ -68,6 +70,11 @@ module esc_mon #(
 
   wire [RULES-1:0] early, late;
   genvar g;
+`ifdef ESC_MON_CHECK
+  reg f_pv = 1'b0;                               // formal/esc_mon.sby (properties M1-M6)
+  always @(posedge clk) f_pv <= 1'b1;
+  always @(*) if (!f_pv) assume (!rst_n);        // from reset; then every input is free
+`endif
   generate for (g = 0; g < RULES; g = g + 1) begin : g_r
     wire f_ev = en[g] & ev(rise, fall, from[g], fedge[g]);
     wire t_ev = en[g] & ev(rise, fall, to[g], tedge[g]);
@@ -85,19 +92,40 @@ module esc_mon #(
         en[g] <= 1'b0; armed[g] <= 1'b0; cnt[g] <= {W{1'b0}}; nv[g] <= 8'd0;
       end else begin
         if (run) begin
-          if (f_ev) begin armed[g] <= 1'b1; cnt[g] <= {W{1'b0}}; end
+          if (f_ev) begin armed[g] <= 1'b1; cnt[g] <= {{(W-1){1'b0}}, 1'b1}; end
           else if (armed[g] & (t_ev | late[g])) armed[g] <= 1'b0;
           else if (armed[g] & (cnt[g] != {W{1'b1}})) cnt[g] <= cnt[g] + 1'b1;
           if ((early[g] | late[g]) && nv[g] != 8'hFF) nv[g] <= nv[g] + 8'd1;
         end
         if (clr) nv[g] <= 8'd0;
-        if (mon_we && w_rule == g) begin
+        if (mon_we && !mon_a[16] && w_rule == g) begin
           en[g] <= mon_a[31]; from[g] <= mon_a[28:25]; fedge[g] <= mon_a[24:23];
           to[g] <= mon_a[22:19]; tedge[g] <= mon_a[18:17]; mn[g] <= mon_a[W-1:0];
           mx[g] <= mon_b[W-1:0]; armed[g] <= 1'b0; cnt[g] <= {W{1'b0}};
         end
       end
     end
+`ifdef ESC_MON_CHECK
+    // M1 an armed rule is enabled and has counted at least the tick after its from-edge
+    always @(*) if (rst_n && armed[g]) assert (en[g] && cnt[g] != {W{1'b0}});
+    always @(posedge clk) if (f_pv && rst_n && $past(rst_n) && !$past(start)) begin
+      // M2 a count never wraps: it moves by at most one, or to 0 at a clear
+      assert (nv[g] == $past(nv[g]) || nv[g] == $past(nv[g]) + 8'd1
+              || ($past(clr) && nv[g] == 8'd0));
+      if ($past(nv[g]) == 8'hFF && !$past(clr)) assert (nv[g] == 8'hFF);
+      // M3 a keep write (R[rd][16]) changes no rule
+      if ($past(mon_we) && $past(mon_a[16]) && !$past(run))
+        assert (en[g] == $past(en[g]) && mn[g] == $past(mn[g]) && mx[g] == $past(mx[g])
+                && from[g] == $past(from[g]) && to[g] == $past(to[g])
+                && armed[g] == $past(armed[g]) && cnt[g] == $past(cnt[g]));
+      // M4 the counter counts: armed through a run edge with no edge of either pin and no
+      // write, it is one more (saturating)
+      if ($past(run) && $past(armed[g]) && !$past(f_ev) && !$past(t_ev)
+          && !$past(late[g]) && !($past(mon_we) && !$past(mon_a[16]) && $past(w_rule) == g))
+        assert (armed[g] && cnt[g] == (($past(cnt[g]) == {W{1'b1}}) ? {W{1'b1}}
+                                                                      : $past(cnt[g]) + 1'b1));
+    end
+`endif
   end endgenerate
 
   // the first violation since start or a clear: the lowest-numbered rule wins a tie
@@ -114,7 +142,7 @@ module esc_mon #(
   reg [1:0]    rec_rule;
   reg [W-1:0]  rec_ivl;
   assign rec = {rec_v, rec_late, 12'd0, rec_rule, rec_ivl};
-  wire _unused = &{1'b0, mon_b[30:W], mon_a[16]};
+  wire _unused = &{1'b0, mon_b[30:W]};
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -129,5 +157,24 @@ module esc_mon #(
       end
     end
   end
+
+`ifdef ESC_MON_CHECK
+  // formal/esc_mon.sby: unbounded, every input free (any pins, runs, starts, MON writes).
+  // M5 a record holds until a start or a clear
+  always @(posedge clk) if (f_pv && rst_n && $past(rst_n) && $past(rec_v)
+                            && !$past(start) && !$past(clr))
+    assert (rec_v && rec_rule == $past(rec_rule) && rec_late == $past(rec_late)
+            && rec_tick == $past(rec_tick) && rec_ivl == $past(rec_ivl));
+  // M6 a violation at an edge with no record and no start or clear is recorded, lowest rule
+  always @(posedge clk) if (f_pv && rst_n && $past(rst_n) && $past(any_v) && !$past(rec_v)
+                            && !$past(start) && !$past(clr))
+    assert (rec_v && rec_tick == $past(now)
+            && (($past(early) | $past(late)) & ((4'd1 << rec_rule) - 4'd1)) == 4'd0);
+  always @(posedge clk) if (f_pv) begin
+    cover (rec_v && rec_late);
+    cover (nv[0] == 8'd2);                       // (a saturated count is beyond any depth)
+    cover ($past(rec_v) && $past(clr) && $past(mon_a[16]) && !rec_v);   // a clear alone
+  end
+`endif
 endmodule
 `default_nettype wire

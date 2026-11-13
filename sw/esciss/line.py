@@ -225,6 +225,7 @@ class PinWrite:
 @dataclass
 class LineUnit:
     owner: Optional[int] = None
+    cap_ends: int = 0            # v3: silence ends at el's cap (coverage only)
     configured: bool = False
     cfg: Cfg = field(default_factory=Cfg)
     claimed: int = 0
@@ -664,7 +665,8 @@ class LineUnit:
         c = self.cfg
         x, se0 = self._line(sync)
         k_need = max(1, c.idle_min * c.P_int)
-        if x == 0 and self.idle_run >= k_need:
+        # v3: an external-clock receive starts at once (no start bit on a clocked bus)
+        if c.rxs == 2 or (x == 0 and self.idle_run >= k_need):
             self._rx_start(t, x, (sync >> c.n) & 1)
             return
         self.idle_run = self.idle_run + 1 if (x == 1 and not se0) else 0
@@ -711,7 +713,8 @@ class LineUnit:
                 strobe = (e1 or e2) and self.rx_el + (1 if (e1 or not both) else 2) >= c.S
             else:                                # an edge of n of the chosen polarity
                 strobe = (self.k_prev, nl) == ((1, 0) if c.rxpol else (0, 1))
-            silent = not strobe and self.decoded and self.rx_el >= c.sil
+            # (or at the counter's saturation: 1.5 P passes it when P > 2,728)
+            silent = not strobe and self.decoded and (self.rx_el >= c.sil or self.rx_el >= 0xFFD)
             if strobe:
                 self.rx_el = 1 if (c.rxs == 1 and e1) else 0
             elif self.rx_el < 0xFFD:             # saturates as the RTL
@@ -721,6 +724,8 @@ class LineUnit:
             if strobe:                           # (may meet a buffer write: it takes the full
                 self._sample(t, lvl, se0)        #  word, then the bit starts the next one)
             elif silent:
+                if self.rx_el < c.sil:
+                    self.cap_ends += 1           # (coverage only: test/line counts these)
                 self._eop_end(t)
             return tw, used
         if x != self.x_prev and (not c.fall or x == 0):          # resync boundary

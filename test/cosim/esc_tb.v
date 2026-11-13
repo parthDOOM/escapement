@@ -49,6 +49,7 @@ module esc_tb (
     output wire [7:0]   uio_out,
     output wire [7:0]   uio_oe,
     input  wire [4:0]   ib_in,
+    input  wire [12:0]  pin_h,         // v3: driven by the bench (the falling-edge sample)
     output wire [4:0]   ob_out,
     // status
     output wire         running,
@@ -128,7 +129,7 @@ module esc_tb (
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
       .ctx_page(ctx_page), .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
-      .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ib_in), .ob_out(ob_out),
+      .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ib_in), .pin_h(pin_h), .ob_out(ob_out),
       .running(running), .ctx_state(ctx_state),
       .irq_pending(irq_pending), .fault_valid(fault_valid), .irq_clear(irq_clear),
       .mbx_rx_push(mbx_rx_push), .mbx_rx_data(mbx_rx_data), .mbx_rx_full(mbx_rx_full),

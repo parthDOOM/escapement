@@ -65,6 +65,7 @@ module esc_core #(
     output wire [7:0]   uio_out,
     output wire [7:0]   uio_oe,
     input  wire [4:0]   ib_in,         // v1.2 bank B inputs (ui_in[7:3])
+    input  wire [12:0]  pin_h,         // v3: {ib_in, uio_in} sampled at the falling edge (project.v)
     output wire [4:0]   ob_out,        // v1.2 bank B outputs (uo_out[7:3])
     // status
     output wire         running,
@@ -118,7 +119,7 @@ module esc_core #(
     // context, and the core's schedule, input synchronisers, pipeline stages and deferred
     // tape load (layout: the concatenation at the end of this file)
     output wire [3463:0] f_ctx_all,
-    output wire [336:0]  f_core,
+    output wire [342:0]  f_core,
     output wire [32:0]   f_lu             // {lu_el, lu_port, lu_rel, lu_drv, lu_mode, lu_bank}
 `endif
 );
@@ -184,6 +185,7 @@ module esc_core #(
 `endif
   reg [12:0] pin_val, pin_oe;          // physical pins (sec. 5)
   reg [12:0] s1, s2;
+  reg [12:0] h2, h3;                   // v3: pin_h re-timed; h3 is half a tick older than s2
   reg        p1v, p2v, p3v;
   reg  [7:0] p1_spc, p2_spc;           // v1.7: the PC each instruction was fetched from
   reg        p3ok;                     // v1.7: ... equal to its context's PC in X
@@ -213,6 +215,11 @@ module esc_core #(
   wire [31:0] cap_head, cap_status, cap_cfg, cap_ovf_tick;
   wire [31:0] mon_counts, mon_rec, mon_tick;                 // v3 bus timing monitor
   wire        mon_irq;
+  // v3: the monitor has an owner like the line unit: the first context whose MON commits in
+  // a run, until the next START (one-hot, so the commit path reads one flop). Another
+  // context's MON faults ADMIT/OWNER and its GETM 0-2 read 0: a program loaded live beside
+  // the owner can neither rewrite its rules nor read what they caught.
+  reg  [3:0]  mon_sel;
 
   // commit-stage write port (broadcast)
   reg         w_rd_we, w_z_we, w_z, w_c_we, w_c, w_sh_we, w_lc_we, w_tmr_we, w_lr_we;
@@ -301,6 +308,8 @@ module esc_core #(
   wire [11:0] lu_el;
 `endif
   wire [31:0] lu_status, lu_e, lu_pwdata;
+  wire [13:0] lu_count;                                       // v3: GETM 3 and 4 (owner)
+  wire [31:0] lu_crc;
   // v2 (timing, 11-12): the unit's one-hot owner register (u_line.sel = owned ? 1 << owner
   // : 0, formal: sel_def), so lu_sel, lu_mine and the owner's line return start at a flop
   wire [3:0]  lu_selq;
@@ -552,14 +561,22 @@ module esc_core #(
         d_op[I_GETC]: begin
           w_rd_we = 1'b1; w_rd_data = cap_status; z_src = 3'd1;
         end
-        // v3: GETM reads the monitor's state during cycle c (sel 0 counts, 1 record, 2 its
-        // tick, else 0); MON writes a rule at E_c (esc_mon)
+        // v3: GETM reads state during cycle c: the monitor's (sel 0 counts, 1 record, 2 its
+        // tick) and, for the line unit's owner only, its whole bit count (3) and CRC
+        // register (4), which the status word cannot hold; else 0. MON writes a rule at E_c
         d_op[I_GETM]: begin
           w_rd_we = 1'b1; z_src = 3'd1;
-          w_rd_data = (f_imm16 == 16'd0) ? mon_counts : (f_imm16 == 16'd1) ? mon_rec
-                    : (f_imm16 == 16'd2) ? mon_tick : 32'd0;
+          w_rd_data = (f_imm16 == 16'd0 && mon_sel[cctx]) ? mon_counts
+                    : (f_imm16 == 16'd1 && mon_sel[cctx]) ? mon_rec
+                    : (f_imm16 == 16'd2 && mon_sel[cctx]) ? mon_tick
+                    : (f_imm16 == 16'd3 && lu_owned && lu_owner == cctx) ? {18'd0, lu_count}
+                    : (f_imm16 == 16'd4 && lu_owned && lu_owner == cctx) ? lu_crc : 32'd0;
         end
-        d_op[I_MON]: ;
+        d_op[I_MON]: begin
+          if ((|mon_sel) && !mon_sel[cctx]) begin
+            outcome = OC_F; f_cause = FC_ADMIT; f_sub = AS_OWNER;
+          end
+        end
         // LDT: the tape reads at this edge; the register is written at the next one
         // (ld_* below). STT: tape_we at this edge. CAPT: esc_cap. v1.4: LDT and STT wait
         // in a cycle the line unit uses the port (always one of its owner's cycles).
@@ -713,6 +730,10 @@ module esc_core #(
       .mon_we(cm_ok & d_op[I_MON]), .mon_a(opa), .mon_b(opb),
       .counts(mon_counts), .rec(mon_rec), .rec_tick(mon_tick), .irq(mon_irq));
   wire _unused_mon = &{1'b0, mon_irq};
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n)                                        mon_sel <= 4'd0;
+    else if (start)                                    mon_sel <= 4'd0;
+    else if (cm_ok && d_op[I_MON] && mon_sel == 4'd0)  mon_sel <= 4'd1 << cctx;
 
   // deferred LDT register write: committed at E_c, written at E_(c+1) (sec. 7.6)
   reg       ld_v;
@@ -805,9 +826,8 @@ module esc_core #(
   esc_line u_line (
       .clk(clk), .rst_n(rst_n), .start(start), .now(now),
       .view(lu_bank ? {3'd0, s2[12:8]} : s2[7:0]), .owns(owned_by[8*lu_owner +: 8]),
-      // v3 S-D prototype: the half-tick-early sample (both-edge sampler) is not built yet;
-      // the same view stands in, and W4's both bit must stay 0 until it is
-      .view_h(lu_bank ? {3'd0, s2[12:8]} : s2[7:0]),
+      // v3: the same pins half a tick earlier (the falling-edge sample), for W4's both bit
+      .view_h(lu_bank ? {3'd0, h3[12:8]} : h3[7:0]),
       .op_send(cm_ok & d_op[I_SEND] & w_push),
       .op_off(lu_cm & (l_op == 4'd0)), .op_recv(lu_cm & (l_op == 4'd1)),
       .op_crc(lu_cm & (l_op == 4'd2)), .op_cfg(lu_cm & (l_op == 4'd3)),
@@ -815,7 +835,7 @@ module esc_core #(
       .line_ret(|(c_lret & lu_selq)), .halt_done(cm_ok & w_halt & lu_mine),
       .kill(stop_q | (|((fault_k | cs_k) & lu_sel))), .rdata(tape_rdata),
       .owned(lu_owned), .owner(lu_owner), .sel(lu_selq), .conf(lu_conf), .claimed(lu_claimed),
-      .engaged(lu_engaged), .busy(lu_busy), .status(lu_status), .e(lu_e), .mode(lu_mode),
+      .engaged(lu_engaged), .busy(lu_busy), .status(lu_status), .count_o(lu_count), .crc_o(lu_crc), .e(lu_e), .mode(lu_mode),
       .flt_owner(lu_flto), .flt_config(lu_fltc), .send_rd(lu_srd),
       .port(lu_port), .port_we(lu_pwe), .port_addr(lu_paddr), .port_wdata(lu_pwdata),
       .rel_m(lu_rel), .drv_m(lu_drv), .drv_val(lu_dval), .drv_oe(lu_doe)
@@ -1052,7 +1072,7 @@ module esc_core #(
       run <= 1'b0; now <= 32'd0; sq <= 2'd1; cq <= 2'd1; nq <= 2'd2; fq <= 2'd0;
       p1_spc <= 8'd0; p2_spc <= 8'd0; p3ok <= 1'b1; lu_bank <= 1'b0;
       pin_val <= 13'd0; pin_oe <= 13'd0;
-      s1 <= 13'd0; s2 <= 13'd0;
+      s1 <= 13'd0; s2 <= 13'd0; h2 <= 13'd0; h3 <= 13'd0;
       p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
       p2_insn <= 32'd0; p3_insn <= 32'd0;
       d_op <= 55'd0; illegal <= 1'b1;          // the decode of 0: no opcode, illegal
@@ -1065,6 +1085,8 @@ module esc_core #(
       // synchronisers run continuously (not cleared by start)
       s1 <= {ib_in, uio_in};
       s2 <= s1;
+      h2 <= pin_h;                    // v3: the falling-edge sample, two more stages: in a
+      h3 <= h2;                       // cycle, h3 is the pins half a period before s2's sample
 
       // instruction pipeline
       p2_insn <= imem_rdata;
@@ -1340,7 +1362,7 @@ module esc_core #(
   endgenerate
   assign f_pins = {pin_oe, pin_val};
   assign f_fq   = fq;
-  assign f_core = {lu_owner, lu_owned, q_ld, rs_pend, q_ldk, ld_rd, ld_ctx, ld_v, lead16,
+  assign f_core = {mon_sel, lu_owner, lu_owned, q_ld, rs_pend, q_ldk, ld_rd, ld_ctx, ld_v, lead16,
                    ahd_lee, ahd_tail, rch_tmr, ahd_now, opb, opa, illegal, d_op, p3ok, p3_insn,
                    p3v, p2_insn, p2_spc, p2v, p1_spc, p1v, s2, s1, fq, nq, cq, sq, now, run};
   assign f_lu   = {lu_el, lu_port, lu_rel, lu_drv, lu_mode, lu_bank};
@@ -1454,6 +1476,10 @@ module esc_core #(
     end
     if (lu_owned && lu_cfgf && !start && !stop) assert ((fault_k & lu_sel) != 4'd0);  // lemma-group: lineio
     if ((fault_k & lu_sel) != 4'd0) assert (run);  // lemma-group: lineio
+    // v3 monitor ownership: at most one owner, and a MON completes only for the owner or
+    // takes an unowned monitor
+    assert ((mon_sel & (mon_sel - 4'd1)) == 4'd0);  // lemma-group: monown
+    if (cm_ok && d_op[I_MON]) assert (mon_sel == 4'd0 || mon_sel[cctx]);  // lemma-group: monown
     if (cm_ok && w_push) begin
       assert (f_ahd_now);
       if (cs_cnta != 3'd0) assert (f_ahd_tail);

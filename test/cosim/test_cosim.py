@@ -41,7 +41,7 @@ async def reset_and_load(dut, image):
     for sig in ("start", "stop", "load_we", "load_space", "load_addr", "load_data", "uio_in",
                 "mbx_rx_push", "mbx_rx_data", "mbx_tx_pop", "dbg_sel_ctx", "dbg_sel", "irq_clear",
                 "ctx_enable", "entry_pcs", "pin_owned", "pin_owner", "pin_od", "ctx_bank", "ctx_pair",
-                "ctx_page", "ib_in", "hrd_req", "hrd_addr", "tape_ack", "tape_ack_v"):
+                "ctx_page", "ib_in", "pin_h", "hrd_req", "hrd_addr", "tape_ack", "tape_ack_v"):
         getattr(dut, sig).value = 0
     for _ in range(4):
         await FallingEdge(dut.clk)
@@ -150,7 +150,7 @@ class TapeHost:
 
 
 async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b, tape_host=None,
-                  reload=None):
+                  reload=None, half=None):
     """Returns (commits, commits<n, pins, final) using the RTL. Cycle numbering per §2.
     `host` (an escmodels.HostScript, never attached to a machine) gives the mailbox
     schedule; pops are recorded into host.received like the ISS run does. `tape_host`
@@ -159,8 +159,12 @@ async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b, ta
     pushes = sorted(host.pushes) if host else []
     # Falling edge of cycle -1: assert start, sampled at E_-1.
     dut.start.value = 1
-    dut.uio_in.value = board(-1, 0, 0)
-    dut.ib_in.value = board_b(-1, 0) & 0x1F
+    # v3: pin_h, the falling-edge sample the top level makes (project.v), as the ISS's
+    # Machine.half gives it; `before` is the inputs of the previous cycle (0 before start)
+    before = (board(-1, 0, 0) & 0xFF) | (board_b(-1, 0) & 0x1F) << 8   # each board once
+    dut.uio_in.value = before & 0xFF
+    dut.ib_in.value = before >> 8
+    dut.pin_h.value = half(-1, 0, before) & 0x1FFF if half else 0
     commits, pins = [], []
     for t in range(n_cycles + 1):
         await FallingEdge(dut.clk)  # mid-cycle t: registered outputs are stable
@@ -200,8 +204,11 @@ async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b, ta
                 "pc": int(dut.dbg_commit_pc.value), "insn": int(dut.dbg_commit_insn.value),
                 "outcome": "CWF?"[int(dut.dbg_commit_outcome.value)], "post": post,
             })
-        dut.uio_in.value = board(t, out, oe)
-        dut.ib_in.value = board_b(t, ob) & 0x1F
+        cur = (board(t, out, oe) & 0xFF) | (board_b(t, ob) & 0x1F) << 8
+        dut.uio_in.value = cur & 0xFF
+        dut.ib_in.value = cur >> 8
+        dut.pin_h.value = half(t, before, cur) & 0x1FFF if half else before
+        before = cur
     # Now in cycle n_cycles: state after E_(n_cycles-1).
     # Selects 0-8 come from the contexts themselves: the debug port shows them as of each
     # context's last commit slot (D-41), which the core unit tests check.
@@ -213,6 +220,12 @@ async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b, ta
                  "o_state", "o_z", "o_c", "o_ish")}
         for sel in range(4):
             final[(ctx, sel)] = regs[f"o_r{sel}"]
+        # An LDT committed in the last slot has its data on tape_rdata now and lands in the
+        # register at the next edge (ld_v; dbg_post forwards it the same way): take it from
+        # there, as the ISS has it. Seen first in v3 (lu seed 25, an LDT at t = n_cycles - 1).
+        u = dut.u_core
+        if int(u.ld_v.value) and int(u.ld_ctx.value) == ctx:
+            final[(ctx, int(u.ld_rd.value))] = int(u.tape_rdata.value)
         final[(ctx, 4)], final[(ctx, 5)], final[(ctx, 6)] = regs["o_sh"], regs["o_lc"], regs["o_tmr"]
         final[(ctx, 7)] = ((regs["o_lr"] << 16) | (regs["o_pc"] << 8) | (regs["o_state"] << 2)
                            | (regs["o_z"] << 1) | regs["o_c"])
@@ -278,7 +291,7 @@ def compare(name, image, m: Machine, rtl_commits, rtl_pins, rtl_final, log):
 
 async def cosim_one(dut, name, image, board, max_ticks=MAX_TICKS, rtl_board=None,
                     iss_host=None, rtl_host=None, stop_when_idle=True, board_b=no_board_b,
-                    rtl_board_b=None, iss_tape=None, rtl_tape=None, rtl_out=None):
+                    rtl_board_b=None, iss_tape=None, rtl_tape=None, rtl_out=None, half=None):
     """Stateless boards may be shared; stateful ones need `rtl_board` (a fresh twin).
     `iss_tape` / `rtl_tape`: twin TapeHost instances (v1.3). `rtl_out` (a dict) receives
     the RTL's final read map, keyed (ctx, sel)."""
@@ -287,13 +300,14 @@ async def cosim_one(dut, name, image, board, max_ticks=MAX_TICKS, rtl_board=None
             iss_tape.iss_cycle(m, t)
         return board(t, o, oe)
 
-    m = Machine(image, board=iss_board if iss_tape else board, board_b=board_b)
+    m = Machine(image, board=iss_board if iss_tape else board, board_b=board_b, half=half)
     if iss_host is not None:
         iss_host.machine = m
     m.run(max_ticks, stop_when_idle=stop_when_idle)
     n_cycles = len(m.pins)
     all_commits, rtl_commits, rtl_pins, rtl_final = await run_rtl(
-        dut, image, rtl_board or board, n_cycles, rtl_host, rtl_board_b or board_b, rtl_tape)
+        dut, image, rtl_board or board, n_cycles, rtl_host, rtl_board_b or board_b, rtl_tape,
+        half=half)
     errs = compare(name, image, m, rtl_commits, rtl_pins, rtl_final, dut._log)
     if not m.commits and not all_commits:
         # two empty runs agree trivially: a case that commits nothing is broken, not passed
@@ -397,7 +411,8 @@ async def test_firmware_with_bus_models(dut):
         errs, m = await cosim_one(dut, name, image, board_i, max_ticks=ticks, rtl_board=board_r,
                                   iss_host=host_i, rtl_host=host_r, stop_when_idle=False,
                                   board_b=bb_i or no_board_b,
-                                  rtl_board_b=bb_r or None, rtl_out=rtl)
+                                  rtl_board_b=bb_r or None, rtl_out=rtl,
+                                  half=getattr(board_i, "half", None))   # v3 (a pure function)
         errs += [f"ISS: {e}" for e in check_i(board_i, host_i)]
         errs += [f"RTL: {e}" for e in check_r(board_r, host_r)]
         if proof_out:

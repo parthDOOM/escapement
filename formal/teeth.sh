@@ -15,6 +15,10 @@
 #   c6-grant     v2 C6: a live write takes the store port at once (G1)       esc_top.sby prove
 #   c6-page      v2 C6: IMEM_PAGE moves the page under a waiting word (P1)   esc_host.sby prove
 #   c6-wait      v2 C6: imem_free only ever in slot 0 (the 4-cycle wait)     split_bmc.py, depth 12
+#   m-keep       v3 M3: MON's keep bit ignored (a clear rewrites a rule)      esc_mon.sby kind
+#   m-count      v3 M1: the interval counter starts at 0 (the off-by-one)    esc_mon.sby kind
+#   m-own-read   v3: GETM 0 reads the monitor's counts for any context        esc_ni_ind.sby kind
+#   m-own-mon    v3: a MON of another context than the monitor's owner completes  split_bmc.py, depth 12
 # Prints one line per tooth; exit status 1 if any tooth did not bite.
 set -u
 cd "$(dirname "$0")/.."
@@ -61,6 +65,9 @@ tooth cfg-early esc_line.v "s/    else if (!lu_hold) {own_bad_q, v_norm_q, v_ext
 tooth ni-stop   esc_core.v 's/& ~ctx_stop\[cctx\];/\& ~(|ctx_stop);/' '& ~(|ctx_stop);' esc_ni_ind.sby base 10800
 tooth c6-grant  project.v 's/assign     imem_wgnt = imem_wpend & (core_imem_free | ~running);/assign     imem_wgnt = imem_wpend;/' 'imem_wgnt = imem_wpend;' esc_top.sby prove 600
 tooth c6-page   escapement_host.v "s/if (wslot) mem_page <= rx_byte\[1:0\]; else host_err <= 1'b1;/mem_page <= rx_byte[1:0];/" '^ *mem_page <= rx_byte\[1:0\];$' esc_host.sby prove 1800
+tooth m-keep    esc_mon.v 's/if (mon_we \&\& !mon_a\[16\] \&\& w_rule == g) begin/if (mon_we \&\& w_rule == g) begin/' 'if (mon_we && w_rule == g) begin' esc_mon.sby kind 600
+tooth m-own-read esc_core.v "s/(f_imm16 == 16'd0 \&\& mon_sel\[cctx\])/(f_imm16 == 16'd0)/" "(f_imm16 == 16'd0) ? mon_counts" esc_ni_ind.sby kind 7200
+tooth m-count   esc_mon.v "s/cnt\[g\] <= {{(W-1){1'b0}}, 1'b1}; end/cnt[g] <= {W{1'b0}}; end/" 'cnt\[g\] <= {W{1.b0}}; end' esc_mon.sby kind 600
 
 # bmc-s3: the bounded check's own tooth (split_bmc.py at depth 8): the two v1.7 S3 bugs of 11-10
 # put back (d_lee loaded with 0 at a restart; CTX_START taken for a disabled or running context)
@@ -105,6 +112,27 @@ if [ -z "$SEL" ] || [[ " $SEL " == *" c6-wait "* ]]; then
         "$(grep -E '^FAIL' "$d/split.log" | sed -E 's/ +/ /g; s/^FAIL [0-9]+ s //' | cut -c1-60)"
     else
       printf "NO-BITE %-10s esc_core.v:%s did not fail\n" c6-wait "$l"; cat "$d/split.log"; fail=1
+    fi
+  fi
+fi
+
+# m-own-mon: monitor ownership (split_bmc.py at depth 12): with the MON owner check gone, a
+# second context's MON completes, and the monown assertion on the MON commit fails.
+if [ -z "$SEL" ] || [[ " $SEL " == *" m-own-mon "* ]]; then
+  d="$W/m-own-mon"; mkdir -p "$d"; cp -r "$REPO/src" "$REPO/formal" "$d/"
+  sed -i "s/if ((|mon_sel) \&\& !mon_sel\[cctx\]) begin/if (1'b0) begin/" "$d/src/esc_core.v"
+  n=$(grep -c "if (1'b0) begin" "$d/src/esc_core.v")
+  l=$(grep -n 'if (cm_ok && d_op\[I_MON\]) assert (mon_sel' "$d/src/esc_core.v" | cut -d: -f1)
+  if [ "$n" != 1 ] || [ -z "$l" ]; then
+    echo "NO-BITE m-own-mon  the edit applied $n times (expected once), assertion line '$l'"; fail=1
+  else
+    s=$(date +%s)
+    (cd "$d/formal" && timeout 3600 python3 split_bmc.py --depth 12 monown) > "$d/split.log" 2>&1
+    if grep -qE "^FAIL .*FAILED esc_core.v:$l\." "$d/split.log"; then
+      printf "BITES   %-10s FAIL in %ss: %s\n" m-own-mon $(( $(date +%s) - s )) \
+        "$(grep -E '^FAIL' "$d/split.log" | sed -E 's/ +/ /g; s/^FAIL [0-9]+ s //' | cut -c1-60)"
+    else
+      printf "NO-BITE %-10s esc_core.v:%s did not fail\n" m-own-mon "$l"; cat "$d/split.log"; fail=1
     fi
   fi
 fi

@@ -1565,3 +1565,53 @@ async def test_tripwires_zero_in_normal_runs(dut):
     dut.stop.value = 0
     await env.run(20)
     assert await env.rd(27) == 0
+
+
+@cocotb.test()
+async def test_monitor_belongs_to_its_first_user(dut):
+    """v3: the bus timing monitor belongs to the first context whose MON commits in a run,
+    until the next START, like the line unit. Context 0 sets a pulse-width rule (MIN 20) and
+    makes a 3-tick pulse on pin 0 (looped back) at tick 40, a violation; its GETM 0 reads the
+    count 1. Context 1's GETM 0 (after tick 100) reads 0 and its MON faults ADMIT/OWNER. After a START the monitor is
+    free again: context 1's MON then completes."""
+    rule = "MOVI r1, 0x0014\n MOVHI r1, 0x8084\n"     # enable, rule 0, pin 0 rise -> pin 0 fall, MIN 20
+    prog = f"""
+    .entry 0, a
+    .entry 1, b
+    .own 0, 0
+    a:  {rule}
+        MON r1, r2
+        ADDT 40
+        EMIT 1, 1, 1
+        ADDT 3
+        EMIT 1, 0, 1
+        ADDT 20
+        WAITT
+        GETM r3, 0
+        HALT
+    b:  {rule}
+        ADDT 100
+        WAITT
+        GETM r3, 0
+        MON r1, r2
+        HALT
+    """
+    env = await new_env(dut)
+    await env.load_and_start(prog, lb=1)          # pins loop back: the monitor sees the pulse
+    await env.run(140)
+    getm = [c for c in env.commits() if c["insn"] >> 24 == 0x3F]
+    mon = [c for c in env.commits() if c["insn"] >> 24 == 0x3E]
+    own = [c for c in getm if c["ctx"] == 0]
+    other = [c for c in getm if c["ctx"] == 1]
+    brief = lambda cs: [(c["c"], c["pc"], c["oc"], c["r3"]) for c in cs]
+    assert own and own[0]["oc"] == C and own[0]["r3"] == 1, brief(own)   # the owner reads its count
+    assert other and other[0]["oc"] == C and other[0]["r3"] == 0, brief(other)
+    m1 = [c for c in mon if c["ctx"] == 1]
+    assert m1 and m1[0]["oc"] == F, m1
+    assert await env.rd(14) == ff_word(ADMIT, OWNER, 1, m1[0]["pc"])
+    assert [c["oc"] for c in mon if c["ctx"] == 0] == [C]
+    # a START frees it: context 1 alone now
+    await env.load_and_start(f".entry 1, b\nb:  {rule}\n MON r1, r2\n HALT\n")
+    await env.run(30)
+    mon = [c for c in env.commits() if c["insn"] >> 24 == 0x3E]
+    assert [(c["ctx"], c["oc"]) for c in mon] == [(1, C)], mon

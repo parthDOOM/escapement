@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sw"))
 from esciss.monitor import Monitor  # noqa: E402
 
 CYCLES = int(os.environ.get("MON_CYCLES", "200000"))
+STORM = min(20000, CYCLES // 2)
 
 
 def rand_rule(rng):
@@ -31,7 +32,7 @@ def rand_rule(rng):
     mn = rng.choice([0, 0, rng.randint(1, 12), rng.randint(1, 60), rng.getrandbits(16)])
     mx = rng.choice([0, rng.randint(1, 12), rng.randint(1, 80), rng.getrandbits(16)])
     a = (rng.choice([1, 1, 1, 0]) << 31 | k << 29 | fp << 25 | fe << 23 | tp << 19 | te << 17
-         | rng.getrandbits(1) << 16 | mn)
+         | int(rng.random() < 0.1) << 16 | mn)          # (v3: [16] keep, a clear alone)
     b = (int(rng.random() < 0.05) << 31 | rng.getrandbits(15) << 16 | mx)
     return a, b
 
@@ -53,19 +54,26 @@ async def test_mon_lockstep(dut):
     for cyc in range(CYCLES):
         await FallingEdge(dut.clk)
         # ---- inputs during this cycle
+        # a directed stretch: one rule that every pulse on pin 0 breaks, with no start, stop
+        # or clear for 4,000 cycles, so its count saturates (random runs rarely get there)
+        storm = STORM <= cyc < STORM + 4000
         if rng.random() < 0.002:
             rate = rng.choice([0.01, 0.05, 0.2, 0.5])
         for p in range(13):
-            if rng.random() < (rate if p < 4 else rate / 8):
+            if rng.random() < (0.5 if storm and p == 0 else rate if p < 4 else rate / 8):
                 pins ^= 1 << p
-        start = int(rng.random() < 0.0005 or cyc == 5)
+        start = int(rng.random() < 0.0005 or cyc in (5, STORM))
+        if storm and cyc != STORM:
+            start = 0
         if start:
             running = True
-        elif running and rng.random() < 0.0003:
+        elif running and not storm and rng.random() < 0.0003:
             running = False                      # this is the stop edge: no evaluation
         stop_edge = not start and not running and dut.run.value == 1
         run = int(running and not start)
         mon = rand_rule(rng) if (run and rng.random() < 0.01) else None
+        if storm:                                # rule 0: pin 0 rise -> fall, MIN 0xFFFF
+            mon = ((1 << 31 | 1 << 23 | 2 << 17 | 0xFFFF, 0) if cyc == STORM + 1 else None)
         dut.psync.value = pins
         dut.now.value = now
         dut.start.value = start

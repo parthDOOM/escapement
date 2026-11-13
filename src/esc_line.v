@@ -68,6 +68,8 @@ module esc_line (
     output wire        engaged,
     output wire        busy,
     output wire [31:0] status,
+    output wire [13:0] count_o,        // v3: the whole bit count and CRC register (GETM 3, 4)
+    output wire [31:0] crc_o,
     output wire [31:0] e,
     output reg  [2:0]  mode,
     output wire        flt_owner,      // a CONFIG completing at this edge faults ADMIT/OWNER
@@ -205,7 +207,11 @@ module esc_line (
   assign engaged = (mode == CFG) | (mode == PEND) | (mode == TX) | (mode == RX)
                  | (mode == CRCM);
   assign busy    = (mode != IDLE);
-  assign status  = {busy, job, cause, count[8:0], crc[31:16]};   // v3: long counts (open)
+  assign status  = {busy, job, cause, count[8:0], crc[31:16]};
+  // v3: a long receive counts to 8,192 bits and CRC-32 needs all 32 bits; the status word
+  // has room for neither, so the owner reads them whole with GETM 3 and 4
+  assign count_o = count;
+  assign crc_o   = crc;
 
   wire own_cyc = owned & (now[1:0] == owner - 2'd1);     // the owner's commit cycles
   wire x   = c_diff ? view[c_d] : view[c_r];             // line level
@@ -340,9 +346,12 @@ module esc_line (
 
   // ------------------------------------------------------------------ receive
   wire        arm_on = (mode == ARM);
+  wire        cel_rx = (c_rxs == 2'd1), clk_rx = (c_rxs == 2'd2);   // v3 receive strobes
   wire        idle_t = x & ~se0;
   wire        idle_ok = (c_imin == 4'd0) ? ((rn != 4'd0) | (el != 12'd1)) : (rn >= c_imin);
-  wire        arm_go = arm_on & ~x & idle_ok;
+  // v3: an external-clock receive starts at once (a clocked bus has no start bit; the
+  // firmware arms at the frame's start, on its select); the others after idle, on x low
+  wire        arm_go = arm_on & (clk_rx | (~x & idle_ok));
   wire        rx_on  = (mode == RX);
   wire        rx_wr  = rx_on & req & own_cyc;
   wire        rx_go  = rx_on & ~fin;
@@ -356,12 +365,13 @@ module esc_line (
   wire        e1     = c_both & (xh != xp);                    // an edge in the first half
   wire        e2     = c_both ? (x != xh) : (x != xp);         // ... in the second, or the only
   wire [11:0] t_edge = el + ((e1 | ~c_both) ? 12'd1 : 12'd2);  // since the last mid-bit edge
-  wire        cel_rx = (c_rxs == 2'd1), clk_rx = (c_rxs == 2'd2);
   wire        c_acc  = cel_rx & (e1 | e2) & (t_edge >= c_S);
   wire        lvl    = e1 ? xh : x;                            // the level after the edge
   wire        k_ev   = clk_rx & (c_rxpol ? (nkp & ~view[c_n]) : (~nkp & view[c_n]));
   wire [12:0] sil    = {1'b0, c_P} + {2'b0, c_P[11:1]};       // 1.5 P, 13 bits (no wrap)
-  wire        e_sil  = rx_go & ~eopw & (cel_rx | clk_rx) & ~(c_acc | k_ev) & dec & ({1'b0, el} >= sil);
+  // (or at el's saturation, 4,093: 1.5 P passes it when P > 2,728)
+  wire        e_sil  = rx_go & ~eopw & (cel_rx | clk_rx) & ~(c_acc | k_ev) & dec
+                     & (({1'b0, el} >= sil) | (el >= 12'hFFD));
   wire        rx_smp = rx_go & ~eopw & (cel_rx ? c_acc : clk_rx ? k_ev
                                         : (~(rs | tb_hit) & (el == c_S)));
   wire        db     = cel_rx ? (lvl ^ c_rxpol) : c_nrzi ? (x == lv) : x;   // decoded bit

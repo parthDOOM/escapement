@@ -24,3 +24,4 @@ from .lin import LinReceiver  # noqa: F401
 from .wiegand import WiegandReceiver  # noqa: F401
 from .modbus import ModbusClient, adu, crc16  # noqa: F401
 from .sbus import SbusSource  # noqa: F401
+from .eth import EthSource, wire_bits  # noqa: F401

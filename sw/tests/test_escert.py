@@ -98,8 +98,21 @@ def test_shipped_firmware_is_certified_and_telemetry_agrees(fw):
 # 40 MHz or 50 MHz (the rating), still assembles and certifies. Four programs are tied to one clock by their protocol
 # (an .assert): 10BASE-T at 40 MHz, USB low speed at 24 MHz, VGA at its pixel clock.
 FIXED_CLOCK = {"eth_tx": 40000, "udp_tx": 40000, "usb_hid": 24000, "vga_pong": 25000}
+# v3: 10BASE-T receive needs whole ticks per 100 ns bit: 40 or 50 MHz, never 33
+TEN_MHZ_STEPS = {"eth_rx": (40000, 50000)}
 CLK_33 = sorted(p.stem for p in FW.glob("*.asm")
-                if ".default CLK_KHZ" in p.read_text() and p.stem not in FIXED_CLOCK)
+                if ".default CLK_KHZ" in p.read_text()
+                and p.stem not in FIXED_CLOCK and p.stem not in TEN_MHZ_STEPS)
+
+
+@pytest.mark.parametrize("fw", sorted(TEN_MHZ_STEPS))
+def test_ten_mhz_step_firmware_certifies_at_40_and_50_and_refuses_33(fw):
+    for khz in TEN_MHZ_STEPS[fw]:
+        image = assemble(f'.equ {fw}.CLK_KHZ, {khz}\n.include "{fw}.asm"\n', base_dir=FW)
+        certs = certify(image)
+        assert certs and all(c.status == "CHECKED" for c in certs), [str(c) for c in certs]
+    with pytest.raises(AsmError, match="assertion failed"):
+        assemble(f'.equ {fw}.CLK_KHZ, 33000\n.include "{fw}.asm"\n', base_dir=FW)
 
 
 @pytest.mark.parametrize("fw", sorted(FIXED_CLOCK))

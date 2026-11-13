@@ -502,6 +502,100 @@ def case_eth_tx():
     return Board(rec, host), host, check
 
 
+def case_eth_rx():
+    """v3: 10BASE-T frames into eth_rx.asm at 50 MHz through the cell decoder and the
+    both-edge pin sampler: a transmitter 100 ppm fast, each edge moved by up to 10 ns, so
+    the falling-edge sample (pin_h) decides where many edges fall. Two good frames and one
+    with a flipped bit; the host gets each byte for byte and the FCS verdicts. The 400-byte
+    frame fails with one sample a tick (the pins at the falling edge taken as at the rising
+    one): sw/tests/test_eth_rx.py checks that this waveform needs pin_h."""
+    import zlib
+    from escmodels import EthSource, wire_bits
+    head = bytes.fromhex("ffffffffffff 020000000001 0800")
+    fa, fb = head + bytes(range(46)), head + bytes((i * 37) & 0xFF for i in range(386))
+    bad = bytearray(fa)
+    bad[30] ^= 0x04
+    plays = [wire_bits(fa), wire_bits(fb),
+             wire_bits(fa)[:64] + wire_bits(bytes(bad), fcs=False)[64:] + wire_bits(fa)[-32:]]
+    sched, t = [], 1500
+    for bits in plays:
+        sched.append((t, bits))
+        t += len(bits) * 5 + 2500
+    src = EthSource(2, sched, 10, ppm=100.0, jitter=1.0, seed=7)
+    host = HostScript([], drain=[0], poll=4)
+
+    def check(board, h):
+        w, got = list(h.received[0]), []
+        while w:
+            hd = w.pop(0)
+            n = ((hd & 0x3FFF) + 31) // 32
+            got.append((hd >> 31, (hd & 0x3FFF) // 8,
+                        b"".join(x.to_bytes(4, "little") for x in w[:n])[:(hd & 0x3FFF) // 8]))
+            del w[:n]
+        want = [(1, 64, fa + zlib.crc32(fa).to_bytes(4, "little")),
+                (1, 404, fb + zlib.crc32(fb).to_bytes(4, "little")),
+                (0, 64, bytes(bad) + zlib.crc32(fa).to_bytes(4, "little"))]
+        return ([] if got == want else [f"eth_rx {[(g, n) for g, n, _ in got]}"]) + board.errors()
+    board = Board(src, host)
+    board.half = src.half              # the pins at the falling edge (Machine.half, pin_h)
+    return board, host, check
+
+
+def case_i2c_timing():
+    """v3: the bus timing monitor through the whole chip. I2C writes between two other
+    devices with planted faults (a short high phase, a short low phase that also makes the
+    period short, a data change 5 ticks before the rise, a clock held low past the stuck
+    limit) and pulses exactly at each limit; every report must be a violation of the
+    waveform's own edges, with its rule, kind, interval and counts, at one latency."""
+    from escmodels.i2c_wave import ANY, FALL, RISE, I2cWave
+    rules = [(0, RISE, 0, FALL, 200, 0), (0, FALL, 0, RISE, 235, 5000),
+             (1, ANY, 0, RISE, 12, 0), (0, RISE, 0, RISE, 500, 0)]
+    plant = {5: {"high": 150}, 6: {"low": 350}, 8: {"high": 200}, 9: {"low": 300},
+             11: {"high": 265}, 12: {"low": 235, "high": 300}, 14: {"low": 200},
+             22: {"hold": 245}, 30: {"low": 6000}, 36: {"low": 5000}}
+    wave = I2cWave(0, 1, 1000, [bytes([0xA0, 0x55, 0x0F]), bytes([0xA1, 0xC3])], plant=plant)
+    host = HostScript([], drain=[0], poll=8)
+
+    def check(board, h):
+        by_tick: dict[int, list] = {}
+        for k, r in enumerate(rules):
+            for kind, t, ivl in wave.violations(*r):
+                by_tick.setdefault(t, []).append((k, kind == "late", ivl))
+        w = h.received[0]
+        reps = [tuple(w[i:i + 3]) for i in range(0, len(w) - 2, 3)]
+        got = [((rec >> 16) & 3, (rec >> 30) & 1 == 1, rec & 0xFFFF, counts)
+               for rec, _, counts in reps]
+        want = [(*min(vs), sum(1 << (8 * k) for k, _, _ in vs)) for _, vs in sorted(by_tick.items())]
+        lat = {tick - t for (_, tick, _), t in zip(reps, sorted(by_tick))}
+        ok = len(want) == 4 and got == want and len(w) == 3 * len(want) and len(lat) == 1
+        return ([] if ok else [f"i2c_timing got {got} want {want} lat {lat}"]) + board.errors()
+    return Board(wave, host), host, check
+
+
+def case_spi_sniff(quiet=2000):
+    """v3: the line unit's external-clock receiver as an SPI sniffer: a controller writes
+    three frames in mode 1 (sampled on falling SCK edges) to a target the chip only listens
+    to, the first opening with a 1 bit (the receive starts at once, no start bit) and one
+    at 2 ticks a bit; the host gets every frame bit for bit. With quiet = 4000 (FW_EQU
+    spi_sniff_long) a frame can only end at the bit timer's saturation: 1.5 x 4000 > 4,093."""
+    from escmodels.spi import SpiController
+    frames = [bytes([0xC5, 0x01, 0xFF, 0x80]), bytes([0x3A]), bytes(range(0x10, 0x20))]
+    ctl = SpiController(0, 1, 2, 3, [(f, None) for f in frames], mode=1, t_high=4, t_low=4,
+                        t_css=24, t_idle=2 * quiet + 2000, start_at=400)
+    host = HostScript([], drain=[0], poll=4)
+
+    def check(board, h):
+        w, got = list(h.received[0]), []
+        while w:
+            n = w.pop(0)
+            k = (n + 31) // 32
+            got.append((n, b"".join(x.to_bytes(4, "big") for x in w[:k])[:n // 8]))
+            del w[:k]
+        ok = got == [(8 * len(f), f) for f in frames]
+        return ([] if ok else [f"spi_sniff {[(n, d.hex()) for n, d in got]}"]) + board.errors()
+    return Board(ctl, host), host, check
+
+
 def case_udp_tx():
     """v1.6: a UDP datagram, headers and IPv4 checksum built on chip, padded to 60 bytes."""
     import struct
@@ -775,6 +869,10 @@ FIRMWARE_CASES = {
     "eth_tx": ("eth_tx.asm", 4500, case_eth_tx),
     "freq_meter": ("freq_meter.asm", 8000, case_freq_meter),
     "udp_tx": ("udp_tx.asm", 4500, case_udp_tx),
+    "eth_rx": ("eth_rx.asm", 34000, case_eth_rx),          # v3: the both-edge receiver
+    "i2c_timing": ("i2c_timing.asm", 30000, case_i2c_timing),   # v3: the timing monitor
+    "spi_sniff": ("spi_sniff.asm", 20000, case_spi_sniff),      # v3: external-clock receive
+    "spi_sniff_long": ("spi_sniff.asm", 32000, lambda: case_spi_sniff(quiet=4000)),  # el's cap
     "quadrature": ("quadrature.asm", 7000, case_quadrature),
     "modbus": ("../test/cosim/modbus_cosim.asm", 150000, case_modbus),
     "sbus": ("../test/cosim/sbus_cosim.asm", 65000, case_sbus),
@@ -796,7 +894,8 @@ TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_t
              "modbus": modbus_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 # parameters a case sets on its firmware's .defaults (a short gate for the meter)
-FW_EQU = {"freq_meter": {"N": 8, "PIN": 3},
+FW_EQU = {"freq_meter": {"N": 8, "PIN": 3}, "i2c_timing": {"TOUT_US": 100},
+          "spi_sniff_long": {"QUIET": 4000},
           "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "jvc_tx": {"CLK_KHZ": 2000},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
           "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000},

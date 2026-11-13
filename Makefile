@@ -114,11 +114,13 @@ formal-bmc:
 # each proof runs (fcache.py runs them all and fails if any fails)
 formal-props:
 	cd formal && $(PYTHON) fcache.py $(SKIP_FLAG) esc_core.sby:cover esc_core.sby:ahead esc_ctx.sby:kind \
-	  esc_greg.sby esc_lreg.sby esc_host.sby esc_top.sby esc_line.sby:kind
+	  esc_greg.sby esc_lreg.sby esc_host.sby esc_top.sby esc_line.sby:kind esc_mon.sby:kind esc_mon.sby:cover
 
 # v2: the tripwire proof, the line unit bounded from reset (depth 40), and non-interference
-# for live reload, by induction (kind) and bounded from reset (base)
+# for live reload, by induction (kind) and bounded from reset (base). export_widths.sh first:
+# the NI environment unpacks the core's formal exports by field width (v3)
 formal-v2:
+	bash formal/export_widths.sh
 	cd formal && $(PYTHON) fcache.py $(SKIP_FLAG) esc_core.sby:tw esc_line.sby:bmc esc_ni_ind.sby:kind esc_ni_ind.sby:base
 
 formal-teeth:

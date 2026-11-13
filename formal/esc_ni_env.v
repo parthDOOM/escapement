@@ -26,6 +26,7 @@ module esc_ni_env (
     input wire         stop,
     input wire [7:0]   uio_in,
     input wire [4:0]   ib_in,
+    input wire [12:0]  pin_h,          // v3: free, the same in both cores (a pin sample)
     input wire [31:0]  tape_rdata,
     input wire         tape_host_we,
     input wire         tape_ack,
@@ -72,7 +73,7 @@ module esc_ni_env (
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs), .pin_owned(pin_owned), .pin_owner(pin_owner), \
       .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair), .ctx_page(ctx_page), \
       .imem_addr(IA), .imem_re(RE), .imem_free(), .imem_rdata(RD), \
-      .uio_in(uio_in), .uio_out(), .uio_oe(), .ib_in(ib_in), .ob_out(), \
+      .uio_in(uio_in), .uio_out(), .uio_oe(), .ib_in(ib_in), .pin_h(pin_h), .ob_out(), \
       .running(), .ctx_state(), .irq_pending(), .fault_valid(), .irq_clear(IRQC), \
       .mbx_rx_push(PUSH), .mbx_rx_data(PDATA), .mbx_rx_full(), .mbx_tx_pop(POP), .mbx_tx_data(), \
       .mbx_tx_empty(), \
@@ -85,7 +86,7 @@ module esc_ni_env (
       .tape_host_we(tape_host_we), .tape_ack(tape_ack), .tape_ack_v(tape_ack_v), \
       .f_ctx_obs(O), .f_pins(P), .f_fq(FQ), .f_ctx_all(CA), .f_core(FC), .f_lu(LU));
   wire [3463:0] caa, cab;
-  wire [336:0]  fca, fcb;
+  wire [342:0]  fca, fcb;
   wire [32:0]   lua, lub;
   `NI_CORE(u_a, rd_a, cstop_a, cstart_a, irqc_a, push_a, pdata_a, pop_a, ia, rea, oa, pa, fqa, cva, cca, cpa, cia, coa, caa, fca, lua)
   `NI_CORE(u_b, rd_b, cstop_bj, cstart_bj, irqc_bj, push_bj, pdata_bj, pop_bj, ib, reb, ob, pb, fqb, cvb, ccb, cpb, cib, cob, cab, fcb, lub)
@@ -99,9 +100,11 @@ module esc_ni_env (
     fj_b <= reb & (fqb == j); fa_b <= ib;
   end
   always @(*) if (fj_a && fj_b && fa_a == fa_b) assume (rd_a == rd_b);
-  // the exclusions: j's own words use neither the capture unit nor the line unit
-  wire [7:0] op = rd_a[31:24];
-  always @(*) if (fj_a) assume (op != 8'h36 && op != 8'h37 && op != 8'h2D && op != 8'h3C && op != 8'h3D);
+  // the exclusions: j's own words use neither the capture unit, nor the line unit, nor (v3)
+  // the bus timing monitor's MON. Both units belong to their first user in a run, a race
+  // the other contexts' timing decides. GETM stays in: j owns neither unit, so every GETM
+  // must read 0 (0-2 the monitor, 3/4 the line unit) whatever the owners do.
+  always @(*) if (fj_a) assume (ni_ok_insn(rd_a));
 
   reg init = 1'b1;
   always @(posedge clk) init <= 1'b0;
@@ -137,6 +140,7 @@ module esc_ni_env (
   // own() maps a slot to its owner under pair mode); every flip-flop of j's context is the
   // same; j's deferred tape load is the same; and j never owns the line unit (its words
   // use none of its instructions). The core fields, as esc_core.v concatenates them:
+  wire [3:0] a_mon_sel;
   wire [1:0] a_lu_owner;
   wire a_lu_owned;
   wire [31:0] a_q_ld;
@@ -153,7 +157,7 @@ module esc_ni_env (
   wire [31:0] a_opb;
   wire [31:0] a_opa;
   wire a_illegal;
-  wire [52:0] a_d_op;
+  wire [54:0] a_d_op;
   wire a_p3ok;
   wire [31:0] a_p3_insn;
   wire a_p3v;
@@ -170,10 +174,11 @@ module esc_ni_env (
   wire [1:0] a_sq;
   wire [31:0] a_now;
   wire a_run;
-  assign {a_lu_owner, a_lu_owned, a_q_ld, a_rs_pend, a_q_ldk, a_ld_rd, a_ld_ctx, a_ld_v,
+  assign {a_mon_sel, a_lu_owner, a_lu_owned, a_q_ld, a_rs_pend, a_q_ldk, a_ld_rd, a_ld_ctx, a_ld_v,
       a_lead16, a_ahd_lee, a_ahd_tail, a_rch_tmr, a_ahd_now, a_opb, a_opa, a_illegal, a_d_op,
       a_p3ok, a_p3_insn, a_p3v, a_p2_insn, a_p2_spc, a_p2v, a_p1_spc, a_p1v, a_s2, a_s1, a_fq,
       a_nq, a_cq, a_sq, a_now, a_run} = fca;
+  wire [3:0] b_mon_sel;
   wire [1:0] b_lu_owner;
   wire b_lu_owned;
   wire [31:0] b_q_ld;
@@ -190,7 +195,7 @@ module esc_ni_env (
   wire [31:0] b_opb;
   wire [31:0] b_opa;
   wire b_illegal;
-  wire [52:0] b_d_op;
+  wire [54:0] b_d_op;
   wire b_p3ok;
   wire [31:0] b_p3_insn;
   wire b_p3v;
@@ -207,7 +212,7 @@ module esc_ni_env (
   wire [1:0] b_sq;
   wire [31:0] b_now;
   wire b_run;
-  assign {b_lu_owner, b_lu_owned, b_q_ld, b_rs_pend, b_q_ldk, b_ld_rd, b_ld_ctx, b_ld_v,
+  assign {b_mon_sel, b_lu_owner, b_lu_owned, b_q_ld, b_rs_pend, b_q_ldk, b_ld_rd, b_ld_ctx, b_ld_v,
       b_lead16, b_ahd_lee, b_ahd_tail, b_rch_tmr, b_ahd_now, b_opb, b_opa, b_illegal, b_d_op,
       b_p3ok, b_p3_insn, b_p3v, b_p2_insn, b_p2_spc, b_p2v, b_p1_spc, b_p1v, b_s2, b_s1, b_fq,
       b_nq, b_cq, b_sq, b_now, b_run} = fcb;
@@ -220,8 +225,9 @@ module esc_ni_env (
   // commits, and is read only when the FIFO holds an entry: compared only then
   wire [865:0] ctx_ja = caa[866*j +: 866], ctx_jb = cab[866*j +: 866];
   wire [865:0] ctx_m  = (ctx_ja[829:827] == 3'd0) ? ~({26{1'b1}} << 702) : {866{1'b1}};
-  function ni_ok_op(input [7:0] o);
-    ni_ok_op = o != 8'h36 && o != 8'h37 && o != 8'h2D && o != 8'h3C && o != 8'h3D;
+  function ni_ok_insn(input [31:0] w);
+    ni_ok_insn = w[31:24] != 8'h36 && w[31:24] != 8'h37 && w[31:24] != 8'h2D
+              && w[31:24] != 8'h3C && w[31:24] != 8'h3D && w[31:24] != 8'h3E;
   endfunction
   wire j_p1 = a_run && own(a_sq + 2'd2, pair_on) == j;
   wire j_p2 = a_run && a_nq == j;
@@ -235,8 +241,8 @@ module esc_ni_env (
     // address) agree with the stage that holds that fetch now
     if (j_p1 && a_p1v) inv_fetch: assert (fj_a && fj_b && fa_a[7:0] == a_p1_spc && fa_b[7:0] == b_p1_spc);
     // the exclusions hold for j's words in flight too (the assumption above applies at fetch)
-    if (j_p2 && a_p2v) inv_op2: assert (ni_ok_op(a_p2_insn[31:24]));
-    if (j_p3 && a_p3v) inv_op3: assert (ni_ok_op(a_p3_insn[31:24]));
+    if (j_p2 && a_p2v) inv_op2: assert (ni_ok_insn(a_p2_insn));
+    if (j_p3 && a_p3v) inv_op3: assert (ni_ok_insn(a_p3_insn));
     if (j_p2) inv_p2: assert (a_p2v == b_p2v && (!a_p2v || {a_p2_spc, a_p2_insn} == {b_p2_spc, b_p2_insn}));
     if (j_p3) inv_p3: assert (a_p3v == b_p3v && (!a_p3v ||
         {a_p3_insn, a_p3ok, a_d_op, a_illegal, a_opa, a_opb, a_ahd_now, a_rch_tmr, a_ahd_tail, a_ahd_lee, a_lead16}
@@ -245,6 +251,7 @@ module esc_ni_env (
     inv_ldk:   assert (a_q_ldk[j] == b_q_ldk[j] && (!a_q_ldk[j] || a_q_ld == b_q_ld));
     inv_rs:    assert (a_rs_pend[j] == b_rs_pend[j]);
     inv_lu:    assert (!(a_lu_owned && a_lu_owner == j) && !(b_lu_owned && b_lu_owner == j));
+    inv_mon:   assert (!a_mon_sel[j] && !b_mon_sel[j]);
     // esc_core's lu_bank lemma without $past (which constrains nothing at an induction's
     // first step): an owned unit in a run either has its owner's bank registered or is
     // loading a CONFIG and drives and releases nothing (lu_mode 1); so its logical pins

@@ -69,7 +69,7 @@ def _tape_op(rng: random.Random, nasty: bool, capt_bank: float = 0.0) -> list[st
 def _mon_op(rng: random.Random, nasty: bool) -> list[str]:
     """v3 bus timing monitor: MON with a rule on pins 0..12 (sometimes 13..15, which never
     change), limits near the intervals random programs make, or garbage; GETM with each
-    selector (and one past them)."""
+    selector (and one past them; 3 and 4 read the line unit for its owner only)."""
     if rng.random() < 0.6:
         ra, rb = rng.sample(["r0", "r1", "r2", "r3"], 2)
         if nasty and rng.random() < 0.2:
@@ -85,7 +85,7 @@ def _mon_op(rng: random.Random, nasty: bool) -> list[str]:
         return [f"    MOVI {ra}, {a & 0xFFFF}", f"    MOVHI {ra}, {a >> 16}",
                 f"    MOVI {rb}, {b & 0xFFFF}", f"    MOVHI {rb}, {b >> 16}",
                 f"    MON {ra}, {rb}"]
-    return [f"    GETM {_reg(rng)}, {rng.choice([0, 1, 2, 0, 1, 3])}"]
+    return [f"    GETM {_reg(rng)}, {rng.choice([0, 1, 2, 0, 1, 3, 4, 3, 4, 5])}"]
 
 
 LU_CFG = 0xF4      # v1.4: line unit configuration blocks at tape words 0xF4..0xFF
@@ -426,6 +426,8 @@ def gen_lu_program(seed: int, bank_b: bool = False) -> str:
             lim = rng.choice([1, 2, 4, 8, 0])
             body += [f"    MOVI r1, {lim << 8 | 0xC0}", "    MOVHI r1, 0x1000", "    LINE r1",
                      f"    ADDT {rng.choice([200, 800, 3000])}", "    GETL r0"]
+            if rng.random() < 0.6:                    # v3: the whole bit count and CRC
+                body += [f"    GETM r2, {rng.choice([3, 4, 3])}"]
         elif r < 0.55:                                # a packet, from the end tick or fresh
             nb = rng.choice([0, 8, 16, 33, 64])
             v = rng.randrange(256) << 16 | rng.randrange(2) << 15 | nb << 8 | 0x80
@@ -439,6 +441,8 @@ def gen_lu_program(seed: int, bank_b: bool = False) -> str:
             nb = rng.choice([5, 16, 33, 64, 255])
             body += [f"    MOVI r1, {nb << 8 | 0x80}", f"    MOVHI r1, {0x2000 | rng.randrange(2)}",
                      "    LINE r1", "    ADDT 400", "    GETL r0"]
+            if rng.random() < 0.6:
+                body += [f"    GETM r2, {rng.choice([4, 3, 4])}"]
         elif r < 0.85:                                # tape traffic against the unit's cycles
             body += [f"    {rng.choice(['LDT', 'STT'])} r{rng.randrange(4)}, r3, {rng.randrange(8)}"
                      for _ in range(rng.randrange(1, 5))]
@@ -459,6 +463,8 @@ def gen_lu_program(seed: int, bank_b: bool = False) -> str:
         body += [f"    ADDT {rng.choice([3, 17, 60])}", f"    EMIT 0x{lm:02x}, 0x{rng.randrange(256) & lm:02x}, 0x{lm:02x}"]
         if rng.random() < 0.4:
             body += [f"    LDT r1, r0, {rng.randrange(0x80, 0x90)}"]
+        if rng.random() < 0.5:                        # v3: not the owner, so GETM 3 / 4 read 0
+            body += [f"    GETM r2, {rng.choice([3, 4])}"]
     body += ["    WAITT", "    JMP oloop"]
     return "\n".join(out + body) + "\n"
 
