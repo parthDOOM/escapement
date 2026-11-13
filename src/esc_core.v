@@ -786,6 +786,9 @@ module esc_core #(
   esc_line u_line (
       .clk(clk), .rst_n(rst_n), .start(start), .now(now),
       .view(lu_bank ? {3'd0, s2[12:8]} : s2[7:0]), .owns(owned_by[8*lu_owner +: 8]),
+      // v3 S-D prototype: the half-tick-early sample (both-edge sampler) is not built yet;
+      // the same view stands in, and W4's both bit must stay 0 until it is
+      .view_h(lu_bank ? {3'd0, s2[12:8]} : s2[7:0]),
       .op_send(cm_ok & d_op[I_SEND] & w_push),
       .op_off(lu_cm & (l_op == 4'd0)), .op_recv(lu_cm & (l_op == 4'd1)),
       .op_crc(lu_cm & (l_op == 4'd2)), .op_cfg(lu_cm & (l_op == 4'd3)),

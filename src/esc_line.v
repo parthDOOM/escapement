@@ -43,6 +43,7 @@ module esc_line (
     input  wire        start,          // start at this edge: reset (section 9)
     input  wire [31:0] now,
     input  wire [7:0]  view,           // the owner's logical inputs (sync) during this cycle
+    input  wire [7:0]  view_h,         // v3 S-D: the same inputs sampled half a tick earlier
     input  wire [7:0]  owns,           // the owner's logical pins (section 5)
     // a COMPLETE commit acting on the unit at this edge; at most one is set
     input  wire        op_send,
@@ -97,7 +98,7 @@ module esc_line (
   wire [31:0] w1;                          //   W1, W2[25:0], and with ext (v1.6) W3[28:0],
   wire [25:0] w2;                          //   W4[20:0] (the bits section 6.6 defines)
   wire [28:0] w3;
-  wire [20:0] w4;
+  wire [25:0] w4;
   wire [29:0] cmd;                         // SEND command, RECV/CRC/CONFIG operand
   reg  [31:0] buf_q;                       // stream word
   reg  [31:0] nxt_q;                       // v1.6 ext transmit: the next stream word
@@ -105,7 +106,7 @@ module esc_line (
   reg         ldn;                         // ... into the next-word buffer
   reg  [31:0] crc;                         // v1.6: 32 bits, the polynomial left-aligned
   reg  [2:0]  job, cause;
-  reg  [8:0]  count;
+  reg  [13:0] count;                       // v3: 14 bits (8,192 = a full long buffer)
   reg  [11:0] el;                          // tick counter (see header)
 `ifdef ESC_NI
   assign f_el = el;
@@ -126,6 +127,7 @@ module esc_line (
   reg         fin;                         // RX: ended; a last word waits for its write
   reg         eopw;                        // RX: waiting for the end of SE0
   reg         hunt, dec, stor;             // RX: in sync hunt; decoded a bit; storing
+  reg         nkp, pb;                     // v3 RX: n in the previous cycle; the last bit
   reg  [1:0]  noted;                       // RX: 0 OK, 1 STUFF, 2 FULL
   reg         mon, abt;                    // TX: monitor armed for this bit; mismatch seen
 
@@ -155,6 +157,13 @@ module esc_line (
   wire [2:0]  c_prep  = c_ext ? w4[18:16] : 3'd0;       // the prefix goes prep + 1 times
   wire        c_eopl  = c_ext & w4[19];                 // EOP symbols are L = 1, no J
   wire        c_ilow  = c_ext & w4[20];                 // the idle state is L = 0
+  // v3 S-D: receive strobe source (0 bit timer, 1 cell decoder, 2 external clock on n),
+  // polarity (cells: bit = level after the mid-bit edge, inverted; clock: falling edge),
+  // both-edge sampling of the receive line, long receive (limit in 32-byte units)
+  wire [1:0]  c_rxs   = c_ext ? w4[22:21] : 2'd0;
+  wire        c_rxpol = c_ext & w4[23];
+  wire        c_both  = c_ext & w4[24];
+  wire        c_long  = c_ext & w4[25];
 
   function [7:0] dec8(input [2:0] i);
     dec8 = 8'd1 << i;
@@ -194,7 +203,7 @@ module esc_line (
   assign engaged = (mode == CFG) | (mode == PEND) | (mode == TX) | (mode == RX)
                  | (mode == CRCM);
   assign busy    = (mode != IDLE);
-  assign status  = {busy, job, cause, count, crc[31:16]};
+  assign status  = {busy, job, cause, count[8:0], crc[31:16]};   // v3: long counts (open)
 
   wire own_cyc = owned & (now[1:0] == owner - 2'd1);     // the owner's commit cycles
   wire x   = c_diff ? view[c_d] : view[c_r];             // line level
@@ -336,25 +345,44 @@ module esc_line (
   wire        rx_wr  = rx_on & req & own_cyc;
   wire        rx_go  = rx_on & ~fin;
   wire        rs     = (x != xp) & (~c_fall | ~x);             // a resync boundary
-  wire        rx_smp = rx_go & ~eopw & ~(rs | tb_hit) & (el == c_S);
-  wire        db     = c_nrzi ? (x == lv) : x;                 // decoded bit
+  // v3 S-D. Cell decoder (rxs 1): el counts from the last accepted mid-bit edge (in half
+  // ticks with both-edge sampling); an edge at or after the mask point S is the next mid-bit
+  // edge and the bit is the level after it; earlier edges are cell boundaries. External
+  // clock (rxs 2): an edge of n of the chosen polarity is the strobe. Both end a packet
+  // after 1.5 bit times (P) with no strobe.
+  wire        xh     = c_diff ? view_h[c_d] : view_h[c_r];     // half a tick earlier
+  wire        e1     = c_both & (xh != xp);                    // an edge in the first half
+  wire        e2     = c_both ? (x != xh) : (x != xp);         // ... in the second, or the only
+  wire [11:0] t_edge = el + ((e1 | ~c_both) ? 12'd1 : 12'd2);  // since the last mid-bit edge
+  wire        cel_rx = (c_rxs == 2'd1), clk_rx = (c_rxs == 2'd2);
+  wire        c_acc  = cel_rx & (e1 | e2) & (t_edge >= c_S);
+  wire        lvl    = e1 ? xh : x;                            // the level after the edge
+  wire        k_ev   = clk_rx & (c_rxpol ? (nkp & ~view[c_n]) : (~nkp & view[c_n]));
+  wire [11:0] sil    = c_P + {1'b0, c_P[11:1]};
+  wire        e_sil  = rx_go & ~eopw & (cel_rx | clk_rx) & ~(c_acc | k_ev) & dec & (el >= sil);
+  wire        rx_smp = rx_go & ~eopw & (cel_rx ? c_acc : clk_rx ? k_ev
+                                        : (~(rs | tb_hit) & (el == c_S)));
+  wire        db     = cel_rx ? (lvl ^ c_rxpol) : c_nrzi ? (x == lv) : x;   // decoded bit
   wire        s_dec  = rx_smp & ~se0 & stor;                   // steps 2.. run
   wire        s_viol = s_dec & due & (db != sb);
   wire        s_push = s_dec & ~s_viol;
   wire        s_store = s_dec & ~due & ~hunt;
-  wire [8:0]  cnt1   = count + 9'd1;
+  wire [13:0] cnt1   = count + 14'd1;
   wire [4:0]  lim    = cmd[12:8];
-  wire        s_full = s_store & (cnt1 == {lim == 5'd0, lim, 3'b000});
-  wire        e_eop  = rx_go & eopw & (~se0 | (el == 12'd255));
+  wire        s_full = s_store & (c_long ? (cnt1 == {lim == 5'd0, lim, 8'd0})
+                                         : (cnt1 == {5'd0, lim == 5'd0, lim, 3'b000}));
+  wire        e_eop  = (rx_go & eopw & (~se0 | (el == 12'd255))) | e_sil;
   wire        f_viol = s_viol & ~c_diff;
   wire        f_full = s_full & ~c_diff;
   wire [2:0]  eop_cause = (hunt & ~dec) ? SE0 : hunt ? NOSYNC
                         : (noted == 2'd1) ? STUFF : (noted == 2'd2) ? FULL : OK;
-  wire [8:0]  eop_count = (hunt & ~dec) ? {1'b0, kc[7:0]} : hunt ? 9'd0 : count;
+  wire [13:0] eop_count = (hunt & ~dec) ? {6'd0, kc[7:0]} : hunt ? 14'd0 : count;
   wire        rx_fin = f_viol | f_full | e_eop;
   wire        rx_lastw = f_full | ((f_viol | (e_eop & ~hunt)) & (count[4:0] != 5'd0));
   // the word of the last stored bit, (count - 1) / 32 (count is 1..256 when it is used)
-  wire [2:0]  rx_wi = count[7:5] - {2'd0, count[4:0] == 5'd0};
+  wire [8:0]  rx_wi9 = count[13:5] - {8'd0, count[4:0] == 5'd0};
+  wire [7:0]  rx_wi = rx_wi9[7:0];
+  wire        _unused_wi = &{1'b0, rx_wi9[8]};      // count <= 8192: the index is <= 255
 
   // ------------------------------------------------------------------ tape port
   assign port       = cfg_rd | crc_rd | tx_rd | rx_wr;
@@ -362,7 +390,7 @@ module esc_line (
   // CONFIG words 1..4 at el = 3, 7, 11, 15; a TX read: the word of pos, or with ext the one
   // after it (requested mid-word, while pos is still in the current word)
   wire [7:0] off    = cfg_on ? {6'd0, el[3:2]} + 8'd1 : crc_on ? {5'd0, el_inc[7:5]}
-                    : (mode == TX) ? (pos[12:5] + {7'd0, c_ext}) : {5'd0, rx_wi};
+                    : (mode == TX) ? (pos[12:5] + {7'd0, c_ext}) : rx_wi;
   assign port_addr  = cmd[7:0] + off;
   assign port_wdata = buf_q;
   wire rd_now = cfg_rd | crc_rd | tx_rd;
@@ -371,7 +399,8 @@ module esc_line (
 
   // ------------------------------------------------------------------ banks
   wire tx_endev = live & tx_bnd & t_end;
-  wire rx_none = op_recv & (c_cells != 3'd0);           // v1.6: no receiver for cells > 1
+  // v1.6: no receiver for cells > 1; v3 S-D: except two-cell codes with the cell decoder
+  wire rx_none = op_recv & (c_cells != 3'd0) & ~(cel_rx & (c_cells == 3'd1));
   wire e_ev = (live & (cfg_done | crc_last | tx_endev | rx_fin))
             | (~start & ~kill & ((op_crc & (op_v[15:8] == 8'd0)) | rx_none));
   esc_greg #(32) g_e (.clk(clk), .rst_n(rst_n), .en(start | e_ev),
@@ -391,7 +420,7 @@ module esc_line (
                        .d(rdata[25:0]), .q(w2));
   esc_greg #(29) g_w3 (.clk(clk), .rst_n(rst_n), .en(cfg_on & ld & (el == 12'd12)),
                        .d(rdata[28:0]), .q(w3));
-  esc_greg #(21) g_w4 (.clk(clk), .rst_n(rst_n), .en(cfg_x), .d(rdata[20:0]), .q(w4));
+  esc_greg #(26) g_w4 (.clk(clk), .rst_n(rst_n), .en(cfg_x), .d(rdata[25:0]), .q(w4));
   esc_greg #(30) g_cmd (.clk(clk), .rst_n(rst_n),
                         .en(op_send | op_recv | op_crc | op_cfg), .d(op_v), .q(cmd));
 
@@ -508,18 +537,19 @@ module esc_line (
     if (!rst_n) begin
       owned <= 1'b0; owner <= 2'd0; sel <= 4'd0; conf <= 1'b0; mode <= IDLE;
       buf_q <= 32'd0; ld <= 1'b0; ldn <= 1'b0; crc <= 32'd0;
-      job <= 3'd0; cause <= 3'd0; count <= 9'd0;
+      job <= 3'd0; cause <= 3'd0; count <= 14'd0;
       el <= 12'd0; acc <= 9'd0; ext <= 1'b0; rn <= 4'd0; rb <= 1'b0; kc <= 9'd0;
       pos <= 13'd0; cel <= 3'd0; sk <= 2'd0; seg <= 3'd0; lv <= 1'b1; xp <= 1'b1;
       req <= 1'b0; reqn <= 1'b0; fin <= 1'b0;
       eopw <= 1'b0; hunt <= 1'b0; dec <= 1'b0; stor <= 1'b0; noted <= 2'd0;
+      nkp <= 1'b0; pb <= 1'b0;
       mon <= 1'b0; abt <= 1'b0; es_q <= 3'd5; pb_q <= 1'b0; sl_q <= 1'b0;
       dq_go <= 1'b0; dq_oe <= 1'b0; dq_val <= 8'd0; es0_q <= 3'd5; pbx_q <= 1'b0;
     end else if (lu_hold) begin
     end else if (start) begin
       owned <= 1'b0; owner <= 2'd0; sel <= 4'd0; conf <= 1'b0; mode <= IDLE; ld <= 1'b0; ldn <= 1'b0;
       req <= 1'b0; reqn <= 1'b0; fin <= 1'b0; crc <= 32'd0; job <= 3'd0; cause <= 3'd0;
-      count <= 9'd0;
+      count <= 14'd0;
     end else if (kill) begin                             // as OFF; fault and stop release pins
       mode <= IDLE; req <= 1'b0; reqn <= 1'b0; fin <= 1'b0; conf <= 1'b0; ld <= 1'b0;
       ldn <= 1'b0;
@@ -542,10 +572,10 @@ module esc_line (
         mode <= ARM; el <= 12'd1; rn <= 4'd0;
       end
       if (rx_none) begin
-        mode <= IDLE; job <= 3'd1; cause <= VIOL; count <= 9'd0;
+        mode <= IDLE; job <= 3'd1; cause <= VIOL; count <= 14'd0;
       end
       if (op_crc) begin
-        job <= 3'd2; cause <= OK; count <= 9'd0; el <= 12'd0;
+        job <= 3'd2; cause <= OK; count <= 14'd0; el <= 12'd0;
         if (op_v[15:8] == 8'd0) begin
           mode <= IDLE; crc <= op_v[16] ? crc_w : crc_start;
         end else begin
@@ -554,7 +584,7 @@ module esc_line (
       end
       if (op_cfg) begin
         if (!owned) begin owned <= 1'b1; owner <= op_ctx; sel <= 4'd1 << op_ctx; end
-        mode <= CFG; job <= 3'd3; cause <= OK; count <= 9'd0; el <= 12'd0;
+        mode <= CFG; job <= 3'd3; cause <= OK; count <= 14'd0; el <= 12'd0;
       end
       if (!anyop) begin
         // ---------------------------------------------------------- CONFIG
@@ -562,7 +592,7 @@ module esc_line (
           el <= el_inc;
           if (ld && el == 12'd0) buf_q <= rdata;         // W0 waits in the buffer
           if (cfg_done) begin
-            conf <= 1'b1; mode <= IDLE; cause <= OK; count <= 9'd0;
+            conf <= 1'b1; mode <= IDLE; cause <= OK; count <= 14'd0;
             crc <= n_init ? n_m : 32'd0;
           end
         end
@@ -572,14 +602,14 @@ module esc_line (
           if (ld) buf_q <= rdata;
           crc <= crc_b;
           if (crc_last) begin
-            mode <= IDLE; count <= {1'b0, nbits};
+            mode <= IDLE; count <= {6'd0, nbits};
             if (cmd[16]) crc <= crc_w;
           end
         end
         // ---------------------------------------------------------- PEND, TX
         if ((mode == PEND || mode == TX) && ld && !ldn) buf_q <= rdata;
         if (tx_start) begin
-          mode <= TX; job <= 3'd4; cause <= OK; count <= 9'd0; crc <= crc_start;
+          mode <= TX; job <= 3'd4; cause <= OK; count <= 14'd0; crc <= crc_start;
         end
         if (tx_cb) begin                                 // v1.6: the next cell
           el <= 12'd1; ext <= 1'b0; acc <= acc_nx;
@@ -591,8 +621,8 @@ module esc_line (
           cel <= 3'd0; sk <= k_s;
           if (t_end) begin
             mode <= IDLE; req <= 1'b0; reqn <= 1'b0; mon <= 1'b0;
-            if (abt) begin cause <= MISMATCH; count <= kc; end
-            else begin cause <= OK; count <= 9'd0; end
+            if (abt) begin cause <= MISMATCH; count <= {5'd0, kc}; end
+            else begin cause <= OK; count <= 14'd0; end
           end else if (t_line) begin
             {rn, rb} <= push(rn, rb, lb, c_any);
             lv <= lv_nx;
@@ -627,8 +657,9 @@ module esc_line (
         // ---------------------------------------------------------- ARM
         if (arm_on && !halt_done) begin
           if (arm_go) begin
-            mode <= RX; job <= 3'd1; cause <= OK; count <= 9'd0; crc <= crc_start;
-            el <= 12'd1; acc <= acc_go; ext <= 1'b0; xp <= x; lv <= 1'b1;
+            mode <= RX; job <= 3'd1; cause <= OK; count <= 14'd0; crc <= crc_start;
+            el <= cel_rx ? c_S : 12'd1; acc <= acc_go; ext <= 1'b0; xp <= x; lv <= 1'b1;
+            nkp <= view[c_n]; pb <= 1'b0;
             rn <= 4'd0; rb <= 1'b0; hunt <= c_skip; dec <= 1'b0; stor <= 1'b1;
             noted <= 2'd0; eopw <= 1'b0; fin <= 1'b0; req <= 1'b0; buf_q <= 32'd0;
             kc <= 9'd1;
@@ -646,9 +677,13 @@ module esc_line (
         end
         if (rx_go) begin
           if (kc[7:0] != 8'hFF) kc <= kc + 9'd1;
-          xp <= x;
+          xp <= x; nkp <= view[c_n];
           if (eopw) begin
             el <= el_inc;
+          end else if (cel_rx | clk_rx) begin
+            if (c_acc) el <= (e1 | ~c_both) ? {11'd0, e1} : 12'd0;
+            else if (k_ev) el <= 12'd0;
+            else if (el < 12'hFFD) el <= el + ((cel_rx & c_both) ? 12'd2 : 12'd1);
           end else if (rs | tb_hit) begin
             el <= 12'd1; ext <= 1'b0;
             acc <= rs ? acc_go : acc_nx;
@@ -663,10 +698,11 @@ module esc_line (
           end
           if (s_viol && c_diff) begin noted <= 2'd1; stor <= 1'b0; end
           if (s_push) {rn, rb} <= push(rn, rb, db, c_any);
-          if (s_push && !due && hunt && db) hunt <= 1'b0;
+          if (s_push && !due && hunt && db && (!cel_rx || pb)) hunt <= 1'b0;
+          if (s_dec) pb <= db;
           if (s_store) begin
             buf_q[count[4:0] ^ {5{~c_lsb}}] <= db;
-            if (!c_hdr || count[8:3] != 6'd0) crc <= crc_nx(crc, db, c_poly);
+            if (!c_hdr || count[13:3] != 11'd0) crc <= crc_nx(crc, db, c_poly);
             count <= cnt1;
             if (cnt1[4:0] == 5'd0) req <= 1'b1;
             if (s_full && c_diff) begin noted <= 2'd2; stor <= 1'b0; end
