@@ -56,6 +56,7 @@ def rand_cfg(rng, force=None):
               | rng.choice([0, 0, 0, 5, 6]) << 12 | rng.randint(0, 1) << 15 | rng.randint(0, 1) << 19
               | rng.choice([0, 0, rng.randint(0, 255)]) << 24)
         P = rng.choice([4, 5, 6, 8, 10, 16]) if rng.random() < 0.9 else rng.randint(2, 40)
+        both = int(prof == "rxcell" and rng.random() < 0.4)   # P and S then count half ticks
         S = max(1, min(P - 1, round(0.75 * P) + rng.choice([0, 0, -1, 1])))
         if rng.random() < 0.05:
             S = rng.randint(0, P + 2)          # the mask point anywhere, now and then
@@ -66,10 +67,10 @@ def rand_cfg(rng, force=None):
         w3 = cells | 0b01 << 3 | 0b10 << 11 | (rng.getrandbits(10) << 19 if rng.random() < 0.3 else 0)
         w4 = (rng.choice([0x04C1, 0, rng.getrandbits(16)]) | rng.randint(0, 7) << 16
               | (1 if prof == "rxcell" else 2) << 21 | rng.randint(0, 1) << 23
-              | rng.randint(0, 1) << 24 | rng.choice([0, 0, 1]) << 25)
+              | (both if prof == "rxcell" else rng.randint(0, 1)) << 24 | rng.choice([0, 0, 1]) << 25)
         w2, w3, w4 = rand_ext(rng, rng.choice([0x1DB7, 0x8005, 0, rng.getrandbits(16)])
                               | rng.randint(0, 3) << 16 | rng.randint(0, 1) << 18
-                              | rng.choice([0, 0, rng.randint(0, 15)]) << 21, w3, w4)
+                              | rng.choice([0, 0, 0, 1, 2]) << 21, w3, w4)   # short idle minimum
         return w0, w1, w2, w3, w4
     if prof == "spi":                          # clocked: data on d, the clock pattern on n
         d, n = rng.sample(range(8), 2)
@@ -146,7 +147,12 @@ class Line:
 
     def _emit(self, ticks, v):
         if ticks > 0:
-            self.segs.append((ticks, v & 0xFF))
+            self.segs.append((2 * ticks, v & 0xFF))     # (segments count half ticks)
+
+    def _emit_h(self, halves, v):
+        """v3: a segment of half ticks (an edge between two clock edges)."""
+        if halves > 0:
+            self.segs.append((halves, v & 0xFF))
 
     def plan(self, cfg: Cfg, configured: bool):
         rng = self.rng
@@ -230,15 +236,17 @@ class Line:
                 else:                           # a clock on n, its active edge mid-bit
                     act = cfg.rxpol ^ 1
                     halves = [(b, act ^ 1), (b, act)]
+                hb = cfg.rxs == 1 and cfg.both   # durations in half ticks
+                emit = self._emit_h if hb else self._emit
                 for lv, ck in halves:
                     t2 = t + P / 2
                     n = int(round(t2)) - int(round(t)) + (rng.randint(-jit, jit) if jit else 0)
                     v = self._level(cfg, lv)
                     if ck is not None:
                         v = (v & ~(1 << cfg.n)) | (ck << cfg.n)
-                    self._emit(max(1, n), v)
+                    emit(max(1, n), v)
                     if rng.random() < 0.004:
-                        self._emit(1, v ^ (1 << cfg.r))
+                        emit(1, v ^ (1 << cfg.r))
                     t = t2
             self._emit(rng.randint(1, max(2, int(3 * P))), self._level(cfg, 1))
             return
@@ -262,16 +270,21 @@ class Line:
         else:
             self._emit(rng.randint(1, 40), self._level(cfg, 1))
 
-    def tick(self, cfg, configured, pins_val, pins_oe, claimed, tx=False):
+    def _half(self, cfg, configured):
         if self.left == 0:
             if not self.segs:
                 self.plan(cfg, configured)
             if self.segs:
                 self.left, self.cur = self.segs.pop(0)
             else:
-                self.left, self.cur = 1, 0xFF
+                self.left, self.cur = 2, 0xFF
         self.left -= 1
-        v = self.cur
+        return self.cur
+
+    def tick(self, cfg, configured, pins_val, pins_oe, claimed, tx=False):
+        """(view half a tick early, view) for one tick."""
+        vh = self._half(cfg, configured)
+        v = self._half(cfg, configured)
         if self.loop or tx:
             lv = (pins_val & pins_oe) | (~pins_oe & 0xFF)
             v = (v & ~claimed) | (lv & claimed)
@@ -281,7 +294,8 @@ class Line:
                 if self.rng.random() < self.flip:
                     src ^= 1
                 v = (v & ~(1 << r)) | (src << r)
-        return v & 0xFF
+            vh = v                              # (the unit's own pins change only at edges)
+        return vh & 0xFF, v & 0xFF
 
 
 def scheduled_addr(lu: LineUnit, t: int):
@@ -401,8 +415,12 @@ def main():
             if start or stop or lu.owner is not None:
                 pending = []
 
-        view = (line.tick(lu.cfg, lu.configured, pval, poe, lu.claimed, lu.mode in (PEND, TX))
-                if lu.owner is not None else rng.getrandbits(8))
+        if lu.owner is not None:
+            view_h, view = line.tick(lu.cfg, lu.configured, pval, poe, lu.claimed,
+                                     lu.mode in (PEND, TX))
+        else:
+            view = rng.getrandbits(8)
+            view_h = view
 
         # ---- step the ISS
         tw = None
@@ -421,7 +439,8 @@ def main():
             elif op:
                 opt = ("LINE", opv, commit_k)
             pins, tw, _ = lu.step(tm, tape, view, owner_faulted=bool(kill), op=opt,
-                                  line_retired=bool(lret), halt_completed=bool(halt))
+                                  line_retired=bool(lret), halt_completed=bool(halt),
+                                  sync_h=view_h)
             if kill:
                 poe = 0
         rel = drv = dval = doe = 0
@@ -456,9 +475,12 @@ def main():
                 if exp_state[8] == RX and lu.cfg.rxs:           # v3: the new strobe sources
                     st(f"rxs{lu.cfg.rxs}_jobs")
                     st(f"rxs{lu.cfg.rxs}_bits", lu.count)
+                    if lu.cfg.rxs == 1 and lu.cfg.both:
+                        st("both_jobs")
+                        st("both_bits", lu.count)
         lines.append(" ".join(f"{x:x}" for x in (
             tm & M32, view, owns, start, kill, stop, op, opctx, opv & 0x3FFFFFFF, lret, halt,
-            ewe, eaddr, edata) + exp_state + (rel, drv, dval, doe)))
+            ewe, eaddr, edata) + exp_state + (rel, drv, dval, doe, view_h)))
         now = 0 if start else now + 1
     (out / "vec.txt").write_text("\n".join(lines) + "\n")
     print(" ".join(f"{k}={v}" for k, v in sorted(stats.items())))

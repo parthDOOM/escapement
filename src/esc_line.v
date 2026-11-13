@@ -164,9 +164,7 @@ module esc_line (
   // both-edge sampling of the receive line, long receive (limit in 32-byte units)
   wire [1:0]  c_rxs   = c_ext ? w4[22:21] : 2'd0;
   wire        c_rxpol = c_ext & w4[23];
-  // both (W4[24]) is stored but has no effect until the half-tick sampler is built
-  wire        c_both  = 1'b0;
-  wire        _unused_both = &{1'b0, w4[24]};
+  wire        c_both  = c_ext & w4[24];   // with the cell decoder: el, P and S in half ticks
   wire        c_long  = c_ext & w4[25];
 
   function [7:0] dec8(input [2:0] i);

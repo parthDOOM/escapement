@@ -32,7 +32,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SRC = HERE.parents[1] / "src"
-PROFILED = [(1001, "eth"), (1002, "spi"), (1003, "canmon"), (1004, "rxcell"), (1005, "rxclk")]   # (seed, profile) runs after the random seeds
+PROFILED = [(1001, "eth"), (1002, "spi"), (1003, "canmon"), (1004, "rxcell"), (1005, "rxclk"),
+            (1006, "rxcell"), (1007, "rxclk")]   # (v3: two seeds each for the new receivers)   # (seed, profile) runs after the random seeds
 
 
 def one(seed: int, edges: int, work: Path, vvp: Path, profile: str = "") -> tuple[int, int, int, dict, str]:
@@ -101,6 +102,7 @@ def main() -> int:
     print("jobs ended: " + ", ".join(ends) + f"; receive buffer writes {cov.get('rx_write', 0)}")
     print("v3 receive: " + ", ".join(f"{n} {cov.get(f'rxs{i}_jobs', 0)} jobs, {cov.get(f'rxs{i}_bits', 0)} bits"
                                     for i, n in ((1, "cell decoder"), (2, "external clock"))))
+    print(f"v3 both-edge: {cov.get('both_jobs', 0)} jobs, {cov.get('both_bits', 0)} bits")
     print(f"{a.seeds} seeds + {len(res) - a.seeds} profiled, {total} edges{' (ESC_NO_CG)' if a.no_cg else ''}: "
           f"{'PASS' if not bad else f'FAIL {bad}'}")
     return 1 if bad else 0

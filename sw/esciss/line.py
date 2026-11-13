@@ -118,8 +118,7 @@ class Cfg:
     @property
     def ilow(self): return (self.w4 >> 20) & 1 if self.ext else 0
 
-    # v3 S-D: the receive strobe source, its polarity and long receive (W4[25:21]). W4[24]
-    # (both-edge sampling) is stored and has no effect until the half-tick sampler exists.
+    # v3 S-D: the receive strobe source, its polarity, both-edge sampling, long receive
     @property
     def rxs(self): return (self.w4 >> 21) & 3 if self.ext else 0
 
@@ -128,6 +127,12 @@ class Cfg:
 
     @property
     def long(self): return (self.w4 >> 25) & 1 if self.ext else 0
+
+    @property
+    def both(self):
+        """v3: both-edge sampling of the receive line for the cell decoder: a second sample
+        half a tick earlier, and the decoder's timer, P and S count half ticks."""
+        return (self.w4 >> 24) & 1 if self.ext else 0
 
     @property
     def sil(self) -> int:
@@ -393,11 +398,12 @@ class LineUnit:
 
     def step(self, t: int, tape: list[int], sync: int, *, owner_faulted: bool = False,
              op: Optional[tuple[str, int, int]] = None, line_retired: bool = False,
-             halt_completed: bool = False
+             halt_completed: bool = False, sync_h: Optional[int] = None
              ) -> tuple[list[PinWrite], Optional[tuple[int, int]], bool]:
         """Everything the LU does at E_t.
 
         sync           the owner's logical input view during cycle t (0 with no owner)
+        sync_h         v3: the same view sampled half a tick earlier (default: sync)
         owner_faulted  the owner faults at E_t (§8)
         op             a COMPLETE commit at E_t acting on the LU: ("LINE", v, k) or
                        ("SEND", v, k), k the committing context
@@ -430,7 +436,7 @@ class LineUnit:
             self._arm_edge(t, sync)
             return pins, None, False
         if self.mode == RX:
-            return (pins,) + self._rx_edge(t, sync)
+            return (pins,) + self._rx_edge(t, sync, sync if sync_h is None else sync_h)
         return pins, None, False
 
     def _op(self, t: int, tape: list[int], op: tuple[str, int, int]):
@@ -677,7 +683,7 @@ class LineUnit:
         self.noted, self.eop_s, self.finishing, self.req = OK, None, False, None
         self.buf = 0
 
-    def _rx_edge(self, t: int, sync: int) -> tuple[Optional[tuple[int, int]], bool]:
+    def _rx_edge(self, t: int, sync: int, sync_h: int) -> tuple[Optional[tuple[int, int]], bool]:
         c = self.cfg
         tw: Optional[tuple[int, int]] = None
         used = False
@@ -697,15 +703,23 @@ class LineUnit:
             self.x_prev, self.k_prev = x, nl
             return tw, used
         if c.rxs in (1, 2):                      # v3 S-D: cell decoder or external clock
-            if c.rxs == 1:                       # an edge S or more ticks after the last
-                strobe = x != self.x_prev and self.rx_el + 1 >= c.S
+            both = c.rxs == 1 and c.both         # (the early sample matters to the decoder)
+            xh = self._line(sync_h)[0] if both else x
+            e1 = both and xh != self.x_prev      # an edge in the first half of the tick
+            e2 = (x != xh) if both else (x != self.x_prev)
+            if c.rxs == 1:                       # an edge S or more (half) ticks after the last
+                strobe = (e1 or e2) and self.rx_el + (1 if (e1 or not both) else 2) >= c.S
             else:                                # an edge of n of the chosen polarity
                 strobe = (self.k_prev, nl) == ((1, 0) if c.rxpol else (0, 1))
             silent = not strobe and self.decoded and self.rx_el >= c.sil
-            self.rx_el = 0 if strobe else min(self.rx_el + 1, 0xFFD)   # saturates as the RTL
+            if strobe:
+                self.rx_el = 1 if (c.rxs == 1 and e1) else 0
+            elif self.rx_el < 0xFFD:             # saturates as the RTL
+                self.rx_el += 2 if both else 1
             self.x_prev, self.k_prev = x, nl
+            lvl = xh if e1 else x                # the level after the accepted edge
             if strobe:                           # (may meet a buffer write: it takes the full
-                self._sample(t, x, se0)          #  word, then the bit starts the next one)
+                self._sample(t, lvl, se0)        #  word, then the bit starts the next one)
             elif silent:
                 self._eop_end(t)
             return tw, used

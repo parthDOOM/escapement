@@ -9,7 +9,7 @@
 `default_nettype none
 module tb_line;
   reg clk = 0, rst_n = 1;
-  reg [31:0] now; reg [7:0] view, owns;
+  reg [31:0] now; reg [7:0] view, view_h, owns;
   reg start, kill, stop;
   reg [2:0] op; reg [1:0] opctx; reg [29:0] opv;
   reg lret, halt, ewe; reg [7:0] eaddr; reg [31:0] edata;
@@ -24,7 +24,7 @@ module tb_line;
   wire [31:0] status, e, port_wdata;
 
   esc_line dut (
-    .clk(clk), .rst_n(rst_n), .start(start), .now(now), .view(view), .view_h(view), .owns(owns),
+    .clk(clk), .rst_n(rst_n), .start(start), .now(now), .view(view), .view_h(view_h), .owns(owns),
     .op_send(op == 3'd1), .op_off(op == 3'd2), .op_recv(op == 3'd3), .op_crc(op == 3'd4),
     .op_cfg(op == 3'd5), .op_ctx(opctx), .op_v(opv), .line_ret(lret), .halt_done(halt),
     .kill(kill), .rdata(rdata),
@@ -58,12 +58,12 @@ module tb_line;
     #1 rst_n = 0;
     #4 rst_n = 1;
     while (!$feof(fd)) begin
-      n = $fscanf(fd, "%h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h\n",
+      n = $fscanf(fd, "%h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h\n",
                   now, view, owns, start, kill, stop, op, opctx, opv, lret, halt, ewe, eaddr,
                   edata, x_owned, x_owner, x_conf, x_claimed, x_engaged, x_busy, x_status,
                   x_e, x_mode, x_flto, x_fltc, x_port, x_pwe, x_paddr, x_pwdata, x_w0, x_w1, x_w2, x_w3, x_w4, x_rel,
-                  x_drv, x_dval, x_doe);
-      if (n == 38) begin
+                  x_drv, x_dval, x_doe, view_h);      // v3: the early view, last
+      if (n == 39) begin
         line_no = line_no + 1;
         #1;
         check(owned, x_owned, "owned");
