@@ -225,6 +225,22 @@ def test_stale_bundles_are_caught(bundles, tmp_path):
     assert "not on the model orbit" in log, log
 
 
+def test_a_run_past_a_parked_wait_is_not_judged(bundles, tmp_path):
+    """qi_rx's steady pattern holds only inside its 40 ms tWake wait, so its prediction
+    carries until; the bench stops well before it and passes. A run that went past until
+    (here: until moved to just after t0) fails, naming it, instead of judging the chip."""
+    b = json.loads((bundles / "qi_rx.json").read_text())["expect"]
+    assert b["kind"] == "steady" and b["until"] - b["t0"] > 900000, b.get("until")
+    ok, results, log = run_on(SimChip(), subset(bundles, tmp_path, ["qi_rx.json"]), stages=(5,))
+    assert ok, log
+
+    def early(b):
+        b["expect"]["until"] = b["expect"]["t0"] + 1
+    ok, results, log = run_on(SimChip(), subset(bundles, tmp_path, ["qi_rx.json"], early), stages=(5,))
+    assert results[-1][:2] == (5, False), log
+    assert "past the prediction's end" in log, log
+
+
 def test_chip_telemetry_is_checked_against_the_certificates(bundles, tmp_path):
     small = subset(bundles, tmp_path, ["uart_tx.json"])
     proof = tmp_path / "proof.json"
