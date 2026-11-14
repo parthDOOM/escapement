@@ -16,6 +16,7 @@ on:
       - 'firmware/**'
       - 'isa/**'
       - 'docs/02-ISA.md'
+      - 'fpga/tangprimer25k/**'
       - '.github/workflows/site.yaml'
   # After each verification workflow, so the results page shows its latest run
   workflow_run:

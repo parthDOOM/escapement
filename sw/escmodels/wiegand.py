@@ -60,3 +60,28 @@ class WiegandReceiver(Device):
             return None
         v = int("".join(map(str, bits)), 2)
         return (v >> 17) & 0xFF, (v >> 1) & 0xFFFF
+
+
+class WiegandSender(Device):
+    """A Wiegand reader's output, for testing a panel: each frame's bits MSB first, a low
+    pulse of `width_us` on DATA0 (0) or DATA1 (1) every `interval_us`, frames `gap_ms`
+    apart (from the last pulse start), from tick `start`. Pulls lines low only."""
+
+    def __init__(self, d0: int, d1: int, tick_ns: float, frames, width_us=50.0, interval_us=1000.0,
+                 gap_ms=25.0, start=1000):
+        us = 1000.0 / tick_ns
+        self.pulses: list[tuple[int, int, int]] = []          # (start, end, pin)
+        t = float(start)
+        for bits in frames:
+            for b in bits:
+                self.pulses.append((round(t), round(t + width_us * us), d1 if b else d0))
+                t += interval_us * us
+            t += gap_ms * 1000 * us - interval_us * us
+        self._i = 0
+
+    def step(self, t, bus):
+        while self._i < len(self.pulses) and self.pulses[self._i][1] <= t:
+            self._i += 1
+        if self._i < len(self.pulses) and self.pulses[self._i][0] <= t:
+            return 1 << self.pulses[self._i][2], 0
+        return 0, 0

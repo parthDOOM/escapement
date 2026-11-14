@@ -330,6 +330,9 @@ EXCLUDED = {
                              "data is taken only after a read of its own (lu_rd_c acts only with lu_cmc)",
     "esc_core_bit_ef1d2c41": "an extra tape read in the commit cycle of a SEND or LINE that reads nothing: read "
                              "data is taken only after a read of its own (lu_rd_c acts only with lu_cmc)",
+    "esc_core_const_cb45980f": "lead16 reloads at every edge, so its reset value lives one cycle; it is read "
+                               "only by a context's commit (min_lead, under cm_ok), which needs a run, clear "
+                               "until a START, which takes a whole SPI frame",
     "esc_core_const_936aafc6": "the decode registers reload at every edge, so their reset values live one cycle; "
                                "they are read only through commit_valid (run, p3v), clear until a START, which "
                                "takes a whole SPI frame",
@@ -489,6 +492,25 @@ CORE_PIPELINE = ["cosim", "unit", "chip", "pins"]
 # not a detection.)
 TIMEOUT_FACTOR = 3
 BASE_SECS: dict[str, float] = {}
+# The bus-model cases of the cosim suite a mutant runs: the 43 of v1.6, with which the
+# campaign killed or proved equivalent every mutant of the RTL (CI run 41994751198). The
+# firmware added since tests firmware against its models; on the RTL it took the suite's
+# CI time from 966 s to 3,055 s, which no nineteen shards fit in the job limit (fw-g4's
+# run 42563846089). Those cases still run on the RTL in the test workflow at every push;
+# here a mutant gets the suite that scored v1.6, so its result and its cost stay v1.6's.
+# v3 adds the four cases of its three receivers (b700f57: eth_rx, i2c_timing, spi_sniff,
+# spi_sniff_long), which drive the both-edge pin sampler and the monitor the v3 RTL added;
+# with them this is every bus-model case the v3 branch has, so a mutant of v3 meets the
+# whole of its cosim suite except fw-g4's firmware-against-model cases.
+# Adding a case here costs every mutant its time.
+MUTATION_COSIM_CASES = (
+    "uart_rx", "i2c_ctrl", "spi_mode3", "ws2812", "onewire", "combo_uart_i2c", "i2c_eeprom",
+    "can_tx", "ps2_device", "jtag_idcode", "swd_idcode", "nec_ir", "spi_target",
+    "spi_target_mode3", "combo_two_banks", "uart_tx_gen", "midi_tx", "ws2812_gen", "gen_slow",
+    "nec_tx_gen", "usb_hid", "can_rx", "dshot", "sent", "cec", "dali", "can_tx_lu", "spi_tx",
+    "eth_tx", "freq_meter", "udp_tx", "quadrature", "modbus", "sbus", "sirc_tx", "rc5_tx",
+    "jvc_tx", "ev1527_tx", "dcc_tx", "wiegand_tx", "lin_tx", "ws2812_lu", "servo",
+    "eth_rx", "i2c_timing", "spi_sniff", "spi_sniff_long")
 
 
 def apply(m: Mutant, src: Path) -> str | None:
@@ -528,6 +550,8 @@ def run_suite(suite: str, src: Path, work: Path, seeds: int, limit: float | None
     env = dict(os.environ, PWD=str(cwd), COCOTB_PLUSARGS="+nodump",
                COCOTB_RESULTS_FILE=str(work / f"results_{suite}.xml"),
                COSIM_SEEDS=str(seeds), COSIM_OUT=str(work / "failures"))
+    if suite == "cosim":
+        env["COSIM_FIRMWARE"] = ",".join(MUTATION_COSIM_CASES)
     cmd = ["make", "-s", "-B", f"SRC_DIR={src}", f"SIM_BUILD={work / ('build_' + suite)}", *extra]
     try:
         r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=limit)
@@ -662,12 +686,17 @@ def reconcile(ids: list[str], rows: list[dict]) -> list[str]:
 # to shards. A mutant no suite kills runs every suite and the proof, ~1.5 h against minutes
 # for most kills, so dealing every N-th mutant left v1.6's sixteen shards 96 to 389 minutes
 # apart (modelled on CI runs 41296786251 and 41825920334), past the job limit at the top.
+# Run 41954839297 (dealt by those times) ran 1.28x their sum, and the mutants they lacked were
+# survivors at ~2 h each, so six shards hit the limit: its 779 measured times replace them,
+# and CI ran nineteen shards. v2 (11-13, run 43387544767): runners up to 2x slower than others
+# ran 8 of sixteen shards past the limit, so CI runs 32, and costs.json holds that run's times.
 COSTS = Path(__file__).with_name("costs.json")
 
 
 def shards(ms: list[Mutant], n: int) -> list[list[Mutant]]:
     """Deal the mutants to n shards, longest first to the least-loaded shard. A mutant with
-    no recorded time counts as the mean of its file's. Deterministic, so every shard deals
+    no recorded time counts as the slowest of its file's (new mutants are often the ones no
+    suite kills, which run every suite and the proof). Deterministic, so every shard deals
     the same way; the summary job checks that each mutant has exactly one result."""
     cost = json.loads(COSTS.read_text()) if COSTS.exists() else {}
     byfile: dict[str, list[int]] = {}
@@ -675,8 +704,8 @@ def shards(ms: list[Mutant], n: int) -> list[list[Mutant]]:
         if m.id in cost:
             byfile.setdefault(m.file, []).append(cost[m.id])
     known = [c for cs in byfile.values() for c in cs]
-    est = {m.id: cost.get(m.id) or (sum(byfile[m.file]) // len(byfile[m.file]) if m.file in byfile
-                                    else (sum(known) // len(known) if known else 1)) for m in ms}
+    est = {m.id: cost.get(m.id) or (max(byfile[m.file]) if m.file in byfile
+                                    else (max(known) if known else 1)) for m in ms}
     out: list[list[Mutant]] = [[] for _ in range(n)]
     load = [0] * n
     for m in sorted(ms, key=lambda m: (-est[m.id], m.id)):

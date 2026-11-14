@@ -484,6 +484,184 @@ def _rated_lin(khz):
     return Board(rx), [(100, 0, 0x2C | 2 << 8), (104, 0, 0x3412), (2 * khz, 0, 0)], check
 
 
+def _rated_lin_resp(khz):
+    """The LIN responder: published ID 0x10 (two bytes) answered, 0x11 left alone."""
+    from escmodels import LinCommander, LinReceiver, lin_pid
+    words = [1 << 30 | 0x10 << 0 | 2 << 8, 2 << 30 | 0 << 8 | 0x12, 2 << 30 | 1 << 8 | 0x34, 3 << 30]
+    pushes = [(200 + k * khz * 5 // 4, 0, w) for k, w in enumerate(words)]
+    start = 200 + 6 * khz * 5 // 4
+    cmd = LinCommander(0, 1e6 / khz, [lin_pid(0x10), lin_pid(0x11)], start=start, slot_bits=90)
+    rx = LinReceiver(0, tick_ns=1e6 / khz)
+
+    def check(board, h):
+        rx.finish()
+        got = [(f["id"], f["data"]) for f in rx.frames]
+        unanswered = [v for v in rx.violations if "frame [85, " not in v]
+        ok = (got == [(0x10, [0x12, 0x34])] and not unanswered and len(rx.violations) == 1
+              and h.received[0] == [lin_pid(0x10) | 0x100, lin_pid(0x11)])
+        return ([] if ok else [f"lin_resp {got} {rx.violations[:2]} {h.received}"])
+    return Board(cmd, rx), pushes, check
+
+
+def _rated_em4100(khz):
+    """The EM4100 tag: one whole 64-bit repetition of ID 0x0123456789, read back."""
+    from escmodels.em4100 import Em4100Reader, words
+    rd = Em4100Reader(0, khz * 64 // 125 / 2)
+    w0, w1 = words(0x0123456789)
+
+    def check(board, h):
+        ids = rd.ids()
+        return [] if ids and set(ids) == {0x0123456789} and not rd.bad_runs else [f"em4100 {ids} {rd.bad_runs[:2]}"]
+    return Board(rd), [(100, 0, w0), (110, 0, w1)], check
+
+
+def _rated_wiegand_rx(khz):
+    """The Wiegand panel receiver: one 26-bit frame at 200 us intervals."""
+    from escmodels import WiegandSender
+    bits = [0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1]
+    want = [26, 0, int("".join(map(str, bits)), 2)]
+    snd = WiegandSender(0, 1, 1e6 / khz, [bits], interval_us=200, start=200)
+
+    def check(board, h):
+        return [] if h.received[0] == want else [f"wiegand_rx {h.received[0]}"]
+    return Board(snd), [], check
+
+
+def _rated_usbpd(khz):
+    """USB PD: a Source_Capabilities message (5 V 3 A), header, PDO and CRC read back."""
+    from escmodels.usbpd import UsbPdSink
+    sink = UsbPdSink(0, 1e6 / khz)
+    hdr, pdo = 0x11A1, 100 << 10 | 300
+
+    def check(board, h):
+        sink.finish()
+        got = [(x["header"], x["data"], x["crc_ok"], x["eop"]) for x in sink.messages]
+        ok = got == [(hdr, [pdo], True, True)] and not sink.violations and h.received[0] == [1]
+        return [] if ok else [f"usbpd {got} {sink.violations[:2]} {h.received}"]
+    return Board(sink, pullups=0), [(100, 0, hdr), (150, 0, pdo)], check
+
+
+def _rated_sd_spi(khz):
+    """The SD host at 400 kHz SCK: start-up, the OCR, one block with its CRC-16 good."""
+    from escmodels.sdcard import OCR_READY, SdCardSpi
+    sd = SdCardSpi(4, 5, 6, 7)
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r[:3] == [4 << 16, OCR_READY, 0] and not sd.violations
+        return [] if ok else [f"sd_spi {[hex(x) for x in r]} {sd.violations[:2]}"]
+    return Board(sd), [(khz * 40, 0, 0x1234)], check
+
+
+def _rated_onewire_dev(khz):
+    """The 1-Wire device: Read ROM, then Search ROM finds it."""
+    from escmodels import OneWireMaster, crc8_maxim
+    rom = bytes([0x28, 1, 2, 3, 4, 5, 6])
+    rom += bytes([crc8_maxim(rom)])
+
+    def prog(mm):
+        yield from mm.reset()
+        yield from mm.write(0x33)
+        mm.results.append((yield from mm.read_n(8)))
+        mm.results.append((yield from mm.search()))
+    mst = OneWireMaster(0, 1e6 / khz, prog)
+
+    def check(board, h):
+        ok = mst.done and mst.results == [rom, [int.from_bytes(rom, "little")]]
+        return [] if ok else [f"onewire_dev {mst.done} {mst.results}"]
+    return Board(mst), [], check
+
+
+def _rated_avr_isp(khz):
+    """The AVR programmer: programming enable 20 ms after RESET, the signature, a fuse read."""
+    from escmodels.avr import AvrIspTarget
+    avr = AvrIspTarget(4, 5, 6, 7, 1e6 / khz)
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r[:2] == [0, 0x1E950F] and len(r) == 3 and r[2] & 0xFF == 0x62
+        ok = ok and avr.enables == 1 and not avr.violations
+        return [] if ok else [f"avr_isp {[hex(x) for x in r]} {avr.violations[:2]}"]
+    return Board(avr), [(100, 0, 1 << 28), (khz * 23, 0, 2 << 28), (khz * 23 + 10, 0, 0x50000000)], check
+
+
+def _rated_qi_rx(khz):
+    """The Qi receiver: SIG 40 ms after the Power Signal, bits at 2 kHz in real time."""
+    from escmodels.qi import QiTransmitter
+    qtx = QiTransmitter(0, 1, 1e6 / khz, power=((100, None),))
+
+    def check(board, h):
+        qtx.finish()
+        got = [(p["name"], p["message"]) for p in qtx.packets]
+        ok = got == [("SIG", [0x80])] and not qtx.violations
+        return [] if ok else [f"qi_rx {got} {qtx.violations[:2]}"]
+    return Board(qtx, pullups=0), [], check
+
+
+def _rated_spi_flash(khz):
+    """The flash programmer: the JEDEC ID, a one-word Page Program (BUSY polled), Read Data."""
+    from escmodels.spiflash import SpiFlashW25
+    fl = SpiFlashW25(4, 5, 6, 7, 1e6 / khz, t_pp_ms=0.3)
+
+    def check(board, h):
+        r = h.received[0]
+        ok = r == [0xEF4014, 0, 0xA5C3965A] and not fl.violations
+        return [] if ok else [f"spi_flash {[hex(x) for x in r]} {fl.violations[:2]}"]
+    pushes = [(100, 0, 1 << 28), (khz // 2, 0, 3 << 28 | 0x000300), (khz // 2 + 10, 0, 1),
+              (khz // 2 + 2000, 0, 0xA5C3965A), (khz * 2, 0, 2 << 28 | 0x000300), (khz * 2 + 10, 0, 1)]
+    return Board(fl), pushes, check
+
+
+def _rated_max7219(khz):
+    """The MAX7219 driver: set up (code B, 8 digits), then 1234567 in decimal."""
+    from escmodels.max7219 import Max7219Chain
+    ch = Max7219Chain(4, 5, 7, 1e6 / khz)
+
+    def check(board, h):
+        ok = ch.text() == " 1234567" and not ch.violations
+        return [] if ok else [f"max7219 {ch.text()!r} {ch.violations[:2]}"]
+    return Board(ch), [(100, 0, 1 << 28 | 1 << 11 | 7 << 8 | 8), (khz, 0, 3 << 28 | 1234567)], check
+
+
+def _rated_stepper(khz):
+    """Stepper motion: 20 steps at 500,000 steps/s^2, up and down mirrored, A4988 timing."""
+    from escmodels.stepper import StepDirDriver
+    drv = StepDirDriver(0, 1, 1e6 / khz)
+
+    def check(board, h):
+        t = [s[0] for s in drv.steps]
+        iv = [b - a for a, b in zip(t, t[1:])]
+        ok = (drv.position == 20 and not drv.violations and h.received[0] == [20]
+              and all(abs(iv[i] - iv[-1 - i]) < 0.01 for i in range(9)))
+        return [] if ok else [f"stepper {drv.position} {drv.violations[:2]} {h.received}"]
+    return Board(drv, pullups=0), [(100, 0, 1 << 28 | 1352), (200, 0, 2 << 28 | 100),
+                                   (300, 0, 3 << 28 | 1 << 24 | 20)], check
+
+
+def _rated_nrf24_tx(khz):
+    """The nRF24L01+ driver: set up, then a packet sent and acknowledged."""
+    from escmodels.nrf24 import Nrf24Ptx
+    radio = Nrf24Ptx(4, 5, 6, 7, 3, 2, 1e6 / khz)
+
+    def check(board, h):
+        ok = (h.received[0] == [0x0E, 0x20] and [s["payload"] for s in radio.sent] == [b"rate"]
+              and not radio.violations)
+        return [] if ok else [f"nrf24_tx {h.received} {radio.violations[:2]}"]
+    return Board(radio), [(100, 0, 1 << 28 | 0x06 << 16 | 0x13 << 8 | 2), (110, 0, 3 << 28 | 4),
+                          (2000, 0, int.from_bytes(b"rate", "big"))], check
+
+
+def _rated_morse(khz):
+    """The Morse keyer: "ET" with 1 ms dots, every signal and gap to 1% of its ITU length."""
+    from escmodels.morse import MorseListener
+    ear = MorseListener(0, 1e6 / khz, 1)
+
+    def check(board, h):
+        ok = ear.text() == "ET" and not ear.violations
+        return [] if ok else [f"morse {ear.text()!r} {ear.violations[:2]}"]
+    return Board(ear, pullups=0), [(100, 0, 1 << 28 | 1), (110, 0, 2 << 28 | ord("E") << 16 | ord("T") << 8)], check
+
+
 def _rated_ws2812_lu(khz):
     dec = Ws2812Decoder(0, tick_ns=1e6 / khz, reset_us=280)
     grb = [0x00FF00, 0x123456, 0xABCDEF]
@@ -578,12 +756,28 @@ RATED_CASES = {
     "rc5_tx": (_rated_ir("Rc5Receiver", 0b11 << 12 | 0x05 << 6 | 0x0C,
                          lambda f: f["start"] << 12 | f["toggle"] << 11 | f["address"] << 6 | f["command"]),
                30_000, None),
+    "rc6_tx": (_rated_ir("Rc6Receiver", 0b1000 | 1 << 4 | 0xA5 << 13 | 0x0C << 5,
+                         lambda f: 0b1000 | f["mode"] | f["toggle"] << 4 | f["address"] << 13 | f["command"] << 5),
+               27_000, None),
     "jvc_tx": (_rated_ir("JvcReceiver", 0x59 | 0x35 << 8, lambda f: f["address"] | f["command"] << 8),
                42_500, None),
     "ev1527_tx": (_rated_ev1527, 45_000, None),
     "dcc_tx": (_rated_dcc, 10_000, None),
     "wiegand_tx": (_rated_wiegand, 60_000, None),
     "lin_tx": (_rated_lin, 8_000, None),
+    "lin_resp": (_rated_lin_resp, 18_000, None),
+    "em4100_tag": (_rated_em4100, 40_000, None),
+    "wiegand_rx": (_rated_wiegand_rx, 30_000, None),
+    "usbpd_tx": (_rated_usbpd, 1_500, None),
+    "sd_spi": (_rated_sd_spi, 68_000, None),
+    "onewire_dev": (_rated_onewire_dev, 26_000, None),
+    "avr_isp": (_rated_avr_isp, 24_500, None),
+    "qi_rx": (_rated_qi_rx, 64_000, None),
+    "spi_flash": (_rated_spi_flash, 3_000, None),
+    "max7219": (_rated_max7219, 2_000, None),
+    "stepper": (_rated_stepper, 15_000, None),
+    "nrf24_tx": (_rated_nrf24_tx, 3_500, None),
+    "morse": (_rated_morse, 12_000, None),
     "ws2812_lu": (_rated_ws2812_lu, 700, None),
     "can_tx_lu": (_rated_can_tx_lu, 320, None),
     "modbus_rtu": (_rated_modbus, 50_000, _modbus_tape),

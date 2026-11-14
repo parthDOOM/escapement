@@ -71,3 +71,10 @@ CS_n, SCK and MOSI and reads MISO, IRQ and RUN. Connect the grounds; every pin i
 Pin numbers are the ones printed on the boards. `tangnano20k.cst` keeps off the audio
 amplifier, WS2812 and HDMI pins; pin 85 is also on the TF slot, so leave it empty.
 `ulx3s.lpf` keeps off the ESP32 and ADC pins.
+
+## On hardware
+
+`tangprimer25k/` is a working bench: a Raspberry Pi Pico W runs the repository's bring-up
+script against the chip on a Sipeed Tang Primer 25K Dock (GW5A-25). On 2026-11-08 the v1.6 RTL
+(commit d3b5dbc) passed the wiring check, all six bring-up stages and 48 of 48 firmware against the
+model. The scripts, the wiring and the results are in `tangprimer25k/README.md`.

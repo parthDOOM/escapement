@@ -1,4 +1,4 @@
-"""Remote-control and pulse-coded receivers: Sony SIRC, Philips RC5 and JVC from the
+"""Remote-control and pulse-coded receivers: Sony SIRC, Philips RC5, RC-6 and JVC from the
 carrier on a pin, EV1527 433 MHz codes from an OOK data pin, NMRA DCC packets from a track signal.
 
 SIRC and RC5:
@@ -128,6 +128,72 @@ class Rc5Receiver(_Bursts):
                 v = int("".join(map(str, bits[:14])), 2)
                 out.append({"start": v >> 12, "toggle": (v >> 11) & 1,
                             "address": (v >> 6) & 0x1F, "command": v & 0x3F})
+        return out
+
+
+class Rc6Receiver(_Bursts):
+    """Philips RC-6 mode 0 (SB-Projects rc6.php): 36 kHz; unit time t = 444 us; a 6t burst
+    and a 2t space, the start bit (1), three mode bits, the trailer bit (the toggle) twice as
+    wide, then 8 control and 8 information bits MSB first. Manchester with a 1 a burst then a
+    space. The line is rebuilt as levels in units of t from the start bit on (each burst and
+    space must be a whole 1 to 3 units within +/-25%) and read two units a bit, four for the
+    trailer. A burst more than 4.5t after the last one starts a new frame."""
+
+    T_US = 444.44
+
+    def frames(self):
+        out, b, t = [], self.bursts, self.T_US
+        groups, cur = [], []
+        for bu in b:
+            if cur and self.us(bu[0] - cur[-1][1]) > 4.5 * t:
+                groups.append(cur)
+                cur = []
+            cur.append(bu)
+        if cur:
+            groups.append(cur)
+        for g in groups:
+            s0, e0, per = g[0]
+            if len(g) < 2 or not _near(self.us(e0 - s0), 6 * t) or not _near(self.us(g[1][0] - e0), 2 * t):
+                continue
+            levels, ok = [], True
+            for k, (s, e, _) in enumerate(g[1:], start=1):
+                if k > 1:
+                    space = self.us(s - g[k - 1][1]) / t
+                    n = round(space)
+                    if n not in (1, 2, 3) or not _near(space, n):
+                        ok = False
+                        break
+                    levels += [0] * n
+                mark = self.us(e - s) / t
+                n = round(mark)
+                if n not in (1, 2, 3) or not _near(mark, n):
+                    ok = False
+                    break
+                levels += [1] * n
+            need = 2 + 6 + 4 + 32
+            if not ok or len(levels) > need:
+                continue
+            levels += [0] * (need - len(levels))   # a frame ending in a 1 ends with a space
+
+            def bit(seg):
+                h = len(seg) // 2
+                a, c = seg[:h], seg[h:]
+                if a == [1] * h and c == [0] * h:
+                    return 1
+                if a == [0] * h and c == [1] * h:
+                    return 0
+                return None
+
+            start = bit(levels[0:2])
+            mode = [bit(levels[2 + 2 * i:4 + 2 * i]) for i in range(3)]
+            toggle = bit(levels[8:12])
+            data = [bit(levels[12 + 2 * i:14 + 2 * i]) for i in range(16)]
+            if start != 1 or None in mode or toggle is None or None in data:
+                continue
+            v = int("".join(map(str, data)), 2)
+            out.append({"mode": mode[0] << 2 | mode[1] << 1 | mode[2], "toggle": toggle,
+                        "address": v >> 8, "command": v & 0xFF,
+                        "carrier_khz": 1e6 / (per * self.tick) if per else 0})
         return out
 
 

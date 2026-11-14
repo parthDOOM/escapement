@@ -4,7 +4,10 @@ export const css = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 export const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 export const DPR = () => Math.min(window.devicePixelRatio || 1, 2);
-export const asset = (p: string) => import.meta.env.BASE_URL + p;
+// Pages below the site root (fpga/) say where the root is, so data paths stay the same everywhere.
+const root = () =>
+  document.querySelector<HTMLMetaElement>('meta[name="esc-root"]')?.content ?? import.meta.env.BASE_URL;
+export const asset = (p: string) => root() + p;
 
 export const TICK_NS = 40;
 export const CTX_VARS = ["--c0", "--c1", "--c2", "--c3"];

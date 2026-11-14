@@ -1,0 +1,17 @@
+target: chip
+built: 2026-11-08T16:26:32+05:30
+tools: Yosys 0.69+190 (git sha1 0e8336b4e, Release, Clang /usr/bin/clang++ 21.1.8); "nextpnr-himbaechel" -- Next Generation Place and Route (Version nextpnr-0.11.1-47-ge2fe86b3)
+repo: d3b5dbca440d68745d099155da91cae1b166388a (master)
+f1f2668c72fcb0abd10308e0d41974fe8a1fa01e4dd39f50f66ec772966b78d0  src/project.v
+457620b673d359bab139ecbe8e85940269deac2a81717cc946d016afa45d4d2a  src/escapement_host.v
+ed227ce58ca838d9e0f93a1881406eb8216169a4c78eb97a91c37bd5855789b1  src/esc_core.v
+f2bd4d5d58e13ab0a091fd6826cf3d3136d382e4686498ad41a2026d4c4b06db  src/esc_ctx.v
+22f28e59ca267be3f8c31a4d291c7a7f70bfe900b34e40ac0ac42a52a6e01740  src/esc_cap.v
+b7aa7246dbc04f51c5981ae39ec7f56520e5f388aaa473f1f85b0d1882f4ac9a  src/esc_line.v
+6c9150c2fae68f471c96d625ef79d582cf71d3ec9618999d40da487e1114a382  src/esc_greg.v
+51ba8c4098cc3e6d99ecd97bf2878d15dcabc6fb7df9a18966848892844866ef  src/escapement_art.v
+d33387b11e756646e453092e2ac5e9c4a2c6838e6ea7f98f61773324c08dd41a  fpga/escapement_sram_fpga.v
+8b2bc7b423c98980c83efea7255a28377a1b15bba9a18f6721d230a1dcda659d  fpga/escapement_board.v
+timing: clock skew 0.000 ns; 40 hold flags, all on block RAM address pins; Max frequency for clock 'chip.clk': 57.69 MHz (PASS at 25.00 MHz)
+3f4e3ac838081a8eba124cc88b4c4befb34995a14c8d40fc07acc76587ce999c  /root/fpga25k_build/chip/chip.cst
+16e5da57c73aa17ebba65a240af191a2def9373436c745b1a98b303e36d34da5  /root/fpga25k_build/chip/chip.fs

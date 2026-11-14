@@ -1,0 +1,76 @@
+// Sipeed Tang Primer 25K Dock (GW5A-LV25MG121NC1/I0): escapement_board's pins laid out
+// like the Tiny Tapeout demo board, one Pmod per port:
+//   J4 Pmod  ui_in[7:0]   (host SPI on [2:0], bank B inputs on [7:3])
+//   J5 Pmod  uo_out[7:0]  (MISO, IRQ, RUN on [2:0], bank B outputs on [7:3])
+//   J6 Pmod  uio[7:0]     (bank A, three-state)
+//   J3 40-pin header: clk on pin 9 (ball L3, GCLKC_4), rst_n on pin 10 (L4). Swapped
+//   2026-11-08: nextpnr-0.11.1-47 cannot put L4 (GCLKT_4) on the global clock network for
+//   GW5A-25A, so the clock fell back to general routing (5.5 ns skew, real hold failures);
+//   from L3 it reaches the global network with zero measured skew.
+// Pmod "pin" numbers below are the standard Pmod numbering (1-4 top row signals, 7-10 bottom).
+// Sipeed's schematic numbers the same sockets differently (1,2 = 3V3; 3,4 = GND). The board
+// prints neither: see README.md here, which goes by row and column.
+// Pmod bit k: pins 1-4 carry bits 0-3 (top row), pins 7-10 bits 4-7; pins 5 and 11 are GND,
+// 6 and 12 are 3V3.
+// Balls: litex-boards extensions/sipeed.py (_tang_primer_25k_dock_connectors: j3, j4, j5,
+// j6), cross-checked against Sipeed's TangPrimer-25K-example pmod_digitalTube-2bit.cst
+// (the J4 LED and J5 display Pmods in the same order). Clock-capable balls from apycula's
+// GW5A-25A database (MBGA121N package). Pmod banks are 3.3 V (BANK_VCCIO=3.3 in Sipeed's
+// Pmod examples); bank 2 (L3, L4) is 3.3 V in Sipeed's HUB75E example (K4, L1, K2).
+
+IO_LOC "clk" L3;           // J3 pin 9, GCLKC_4
+IO_LOC "rst_n" L4;         // J3 pin 10
+
+IO_LOC "ui_in[0]" G11;     // J4 pin 1  CS_n
+IO_LOC "ui_in[1]" D11;     // J4 pin 2  SCK
+IO_LOC "ui_in[2]" B11;     // J4 pin 3  MOSI
+IO_LOC "ui_in[3]" C11;     // J4 pin 4  bank B in
+IO_LOC "ui_in[4]" G10;     // J4 pin 7
+IO_LOC "ui_in[5]" D10;     // J4 pin 8
+IO_LOC "ui_in[6]" B10;     // J4 pin 9
+IO_LOC "ui_in[7]" C10;     // J4 pin 10
+
+IO_LOC "uo_out[0]" A11;    // J5 pin 1  MISO
+IO_LOC "uo_out[1]" E11;    // J5 pin 2  IRQ
+IO_LOC "uo_out[2]" K11;    // J5 pin 3  RUN
+IO_LOC "uo_out[3]" L5;     // J5 pin 4  bank B out
+IO_LOC "uo_out[4]" A10;    // J5 pin 7
+IO_LOC "uo_out[5]" E10;    // J5 pin 8
+IO_LOC "uo_out[6]" L11;    // J5 pin 9
+IO_LOC "uo_out[7]" K5;     // J5 pin 10
+
+IO_LOC "uio[0]" F5;        // J6 pin 1  bank A
+IO_LOC "uio[1]" G7;        // J6 pin 2
+IO_LOC "uio[2]" H8;        // J6 pin 3
+IO_LOC "uio[3]" H5;        // J6 pin 4
+IO_LOC "uio[4]" G5;        // J6 pin 7
+IO_LOC "uio[5]" G8;        // J6 pin 8
+IO_LOC "uio[6]" H7;        // J6 pin 9
+IO_LOC "uio[7]" J5;        // J6 pin 10
+
+IO_PORT "clk" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "rst_n" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[6]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "ui_in[7]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_PORT "uo_out[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[6]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uo_out[7]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[6]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "uio[7]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
