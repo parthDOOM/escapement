@@ -40,6 +40,13 @@ class AsmError(Exception):
 
 
 KEYWORDS = {"LSB": 0, "MSB": 1, "HOLD": 0, "ARRIVE": 1}
+
+
+def _not_keyword(name: str, where: str) -> None:
+    """A keyword is read as its value in every expression (any case), so a symbol of that
+    name would never be read: refuse it rather than let `.default HOLD, 240` mean 0."""
+    if name.split(".")[-1].upper() in KEYWORDS:
+        raise AsmError(f"{where}: '{name}' is a keyword ({'/'.join(KEYWORDS)}), not a name")
 REGS = {"r0": 0, "r1": 1, "r2": 2, "r3": 3}
 
 # Operand order per format (assembly syntax), mapped to encoding fields.
@@ -343,6 +350,7 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
         labels_seen: set[str] = set()
         for ns, where, raw, kind, head, rest in statements():
             if kind == "label":
+                _not_keyword(head, where)
                 q = qual(ns, head)
                 if q in labels_seen:
                     raise AsmError(f"{where}: duplicate label '{head}'")
@@ -357,6 +365,7 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
             if directive in (".equ", ".default"):
                 if len(ops) != 2:
                     raise AsmError(f"{where}: {directive} NAME, value")
+                _not_keyword(ops[0], where)
                 q = qual(ns, ops[0])
                 if directive == ".equ" or q not in symbols:   # .default never overrides
                     symbols[q] = ev(ops[1])

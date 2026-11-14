@@ -85,6 +85,14 @@ def test_uart_firmware_assembles():
     assert img.used_words < 40 and img.entry_pcs[0] == 0
 
 
+@pytest.mark.parametrize("src", [".default HOLD, 240\nHALT", ".equ msb, 3\nHALT", "Arrive:\nHALT"])
+def test_keyword_is_not_a_name(src):
+    """Keywords are read as their values in every expression, so a constant or label named
+    one would silently read as 0 or 1 (`.default HOLD, 240` as 0): refused."""
+    with pytest.raises(AsmError, match="keyword"):
+        assemble(src)
+
+
 def test_include_namespaces_and_defaults(tmp_path):
     (tmp_path / "mod.asm").write_text(
         ".default CTX, 1\n.default PIN, 4\n.equ M, 1 << PIN\n.entry CTX, top\n"
