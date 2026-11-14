@@ -197,20 +197,49 @@ def read_sr(path, clock_hz=CLOCK_HZ) -> tuple[list[tuple[int, int]], list[str]]:
         rate = _parse_rate(meta["samplerate"])
         names_present = set(z.namelist())
         if base in names_present:
-            data = z.read(base)
+            parts = [base]
         else:
-            data, k = b"", 1
+            parts, k = [], 1
             while f"{base}-{k}" in names_present:
-                data += z.read(f"{base}-{k}")
+                parts.append(f"{base}-{k}")
                 k += 1
-    names = [meta.get(f"probe{i + 1}", f"D{i}") for i in range(8)]
-    records, prev = [], None
-    for k in range(0, len(data) - unit + 1, unit):
-        v = data[k]
-        if v != prev:
-            records.append((round(k // unit * clock_hz / rate), v))
-            prev = v
+        names = [meta.get(f"probe{i + 1}", f"D{i}") for i in range(8)]
+        # A piece at a time: a long capture is gigabytes unzipped (30 minutes at 1 MHz is
+        # 1.8 GB, one zip member or many), and reading it whole, or joining the members
+        # first, held all of it. A unit split between two pieces is carried over; with one
+        # byte a unit, the regex engine finds where the level changes, not a Python loop
+        # over every sample.
+        records, prev, n, tail = [], None, 0, b""
+        for part in parts:
+            with z.open(part) as f:
+                while piece := f.read(_PIECE):
+                    data = tail + piece
+                    usable = len(data) - len(data) % unit
+                    k = 0
+                    while k < usable:
+                        v = data[k]
+                        if v != prev:
+                            records.append((round((n + k // unit) * clock_hz / rate), v))
+                            prev = v
+                        if unit == 1:                  # on to the next sample that differs
+                            m = _other(v).search(data, k)
+                            k = m.start() if m else usable
+                        else:
+                            k += unit
+                    n += usable // unit
+                    tail = data[usable:]
     return records, names
+
+
+_PIECE = 1 << 22                              # bytes read from the zip at a time
+_OTHERS: dict[int, re.Pattern] = {}
+
+
+def _other(v: int) -> re.Pattern:
+    """A pattern for any byte but v."""
+    if v not in _OTHERS:
+        _OTHERS[v] = re.compile(b"[^\\x%02x]" % v)
+    return _OTHERS[v]
 
 
 def read_trace(path, clock_hz=CLOCK_HZ, signals=None):

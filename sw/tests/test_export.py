@@ -106,6 +106,34 @@ def test_sr_round_trip(tmp_path, uart_capture):
     assert [(t + t0, lv) for t, lv in edges(back, 1)] == edges(recs, 1)
 
 
+@pytest.mark.parametrize("unit", [1, 2, 3])
+def test_sr_read_chunk_by_chunk_as_one_capture(tmp_path, unit):
+    """sigrok splits a long capture into logic-1-1, logic-1-2, ...; read_sr takes them one at
+    a time. The records are those of the whole capture: a level running on across a chunk
+    boundary is one record, and a unit split between two chunks (unitsize 2, 3) is joined."""
+    import random
+    rng = random.Random(7)
+    samples = []
+    for _ in range(300):                               # runs of 1-40 samples, channels 1-8
+        samples += [rng.randrange(4)] * rng.randrange(1, 40)
+    raw = b"".join(bytes([s, 0xA5][:unit] + [0x3C] * (unit - 2)) for s in samples)
+    cuts = sorted(rng.sample(range(1, len(raw)), 9))   # chunk ends anywhere, mid-unit too
+    chunks = [raw[a:b] for a, b in zip([0] + cuts, cuts + [len(raw)])]
+    with zipfile.ZipFile(tmp_path / "chunks.sr", "w") as z:
+        z.writestr("version", "2")
+        z.writestr("metadata", "[device 1]\ncapturefile=logic-1\ntotal probes=8\n"
+                               f"samplerate=1 MHz\nunitsize={unit}\nprobe1=A\n")
+        for i, c in enumerate(chunks, 1):
+            z.writestr(f"logic-1-{i}", c)
+    want, prev = [], None
+    for i, s in enumerate(samples):
+        if s != prev:
+            want.append((i * 25, s))                   # 25 MHz ticks of 1 MHz samples
+            prev = s
+    got, names = read_sr(tmp_path / "chunks.sr")
+    assert got == want and names[0] == "A"
+
+
 def test_sr_decimated_keeps_every_edge_within_div(tmp_path, uart_capture):
     _, recs = uart_capture
     write_sr(recs, tmp_path / "c4.sr", div=4)
