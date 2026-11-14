@@ -1,7 +1,7 @@
 name: mutation
 
 # The mutation campaign (test/mutation/run_mutants.py): every curated and generated RTL
-# mutant against the test suites that can see it, in sixteen shards dealt by cost (each
+# mutant against the test suites that can see it, in 32 shards dealt by cost (each
 # mutant's time in CI, test/mutation/costs.json); a mutant no test kills is checked formally
 # against the original RTL. The canaries (each suite catches a fault it must, the proof says
 # both yes and no) run once, beside the shards, and the summary requires them. The suites
@@ -28,7 +28,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        # 32: with 16, runners up to 2x slower than others ran 8 shards past the 355-minute
+        # limit (11-13, run 43387544767); costs.json holds that run's times
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
     steps:
       - name: checkout repo
         uses: actions/checkout@v6
@@ -64,7 +67,7 @@ jobs:
           CELLS: 'yes'
         run: |
           mkdir -p results
-          python test/mutation/run_mutants.py --shard ${{ matrix.shard }}/16 --jobs 4 --no-canary \
+          python test/mutation/run_mutants.py --shard ${{ matrix.shard }}/32 --jobs 4 --no-canary \
             --json results/mutation-${{ matrix.shard }}.json
 
       - name: Upload shard result
@@ -169,4 +172,4 @@ jobs:
         run: |
           python3 -c "import json,sys; c=json.load(open('mutation.json'))['counts']; \
             sys.exit(1 if c.get('SURVIVED',0) or c.get('BADPATCH',0) or c.get('COMPILE-ERROR',0) or \
-            json.load(open('mutation.json'))['shards'] != 16 else 0)"
+            json.load(open('mutation.json'))['shards'] != 32 else 0)"

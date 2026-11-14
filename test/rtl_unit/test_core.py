@@ -1045,6 +1045,66 @@ async def test_debug_port_after_stop_shows_final_registers(dut):
 
 
 @cocotb.test()
+async def test_stop_cancels_a_pending_restart(dut):
+    """v1.7 (S3): a CTX_START still waiting for its context's first slot is dropped by a STOP:
+    nothing of it reaches the next run. Differential, so no model is needed: context 3 is
+    stopped (CTX_STOP), then CTX_START 3 and the run's STOP come in one cycle (the stop
+    holds the restart at that edge); a reload and START follow, of a program that does not
+    enable context 3. With and without that strobe the second run must be the same, commit
+    for commit and pin for pin, with imem_free the same in every cycle (a restart that
+    reached the run would hold it low in context 3's first slot, the only trace it leaves on a
+    context that is not enabled), and context 3 must not run in it. (Mutation campaign 11-13:
+    rs_pend cleared only when start and stop coincide survived every suite. A first version
+    of this test enabled context 3 in the second run too, where a stale restart in its first
+    slot looks exactly like its START, and the mutant survived it as well.)"""
+    prog = """
+    .entry 0, a
+    .entry 3, b
+    .own 0, 0
+    .own 1, 3
+    a:  ADDT 9
+        EMIT 1, 1, 1
+        ADDT 9
+        EMIT 1, 0, 1
+        JMP a
+    b:  ADDT 7
+        EMIT 2, 2, 2
+        ADDT 7
+        EMIT 2, 0, 2
+        JMP b
+    """
+    prog2 = """
+    .entry 0, a
+    .own 0, 0
+    a:  ADDT 9
+        EMIT 1, 1, 1
+        ADDT 9
+        EMIT 1, 0, 1
+        JMP a
+    """
+    runs = []
+    env = await new_env(dut)
+    d = dut
+    for strobe in (False, True):
+        await env.load_and_start(prog)            # (a STOP, the load and a START each time)
+
+        def stim(t, strobe=strobe):
+            d.ctx_stop.value = 8 if t == 30 else 0              # context 3 HALTED
+            d.ctx_start.value = 8 if (strobe and t == 41) else 0
+            d.stop.value = int(t == 41)                          # ... and the run stops
+        await env.run(48, stim=stim, full=False)
+        d.ctx_stop.value = d.ctx_start.value = 0
+        await env.load_and_start(prog2)           # context 3 not enabled
+        free = []                                 # imem_free each cycle: a restart edge holds it low
+        await env.run(120, stim=lambda t: free.append(int(d.imem_free.value)), full=False)
+        runs.append((env.commit_summary(), [(r["t"], r["out"], r["oe"]) for r in env.trace], free))
+    assert runs[0][0] and all(c[1] == 0 for c in runs[0][0])     # context 0 alone ran
+    assert not any(c[1] == 3 for c in runs[1][0]), "a CTX_START pending at the STOP ran context 3 in the next run"
+    assert runs[0][2].count(1) > 50, "imem_free should be high in most cycles of a one-context run"
+    assert runs[1] == runs[0], "a CTX_START pending at the STOP changed the next run"
+
+
+@cocotb.test()
 async def test_start_reinitialises_context(dut):
     """sec. 9 Start: a second START clears r0-r3, sh and tmr even when the previous run
     left them non-zero (with clock-gated banks, D-29, START is an enable term of its own;

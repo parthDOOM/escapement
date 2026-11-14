@@ -213,7 +213,9 @@ module esc_core #(
   wire        cap_drain;
   wire [7:0]  cap_ptr, cap_rptr;
   wire [31:0] cap_head, cap_status, cap_cfg, cap_ovf_tick;
-  wire [31:0] mon_counts, mon_rec, mon_tick;                 // v3 bus timing monitor
+  wire [31:0] mon_rdata;                                     // v3 bus timing monitor: GETM 0/1
+  wire        mon_rec_load;
+  reg  [31:0] mon_tick;                                      // GETM 2: the record's tick, kept here
   wire        mon_irq;
   // v3: the monitor has an owner like the line unit: the first context whose MON commits in
   // a run, until the next START (one-hot, so the commit path reads one flop). Another
@@ -308,8 +310,8 @@ module esc_core #(
   wire [11:0] lu_el;
 `endif
   wire [31:0] lu_status, lu_e, lu_pwdata;
-  wire [13:0] lu_count;                                       // v3: GETM 3 and 4 (owner)
-  wire [31:0] lu_crc;
+  wire [31:0] lu_getm;                                        // v3: GETM's one word (esc_line aux_o)
+  wire        lu_e_ld;
   // v2 (timing, 11-12): the unit's one-hot owner register (u_line.sel = owned ? 1 << owner
   // : 0, formal: sel_def), so lu_sel, lu_mine and the owner's line return start at a flop
   wire [3:0]  lu_selq;
@@ -566,11 +568,12 @@ module esc_core #(
         // register (4), which the status word cannot hold; else 0. MON writes a rule at E_c
         d_op[I_GETM]: begin
           w_rd_we = 1'b1; z_src = 3'd1;
-          w_rd_data = (f_imm16 == 16'd0 && mon_sel[cctx]) ? mon_counts
-                    : (f_imm16 == 16'd1 && mon_sel[cctx]) ? mon_rec
+          // (one word arrives for every GETM: the monitor's (by imm[0]) passes through the line
+          // unit, which sends it or its count or CRC (aux_sel): a read chain, esc_line.v)
+          w_rd_data = (f_imm16[15:1] == 15'd0 && mon_sel[cctx]) ? lu_getm
                     : (f_imm16 == 16'd2 && mon_sel[cctx]) ? mon_tick
-                    : (f_imm16 == 16'd3 && lu_owned && lu_owner == cctx) ? {18'd0, lu_count}
-                    : (f_imm16 == 16'd4 && lu_owned && lu_owner == cctx) ? lu_crc : 32'd0;
+                    : ((f_imm16 == 16'd3 || f_imm16 == 16'd4) && lu_owned && lu_owner == cctx)
+                      ? lu_getm : 32'd0;
         end
         d_op[I_MON]: begin
           if ((|mon_sel) && !mon_sel[cctx]) begin
@@ -724,12 +727,16 @@ module esc_core #(
       .status(cap_status), .cfg(cap_cfg), .rptr(cap_rptr), .ovf_tick(cap_ovf_tick));
 
   // v3: the bus timing monitor, global like the capture unit; it evaluates at every edge of
-  // a run except the stop edge, on the same synchronised pins
+  // a run except the stop edge, on the same synchronised pins. It sends GETM one word and
+  // a strobe for the record's tick, which is kept here beside now (esc_mon.v, "narrow")
   esc_mon u_mon (
-      .clk(clk), .rst_n(rst_n), .start(start), .run(run & ~stop_q), .now(now), .psync(s2),
+      .clk(clk), .rst_n(rst_n), .start(start), .run(run & ~stop_q), .psync(s2),
       .mon_we(cm_ok & d_op[I_MON]), .mon_a(opa), .mon_b(opb),
-      .counts(mon_counts), .rec(mon_rec), .rec_tick(mon_tick), .irq(mon_irq));
+      .rsel(f_imm16[0]), .rdata(mon_rdata), .rec_load(mon_rec_load), .irq(mon_irq));
   wire _unused_mon = &{1'b0, mon_irq};
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n)            mon_tick <= 32'd0;
+    else if (mon_rec_load) mon_tick <= now;
   always @(posedge clk or negedge rst_n)
     if (!rst_n)                                        mon_sel <= 4'd0;
     else if (start)                                    mon_sel <= 4'd0;
@@ -820,11 +827,13 @@ module esc_core #(
   esc_greg #(58) g_qent (.clk(clk), .rst_n(rst_n), .en(commit_valid & w_push),
       .d(w_entry), .q(q_entry));
   esc_greg #(32) g_qld (.clk(clk), .rst_n(rst_n), .en(ld_v), .d(tape_rdata), .q(q_ld));
+  // v3: the line unit's end tick e, kept here beside now (the unit sends e_ld): GETL's tmr
+  esc_greg #(32) g_lue (.clk(clk), .rst_n(rst_n), .en(start | lu_e_ld), .d(start ? 32'd0 : now), .q(lu_e));
 
   // ------------------------------------------------------------------ line unit (v1.4)
   wire lu_cm = cm_ok & d_op[I_LINE];
   esc_line u_line (
-      .clk(clk), .rst_n(rst_n), .start(start), .now(now),
+      .clk(clk), .rst_n(rst_n), .start(start), .now(now[1:0]),
       .view(lu_bank ? {3'd0, s2[12:8]} : s2[7:0]), .owns(owned_by[8*lu_owner +: 8]),
       // v3: the same pins half a tick earlier (the falling-edge sample), for W4's both bit
       .view_h(lu_bank ? {3'd0, h3[12:8]} : h3[7:0]),
@@ -835,7 +844,8 @@ module esc_core #(
       .line_ret(|(c_lret & lu_selq)), .halt_done(cm_ok & w_halt & lu_mine),
       .kill(stop_q | (|((fault_k | cs_k) & lu_sel))), .rdata(tape_rdata),
       .owned(lu_owned), .owner(lu_owner), .sel(lu_selq), .conf(lu_conf), .claimed(lu_claimed),
-      .engaged(lu_engaged), .busy(lu_busy), .status(lu_status), .count_o(lu_count), .crc_o(lu_crc), .e(lu_e), .mode(lu_mode),
+      .engaged(lu_engaged), .busy(lu_busy), .status(lu_status), .aux_sel({f_imm16[2] | (f_imm16[1] & f_imm16[0]), f_imm16[2]}), .aux_in(mon_rdata),
+      .aux_o(lu_getm), .e_ld(lu_e_ld), .mode(lu_mode),
       .flt_owner(lu_flto), .flt_config(lu_fltc), .send_rd(lu_srd),
       .port(lu_port), .port_we(lu_pwe), .port_addr(lu_paddr), .port_wdata(lu_pwdata),
       .rel_m(lu_rel), .drv_m(lu_drv), .drv_val(lu_dval), .drv_oe(lu_doe)

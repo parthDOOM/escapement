@@ -41,7 +41,7 @@ module esc_line (
     input  wire        clk,
     input  wire        rst_n,
     input  wire        start,          // start at this edge: reset (section 9)
-    input  wire [31:0] now,
+    input  wire [1:0]  now,            // the slot (now[1:0]); v3: the end tick e is kept in the core
     input  wire [7:0]  view,           // the owner's logical inputs (sync) during this cycle
     input  wire [7:0]  view_h,         // v3 S-D: the same inputs sampled half a tick earlier
     input  wire [7:0]  owns,           // the owner's logical pins (section 5)
@@ -68,9 +68,11 @@ module esc_line (
     output wire        engaged,
     output wire        busy,
     output wire [31:0] status,
-    output wire [13:0] count_o,        // v3: the whole bit count and CRC register (GETM 3, 4)
-    output wire [31:0] crc_o,
-    output wire [31:0] e,
+    input  wire [1:0]  aux_sel,        // v3: GETM's read chain: 0x aux_in (the monitor's word),
+    input  wire [31:0] aux_in,         //   2 the whole bit count, 3 the CRC register: one word
+    output wire [31:0] aux_o,          //   to the core's write-back mux for every GETM
+    output wire        e_ld,           // v3: e (the end tick, = now) is taken at this edge; the
+                                       //   core keeps it beside now (32 bits fewer each way)
     output reg  [2:0]  mode,
     output wire        flt_owner,      // a CONFIG completing at this edge faults ADMIT/OWNER
     output wire        flt_config,     //   ... or ADMIT/CONFIG
@@ -210,8 +212,7 @@ module esc_line (
   assign status  = {busy, job, cause, count[8:0], crc[31:16]};
   // v3: a long receive counts to 8,192 bits and CRC-32 needs all 32 bits; the status word
   // has room for neither, so the owner reads them whole with GETM 3 and 4
-  assign count_o = count;
-  assign crc_o   = crc;
+  assign aux_o = !aux_sel[1] ? aux_in : aux_sel[0] ? crc : {18'd0, count};
 
   wire own_cyc = owned & (now[1:0] == owner - 2'd1);     // the owner's commit cycles
   wire x   = c_diff ? view[c_d] : view[c_r];             // line level
@@ -424,8 +425,7 @@ module esc_line (
   wire rx_none = op_recv & (c_cells != 3'd0) & ~(cel_rx & (c_cells == 3'd1));
   wire e_ev = (live & (cfg_done | crc_last | tx_endev | rx_fin))
             | (~start & ~kill & ((op_crc & (op_v[15:8] == 8'd0)) | rx_none));
-  esc_greg #(32) g_e (.clk(clk), .rst_n(rst_n), .en(start | e_ev),
-                      .d(start ? 32'd0 : now), .q(e));
+  assign e_ld = e_ev;                    // (the core: e <= start ? 0 : now, enabled by start | e_ld)
   // W0 is a latch bank (D-40): the buffer holds still at the CONFIG's last edge, so it is
   // its own dq. v1.7 (timing): its low fields (pin numbers, diff, NRZI, LSB first) fan out
   // over the receive and drive logic, and a path from a latch starts when the latch opens,

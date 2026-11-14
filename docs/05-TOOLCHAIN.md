@@ -40,7 +40,7 @@ the IHP-Open-PDK tree at that commit, which the CI simulation and equivalence jo
 | --- | --- |
 | `test.yaml` | The chip-level cocotb tests on the RTL; then, in a second job, `sw-test`, `cert`, `cosim-parallel`, `proof-table` (on the co-simulation's RTL telemetry) and `pin-test`, and the co-simulation and line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
 | `formal.yaml` | Three jobs side by side: the property proofs (`make formal-props`) and the unbounded core proof as parallel PDR tasks (`make formal-pdr`); the bounded core check from reset, one task per assertion group (`make formal-bmc`); the v2 proofs (tripwires, the line unit from reset, non-interference: `make formal-v2`) and the teeth (`make formal-teeth`) |
-| `mutation.yaml` | The mutation campaign in sixteen shards dealt by cost, after a baseline of every suite on the unmutated RTL, with the canaries in a job of their own |
+| `mutation.yaml` | The mutation campaign in 32 shards dealt by cost, after a baseline of every suite on the unmutated RTL, with the canaries in a job of their own |
 | `gds.yaml` | The Tiny Tapeout harden (LibreLane), then the precheck and the gate-level test on the hardened netlist |
 | `equivalence.yaml` | After a successful harden on master: that netlist against the RTL of its commit |
 | `docs.yaml` | The Tiny Tapeout datasheet build from `info.yaml` and `docs/info.md` |

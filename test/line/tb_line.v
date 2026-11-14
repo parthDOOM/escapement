@@ -21,15 +21,18 @@ module tb_line;
 
   wire owned, conf, engaged, busy, flt_owner, flt_config, port, port_we, drv_oe, send_rd;
   wire [1:0] owner; wire [2:0] mode; wire [7:0] claimed, port_addr, rel_m, drv_m, drv_val;
-  wire [31:0] status, e, port_wdata;
+  wire [31:0] status, port_wdata;
+  wire e_ld;
+  reg [31:0] e;                    // v3: the core keeps e (esc_core g_lue); so does the bench
+  always @(posedge clk or negedge rst_n) if (!rst_n) e <= 32'd0; else if (start | e_ld) e <= start ? 32'd0 : now;
 
   esc_line dut (
-    .clk(clk), .rst_n(rst_n), .start(start), .now(now), .view(view), .view_h(view_h), .owns(owns),
+    .clk(clk), .rst_n(rst_n), .start(start), .now(now[1:0]), .view(view), .view_h(view_h), .owns(owns),
     .op_send(op == 3'd1), .op_off(op == 3'd2), .op_recv(op == 3'd3), .op_crc(op == 3'd4),
     .op_cfg(op == 3'd5), .op_ctx(opctx), .op_v(opv), .line_ret(lret), .halt_done(halt),
     .kill(kill), .rdata(rdata),
     .owned(owned), .owner(owner), .conf(conf), .claimed(claimed), .engaged(engaged),
-    .busy(busy), .status(status), .e(e), .mode(mode), .flt_owner(flt_owner),
+    .busy(busy), .status(status), .e_ld(e_ld), .aux_sel(2'd0), .aux_in(32'd0), .mode(mode), .flt_owner(flt_owner),
     .flt_config(flt_config), .send_rd(send_rd), .port(port), .port_we(port_we), .port_addr(port_addr),
     .port_wdata(port_wdata), .rel_m(rel_m), .drv_m(drv_m), .drv_val(drv_val), .drv_oe(drv_oe));
 

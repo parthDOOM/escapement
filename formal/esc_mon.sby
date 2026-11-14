@@ -21,8 +21,9 @@ cover: depth 40
 smtbmc yices
 
 [script]
-read -formal -DFORMAL -DESC_MON_CHECK esc_mon.v
+read -formal -DFORMAL -DESC_MON_CHECK esc_greg.v esc_mon.v
 prep -top esc_mon
 
 [files]
+../src/esc_greg.v
 ../src/esc_mon.v

@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: © 2026 Escapement contributors
 # SPDX-License-Identifier: Apache-2.0
 """esc_mon against sw/esciss/monitor.py, every cycle: counts, record and its tick.
+(v3, 11-14: the unit sends one word by rsel and a strobe, rec_load, for the tick, which the
+core keeps: the bench reads both words and keeps the tick as the core does.)
 
 Random pins (both slow and fast toggling, so intervals land on both sides of the limits),
 MON writes with MIN/MAX drawn near the intervals the pins produce, clears, starts, and runs
@@ -14,7 +16,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import FallingEdge, RisingEdge
+from cocotb.triggers import FallingEdge, RisingEdge, Timer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sw"))
 from esciss.monitor import Monitor  # noqa: E402
@@ -41,7 +43,7 @@ def rand_rule(rng):
 async def test_mon_lockstep(dut):
     rng = random.Random(int(os.environ.get("MON_SEED", "1")))
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
-    for s in ("start", "run", "mon_we", "mon_a", "mon_b", "psync", "now"):
+    for s in ("start", "run", "mon_we", "mon_a", "mon_b", "psync", "rsel"):
         getattr(dut, s).value = 0
     dut.rst_n.value = 0
     await RisingEdge(dut.clk)
@@ -49,6 +51,7 @@ async def test_mon_lockstep(dut):
     dut.rst_n.value = 1
     m = Monitor()
     pins, rate, running, now = 0, 0.1, False, 0
+    tick = 0                                     # the core's copy (esc_core mon_tick)
     cov = {"early": 0, "late": 0, "record": 0, "sat": 0, "clear": 0}
     errors = 0
     for cyc in range(CYCLES):
@@ -75,18 +78,25 @@ async def test_mon_lockstep(dut):
         if storm:                                # rule 0: pin 0 rise -> fall, MIN 0xFFFF
             mon = ((1 << 31 | 1 << 23 | 2 << 17 | 0xFFFF, 0) if cyc == STORM + 1 else None)
         dut.psync.value = pins
-        dut.now.value = now
         dut.start.value = start
         dut.run.value = run
         dut.mon_we.value = int(mon is not None)
         dut.mon_a.value, dut.mon_b.value = mon if mon else (0, 0)
         # ---- the state during this cycle must match
-        for sel, sig in ((0, dut.counts), (1, dut.rec), (2, dut.rec_tick)):
-            got, want = int(sig.value), m.read(sel)
-            if got != want:
+        got = {}
+        for sel in (0, 1):
+            dut.rsel.value = sel
+            await Timer(1, unit="ps")
+            got[sel] = int(dut.rdata.value)
+        got[2] = tick
+        for sel in (0, 1, 2):
+            want = m.read(sel)
+            if got[sel] != want:
                 errors += 1
                 if errors <= 10:
-                    dut._log.error(f"cycle {cyc} sel {sel}: got {got:08x} want {want:08x}")
+                    dut._log.error(f"cycle {cyc} sel {sel}: got {got[sel]:08x} want {want:08x}")
+        if int(dut.rec_load.value):                  # the core loads now at this edge
+            tick = now
         # ---- the model's edge
         before = (m.read(0), m.rec_v)
         if start:

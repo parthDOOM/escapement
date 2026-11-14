@@ -383,6 +383,59 @@ async def test_live_reload_over_spi(dut):
 
 
 @cocotb.test()
+async def test_live_writes_never_take_a_fetch(dut):
+    """v1.7 (S3) / v2 C6: a program word written during a run takes the store only in a cycle
+    with no fetch. Contexts 0, 1 and 3 run tight loops (five instructions in 24, 26 and 28
+    ticks: each fetches in about five of every six of its slots; context 2 is off) while the host writes
+    128 words into the unused upper half of the store. Every edge of all three keeps its
+    spacing, and the words read back. (Mutation campaign 11-13: the grant taking any slot
+    during a run, project.v `| running` for `| ~running`, survived every simulation; the
+    formal proof C6 catches it, the campaign runs simulations.)"""
+    import random
+    prog = assemble("""
+    .entry 0, a
+    .entry 1, b
+    .entry 3, c
+    .own 0, 0
+    .own 1, 1
+    .own 2, 3
+    a:  ADDT 12
+        EMIT 1, 1, 1
+        ADDT 12
+        EMIT 1, 0, 1
+        JMP a
+    b:  ADDT 13
+        EMIT 2, 2, 2
+        ADDT 13
+        EMIT 2, 0, 2
+        JMP b
+    c:  ADDT 14
+        EMIT 4, 4, 4
+        ADDT 14
+        EMIT 4, 0, 4
+        JMP c
+    """)
+    assert max(a for a in range(256) if prog.words[a]) < 128
+    rng = random.Random(1113)
+    words = [rng.getrandbits(32) for _ in range(128)]
+    pins = PinLog()
+    host = await bring_up(dut, pins)
+    await host.load(prog)
+    await host.start()
+    await ClockCycles(dut.clk, 400)
+    await host.write_imem(128, words)                      # during the run
+    st = await host.clear_err()
+    assert st["running"] and not st["host_err"], st
+    await ClockCycles(dut.clk, 400)
+    await host.stop()
+    assert await host.read_imem(128, 128) == words
+    for pin, half in ((0, 12), (1, 13), (2, 14)):
+        e = [t for t, lv in pins.edges(pin)]
+        gaps = {b - a for a, b in zip(e[1:-1], e[2:-1])}  # first drive to the STOP
+        assert len(e) > 100 and gaps == {half}, (pin, len(e), sorted(gaps))
+
+
+@cocotb.test()
 async def test_pages_over_spi(dut):
     """v2 (S-A) program pages through SPI, the host interface, project.v and the four
     macros: two UART transmitters, both at address 0, context 0 at 115200 baud on pin 0 from

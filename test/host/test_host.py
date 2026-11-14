@@ -230,6 +230,30 @@ async def test_ctx_stop_and_start(dut):
 
 
 @cocotb.test()
+async def test_ctx_start_refusal_for_every_context_and_state(dut):
+    """v1.7 (S3): CTX_START's rule per context, each of the four in each state: refused while
+    RUNNING (state 1), strobed while IDLE (0), HALTED (2) or FAULTED (3), with every context
+    enabled. (Mutation campaign 11-13: context 3's RUNNING bit, wrong two ways, survived; the
+    test above uses contexts 0 and 1 only.)"""
+    host, _, pulses = await setup(dut)
+    await host.write_cfg(0b1111, 0, 0, 0, 0)
+    dut.running.value = 1
+    want = []
+    for k in range(4):
+        for st in (0, 1, 2, 3):
+            others = sum(1 << (2 * j) for j in range(4) if j != k)   # the others RUNNING
+            dut.ctx_state.value = others | (st << (2 * k))
+            await host.ctx_start(1 << k)
+            err = (await host.status())["host_err"]
+            assert err == (st == 1), (k, st, err)
+            if err:
+                await host.clear_err()
+            else:
+                want.append(1 << k)
+    assert pulses.ctx_start == want
+
+
+@cocotb.test()
 async def test_read_dbg(dut):
     host, _, _ = await setup(dut)
     for ctx in range(4):

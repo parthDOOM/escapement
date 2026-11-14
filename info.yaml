@@ -26,7 +26,6 @@ project:
     - "escapement_sram_big.v"
     - "RM_IHPSG13_1P_512x32_c2_bm_bist.v"
     - "RM_IHPSG13_1P_1024x32_c2_bm_bist.v"
-    - "escapement_art.v"
     - "esc_core.v"
     - "esc_ctx.v"
     - "esc_cap.v"

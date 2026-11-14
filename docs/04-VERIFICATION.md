@@ -326,9 +326,9 @@ has its argument; in CI the summary job runs it over the merged shards and fails
 miss. The line unit lockstep counts its own replayed edges and the stray tape
 reads it makes, and fails a run that replays fewer edges than it generated or makes none.
 
-The campaign has 836 mutants across the whole RTL, the line unit included (745 before
-v1.6). Seventy are written by hand, each aimed at one feature (below). The other 766 are
-generated
+The campaign has 912 mutants across the whole RTL, the line unit and v2's program store
+included (836 in v1.6). Seventy are written by hand, each aimed at one feature (below). The
+other 842 are generated
 (`test/mutation/generate.py`):
 every synthesisable line outside the verification-only blocks (`ifdef FORMAL` and the
 other macros only `formal/*.sby` defines) is scanned for classic fault sites
@@ -336,8 +336,17 @@ other macros only `formal/*.sby` defines) is scanned for classic fault sites
 swapped, a constant changed, an `if` condition negated, a register that keeps its value
 instead of taking an assignment), and a site is chosen when a hash of its file, operator
 and line text falls under a fixed rate (30%), so editing one line changes only that line's
-mutants. `--rate 1` takes every site, 2,507 mutants in all; that run is too long for CI
-and is made locally, on lines that change.
+mutants. A generate condition (an `if` that names its block) is not mutated: it chooses
+from parameters what is built, so its mutant only swaps one equivalent build for another or
+trips a build guard. `--rate 1` takes every site, 2,507 mutants in all; that run is too
+long for CI and is made locally, on lines that change.
+
+A run first checks that every selected mutant still applies (a hand-written one's text
+found exactly once, a generated one's line unchanged), and stops before any suite if one
+does not. Until v2 a mutant whose text had gone was reported as invalid only when its turn
+came, hours in; seven hand-written mutants had stopped applying that way after v1.7's pair
+mode and live reload rewrote their lines, so they had not run since. They now plant the same
+faults in today's code.
 
 A mutant that every suite misses is then checked formally against the original RTL with
 `formal/equiv.sh`: if no input sequence ever makes any chip output differ, it is
@@ -781,7 +790,7 @@ on master, with its commit and log, failures included.
 | --- | --- | --- |
 | `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, the certificates against the RTL's measured leads (`proof_table.py`), firmware through the pins; the co-simulation and the line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
 | `formal` | a change to `src/` or `formal/` | `make formal`: formal-quick, then the unbounded core proof as one PDR task per assertion |
-| `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in sixteen shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors; the shards are dealt by each mutant's time in earlier runs (`test/mutation/costs.json`), the canaries run once beside them, and the summary requires the canaries and exactly one result per mutant |
+| `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in 32 shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors; the shards are dealt by each mutant's time in earlier runs (`test/mutation/costs.json`), the canaries run once beside them, and the summary requires the canaries and exactly one result per mutant |
 | `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
 | `equivalence` | each successful `gds` run on master | that run's netlist against the RTL of its commit (`formal/equiv.sh`) |
 
@@ -803,7 +812,7 @@ make formal JOBS=8                                               # adds the unbo
 make formal-v2 formal-teeth                                      # tripwires, line unit from reset, non-interference; planted bugs
 make formal SKIP=1                                               # while iterating: skip proofs whose inputs match their last PASS (never for a release)
 make equiv                                                       # final netlist equals the RTL (~4 min)
-CELLS=yes make mutation JOBS=8                                   # mutation campaign, 8 mutants at a time (hours; CI: 16 shards dealt by cost)
+CELLS=yes make mutation JOBS=8                                   # mutation campaign, 8 mutants at a time (hours; CI: 32 shards dealt by cost)
 ```
 
 The suites run in parallel where they can: `sw-test` uses every core when pytest-xdist is

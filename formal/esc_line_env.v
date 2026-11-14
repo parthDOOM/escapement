@@ -57,17 +57,18 @@ module esc_line_env (
   wire [1:0]  owner;
   wire [2:0]  mode;
   wire [7:0]  claimed, port_addr, rel_m, drv_m, drv_val;
-  wire [31:0] status, e, port_wdata;
+  wire [31:0] status, port_wdata;
+  wire        e_ld;
   // esc_core's kill: stop, or a fault of the owner, which a CONFIG completing invalid (or with
   // pins its owner does not hold) raises at that edge (lu_cfgf, fault_k)
   wire kill = stop | (fault & run) | (~start & ~stop & owned & (flt_owner | flt_config));
   esc_line dut (
-      .clk(clk), .rst_n(rst_n), .start(start), .now(now), .view(view), .owns(owns),
+      .clk(clk), .rst_n(rst_n), .start(start), .now(now[1:0]), .view(view), .owns(owns),
       .op_send(op_send), .op_off(op_off), .op_recv(op_recv), .op_crc(op_crc),
       .op_cfg(op_cfg), .op_ctx(op_ctx), .op_v(op_v), .line_ret(line_ret),
       .halt_done(halt_done), .kill(kill), .rdata(rdata),
       .owned(owned), .owner(owner), .conf(conf), .claimed(claimed), .engaged(engaged),
-      .busy(busy), .status(status), .e(e), .mode(mode), .flt_owner(flt_owner),
+      .busy(busy), .status(status), .e_ld(e_ld), .aux_sel(2'd0), .aux_in(32'd0), .mode(mode), .flt_owner(flt_owner),
       .flt_config(flt_config), .send_rd(send_rd), .port(port), .port_we(port_we),
       .port_addr(port_addr), .port_wdata(port_wdata), .rel_m(rel_m), .drv_m(drv_m),
       .drv_val(drv_val), .drv_oe(drv_oe));

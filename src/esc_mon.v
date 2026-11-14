@@ -29,6 +29,18 @@
  * 13..15 never change. The unit evaluates at every edge of a run except a stop edge
  * (`run` = run & ~stop); `prev` follows the pins at every edge. Reference model:
  * sw/esciss/monitor.py.
+ *
+ * Narrow to the core (v3, 11-14): the unit sits where its pins are, far from the core's
+ * write-back mux, so it sends GETM one 32-bit word (rdata: counts or the record, by rsel)
+ * and not both, and the record's tick is not kept here: rec_load says the record is taken at
+ * this edge and the core loads its own copy of now (no 32-bit now in, no tick out). The
+ * first v3 harden did not route with the three words and now crossing the core.
+ *
+ * Area (v3, 11-14): a rule's pins, edges, MIN and MAX change only at a MON write, so they
+ * are latch banks (esc_lreg, D-40) written through one shared word, cfg_q; the record's
+ * body is a gated bank. 31.2k -> 26.0k um2 standalone, the same behaviour: esc_lreg's
+ * contract is M7 here, the latch build is formal/esc_lreg.sby's, and the chip is
+ * sequentially equivalent to the flip-flop version (formal/equiv.sh, flop model).
  */
 `default_nettype none
 module esc_mon #(
@@ -39,15 +51,17 @@ module esc_mon #(
     input  wire          rst_n,
     input  wire          start,                  // run initialisation at this edge
     input  wire          run,                    // evaluate at this edge (a run, not its stop)
-    input  wire [31:0]   now,
     input  wire [12:0]   psync,                  // synchronised physical pins (both banks)
     input  wire          mon_we,                 // a MON completes at this edge
     input  wire [31:0]   mon_a, mon_b,           // its R[rd], R[rs]
-    output wire [31:0]   counts,                 // GETM sel 0: rule k in [8k+7:8k]
-    output wire [31:0]   rec,                    // GETM sel 1
-    output reg  [31:0]   rec_tick,               // GETM sel 2
+    input  wire          rsel,                   // GETM sel[0]: 0 counts, 1 the record
+    output wire [31:0]   rdata,                  // counts (rule k in [8k+7:8k]) or the record
+    output wire          rec_load,               // the record is taken at this edge (the core
+                                                 // keeps its tick: GETM sel 2)
     output wire          irq                     // a violation at this edge
 );
+  wire [31:0] counts, rec;
+  assign rdata = rsel ? rec : counts;
   reg  [12:0] prev;
   wire [15:0] rise = {3'd0, psync & ~prev};
   wire [15:0] fall = {3'd0, ~psync & prev};
@@ -60,10 +74,18 @@ module esc_mon #(
   wire        clr    = mon_we & mon_b[31];
   wire [1:0]  w_rule = mon_a[30:29];
 
+  // A rule's configuration (pins, edges, MIN, MAX; 12 + 2W bits) changes only at a MON
+  // write, so it is a latch bank (esc_lreg, D-40: 27.2 um2 a bit against 49.0 for the
+  // flip-flop and 18.1 for its hold mux), written through one shared flip-flop word
+  // (cfg_q, esc_lreg's dq: what cfg_d was at the last write edge). en stays a flip-flop:
+  // a start clears it.
+  localparam integer CW = 12 + 2 * W;
+  wire          wr    = ~start & mon_we & ~mon_a[16];          // a rule write at this edge
+  wire [CW-1:0] cfg_d = {mon_a[28:17], mon_a[W-1:0], mon_b[W-1:0]};
+  wire [CW-1:0] cfg_q;
+  esc_greg #(CW) g_cq (.clk(clk), .rst_n(rst_n), .en(wr), .d(cfg_d), .q(cfg_q));
+
   reg           en    [0:RULES-1];
-  reg [3:0]     from  [0:RULES-1], to [0:RULES-1];
-  reg [1:0]     fedge [0:RULES-1], tedge [0:RULES-1];
-  reg [W-1:0]   mn    [0:RULES-1], mx [0:RULES-1];
   reg           armed [0:RULES-1];
   reg [W-1:0]   cnt   [0:RULES-1];
   reg [7:0]     nv    [0:RULES-1];
@@ -76,18 +98,22 @@ module esc_mon #(
   always @(*) if (!f_pv) assume (!rst_n);        // from reset; then every input is free
 `endif
   generate for (g = 0; g < RULES; g = g + 1) begin : g_r
-    wire f_ev = en[g] & ev(rise, fall, from[g], fedge[g]);
-    wire t_ev = en[g] & ev(rise, fall, to[g], tedge[g]);
+    wire          cw = wr & (w_rule == g);                    // this rule is written
+    wire [CW-1:0] cfg;
+    esc_lreg #(CW) g_cfg (.clk(clk), .rst_n(rst_n), .en(cw), .d(cfg_d), .dq(cfg_q), .q(cfg));
+    wire [3:0]    from  = cfg[CW-1 -: 4],  to    = cfg[CW-7 -: 4];
+    wire [1:0]    fedge = cfg[CW-5 -: 2],  tedge = cfg[CW-11 -: 2];
+    wire [W-1:0]  mn    = cfg[2*W-1 -: W], mx    = cfg[W-1:0];
+    wire f_ev = en[g] & ev(rise, fall, from, fedge);
+    wire t_ev = en[g] & ev(rise, fall, to, tedge);
     // an interval ends on the to-edge (checked against MIN before any re-arm at the same
     // edge), or MAX ticks after the from-edge with no to-edge
-    assign early[g] = run & armed[g] & t_ev & (mn[g] != {W{1'b0}}) & (cnt[g] < mn[g]);
-    assign late[g]  = run & armed[g] & ~t_ev & (mx[g] != {W{1'b0}}) & (cnt[g] == mx[g]);
+    assign early[g] = run & armed[g] & t_ev & (mn != {W{1'b0}}) & (cnt[g] < mn);
+    assign late[g]  = run & armed[g] & ~t_ev & (mx != {W{1'b0}}) & (cnt[g] == mx);
     assign counts[8*g +: 8] = nv[g];
     always @(posedge clk or negedge rst_n) begin
       if (!rst_n) begin
-        en[g] <= 1'b0; from[g] <= 4'd0; to[g] <= 4'd0; fedge[g] <= 2'd0; tedge[g] <= 2'd0;
-        mn[g] <= {W{1'b0}}; mx[g] <= {W{1'b0}}; armed[g] <= 1'b0; cnt[g] <= {W{1'b0}};
-        nv[g] <= 8'd0;
+        en[g] <= 1'b0; armed[g] <= 1'b0; cnt[g] <= {W{1'b0}}; nv[g] <= 8'd0;
       end else if (start) begin
         en[g] <= 1'b0; armed[g] <= 1'b0; cnt[g] <= {W{1'b0}}; nv[g] <= 8'd0;
       end else begin
@@ -98,10 +124,8 @@ module esc_mon #(
           if ((early[g] | late[g]) && nv[g] != 8'hFF) nv[g] <= nv[g] + 8'd1;
         end
         if (clr) nv[g] <= 8'd0;
-        if (mon_we && !mon_a[16] && w_rule == g) begin
-          en[g] <= mon_a[31]; from[g] <= mon_a[28:25]; fedge[g] <= mon_a[24:23];
-          to[g] <= mon_a[22:19]; tedge[g] <= mon_a[18:17]; mn[g] <= mon_a[W-1:0];
-          mx[g] <= mon_b[W-1:0]; armed[g] <= 1'b0; cnt[g] <= {W{1'b0}};
+        if (cw) begin                              // (the rest of the rule: g_cfg)
+          en[g] <= mon_a[31]; armed[g] <= 1'b0; cnt[g] <= {W{1'b0}};
         end
       end
     end
@@ -115,13 +139,15 @@ module esc_mon #(
       if ($past(nv[g]) == 8'hFF && !$past(clr)) assert (nv[g] == 8'hFF);
       // M3 a keep write (R[rd][16]) changes no rule
       if ($past(mon_we) && $past(mon_a[16]) && !$past(run))
-        assert (en[g] == $past(en[g]) && mn[g] == $past(mn[g]) && mx[g] == $past(mx[g])
-                && from[g] == $past(from[g]) && to[g] == $past(to[g])
+        assert (en[g] == $past(en[g]) && cfg == $past(cfg)
                 && armed[g] == $past(armed[g]) && cnt[g] == $past(cnt[g]));
+      // M7 esc_lreg's contract (D-40): after every edge that writes the bank, its dq holds
+      // what d was at that edge
+      if ($past(cw)) assert (cfg_q == $past(cfg_d));
       // M4 the counter counts: armed through a run edge with no edge of either pin and no
       // write, it is one more (saturating)
       if ($past(run) && $past(armed[g]) && !$past(f_ev) && !$past(t_ev)
-          && !$past(late[g]) && !($past(mon_we) && !$past(mon_a[16]) && $past(w_rule) == g))
+          && !$past(late[g]) && !$past(cw))
         assert (armed[g] && cnt[g] == (($past(cnt[g]) == {W{1'b1}}) ? {W{1'b1}}
                                                                       : $past(cnt[g]) + 1'b1));
     end
@@ -138,23 +164,24 @@ module esc_mon #(
   end
   assign irq = any_v;
 
-  reg          rec_v, rec_late;
-  reg [1:0]    rec_rule;
-  reg [W-1:0]  rec_ivl;
+  reg          rec_v;
+  wire         rec_late;
+  wire [1:0]   rec_rule;
+  wire [W-1:0] rec_ivl;
+  assign rec_load = ~(start | clr) & any_v & ~rec_v;   // the first violation is recorded
   assign rec = {rec_v, rec_late, 12'd0, rec_rule, rec_ivl};
+  // the record's body changes only when it is taken: a gated bank, no hold muxes
+  esc_greg #(W + 3) g_rec (.clk(clk), .rst_n(rst_n), .en(rec_load),
+      .d({late[v_rule], v_rule, cnt[v_rule]}), .q({rec_late, rec_rule, rec_ivl}));
   wire _unused = &{1'b0, mon_b[30:W]};
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      prev <= 13'd0; rec_v <= 1'b0; rec_rule <= 2'd0; rec_late <= 1'b0;
-      rec_tick <= 32'd0; rec_ivl <= {W{1'b0}};
+      prev <= 13'd0; rec_v <= 1'b0;
     end else begin
       prev <= psync;
       if (start || clr) rec_v <= 1'b0;
-      else if (any_v && !rec_v) begin
-        rec_v <= 1'b1; rec_rule <= v_rule; rec_late <= late[v_rule];
-        rec_tick <= now; rec_ivl <= cnt[v_rule];
-      end
+      else if (rec_load) rec_v <= 1'b1;
     end
   end
 
@@ -164,11 +191,11 @@ module esc_mon #(
   always @(posedge clk) if (f_pv && rst_n && $past(rst_n) && $past(rec_v)
                             && !$past(start) && !$past(clr))
     assert (rec_v && rec_rule == $past(rec_rule) && rec_late == $past(rec_late)
-            && rec_tick == $past(rec_tick) && rec_ivl == $past(rec_ivl));
+            && rec_ivl == $past(rec_ivl) && !$past(rec_load));
   // M6 a violation at an edge with no record and no start or clear is recorded, lowest rule
   always @(posedge clk) if (f_pv && rst_n && $past(rst_n) && $past(any_v) && !$past(rec_v)
                             && !$past(start) && !$past(clr))
-    assert (rec_v && rec_tick == $past(now)
+    assert (rec_v && $past(rec_load)
             && (($past(early) | $past(late)) & ((4'd1 << rec_rule) - 4'd1)) == 4'd0);
   always @(posedge clk) if (f_pv) begin
     cover (rec_v && rec_late);

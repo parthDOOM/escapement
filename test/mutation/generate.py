@@ -35,7 +35,11 @@ VERIFY_ONLY = {"FORMAL", "FORMAL_ANYNOW", "ESC_LINE_CHECK", "ESC_AHEAD_CHECK", "
 
 SKIP_LINE = re.compile(r"^\s*(module|endmodule|input|output|inout|parameter|localparam|`|function|endfunction|"
                        r"task|endtask|genvar|integer|initial|always|\$|\);|\)\s*;)|\bfor\s*\(|_unused|"
-                       r"\$display|\$finish")
+                       r"\$display|\$finish|"
+                       # a generate condition (an if naming its block): it chooses what is built
+                       # from parameters, so a mutant swaps one equivalent build for another or
+                       # trips a build guard (escapement_pstore.v g_half, g_bad: 11-13)
+                       r"^\s*if\s*\(.*\)\s*begin\s*:")
 
 
 @dataclass

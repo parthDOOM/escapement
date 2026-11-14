@@ -82,14 +82,21 @@
   "//": "TT's signal pins are at the top-left (x 30-191), clear of every macro.",
   "//": "N/FS/FN/S keep the Metal4 power columns vertical.",
   "//": "lib keys name the PROCESS corner because cmos5l STA corners are nom_typ/nom_fast/nom_slow.",
-  "//": "escapement_art: layout art, isolated Metal2 only (LEF OBS Metal1-4), at x 464.88-521.28,",
-  "//": "between the Metal4 strap pairs ending at 463.03 and starting at 522.75 (measured, m1cth).",
+  "//": "v3 floorplan (11-14, v17/x84notes/v3-progress-2026-11-14.md): the tape at the far left",
+  "//": "stretched v3's core ~1,300 um (the line unit and the bus monitor pulled left, the rest to the",
+  "//": "hub and the store), and its left-right traffic overflowed Metal3, the only horizontal",
+  "//": "signal layer: GRT overflow 932-4,592 at every density. Both macros now sit in the east",
+  "//": "column: the store bottom-right as before, the tape top-right at the same x (19 VPITCH",
+  "//": "keeps the stripes on its columns), N (pins DOWN), so the line unit sits between the two",
+  "//": "and the logic is one rectangle with no macro in its horizontal paths: GRT 0, wirelength",
+  "//": "3.17 m (was 3.9-4.1), slow setup +1.93 ns. The layout-art macro is gone: its halo stranded",
+  "//": "rows, which pdngen fed with a stub stripe the precheck's pin check rejects.",
   "MACROS": {
     "RM_IHPSG13_1P_256x32_c2_bm_bist": {
       "instances": {
         "u_tape.sram": {
-          "location": [12, 3.78],
-          "orientation": "FS"
+          "location": [1293.36, 585.90],
+          "orientation": "N"
         }
       },
       "gds": ["dir::../macro/RM_IHPSG13_1P_256x32_c2_bm_bist/RM_IHPSG13_1P_256x32_c2_bm_bist.gds"],
@@ -118,18 +125,6 @@
       },
       "nl": ["dir::./RM_IHPSG13_1P_1024x32_c2_bm_bist.v"],
       "spice": ["dir::../macro/RM_IHPSG13_1P_1024x32_c2_bm_bist/RM_IHPSG13_1P_1024x32_c2_bm_bist.cdl"]
-    },
-    "escapement_art": {
-      "instances": {
-        "u_art": {
-          "location": [464.88, 3.78],
-          "orientation": "N"
-        }
-      },
-      "gds": ["dir::../macro/escapement_art/escapement_art.gds"],
-      "lef": ["dir::../macro/escapement_art/escapement_art.lef"],
-      "nl": ["dir::./escapement_art.v"],
-      "spice": ["dir::../macro/escapement_art/escapement_art.spice"]
     }
   },
 
@@ -159,7 +154,7 @@
   "ERROR_ON_ILLEGAL_OVERLAPS": false,
 
   "//": "IHP macros are not LVS-clean internally: abstract them during extraction.",
-  "MAGIC_EXT_ABSTRACT_CELLS": ["RM_IHPSG13_.*", "escapement_art"],
+  "MAGIC_EXT_ABSTRACT_CELLS": ["RM_IHPSG13_.*"],
 
   "//": "======================= end SRAM macro integration =======================",
 

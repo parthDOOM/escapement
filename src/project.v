@@ -141,9 +141,6 @@ module tt_um_escapement (
       .wdata(tape_busy ? core_tape_wdata : host_mem_wdata),
       .rdata(tape_rdata));
 
-  // Layout art (macro/escapement_art): no ports, nothing to connect.
-  (* keep *) escapement_art u_art ();
-
   // v3: the 13 protocol pins sampled at the falling edge, half a period before the core's
   // rising-edge synchroniser samples them; the core re-times this through two more flops
   // (h2, h3), so the line unit's both-edge decoder sees each pin at two points per tick

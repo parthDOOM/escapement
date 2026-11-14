@@ -68,8 +68,8 @@ MUTANTS = {
                        "assign owned_by[8*go +: 8] = ctx_bank[go] ? {3'd0, pown[13*go + 8 +: 5]} : pown[13*go +: 8];",
                        "assign owned_by[8*go +: 8] = pown[13*go +: 8];",
                        "bank B ownership checked against bank A pins"),
-    "b_fault_keeps_pins": ("esc_core.v", "if (fault_k[pk]) oe_n = oe_n & ~pown[13*pk +: 13];",
-                           "if (fault_k[pk]) oe_n = oe_n & ~{5'd0, pown[13*pk +: 8]};",
+    "b_fault_keeps_pins": ("esc_core.v", "if (fault_k[pk] | cs_k[pk]) oe_n = oe_n & ~pown[13*pk +: 13];",
+                           "if (fault_k[pk] | cs_k[pk]) oe_n = oe_n & ~{5'd0, pown[13*pk +: 8]};",
                            "a fault does not release the context's bank B pins"),
     "b_sync_missing": ("esc_core.v", "s1 <= {ib_in, uio_in};", "s1 <= {5'd0, uio_in};",
                        "bank B inputs never reach the synchronisers"),
@@ -134,9 +134,9 @@ MUTANTS = {
                     "w_sh_we ? w_sh : w_rd_data", "a TX mailbox word latches the register write data"),
     "lr_wr_no_sh": ("esc_core.v", "w_sh_we ? w_sh : w_tx_push ? opb : w_rd_data",
                     "w_tx_push ? opb : w_rd_data", "SH latches the register write data"),
-    "lr_wr_no_start": ("esc_core.v", ".d(start ? 32'd0 : w_sh_we ? w_sh", ".d(w_sh_we ? w_sh",
+    "lr_wr_no_start": ("esc_core.v", ".d((start | rs_any) ? 32'd0 : w_sh_we ? w_sh", ".d(rs_any ? 32'd0 : w_sh_we ? w_sh",
                        "START latches stale write data into r0-r3 and SH"),
-    "lr_tmr_no_start": ("esc_core.v", ".d(start ? 32'd0 : w_tmr), .q(q_tmr)", ".d(w_tmr), .q(q_tmr)",
+    "lr_tmr_no_start": ("esc_core.v", ".d(start ? 32'd0 : rs_any ? rs_tmr : w_tmr), .q(q_tmr)", ".d(rs_any ? rs_tmr : w_tmr), .q(q_tmr)",
                         "START latches a stale timer into tmr and lee"),
     "lr_ent_late": ("esc_core.v", ".en(commit_valid & w_push),", ".en(commit_valid & w_push & ~w_exp_admit),",
                     "an EXPECT's FIFO entry latches the previous entry"),
@@ -149,8 +149,8 @@ MUTANTS = {
                        "lee latches the register write data"),
     "lr_rx_from_wr": ("esc_ctx.v", ".d(h_rx_data), .dq(h_rx_data), .q(rx1)", ".d(h_rx_data), .dq(q_wr), .q(rx1)",
                       "an RX mailbox slot latches the commit data instead of the host's word"),
-    "lr_w0_from_rdata": ("esc_line.v", ".dq({buf_q[31:24], buf_q[20:0]}), .q(w0)",
-                         ".dq({rdata[31:24], rdata[20:0]}), .q(w0)", "the line unit's W0 latches the tape data"),
+    "lr_w0_from_rdata": ("esc_line.v", ".dq({buf_q[31:24], buf_q[20:12]}), .q(w0[28:12])",
+                         ".dq({rdata[31:24], rdata[20:12]}), .q(w0[28:12])", "the line unit's W0 latches the tape data"),
     # ---- v1.4 two-slot mailbox rings
     "mb_rx_no_advance": ("esc_ctx.v", "rx_rp  <= rx_rp ^ rx_popped;", "rx_rp  <= rx_rp;",
                          "RX ring head does not advance on POP"),
@@ -166,9 +166,9 @@ MUTANTS = {
                      "a new select while stopped returns the previous field"),
     "dbg_sel7_swapped": ("esc_core.v", "4'd7:    dcs = {8'd0, cs_lr, cs_pc,", "4'd7:    dcs = {8'd0, cs_pc, cs_lr,",
                          "select 7 has LR and PC swapped"),
-    "cq_start_off": ("esc_core.v", "if (start)            cq <= START_NOW[1:0] + 2'd1;",
-                     "if (start)            cq <= START_NOW[1:0];", "the commit slots start one context off"),
-    "cq_stop_keeps": ("esc_core.v", "else                  cq <= dbg_sel_ctx;", "else                  cq <= cq;",
+    "cq_start_off": ("esc_core.v", "sq <= START_NOW[1:0] + 2'd1;",
+                     "sq <= START_NOW[1:0];", "the commit slots start one context off"),
+    "cq_stop_keeps": ("esc_core.v", "cq <= dbg_sel_ctx;", "cq <= cq;",
                       "while stopped selects 0-8 read a fixed context"),
     # ---- v1.0 core (regression of the original campaign)
     "admit_past_off_by_one": ("esc_core.v", "ahd_now  <= (nd_now != 32'd0) & ~nd_now[31];",
@@ -183,7 +183,7 @@ MUTANTS = {
                        "the entry behind a retiring head is never tested"),
     "due_pushed_lead": ("esc_ctx.v", "(push & (w_lead16 == 16'd1))", "(push & (w_lead16 == 16'd0))",
                         "an event pushed into an empty FIFO with lead 1 never retires"),
-    "pre_wrong_ctx": ("esc_core.v", "wire [1:0]  nq      = cq + 2'd1;", "wire [1:0]  nq      = cq;",
+    "pre_wrong_ctx": ("esc_core.v", "nq <= own(sq + 2'd2, pair_on);", "nq <= own(sq + 2'd1, pair_on);",
                       "admission tests computed for the context committing now, not next"),
     "pre_lead_now": ("esc_core.v", "wire [31:0] nd_now  = n_tmr - now_n;", "wire [31:0] nd_now  = n_tmr - now;",
                      "admission tests one tick stale"),
@@ -236,6 +236,13 @@ MUTANTS = {
 P2 = ("acts only when a FIFO head is past its deadline (LATE_HEAD), which P2 proves never "
       "happens in any reachable state (docs/04-VERIFICATION.md), so the mutated logic is dead")
 EXCLUDED = {
+    # v2 campaign (run 43387544767, 11-13): unobservable reset values and the big store's ties
+    'esc_core_const_8a4ec93e': "rs_pend's reset value: rs_pend feeds only rs_k, which needs run; only a start sets run, and the start edge clears rs_pend",
+    'escapement_host_const_dfa04b3f': "tape_ack set at reset lasts one cycle with tape_ack_v = 0, the capture unit's rptr reset value, so rptr <= 0 changes nothing (a START resets it too)",
+    'escapement_sram_big_const_840c5324': "A_BIST_CLK is read only in the macro's BIST mode, which A_BIST_EN = 0 never enables",
+    'escapement_sram_big_const_044be7da': "A_BIST_MEN is read only in the macro's BIST mode, which A_BIST_EN = 0 never enables",
+    'escapement_sram_big_const_733dfbcb': "A_BIST_WEN is read only in the macro's BIST mode, which A_BIST_EN = 0 never enables",
+    'escapement_sram_big_const_1c5ab090': "A_DLY is the SRAM macro's delay-select tie (must be 1); it has no function in any model (as escapement_sram_const_6c8bc178)",
     "esc_core_rel_b808cdef": P2,       # esc_core.v:491 cs_late suppression
     "esc_core_cond_6ee4183d": P2,      # esc_core.v:666 late_ctx priority
     "esc_core_const_f8680ed1": P2,     # esc_core.v:776 first-fault record of LATE_HEAD
@@ -808,6 +815,16 @@ def main() -> int:
         return 0
 
     ms = all_mutants(args.rate)
+    def applies(m: Mutant) -> bool:            # apply()'s rule, without writing
+        text = (REPO / "src" / m.file).read_text()
+        if m.line is not None:
+            lines = text.split("\n")
+            return m.line <= len(lines) and lines[m.line - 1] == m.old
+        return text.count(m.old) == 1
+    stale = [m.id for m in ms if not applies(m)]
+    if stale:      # (seven hand mutants had silently stopped applying by v2: 11-13)
+        print("mutants that no longer apply to src/ (fix their old text first): " + ", ".join(stale))
+        return 2
     if args.curated:
         ms = [m for m in ms if m.origin == "curated"]
     if args.generated:

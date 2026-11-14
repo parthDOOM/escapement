@@ -17,7 +17,8 @@
 #   c6-wait      v2 C6: imem_free only ever in slot 0 (the 4-cycle wait)     split_bmc.py, depth 12
 #   m-keep       v3 M3: MON's keep bit ignored (a clear rewrites a rule)      esc_mon.sby kind
 #   m-count      v3 M1: the interval counter starts at 0 (the off-by-one)    esc_mon.sby kind
-#   m-own-read   v3: GETM 0 reads the monitor's counts for any context        esc_ni_ind.sby kind
+#   m-dq         v3 M7: the rule latches' shared write word drops a bit      esc_mon.sby kind
+#   m-own-read   v3: GETM 0/1 read the monitor for any context                esc_ni_ind.sby kind
 #   m-own-mon    v3: a MON of another context than the monitor's owner completes  split_bmc.py, depth 12
 # Prints one line per tooth; exit status 1 if any tooth did not bite.
 set -u
@@ -65,8 +66,11 @@ tooth cfg-early esc_line.v "s/    else if (!lu_hold) {own_bad_q, v_norm_q, v_ext
 tooth ni-stop   esc_core.v 's/& ~ctx_stop\[cctx\];/\& ~(|ctx_stop);/' '& ~(|ctx_stop);' esc_ni_ind.sby base 10800
 tooth c6-grant  project.v 's/assign     imem_wgnt = imem_wpend & (core_imem_free | ~running);/assign     imem_wgnt = imem_wpend;/' 'imem_wgnt = imem_wpend;' esc_top.sby prove 600
 tooth c6-page   escapement_host.v "s/if (wslot) mem_page <= rx_byte\[1:0\]; else host_err <= 1'b1;/mem_page <= rx_byte[1:0];/" '^ *mem_page <= rx_byte\[1:0\];$' esc_host.sby prove 1800
-tooth m-keep    esc_mon.v 's/if (mon_we \&\& !mon_a\[16\] \&\& w_rule == g) begin/if (mon_we \&\& w_rule == g) begin/' 'if (mon_we && w_rule == g) begin' esc_mon.sby kind 600
-tooth m-own-read esc_core.v "s/(f_imm16 == 16'd0 \&\& mon_sel\[cctx\])/(f_imm16 == 16'd0)/" "(f_imm16 == 16'd0) ? mon_counts" esc_ni_ind.sby kind 7200
+tooth m-keep    esc_mon.v 's/wr    = ~start \& mon_we \& ~mon_a\[16\];/wr    = ~start \& mon_we;/' 'wr    = ~start & mon_we;' esc_mon.sby kind 600
+# m-dq: the latch banks' shared write word drops a bit (only M7, esc_lreg's contract, sees it: the logic
+# proofs model each bank as the enable flip-flop it replaces)
+tooth m-dq      esc_mon.v "s/\.d(cfg_d), \.q(cfg_q)/.d({cfg_d[CW-1:1], 1'b0}), .q(cfg_q)/" "cfg_d\[CW-1:1\], 1'b0" esc_mon.sby kind 600
+tooth m-own-read esc_core.v "s/(f_imm16\[15:1\] == 15'd0 \&\& mon_sel\[cctx\])/(f_imm16[15:1] == 15'd0)/" "(f_imm16\[15:1\] == 15'd0) ? lu_getm" esc_ni_ind.sby kind 7200
 tooth m-count   esc_mon.v "s/cnt\[g\] <= {{(W-1){1'b0}}, 1'b1}; end/cnt[g] <= {W{1'b0}}; end/" 'cnt\[g\] <= {W{1.b0}}; end' esc_mon.sby kind 600
 
 # bmc-s3: the bounded check's own tooth (split_bmc.py at depth 8): the two v1.7 S3 bugs of 11-10
