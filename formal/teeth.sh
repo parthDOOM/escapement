@@ -18,7 +18,7 @@
 #   m-keep       v3 M3: MON's keep bit ignored (a clear rewrites a rule)      esc_mon.sby kind
 #   m-count      v3 M1: the interval counter starts at 0 (the off-by-one)    esc_mon.sby kind
 #   m-dq         v3 M7: the rule latches' shared write word drops a bit      esc_mon.sby kind
-#   m-own-read   v3: GETM 0/1 read the monitor for any context                esc_ni_ind.sby kind
+#   m-own-read   v3: GETM 0/1 read the monitor for any context                esc_ni_ind.sby kind (scored on the induction failure, below)
 #   m-own-mon    v3: a MON of another context than the monitor's owner completes  split_bmc.py, depth 12
 # Prints one line per tooth; exit status 1 if any tooth did not bite.
 set -u
@@ -70,7 +70,6 @@ tooth m-keep    esc_mon.v 's/wr    = ~start \& mon_we \& ~mon_a\[16\];/wr    = ~
 # m-dq: the latch banks' shared write word drops a bit (only M7, esc_lreg's contract, sees it: the logic
 # proofs model each bank as the enable flip-flop it replaces)
 tooth m-dq      esc_mon.v "s/\.d(cfg_d), \.q(cfg_q)/.d({cfg_d[CW-1:1], 1'b0}), .q(cfg_q)/" "cfg_d\[CW-1:1\], 1'b0" esc_mon.sby kind 600
-tooth m-own-read esc_core.v "s/(f_imm16\[15:1\] == 15'd0 \&\& mon_sel\[cctx\])/(f_imm16[15:1] == 15'd0)/" "(f_imm16\[15:1\] == 15'd0) ? lu_getm" esc_ni_ind.sby kind 7200
 tooth m-count   esc_mon.v "s/cnt\[g\] <= {{(W-1){1'b0}}, 1'b1}; end/cnt[g] <= {W{1'b0}}; end/" 'cnt\[g\] <= {W{1.b0}}; end' esc_mon.sby kind 600
 
 # bmc-s3: the bounded check's own tooth (split_bmc.py at depth 8): the two v1.7 S3 bugs of 11-10
@@ -137,6 +136,40 @@ if [ -z "$SEL" ] || [[ " $SEL " == *" m-own-mon "* ]]; then
         "$(grep -E '^FAIL' "$d/split.log" | sed -E 's/ +/ /g; s/^FAIL [0-9]+ s //' | cut -c1-60)"
     else
       printf "NO-BITE %-10s esc_core.v:%s did not fail\n" m-own-mon "$l"; cat "$d/split.log"; fail=1
+    fi
+  fi
+fi
+
+# m-own-read: a context that does not own the monitor reads it (GETM 0/1 without the mon_sel check).
+# It stands for the NI induction (esc_ni_ind.sby kind). A bounded check from reset does not reach it:
+# the base task (depth 10) passed on this mutant (11-14), since the monitor must first hold an owner's
+# data. And sby's prove mode never ends FAIL on an induction failure alone (the basecase holds; an
+# induction FAIL only withholds PASS, sby_engine_smtbmc.py): at best UNKNOWN, and yosys-smtbmc 0.69
+# then ends ERROR, writing the witness of the induction trace (it wraps --unroll Bool terms in
+# (_ extract 0 0), which yices rejects). So it bites when the solver's own lines say: the basecase
+# passed, temporal induction failed on an NI assertion, and the proof did not pass. The unmutated
+# design passes the same task (make formal-v2).
+if [ -z "$SEL" ] || [[ " $SEL " == *" m-own-read "* ]]; then
+  d="$W/m-own-read"; mkdir -p "$d"; cp -r "$REPO/src" "$REPO/formal" "$d/"
+  pat="(f_imm16\[15:1\] == 15'd0) ? lu_getm"
+  before=$(grep -c -- "$pat" "$d/src/esc_core.v")
+  sed -i "s/(f_imm16\[15:1\] == 15'd0 \&\& mon_sel\[cctx\])/(f_imm16[15:1] == 15'd0)/" "$d/src/esc_core.v"
+  after=$(grep -c -- "$pat" "$d/src/esc_core.v")
+  if [ $((after - before)) -ne 1 ]; then
+    printf "NO-BITE %-10s the edit applied %d times (expected once)\n" m-own-read $((after - before)); fail=1
+  else
+    s=$(date +%s)
+    (cd "$d/formal" && timeout 7200 sby -f esc_ni_ind.sby kind) > "$d/sby.log" 2>&1
+    done=$(grep -E 'DONE \(' "$d/sby.log" | tail -1 | sed 's/.*DONE/DONE/')
+    why=$(grep -oE 'Assert failed in esc_ni_env: [a-z_0-9]+' "$d/sby.log" | head -1)
+    if grep -q 'returned pass for basecase' "$d/sby.log" && grep -q 'Temporal induction failed' "$d/sby.log" \
+       && [ -n "$why" ] && [[ "$done" != "DONE (PASS"* ]]; then
+      printf "BITES   %-10s %s in %ss: basecase passed, induction failed, %s\n" m-own-read "$done" \
+        $(( $(date +%s) - s )) "${why#Assert failed in }"
+    else
+      printf "NO-BITE %-10s %s in %ss (the proof did not fail on the planted bug)\n" m-own-read \
+        "${done:-no verdict}" $(( $(date +%s) - s ))
+      tail -5 "$d/sby.log"; fail=1
     fi
   fi
 fi
