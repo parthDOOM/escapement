@@ -44,7 +44,7 @@ from escasm import assemble, assemble_file  # noqa: E402
 from escert import certify  # noqa: E402
 from escmodels import Board, UartRx  # noqa: E402
 from esciss import Machine  # noqa: E402
-from esciss.machine import DG_POLY, M32, RUNNING, default_board  # noqa: E402
+from esciss.machine import DG_POLY, M32, RUNNING, default_board, reached  # noqa: E402
 
 SKIP = {"replay.asm",       # a template: sw/esctape fills in its pins and trace
         "westminster.asm"}  # a 14 s tune, far beyond the model budget below
@@ -142,6 +142,26 @@ def _period(m: Recorder, history: dict) -> int | None:
     return None
 
 
+TIMED_WAITS = {0x23, 0x31, 0x3D}    # WAITT, WAITP, GETL: they end at tmr at the latest
+
+
+def _parked_until(m: Machine, L: int) -> int | None:
+    """Ticks to the nearest deadline more than a period L ahead that a running context is
+    waiting on (None if none). A context in a long timed wait repeats the same state every
+    slot, so a pattern found while it waits is steady only until it wakes: qi_rx waits its
+    40 ms tWake, and the bench, stopping later than that, found a different state. A
+    deadline within a period is part of the pattern (a timed loop) and comes back every
+    period."""
+    near = None
+    for k, x in enumerate(m.ctx):
+        if x.state == RUNNING and m.imem[256 * m.ctx_page[k] + x.pc] >> 24 in TIMED_WAITS \
+                and not reached(m.now, x.tmr):
+            d = (x.tmr - m.now) & M32
+            if d > L and (near is None or d < near):
+                near = d
+    return near
+
+
 def _phase(m: Machine) -> list:
     """The part of a snapshot a steady pattern cycles through: contexts and pins."""
     out, oe = m.outputs()
@@ -175,6 +195,7 @@ def predict(image) -> dict:
             t0, dg0 = m.now, m.dg
             folds = [x for t, x in m.xs if t >= t0 - L]       # one period, in order
             snap = snapshot(m)
+            parked = _parked_until(m, L)
             # The state after each fold of the next period: a program that polls in a loop
             # of several instructions (the capture-unit readers) stops at any point of it,
             # and the orbit index says which. Kept only where it varies.
@@ -185,11 +206,19 @@ def predict(image) -> dict:
                     n0 += 1
                     phases.append(_phase(m))
             # Self-check: run on and find the new digest on the predicted orbit. A pattern
-            # that breaks (e.g. a FIFO-full wait inside a slow protocol) is not steady.
+            # that breaks (e.g. a FIFO-full wait inside a slow protocol) is not steady. A
+            # pattern inside a long timed wait holds only until it ends: the check stays
+            # before that, and the prediction says so (until, an absolute tick), so the
+            # bench must stop before it, and checks that it did.
             more = max(3 * L, 4 * CHUNK) + 1
+            if parked is not None:
+                more = min(more, parked - 1)
+            if more <= 2 * L:
+                history = {}                                    # no room to check: go on
+                continue
             m.run(more - L, stop_when_idle=False)
             if find_on_orbit(dg0, folds, m.dg, (more // L + 1) * len(folds)) is not None:
-                extra = {}
+                extra = {} if parked is None else {"until": t0 + parked}
                 if len(phases) == len(folds) and any(ph != [snap["ctx"], snap["uio"]] for ph in phases):
                     extra["phases"] = phases
                 return dict(kind="steady", t0=t0, dg0=dg0, period=L, folds=folds, **snap, **extra)

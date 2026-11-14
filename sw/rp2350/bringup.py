@@ -887,27 +887,35 @@ class Bringup:
             wait_us = int(e["t0"] * 1000000 / f_lo) + 1000
             while io.ticks_diff(io.ticks_us(), t_start) < wait_us:
                 io.sleep_us(200)
-            sig = self.read_sig()
+            # The pins while it runs, then STOP at once and the registers after it, when
+            # they hold still and match the digest (a polling loop's registers, read while
+            # it runs, come from different points of the loop). Stopping first also keeps
+            # the run short: a pattern inside a long timed wait holds only until "until"
+            # (qi_rx's 40 ms tWake), and reading 26 registers first took longer than that.
+            uio = io.read_uio()
             host.stop()
             run_us = io.ticks_diff(link.t_end, t_start)
-            if "phases" in e:
-                # A polling loop: registers read while it runs come from different points
-                # of the loop, so read them after STOP, when they hold still and match the
-                # digest; the pins, which the loop does not change, from before it.
-                after = self.read_sig()
-                after["uio"] = sig["uio"]
-                sig = after
+            sig = self.read_sig()
+            sig["uio"] = uio
             dg = host.read_dbg(0, 16)
             folds = e["folds"]
-            m_max = (int(run_us * f_hi / 1000000 - e["t0"]) // e["period"] + 1) * len(folds)
+            ticks_hi = int(run_us * f_hi / 1000000)
+            m_max = ((ticks_hi - e["t0"]) // e["period"] + 1) * len(folds)
             m = find_on_orbit(e["dg0"], folds, dg, max(m_max, 0))
             dg_ok = m is not None
-            if dg_ok and "phases" in e:       # the state m folds on; STOP halted it
+            past = "until" in e and ticks_hi >= e["until"]
+            e = dict(e)                       # STOP halted the running contexts
+            e["ctx"] = [[2 if c[0] == 1 else c[0]] + c[1:] for c in e["ctx"]]
+            if dg_ok and "phases" in e:       # the state m folds on
                 ph = e["phases"][(m - 1) % len(e["phases"])]
-                e = dict(e)
                 e["ctx"] = [[2 if c[0] == 1 else c[0]] + c[1:] for c in ph[0]]
                 e["uio"] = ph[1]
-            if dg_ok:
+            if past:
+                dg_ok = False
+                result = ("the run took up to tick %d, past the prediction's end at tick %d "
+                          "(a context's timed wait ends there): the bench stopped too late, "
+                          "the chip is not judged" % (ticks_hi, e["until"]))
+            elif dg_ok:
                 result = "digest 0x%08x = model at tick %d" % (dg, e["t0"] + m * e["period"]
                                                                 // len(folds))
             else:
