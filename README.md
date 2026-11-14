@@ -102,7 +102,7 @@ flowchart LR
   maximum queue occupancy, so a static timing certificate can be checked against the
   hardware. The bring-up script checks every firmware's certificate against the chip's
   telemetry. In the lockstep co-simulation with bus models, the measured lead equals the
-  certified bound to the tick in 52 of the 60 contexts that queue events, and is never below it. Contexts reach
+  certified bound to the tick in 50 of the 60 contexts that queue events, and is never below it. Contexts reach
   one another only through pins, tape and mailbox data, which escert treats as unknown
   inputs, so certificates compose: firmware certified one context at a time stays
   certified running together, on disjoint pins and tape words, with at most one context on

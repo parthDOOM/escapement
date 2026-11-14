@@ -38,8 +38,15 @@ def encode(minute, hour, day, weekday, month, year, cest=False):
 
 
 class Dcf77Receiver(Device):
-    def __init__(self, pin: int, tick_ns: float):
-        self.pin, self.tick = pin, tick_ns
+    def __init__(self, pin: int, tick_ns: float, real_line: bool = False):
+        """real_line: for a recording of a real receiver module, as a clock on the radio
+        does: runs under 30 ms are noise; a mark counts only on the seconds grid (a whole
+        number of seconds, +-40 ms, after the last good one), 0 below 150 ms, 1 up to 260
+        ms; marks off the grid are noise (`noise`), and a minute that is not 59 good marks
+        or fails a parity is not a minute (`bad_minutes`). Without it, every mark and every
+        second's spacing is judged as the chip's own output is."""
+        self.pin, self.tick, self.real_line = pin, tick_ns, real_line
+        self.noise = self.bad_minutes = 0
         self.levels: list[int] = []
         self.minutes: list[dict] = []
         self.violations: list[str] = []
@@ -53,6 +60,8 @@ class Dcf77Receiver(Device):
         return ticks * self.tick / 1e6
 
     def finish(self):
+        if self.real_line:
+            return self._finish_real()
         lv = self.levels
         marks = []                                      # (fall, width in ms)
         t = 1
@@ -83,7 +92,47 @@ class Dcf77Receiver(Device):
                     self.violations.append(f"seconds {gap:.1f} ms apart at tick {f}")
             frame.append(b)
 
-    def _minute(self, bits):
+    def _finish_real(self):
+        ms = self.tick / 1e6
+        lv = list(self.levels)
+        runs, s = [], 0
+        for t in range(1, len(lv) + 1):
+            if t == len(lv) or lv[t] != lv[s]:
+                runs.append([s, t - s, lv[s]])
+                s = t
+        for r in runs[1:]:                              # debounce: a short run is noise
+            if r[1] * ms < 30:
+                for t in range(r[0], r[0] + r[1]):
+                    lv[t] = lv[r[0] - 1]
+        marks, t = [], 1
+        while t < len(lv):
+            if lv[t - 1] == 1 and lv[t] == 0:
+                f = t
+                while t < len(lv) and lv[t] == 0:
+                    t += 1
+                if t < len(lv):
+                    marks.append((f * ms, (t - f) * ms))
+            t += 1
+        last, frame = None, []
+        for f, w in marks:
+            if last is not None:
+                n = round((f - last) / 1000)
+                if n < 1 or abs(f - last - 1000 * n) > 40:
+                    self.noise += 1                     # off the seconds grid
+                    continue
+                if n == 2:                              # second 59: the minute ends
+                    self._minute(frame, real=True)
+                    frame = []
+                elif n > 2:                             # reception lost: start again
+                    frame = []
+            last = f
+            frame.append(0 if w < 150 else 1 if w <= 260 else None)
+
+    def _minute(self, bits, real=False):
+        if real and (len(bits) != 59 or None in bits or bits[0] != 0 or bits[20] != 1
+                     or sum(bits[21:29]) % 2 or sum(bits[29:36]) % 2 or sum(bits[36:59]) % 2):
+            self.bad_minutes += 1
+            return
         if len(bits) != 59 or None in bits:
             self.violations.append(f"a minute of {len(bits)} marks")
             return

@@ -139,7 +139,7 @@ def test_clock_parameterised_firmware_certifies_at_33_to_50_mhz(fw, khz):
 FLOOR_ASSERTS = {"i2c_ctrl": 23000, "ws2812": 23791, "servo": 1346, "swd_idcode": 20313,
                  "sbus_rx": 3950, "ws2812_lu": 12000, "qi_rx": 205, "spi_flash": 17001,
                  "max7219": 15001, "stepper": 5000, "nrf24_tx": 17001,
-                 "morse": 1279}
+                 "morse": 1279, "uart_rx": 3168}
 
 
 @pytest.mark.parametrize("fw, khz", sorted(FLOOR_ASSERTS.items()))
@@ -149,6 +149,14 @@ def test_clock_floor_assert_is_no_looser_than_escert(fw, khz):
     assert certs and all(c.status == "CHECKED" for c in certs), [str(c) for c in certs]
     with pytest.raises(AsmError, match="assertion failed"):
         assemble(src.format(khz - 1), base_dir=FW)
+
+
+@pytest.mark.parametrize("khz", [500, 4000, 18000])
+def test_i2c_eeprom_certifies_below_its_default_clock(khz):
+    """i2c_eeprom's SDA setup (320 ns) is under the 7 ticks between its two EMITs below
+    20 MHz; its floor keeps the second one ahead (it faulted PAST there before)."""
+    src = f'.equ i2c_eeprom.CLK_KHZ, {khz}\n.include "i2c_eeprom.asm"\n'
+    assert [c.status for c in certify(assemble(src, base_dir=FW))] == ["CHECKED"]
 
 
 def test_concurrent_image_certifies_every_context():
@@ -179,11 +187,14 @@ def test_historic_i2c_timeout_bug_is_refuted_with_a_witness():
 def test_historic_ps2_back_to_back_bug_is_refuted():
     """ps2_device.asm once started a new frame under the previous frame's queued events
     (no wait after the stop bit): escert flags ORDER at the frame start and the burst
-    witness search reproduces the ADMIT fault on the ISS."""
+    witness search reproduces the ADMIT fault on the ISS. (The firmware of then: without
+    the later 50 us idle check, which would see the queued CLK pulses and wait them out.)"""
     src = (FW / "ps2_device.asm").read_text()
     addt = "    ADDT  50 * CLK_KHZ // 1000"
-    assert src.count(addt) == 1 and src.count("    WAITT     ") == 1
+    hold = src[src.index("    ADDI  r1, IDLE"):src.index("    ADDT  40\n") + len("    ADDT  40\n")]
+    assert src.count(addt) == 1 and src.count("    WAITT     ") == 1 and "WAITP CLKM, 0" in hold
     src = src.replace(addt, "    ; " + addt[4:]).replace("    WAITT     ", "    ; WAITT   ")
+    src = src.replace(hold, "    ADDI  r1, 40\n    SETT  r1\n")
     c = certify(assemble(src, base_dir=FW), witness_trials=10)[0]
     assert c.status == "REFUTED" and c.witness["pc"] == c.findings[0].pc, str(c)
 

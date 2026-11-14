@@ -31,7 +31,9 @@
 .equ LAT, 14                    ; RDTIME..EMIT is 12 ticks: deadline lead 2
 .equ FAR, 0xFFFFFF              ; tmr this far ahead turns WAITP into an exact wait
 .default CLK_KHZ, 25000
-.equ SU, (320 * CLK_KHZ + 999999) // 1000000   ; SDA set 320 ns before SCL is released (8 at 25 MHz)
+.equ SU_NS, (320 * CLK_KHZ + 999999) // 1000000  ; SDA set 320 ns before SCL is released (8 at 25 MHz)
+.equ SU, SU_NS + (7 - SU_NS) * (SU_NS < 7)       ; and at least 7 ticks: the EMIT that releases
+                                                ; SCL commits 4 after the one that sets SDA
 
 .entry CTX, main
 .own SCL_PIN, CTX

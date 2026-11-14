@@ -31,7 +31,8 @@
 .assert 0 <= INV <= 1, INV is 0 or 1
 .equ BIT, (CLK_KHZ * 1000 + BAUD // 2) // BAUD
 .assert BIT >= 40, a character's processing needs a stop bit and a half of 60 ticks
-.equ FIRST, (3 * BIT) // 2 - 8              ; data bit 0's centre from the RDTIME after WAITP
+.equ FIRST, (3 * BIT - 23) // 2             ; data bit 0's centre from the RDTIME two instructions
+                                            ; after WAITP: edge + 3.5 + 8 on average (docs/14 idiom 15)
 .equ GAP, (3 * BIT) // 2 + GAPC * 12 * BIT  ; from the first stop bit's centre
 .equ IN, 1 << PIN
 .equ START, IN * INV                        ; the start bit's level

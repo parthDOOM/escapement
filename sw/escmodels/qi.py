@@ -35,13 +35,25 @@ NAMES = {0x01: "SIG", 0x02: "EPT", 0x03: "CE", 0x04: "RP8", 0x05: "CHS", 0x06: "
 
 class QiTransmitter(Device):
     def __init__(self, mod, pwr, tick_ns, power=((1000, None),), t_off_after_ept_ms=10.0,
-                 ignore_ept=False, t_delay_ms=5.0, t_window_ms=8.0, t_offset_ms=8.0):
-        """power: (on_us, off_us or None) intervals in which the Power Signal is applied."""
+                 ignore_ept=False, t_delay_ms=5.0, t_window_ms=8.0, t_offset_ms=8.0, hunt=False,
+                 from_start=True):
+        """power: (on_us, off_us or None) intervals in which the Power Signal is applied.
+        hunt: as a demodulator on a real coil does, sync on the first start bit after at
+        least ten ONEs of preamble, and count the edges before them as noise (`noise`), not
+        as errors; tell halves from whole bits at 3/4 tCLK, check tCLK as the packet's mean
+        bit (fCLK is the receiver's clock; the demodulator moves single edges), end a packet
+        at the length its header gives (edges after it are the line, not the packet), and keep the
+        largest difference between a ONE's halves (`skew`) instead of the 240-260 us check;
+        bursts with no preamble are line noise (`noise_bursts`), not packets.
+        from_start=False: the recording starts in the power transfer phase, so tWake and the
+        SIG, ID, CFG order are not checked."""
         self.mod, self.pwr, self.tick = mod, pwr, tick_ns
         self.power = [list(p) for p in power]
         self.t_off_after_ept = t_off_after_ept_ms
         self.ignore_ept = ignore_ept
         self.t_delay, self.t_window, self.t_offset = t_delay_ms, t_window_ms, t_offset_ms
+        self.hunt, self.noise, self.skew = hunt, 0, 0.0
+        self.from_start, self.noise_bursts = from_start, 0
         self.edges: list[tuple[float, int]] = []    # (us, new level)
         self.packets: list[dict] = []
         self.violations: list[str] = []
@@ -97,29 +109,51 @@ class QiTransmitter(Device):
     def _packet(self, edges):
         ts = [e[0] for e in edges]
         iv = [b - a for a, b in zip(ts, ts[1:])]
+        if self.hunt:                   # sync on the start bit after >= 10 ONEs of preamble
+            half = [200 <= x <= 300 for x in iv]
+            for j in range(len(iv)):
+                run = 0
+                while run < j and half[j - 1 - run]:
+                    run += 1
+                if 400 <= iv[j] <= 600 and run >= 20:
+                    k = j - 2 * (run // 2)
+                    self.noise += k
+                    ts, iv = ts[k:], iv[k:]
+                    break
         bits, durs, errs, i = [], [], [], 0
+        # real-coil mode: a half is under 3/4 tCLK, a whole bit under 3/2 tCLK
+        hlf = (lambda x: 125 <= x < 375) if self.hunt else (lambda x: 200 <= x <= 300)
+        ful = (lambda x: 375 <= x < 750) if self.hunt else (lambda x: 400 <= x <= 600)
         while i < len(iv):
-            if 200 <= iv[i] <= 300:                     # a half: the first half of a ONE
-                if i + 1 < len(iv) and 200 <= iv[i + 1] <= 300:
+            if hlf(iv[i]):                              # a half: the first half of a ONE
+                if i + 1 < len(iv) and hlf(iv[i + 1]):
                     bits.append(1)
                     durs.append(iv[i] + iv[i + 1])
-                    if not (240 <= iv[i] <= 260 and 240 <= iv[i + 1] <= 260):
+                    if self.hunt:                   # a demodulator skews the halves
+                        self.skew = max(self.skew, abs(iv[i] - iv[i + 1]))
+                    elif not (240 <= iv[i] <= 260 and 240 <= iv[i + 1] <= 260):
                         errs.append(f"ONE halves {iv[i]:.1f}/{iv[i + 1]:.1f} us")
                     i += 2
                 elif i + 1 == len(iv):                  # the last bit: a ONE, no edge after
                     bits.append(1)
                     i += 1
                 else:
-                    errs.append(f"bad interval {iv[i + 1]:.1f} us after a half")
+                    if not self.hunt:
+                        errs.append(f"bad interval {iv[i + 1]:.1f} us after a half")
                     break
-            elif 400 <= iv[i] <= 600:
+            elif ful(iv[i]):
                 bits.append(0)
                 durs.append(iv[i])
                 i += 1
             else:
-                errs.append(f"bad interval {iv[i]:.1f} us")
+                if not self.hunt:                       # real-coil: the line after a packet
+                    errs.append(f"bad interval {iv[i]:.1f} us")
                 break
-        for d in durs:
+        if self.hunt and durs:                          # fCLK: the receiver's clock
+            mean = sum(durs) / len(durs)
+            if not 480 <= mean <= 520:
+                errs.append(f"mean bit {mean:.1f} us (tCLK 480-520)")
+        for d in ([] if self.hunt else durs):
             if not 480 <= d <= 520:
                 errs.append(f"bit {d:.1f} us (tCLK 480-520)")
                 break
@@ -132,6 +166,11 @@ class QiTransmitter(Device):
         if not 11 <= n <= 25:
             errs.append(f"preamble {n} bits (11-25)")
         rest = bits[n:]
+        if self.hunt and len(rest) >= 11:               # the header gives the packet's length
+            h0 = sum(b << k for k, b in enumerate(rest[1:9]))
+            if h0 in SIZES:
+                rest = rest[:11 * (SIZES[h0] + 2)]
+                bits = bits[:n + len(rest)]
         data = []
         while len(rest) >= 11:
             byte, rest = rest[:11], rest[11:]
@@ -159,7 +198,7 @@ class QiTransmitter(Device):
         elif len(data) != size + 2:
             errs.append(f"{p['name']}: {len(data)} bytes, want {size + 2}")
         p["message"] = data[1:-1]
-        if reduce(lambda a, b: a ^ b, data[:-1]) != data[-1]:
+        if len(data) < 2 or reduce(lambda a, b: a ^ b, data[:-1]) != data[-1]:
             errs.append("checksum")
         p["ok"] = not errs
         return p
@@ -167,6 +206,10 @@ class QiTransmitter(Device):
     # ---- after the run
     def finish(self):
         self.packets = self._decode()
+        if self.hunt:
+            real = [p for p in self.packets if p["preamble"] >= 11]
+            self.noise_bursts += len(self.packets) - len(real)
+            self.packets = real
         v = self.violations
         for p in self.packets:
             for e in p["errors"]:
@@ -185,13 +228,13 @@ class QiTransmitter(Device):
         if not seq:
             return
         dt = (seq[0]["start"] - on_us) / 1000
-        if not 19 <= dt <= 64:
+        if self.from_start and not 19 <= dt <= 64:
             v.append(f"first packet {dt:.2f} ms after the Power Signal (tWake 19-64)")
         names = [p.get("name") for p in seq]
         # the order: SIG, ID, CFG (Count 0, no XID), then CE / RP8; or EPT at any point,
         # and only EPT after it
         want = ["SIG", "ID", "CFG"]
-        k = 0
+        k = 0 if self.from_start else 3
         while k < len(names) and k < 3 and names[k] == want[k]:
             k += 1
         if k < len(names) and names[k] != "EPT" and k < 3:
@@ -200,7 +243,7 @@ class QiTransmitter(Device):
             if names[j] not in ("CE", "RP8", "EPT") or "EPT" in names[k:j] and names[j] != "EPT":
                 v.append(f"packet {j} is {names[j]} in the power transfer phase")
                 break
-        if k == 3 and len(names) > 3 and names[3] != "CE" and names[3] != "EPT":
+        if self.from_start and k == 3 and len(names) > 3 and names[3] != "CE" and names[3] != "EPT":
             v.append(f"the first packet after CFG is {names[3]}, want CE")
         last_ce = last_rp = None
         for prev, p in zip(seq, seq[1:]):
