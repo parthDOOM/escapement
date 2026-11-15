@@ -73,13 +73,14 @@ def isa_table():
         if line.startswith("### "):
             group = line[4:].strip()
             continue
-        m = re.match(r"^\| ([0-9A-F]{2}(?:\s*[–/-]\s*[0-9A-F]{2})*(?:\s*/\s*[0-9A-F]{2})*) \|(.*)\|\s*$", line)
+        # an opcode, a range ("19 to 1C", or with a dash) or a list ("0A / 0B")
+        m = re.match(r"^\| ([0-9A-F]{2}(?:\s*(?:[–/-]|to)\s*[0-9A-F]{2})*) \|(.*)\|\s*$", line)
         if not m or group is None:
             continue
         cells = [c.strip() for c in m.group(2).split("|")]
         ops = m.group(1)
-        if "–" in ops or "-" in ops:
-            a, b = re.split(r"\s*[–-]\s*", ops)
+        if re.search(r"[–-]|to", ops):
+            a, b = re.split(r"\s*(?:[–-]|to)\s*", ops)
             codes = range(int(a, 16), int(b, 16) + 1)
         else:
             codes = [int(x, 16) for x in re.split(r"\s*/\s*", ops)]

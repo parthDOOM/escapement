@@ -150,7 +150,7 @@ export default function Die3D() {
         )}
       </div>
       <figcaption>
-        The real layout, 1289 × 711 µm, built from the final GDS. Each layer is drawn at its height in the
+        The real layout, 1724 × 711 µm, built from the final GDS. Each layer is drawn at its height in the
         process, stretched about 40 times so the stack is visible. Toggle layers in the legend; Logic blocks
         shows which part of the design each region holds.
       </figcaption>

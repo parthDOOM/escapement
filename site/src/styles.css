@@ -78,6 +78,7 @@ p { margin: 0; max-width: var(--measure); }
   backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
 }
 .bar .wrap { display: flex; align-items: center; gap: 1.25rem; min-height: 3.4rem; }
+.nobr { white-space: nowrap; }
 .mark { font: 600 1.25rem/1 var(--font-display); color: var(--fg); text-decoration: none; letter-spacing: 0.01em; white-space: nowrap; }
 .bar nav { display: flex; gap: 1.1rem; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; }
 .bar nav::-webkit-scrollbar { display: none; }
@@ -98,6 +99,17 @@ section { padding-block: clamp(3rem, 7vw, 6rem); }
 .sec-head { display: grid; gap: 1rem; margin-bottom: 2.4rem; }
 .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 3.5rem); align-items: start; }
 @media (max-width: 860px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+/* A heading with one paragraph after it: on wide screens the eyebrow and heading take the left
+   column and the paragraph the right, so the paragraph keeps its reading width and the band is
+   filled. Narrow screens keep the single column. */
+@media (min-width: 1000px) {
+  :is(.sec-head, .sub-head):has(> :is(h2, h3) + p:last-child) {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-rows: auto 1fr;
+    column-gap: clamp(2.5rem, 5vw, 5rem); align-items: start; max-width: none;
+  }
+  :is(.sec-head, .sub-head):has(> :is(h2, h3) + p:last-child) > :is(.eyebrow, h2, h3) { grid-column: 1; }
+  :is(.sec-head, .sub-head):has(> :is(h2, h3) + p:last-child) > :is(h2, h3) + p { grid-column: 2; grid-row: 1 / span 2; }
+}
 
 /* ---- hero ---- */
 .hero { padding-block: clamp(2rem, 5vw, 4rem) 2rem; }

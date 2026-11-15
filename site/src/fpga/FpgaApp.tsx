@@ -3,11 +3,11 @@ import Header from "../components/Header";
 import Ruler from "../components/Ruler";
 import Pinout from "../components/Pinout";
 import { useJson } from "../lib/util";
-import BenchLayout from "./BenchLayout";
+import WiringDiagram, { ROLE } from "./WiringDiagram";
 import SignalPath from "./SignalPath";
 import { BlockDiagram, FpgaVsAsic } from "./Blocks";
 import type { Firmware, Fpga, Wire } from "./types";
-import { cssColour, REPO, wireColour } from "./types";
+import { BIT_COLOURS, cssColour, REPO, wireColour } from "./types";
 
 const SECTIONS = [
   ["bench", "Bench"],
@@ -61,33 +61,39 @@ function Page({ d }: { d: Fpga }) {
   const passed = d.stages.filter((s) => s.pass).length;
   const lut = d.pnr.util.LUT4, ff = d.pnr.util.DFF, bram = d.pnr.util.BSRAM;
   const commit = d.chip.commit ?? "";
+  const [sel, setSel] = useState<number | null>(null);
+  // a bitstream whose build checks failed and was packed by hand for the run (v3: chip.MANIFEST)
+  const packed = !!d.chip.checks_failed;
   return (
     <>
       <section className="hero fpga-hero">
         <div className="wrap hero-grid">
           <div>
-            <p className="eyebrow">Hardware bench · v1.6 · {d.date}</p>
+            <p className="eyebrow">Hardware bench · v3 · {d.date}</p>
             <h1>On the <em>bench</em></h1>
             <p className="claim">The chip's RTL on an FPGA, driven pin for pin by the bring-up script it was written
               for. {d.verdict === "PASSED" ? "Every stage passes." : "See the results below."}</p>
             <p className="lede">A Raspberry Pi Pico W plays the Tiny Tapeout demo board and a Sipeed Tang Primer 25K
-              plays the chip. Version 1.6 of the RTL, the same commit that was hardened for silicon, runs through
-              its own wiring check, six bring-up stages and all {d.firmware.length} firmware programs, each compared
-              with the reference model.</p>
+              plays the chip. Version 3 of the RTL, the same Verilog that was hardened for silicon, runs through
+              six bring-up stages and all {d.firmware.length} firmware runs, each compared with the reference
+              model.</p>
             <div className="facts">
               <div><b>{d.pinid.map.length}</b><span>signals wired, {d.pinid.pass ? "all identified" : "see wiring"}</span></div>
               <div><b>{passed} of {d.stages.length}</b><span>bring-up stages pass</span></div>
               <div><b>{ok} of {d.firmware.length}</b><span>firmware match the model</span></div>
               <div><b>{d.clock_mhz?.toFixed(4)}</b><span>MHz, the clock the chip measured</span></div>
               <div><b>{d.pnr.fmax_mhz?.toFixed(1)}</b><span>MHz limit of this FPGA build</span></div>
-              <div><b>{d.chip.skew_ns?.toFixed(3)} ns</b><span>clock skew across every clock sink</span></div>
+              {packed
+                ? <div><b>{d.chip.checks_failed}</b><span>build checks failed: <a href="#path">the clock</a></span></div>
+                : <div><b>{d.chip.skew_ns?.toFixed(3)} ns</b><span>clock skew across every clock sink</span></div>}
             </div>
           </div>
-          <figure className="panel">
-            <BenchLayout d={d} />
-            <figcaption>The bench from above, to scale. Wire colours follow the bit: bit 0 brown to bit 7 grey,
-              ground black, clock white. Red rings mark what must stay empty: the sockets' 3V3 column, the
-              header's 5 V pin and the Pico's power pins.</figcaption>
+          <figure className="panel photo">
+            <img src="../img/bench-setup.jpg" width={1400} height={963}
+              alt="The bench: a Raspberry Pi Pico W on the left, its pins wired by a bundle of coloured jumpers to the three Pmod sockets of a Sipeed Tang Primer 25K Dock lying on a breadboard on the right, with a USB-C cable in the Dock and a USB cable in the Pico." />
+            <figcaption>The bench as it ran: the Pico W (left) and the Tang Primer 25K Dock (right), each powered
+              over its own USB cable, joined by 32 jumpers and no power wire. Every wire is drawn and listed
+              under <a href="#bench">The bench</a>.</figcaption>
           </figure>
         </div>
       </section>
@@ -111,12 +117,22 @@ function Page({ d }: { d: Fpga }) {
                 interface on plain GPIO: the clock from a PWM output, the SPI link and every bank pin on GPIOs, a
                 byte per register access as on the demo board.</p>
               <p><strong>The wiring check.</strong> Before the chip goes on, a test bitstream sends each signal's
-                own number down its wire and the Pico identifies every GPIO without driving any. This run:
+                own number down its wire and the Pico identifies every GPIO without driving any. It last ran
+                on {d.pinid.date}{d.pinid.date !== d.date ? ", and the wiring has not changed since" : ""}:
                 <span className={d.pinid.pass ? "ok-text" : "bad-text"}> {d.pinid.pass ? "WIRING: PASS" : "failed"}</span>,
                 all {d.pinid.map.length} signals on the expected GPIOs.</p>
             </div>
-            <WireTable d={d} />
+            <WireTable d={d} sel={sel} setSel={setSel} />
           </div>
+          <figure className="panel wiring-fig" style={{ marginTop: "2rem" }}>
+            <div className="scroll-x"><WiringDiagram d={d} sel={sel} setSel={setSel} /></div>
+            <WireNote d={d} sel={sel} />
+            <figcaption>Every jumper, routed to be followed rather than drawn to scale. Colours follow the
+              bit, {BIT_COLOURS.map((c, i) => <Key key={c} c={c} t={String(i)} />)} with <Key c="black" t="ground," />{" "}
+              <Key c="white" t="clock" /> and <Key c="grey" t="reset." /> Each socket hole shows its bit, G for ground.
+              Red rings are never wired: the sockets' 3V3 column, J3's +5V pin, and the Pico's power pins and
+              RUN.</figcaption>
+          </figure>
           <div className="sub-head" id="pins" style={{ marginTop: "3.5rem" }}>
             <p className="eyebrow">The chip's pins</p>
             <h3>Twenty-four pins, two banks</h3>
@@ -142,8 +158,16 @@ function Page({ d }: { d: Fpga }) {
           <p className="note" style={{ marginTop: "1.5rem" }}>The clock enters on ball L3. The neighbouring L4, also
             clock-capable, cannot be put on the FPGA's global clock network by the open-source place-and-route tool
             used here: a first build with the clock there fell back to ordinary routing, with 5.5 ns of skew and 191
-            hold violations, and was never loaded. From L3 the clock reaches every flip-flop and both block RAMs
-            through one global buffer with {d.chip.skew_ns?.toFixed(3)} ns of measured skew.</p>
+            hold violations, and was never loaded. From L3 the clock reaches every flip-flop and block RAM
+            through one global buffer{packed ? "." : <> with {d.chip.skew_ns?.toFixed(3)} ns of measured skew.</>}</p>
+          {packed && <p className="note" style={{ marginTop: "1rem" }}>Version 3 adds one more clock sink. It samples
+            the 13 protocol pins on the falling clock edge as well, so that the line unit sees each pin twice per tick,
+            and the FPGA synthesis made that edge with an inverter in a LUT instead of a falling-edge flip-flop. The
+            inverter's input is reached through ordinary routing, {d.chip.skew_ns?.toFixed(3)} ns after every flip-flop
+            and block RAM clock pin, and the falling-edge bank is a clock domain of its own, which nextpnr does not
+            time into the core: by design the core reads it half a cycle later, 20 ns at 25 MHz. Two of the build's
+            own checks fail on this, a clock wholly on the global network and at most 0.05 ns of skew, so this
+            bitstream was packed by hand for the bench run. Every stage and every firmware passed on it.</p>}
         </div>
       </section>
 
@@ -163,21 +187,22 @@ function Page({ d }: { d: Fpga }) {
             <div><b>{n(ff[0])}</b><span>flip-flops of {n(ff[1])} ({Math.round((100 * ff[0]) / ff[1])}%)</span></div>
             <div><b>{bram[0]}</b><span>block RAMs of {bram[1]}</span></div>
             <div><b>{d.pnr.fmax_mhz?.toFixed(1)} MHz</b><span>clock limit, after routing (run at 25)</span></div>
-            <div><b>{d.chip.skew_ns?.toFixed(3)} ns</b><span>clock skew</span></div>
+            <div><b>{d.chip.skew_ns?.toFixed(3)} ns</b><span>clock skew{packed ? ", the falling-edge sink" : ""}</span></div>
           </div>
           <div className="cols" style={{ marginTop: "3rem" }}>
             <div className="prose">
               <h3>One design, two forms</h3>
-              <p>The same RTL as a GW5A bitstream and as the IHP SG13G2 layout. The FPGA column counts each block
+              <p>The same RTL as a GW5A bitstream and as the IHP SG13CMOS5L layout. The FPGA column counts each block
                 with its boundaries kept ({n(d.hierarchy.total.lut4)} LUT4 in all); the bitstream itself, flattened
-                and optimised across blocks, uses {n(lut[0])}. The silicon column is the signed-off v1.6 layout.</p>
+                and optimised across blocks, uses {n(lut[0])}. The silicon column is the signed-off version 3 layout.</p>
               <p>A full gate-level drawing of either is a wall of boxes: tens of thousands of cells. The die views on
                 the <a href="../silicon/">layout page</a> show the real layout down to the transistors.</p>
-              <p className="note">nextpnr reports 40 hold flags at the block RAM address pins. A lone counter feeding a
-                block RAM gets the same 40, also with the clock on the Dock's own oscillator pin, which the tool routes
-                entirely on global wires: they come from its block RAM timing model, not from this design. The build
-                fails unless the clock is global, the skew is at most 0.05 ns, setup passes at 25 MHz and no other hold
-                flag appears; bring-up stage 3 then exercises both block RAMs on the board.</p>
+              <p className="note">nextpnr reports {d.pnr.hold_flags} hold flags, all at block RAM address pins. A lone
+                counter feeding a block RAM gets such flags too, also with the clock on the Dock's own oscillator pin,
+                which the tool routes entirely on global wires: they come from its block RAM timing model, not from this
+                design. The build fails unless the clock is global, the skew is at most 0.05 ns, setup passes at 25 MHz
+                and no other hold flag appears{packed ? " (this run's bitstream fails the first two: see the signal path)" : ""};
+                bring-up stage 3 then exercises every block RAM on the board.</p>
             </div>
             <FpgaVsAsic d={d} />
           </div>
@@ -234,18 +259,20 @@ function Page({ d }: { d: Fpga }) {
           </div>
           <div className="cols">
             <dl className="trace">
-              <dt>Commit</dt><dd><a href={`${REPO}/commit/${commit}`}>{commit}</a> ({d.chip.branch}{d.chip.dirty ? ", modified" : ", clean"})</dd>
+              <dt>Commit</dt><dd><a href={`${REPO}/commit/${commit}`}>{commit}</a> ({d.chip.branch}{/clean/.test(d.chip.branch ?? "") ? "" : d.chip.dirty ? ", modified" : ", clean"})</dd>
               <dt>Bitstream</dt><dd>sha256 {d.chip.bitstream_sha256}</dd>
-              <dt>Built</dt><dd>{d.chip.built}</dd>
+              {d.chip.built && <><dt>Built</dt><dd>{d.chip.built}</dd></>}
               <dt>Tools</dt><dd>{d.chip.tools}</dd>
-              <dt>Firmware</dt><dd>bundles from {d.bundles.commit?.slice(0, 7)} ({d.bundles.dirty ? "modified" : "clean"}), built {d.bundles.built}</dd>
+              <dt>Firmware</dt><dd>bundles from {d.bundles.commit?.slice(0, 7)} ({d.bundles.dirty ? "modified" : "clean"}){d.bundles.built ? `, built ${d.bundles.built}` : ""}</dd>
               <dt>Evidence</dt><dd><a href={`${REPO}/tree/master/${d.files}`}>{d.files}</a></dd>
             </dl>
             <div className="prose">
               <p>Each build writes a manifest with the commit and the sha256 of every input. The bring-up log, the
-                stage 5 telemetry of every program, the wiring check and the place-and-route log of this run are
-                committed next to the bench sources, and this page is generated from them.</p>
-              <p>Rebuilding from the published scripts gives a bit-identical bitstream: the same sha256. To repeat the
+                stage 5 telemetry of every program and the place-and-route log of this run, and the wiring check of
+                {" "}{d.pinid.date}, are kept next to the bench sources, and this page is generated from them.</p>
+              <p>{packed
+                ? "This run's bitstream was packed by hand after two of the build's own checks failed (the signal path, above), so the published build script stops before it; its sha256 is the one in the manifest."
+                : "Rebuilding from the published scripts gives a bit-identical bitstream: the same sha256."} To repeat the
                 run, follow <a href={`${REPO}/tree/master/fpga/tangprimer25k`}>fpga/tangprimer25k</a>: two boards,
                 32 jumper wires and the OSS CAD Suite.</p>
             </div>
@@ -268,6 +295,8 @@ function Page({ d }: { d: Fpga }) {
               <li>The hardened netlist: the FPGA build uses a different synthesis tool and cell library.</li>
               <li>The clock gates and latch banks: the FPGA build makes them plain flip-flops.</li>
               <li>The IHP SRAM macros: replaced by block RAM with the same timing contract.</li>
+              {packed && <li>This run's falling-edge input sampler, which the FPGA clocks through an inverter off the
+                global network (the signal path, above).</li>}
             </ul>
             <div className="prose">
               <p>Those stay covered by the gate-level test suites on the standard-cell models, the RTL-to-netlist
@@ -282,7 +311,26 @@ function Page({ d }: { d: Fpga }) {
   );
 }
 
-function WireTable({ d }: { d: Fpga }) {
+const Key = ({ c, t }: { c: string; t: string }) => (
+  <span className="key"><i className="sw" style={{ background: cssColour(c) }} />{t}</span>
+);
+
+/** The picked wire, in words. */
+function WireNote({ d, sel }: { d: Fpga; sel: number | null }) {
+  const w = d.wires.find((x) => x.pico === sel);
+  if (!w) return <p className="wire-note dim">Point at a wire, a pin, a hole or a row of the table to follow one wire.</p>;
+  const hole = w.dock === "J3" ? `pin ${w.pin}, ${w.row} row` : `${w.row} row, column ${w.col}`;
+  const role = ROLE[w.sig] ? ` (${ROLE[w.sig]})` : "";
+  return (
+    <p className="wire-note">
+      <i className="sw" style={{ background: cssColour(wireColour(w)) }} />
+      Pico pin {w.pico} · {d.pico[w.pico - 1]} → {w.dock}, {hole} · <b>{w.sig}{role}</b>
+      {w.ball !== "GND" && <> · ball {w.ball}</>}
+    </p>
+  );
+}
+
+function WireTable({ d, sel, setSel }: { d: Fpga; sel: number | null; setSel: (p: number | null) => void }) {
   const order = ["J4", "J5", "J6", "J3"];
   const label: Record<string, string> = { J4: "J4 · ui_in", J5: "J5 · uo_out", J6: "J6 · uio", J3: "J3 · clock and reset" };
   const ws = [...d.wires].sort((a, b) => order.indexOf(a.dock) - order.indexOf(b.dock) || a.pico - b.pico);
@@ -297,10 +345,11 @@ function WireTable({ d }: { d: Fpga }) {
             const rows = [];
             if (w.dock !== last) { last = w.dock; rows.push(<tr key={"g" + w.dock} className="group"><td colSpan={5}>{label[w.dock]}</td></tr>); }
             rows.push(
-              <tr key={w.dock + w.pin + w.sig}>
-                <td><i className="sw" style={{ background: cssColour(wireColour(w)) }} />{wireColour(w)}</td>
+              <tr key={w.dock + w.pin + w.sig} className={sel === w.pico ? "picked" : undefined}
+                onMouseEnter={() => setSel(w.pico)} onMouseLeave={() => setSel(null)}>
+                <td className="nowrap"><i className="sw" style={{ background: cssColour(wireColour(w)) }} />{wireColour(w)}</td>
                 <td className="num mono">{w.pico} · {d.pico[w.pico - 1]}</td>
-                <td className="mono">{w.sig}</td>
+                <td className="mono">{w.sig}{ROLE[w.sig] ? ` ${ROLE[w.sig]}` : ""}</td>
                 <td className="mono">{pos(w)}</td>
                 <td className="mono">{w.ball}</td>
               </tr>,

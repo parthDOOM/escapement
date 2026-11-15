@@ -5,8 +5,10 @@ import { asset, css, DPR, fit, useJson, useWheelGuard, ZOOM_KEY } from "../lib/u
 import { Block, blockAt, Floorplan, floorplan, paint } from "../lib/floorplan";
 import type { DieInfo } from "./Die3D";
 
-const macroName = (box: number[], H: number) =>
-  box[1] > H / 2 ? "Tape · SRAM 256 × 32" : "Program memory · SRAM 256 × 32";
+// The program store (1024 x 32) is the larger of the two macros, the tape (256 x 32) the smaller.
+const area = (b: number[]) => (b[2] - b[0]) * (b[3] - b[1]);
+const macroName = (box: number[], all: { box: number[] }[]) =>
+  area(box) >= Math.max(...all.map((m) => area(m.box))) ? "Program memory · SRAM 1024 × 32" : "Tape · SRAM 256 × 32";
 
 export default function DieZoom() {
   const [info, err] = useJson<DieInfo>("die/die.json");
@@ -94,7 +96,7 @@ export default function DieZoom() {
           g.fillStyle = "rgba(10,12,20,0.78)"; g.fillRect(X + 6, Y + 6, tw, 19);
           g.fillStyle = "#f0c66e"; g.fillText(t, X + 11, Y + 10);
         };
-        info.macros.forEach((m) => lab(m.box[0], m.box[1], m.box[2], m.box[3], macroName(m.box, H)));
+        info.macros.forEach((m) => lab(m.box[0], m.box[1], m.box[2], m.box[3], macroName(m.box, info.macros)));
         lab(30, H - 12, 191, H, "Tiny Tapeout pins");
       }
       const um = [1, 2, 5, 10, 20, 50, 100, 200, 500].find((u) => u * s >= 70) || 500;

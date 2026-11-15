@@ -15,7 +15,7 @@ const FIELD_COL: Record<string, string> = {
   mask: "--c3", value: "--c1", oe: "--c2", level: "--c1", mode: "--c0", window: "--c2", pin: "--c3", dir: "--c0",
 };
 const GROUP_ORDER = ["Data", "Control", "Time and input", "Events", "Tape and capture", "Host mailboxes",
-  "Line unit (v1.4)"];
+  "Line unit", "Bus timing monitor"];
 
 function reservedMask(o: Op) {
   let used = 0;

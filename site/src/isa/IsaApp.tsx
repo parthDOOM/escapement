@@ -14,8 +14,8 @@ export default function IsaApp() {
       <main id="top">
         <section className="hero page-hero">
           <div className="wrap">
-            <p className="eyebrow">Instruction set · v1.6</p>
-            <h1>Fifty-three <em>words</em></h1>
+            <p className="eyebrow">Instruction set · v3</p>
+            <h1>Fifty-five <em>words</em></h1>
             <p className="lede">Every instruction is 32 bits: an 8-bit opcode and a 24-bit payload whose unused bits
               must be zero, so erased or uninitialised memory traps instead of running. The decoder below is the
               project's own Python, running in your browser. Programs written with these instructions run in

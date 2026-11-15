@@ -68,7 +68,10 @@ export default function App() {
         <section className="hero">
           <div className="wrap hero-grid">
             <div>
-              <p className="eyebrow">Protocol emulator ASIC · IHP SG13CMOS5L 130 nm · Tiny Tapeout 6×4</p>
+              <p className="eyebrow">
+                <span className="nobr">Protocol emulator ASIC ·</span> <span className="nobr">IHP SG13CMOS5L 130 nm ·</span>{" "}
+                <span className="nobr">Tiny Tapeout 8×4</span>
+              </p>
               <h1>Escape<em>ment</em></h1>
               <p className="claim">No pin edge is ever late, whatever program runs.
                 <a href="#proof">Proved for every program, on the netlist that goes to silicon.</a></p>
@@ -80,14 +83,14 @@ export default function App() {
                 <a className="run-btn" href="#play">Run the firmware</a>
                 <a className="icon-btn" href="#inside">How it works</a>
               </div>
-              <p className="hero-hw"><a href={asset("fpga/")}>Runs on hardware: version 1.6 on an FPGA, driven by a
-                Pico W, passes all 6 bring-up stages and 48 of 48 firmware programs →</a></p>
+              <p className="hero-hw"><a href={asset("fpga/")}>Runs on hardware: version 3 on an FPGA, driven by a
+                Pico W, passes all 6 bring-up stages and 71 of 71 firmware runs →</a></p>
               <div className="facts">
                 <div><b>40 ns</b><span>one tick at 25 MHz, rated to 50</span></div>
                 <div><b>4</b><span>programs running at once</span></div>
                 <div><b>13</b><span>protocol pins, two banks</span></div>
-                <div><b>64</b><span>firmware programs</span></div>
-                <div><b>3.6 mW</b><span>sending UART</span></div>
+                <div><b>71</b><span>firmware programs</span></div>
+                <div><b>4.4 mW</b><span>sending UART</span></div>
                 <div><b>0</b><span>late edges, for any program, for all time</span></div>
               </div>
             </div>
@@ -129,8 +132,9 @@ export default function App() {
                 <p>Nothing on the chip knows what UART or I2C is. The silicon offers three kinds of timed event:
                   <strong> DRIVE</strong> sets pins, <strong>EXPECT</strong> checks that an input holds a level or
                   arrives at it within a window of up to 127 ticks, and <strong>SAMPLE</strong> captures one input bit.
-                  Everything else is a program in the 256-word program memory. Version 1.4 adds one more timed
-                  event, a packet, for protocols whose bits come too fast for a program to code by hand.</p>
+                  Everything else is a program, in a 1,024-word program memory of four 256-word pages. Version 1.4
+                  added one more timed event, a packet, for protocols whose bits come too fast for a program to
+                  code by hand.</p>
               </div>
               <div className="prose">
                 <h3>Proved before it runs</h3>
@@ -216,7 +220,7 @@ export default function App() {
                 certified and simulated here, then audited: from the events the program queued and the faults it took,
                 the page works out what every pin must show on every tick, and compares that with the pins. A program
                 that cannot keep its schedule is refused when it queues the edge, never served late. The tricks below
-                are the obvious ones; there are 53 instructions and four contexts to try others.</p>
+                are the obvious ones; there are 55 instructions and four contexts to try others.</p>
             </div>
             <Later h={700}><Late /></Later>
           </div>
@@ -269,20 +273,20 @@ export default function App() {
             <div className="sec-head">
               <p className="eyebrow">Physical design</p>
               <h2>The die</h2>
-              <p className="lede">Six by four Tiny Tapeout tiles, laid out with LibreLane and OpenROAD on IHP's open
+              <p className="lede">Eight by four Tiny Tapeout tiles, laid out with LibreLane and OpenROAD on IHP's open
                 130 nm process. Zoom in until the wires become separate, or switch on the blocks to see where the four
                 contexts ended up.</p>
             </div>
             <Later h={520}><DieZoom /></Later>
 
-            <p className="more"><a href={asset("silicon/")}>Down to the transistors, and the six layouts that led
+            <p className="more"><a href={asset("silicon/")}>Down to the transistors, and the seven layouts that led
               here →</a></p>
             <div className="stats" style={{ marginTop: "3rem" }} aria-label="Sign-off results">
-              <div><b>32,239</b><span>standard cells</span></div>
-              <div><b>65.9%</b><span>utilisation</span></div>
-              <div><b>2.33 m</b><span>of wire</span></div>
-              <div><b>50.8 MHz</b><span>clock limit, slow corner (rated 50)</span></div>
-              <div><b>+0.126 ns</b><span>worst hold slack, fast corner</span></div>
+              <div><b>37,230</b><span>standard cells</span></div>
+              <div><b>61.9%</b><span>utilisation</span></div>
+              <div><b>2.32 m</b><span>of wire</span></div>
+              <div><b>+1.480 ns</b><span>worst setup slack at 20 ns, slow corner (rated 50 MHz)</span></div>
+              <div><b>+0.180 ns</b><span>worst hold slack, fast corner</span></div>
               <div><b>0</b><span>DRC, LVS and antenna errors</span></div>
             </div>
 
@@ -290,8 +294,9 @@ export default function App() {
               <div className="prose">
                 <h3>Power: measure, then cut what dominates</h3>
                 <p>The first netlist used 93% of its busy power while doing nothing, all of it clocking flip-flops and
-                  reading memories every cycle. Clock gating, on-demand memory selects and a split hold margin cut every
-                  workload by about two thirds.</p>
+                  reading memories every cycle. Clock gating, on-demand memory selects and a split hold margin removed
+                  most of it. Version 3 uses 4.42 mW sending a UART and 3.38 mW stopped, against 8.61 and 7.99 mW for
+                  that first netlist.</p>
                 <p>Figures are from gate-level simulation at the typical corner, with the memory energy counted edge by
                   edge.</p>
               </div>

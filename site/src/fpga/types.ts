@@ -11,6 +11,8 @@ export type Firmware = {
 export type Manifest = {
   text: string; commit?: string; branch?: string; dirty?: boolean; built?: string; tools?: string;
   bitstream_sha256?: string; skew_ns?: number;
+  /** set when the build's own checks failed and it was packed by hand for a bench run */
+  checks_failed?: number; checks_note?: string; checks?: string[];
 };
 export type Block = {
   inst: string; type: string; parent: string; lut4?: number; mux?: number; alu?: number; ff?: number; bram?: number;
@@ -18,7 +20,7 @@ export type Block = {
 export type Edge = { from: string; to: string; bits: number; ports: string[] };
 export type Fpga = {
   date: string; files: string;
-  pinid: { pass: boolean; map: [number, string][] };
+  pinid: { pass: boolean; map: [number, string][]; date: string };
   stages: Stage[]; verdict: string | null; firmware: Firmware[];
   chip: Manifest; bundles: Manifest;
   pnr: { util: Record<string, [number, number]>; fmax_mhz: number | null; hold_flags: number };

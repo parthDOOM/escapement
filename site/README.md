@@ -1,7 +1,9 @@
 # Escapement site
 
 The explainer site: what the chip does, how it works, and its firmware running live in the
-browser. React, TypeScript and three.js, built with Vite into a static folder.
+browser. React, TypeScript and three.js, built with Vite into a static folder with four
+pages: the main page (`index.html`), the instruction set (`isa/`), the layout (`silicon/`)
+and the FPGA bench (`fpga/`).
 
 ```sh
 cd site
@@ -17,6 +19,12 @@ Both commands first run `npm run data`, which needs Python 3 with PyYAML:
   builds the instruction table from `isa/isa.yaml` and `docs/02-ISA.md`.
 - `tools/runs.py` runs every stock firmware once, so the page has its waveforms before
   Python has loaded, and learns each sample recording of "record it, speak it".
+- `tools/fpga_bench.py` builds the FPGA page's data from the committed evidence of the
+  latest bench run (`fpga/tangprimer25k/results/`), its manifests and the pin constraints;
+  nothing on that page is typed in by hand.
+
+`tools/ci_results.py` writes the results page's data from the latest master run of each
+verification workflow; the site workflow runs it before the build (it needs the GitHub CLI).
 
 The playground (`py/escplay.py`) and "record it, speak it" (`py/learnplay.py`: esclearn,
 escgen and escert on a recording) run in a web worker under Pyodide. They wire the

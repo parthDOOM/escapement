@@ -67,10 +67,12 @@ export default function Barrel() {
   useEffect(() => {
     if (!playing) return;
     const id = setInterval(() => {
+      // at the last tick the run is whole again: back to the full view, the readout on the pointer
       setAt((a) => {
-        const n = a == null || a >= N - 1 ? 0 : a + 1;
-        if (n >= N - 1) setPlaying(false);
-        return n;
+        const n = a == null ? 0 : a + 1;
+        if (n < N - 1) return n;
+        setPlaying(false);
+        return null;
       });
     }, reduced() ? 1 : 70);
     return () => clearInterval(id);
@@ -96,12 +98,14 @@ export default function Barrel() {
       <div className="controls barrel-controls">
         <button className="icon-btn" type="button" onClick={() => {
           if (playing) { setPlaying(false); return; }
-          setAt((a) => (a == null || a >= N - 1 ? 0 : a));
+          setAt((a) => a ?? 0);
           setPlaying(true);
         }}>
-          {playing ? "pause" : at != null && at >= N - 1 ? "replay" : "play"}
+          {playing ? "pause" : at != null ? "resume" : "play"}
         </button>
-        <button className="icon-btn" type="button" disabled={at == null || playing} onClick={() => setAt(null)}>show all</button>
+        {/* paused part-way, the ticks after the cursor are hidden: this brings them back */}
+        <button className="icon-btn" type="button" disabled={at == null || playing} onClick={() => setAt(null)}>
+          show all {N} ticks</button>
         <span className="mono readout" aria-live="polite">{run ? readout : "loading…"}</span>
       </div>
       <figcaption>

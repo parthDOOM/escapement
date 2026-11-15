@@ -4,9 +4,10 @@
   --pcb: #1d5a38; --pcb-ink: #e6efe9; --hole: #151515; --pin: #c9a34f; --bb: #2a2822; --bb-line: #4a4538;
   --w-brown: #8a5a2b; --w-red: #d32f2f; --w-orange: #f57c00; --w-yellow: #f2c12e; --w-green: #2e8b3e;
   --w-blue: #1e63c4; --w-purple: #7b3fa0; --w-grey: #8c8c8c; --w-white: #f4f4f4; --w-black: #1b1b1b;
+  --w-edge: #6d7480;
 }
-@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bb: #e9e4d6; --bb-line: #c9c1aa; } }
-:root[data-theme="light"] { --bb: #e9e4d6; --bb-line: #c9c1aa; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bb: #e9e4d6; --bb-line: #c9c1aa; --w-edge: #59606a; } }
+:root[data-theme="light"] { --bb: #e9e4d6; --bb-line: #c9c1aa; --w-edge: #59606a; }
 
 /* only on wide screens: the site's own breakpoints stack the hero and the facts on narrow ones */
 @media (min-width: 921px) { .fpga-hero .hero-grid { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr); } }
@@ -29,3 +30,13 @@ tr.group td { color: var(--brass); font: 600 0.72rem var(--font-mono); letter-sp
 @media (max-width: 560px) { .trace { grid-template-columns: minmax(0, 1fr); } .trace dt { margin-top: 0.4rem; } }
 .fw-filter { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.8rem; }
 .note { border-left: 2px solid var(--brass); padding: 0.2rem 0 0.2rem 0.9rem; color: var(--fg-2); max-width: var(--measure); }
+.wiring-fig .fig-svg { min-width: 760px; }
+.wire-note { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.3rem; margin: 0.8rem 0 0; min-height: 1.6rem;
+  font: 0.82rem/1.6 var(--font-mono); color: var(--fg-2); }
+.wire-note b { color: var(--fg); }
+.key { white-space: nowrap; margin-right: 0.35rem; }
+td.nowrap { white-space: nowrap; }
+.key .sw { margin-right: 0.2rem; }
+.photo img { display: block; width: 100%; height: auto; border-radius: 6px; }
+tr.picked td { background: var(--bg-3); }
+.wire-note.dim { color: var(--fg-3); }

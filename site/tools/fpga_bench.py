@@ -133,12 +133,18 @@ def manifest(path):
     tools = re.search(r"^tools: (.*)$", t, re.M)
     if tools:
         m["tools"] = tools.group(1)
-    fs = re.search(r"^([0-9a-f]{64})\s+\S*chip\.fs$", t, re.M)
+    fs = re.search(r"^(?:([0-9a-f]{64})\s+\S*chip\.fs|chip\.fs\s+([0-9a-f]{64}))$", t, re.M)
     if fs:
-        m["bitstream_sha256"] = fs.group(1)
+        m["bitstream_sha256"] = fs.group(1) or fs.group(2)
     sk = re.search(r"clock skew ([\d.]+) ns", t)
     if sk:
         m["skew_ns"] = float(sk.group(1))
+    # a build whose own checks failed says so, with the checks, before its sha256 list
+    bad = re.search(r"^BUILD CHECKS FAILED \((\d+)\)(.*)$", t, re.M)
+    if bad:
+        m["checks_failed"] = int(bad.group(1))
+        m["checks_note"] = bad.group(2).strip(" ,")
+        m["checks"] = [" ".join(x.split()) for x in re.findall(r"^  - (.*(?:\n    .*)*)", t, re.M)]
     return m
 
 
@@ -146,12 +152,14 @@ def main():
     runs = sorted(p for p in (BENCH / "results").iterdir() if p.is_dir())
     run = runs[-1]
     stages, fw, verdict = bringup((run / "bringup.log").read_text())
-    pin = (run / "pinid.txt").read_text()
+    # the wiring check runs when the wiring changes: the newest one up to this run
+    pin_run = [r for r in runs if (r / "pinid.txt").exists() and r.name <= run.name][-1]
+    pin = (pin_run / "pinid.txt").read_text()
     pinmap = re.findall(r"^GP(\d+)\s+(\S+)$", pin, re.M)
     data = {
         "date": run.name,
         "files": f"fpga/tangprimer25k/results/{run.name}",
-        "pinid": {"pass": "WIRING: PASS" in pin, "map": [[int(g), s] for g, s in pinmap]},
+        "pinid": {"pass": "WIRING: PASS" in pin, "map": [[int(g), s] for g, s in pinmap], "date": pin_run.name},
         "stages": stages,
         "verdict": verdict,
         "firmware": fw,
