@@ -202,6 +202,33 @@ async def test_live_write_refusals(dut):
 
 
 @cocotb.test()
+async def test_read_refused_at_its_address_byte(dut):
+    """A READ_TAPE or READ_IMEM whose address byte arrives while a written word waits is refused
+    then, even if the word lands before the read's first data byte (11-15: a mutant that refused
+    it only when the word still waited at that byte passed every suite)."""
+    host, _, _ = await setup(dut)
+    await host.write_tape(0, list(range(16)))                # (a refused read still reads
+    await host.write_imem(0, list(range(16)))                # mem_addr: no X on miso)
+    for read in (host.read_tape, host.read_imem):
+        dut.running.value = 1
+        dut.tb_free.value = 0
+        await host.write_imem(5, [0xAAAAAAAA])               # waits for a free slot
+        assert int(dut.imem_wpend.value) and not (await host.status())["host_err"]
+
+        async def free_after_address():                       # the slot frees between the bytes
+            while int(dut.u_host.idx.value) != 2:
+                await RisingEdge(dut.clk)
+            dut.tb_free.value = 1
+
+        cocotb.start_soon(free_after_address())
+        await read(9, 1)
+        assert not int(dut.imem_wpend.value)                  # the word landed in the read
+        assert (await host.status())["host_err"], read.__name__
+        await host.clear_err()
+    dut.running.value = 0
+
+
+@cocotb.test()
 async def test_ctx_stop_and_start(dut):
     """v1.7 (S3): CTX_STOP / CTX_START strobe their mask during a run; CTX_START refuses a
     context that is RUNNING or not enabled, both refuse while stopped (host error, no strobe)."""

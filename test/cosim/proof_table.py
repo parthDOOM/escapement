@@ -105,7 +105,10 @@ def cosim_table(rtl: dict) -> tuple[list[str], list[str]]:
     for name, (fw, ticks, factory) in FIRMWARE_CASES.items():
         image = fw_image(name, fw, REPO / "firmware")
         board, host, check, *bb = factory()
-        m = Machine(image, board=board, board_b=bb[0] if bb else no_board_b)
+        # a board with a falling-edge view (v3: the both-edge sampler) gives it to the ISS,
+        # as test_cosim.py does
+        m = Machine(image, board=board, board_b=bb[0] if bb else no_board_b,
+                    half=getattr(board, "half", None))
         if host is not None:
             host.machine = m
         m.run(ticks, stop_when_idle=False)

@@ -22,7 +22,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "sw"))
 from esciss.line import (LineUnit, Cfg, crc_step, IDLE, CFG, PEND, TX, ARM, RX, CRC,  # noqa: E402
-                         OP_OFF, OP_RECV, OP_CRC, OP_CONFIG)
+                         OP_OFF, OP_RECV, OP_CRC, OP_CONFIG, FULL)
 
 M32 = 0xFFFFFFFF
 
@@ -42,6 +42,9 @@ def rand_cfg(rng, force=None):
     longp = prof in ("rxlongc", "rxlongk")   # (forced only) v3 receive, 1.5 P past el's 4,093
     if longp:
         prof = "rxcell" if prof == "rxlongc" else "rxclk"
+    fullp = prof == "rxfull"                 # (forced only) v3 long receive filled to its limit
+    if fullp:
+        prof = rng.choice(["rxcell", "rxclk"])
     if canmon:
         prof = "can"
     if prof == "eth":                          # 10BASE-T: Manchester half-bits, CRC-32, TP_IDL
@@ -59,8 +62,10 @@ def rand_cfg(rng, force=None):
               | rng.choice([0, 0, 0, 5, 6]) << 12 | rng.randint(0, 1) << 15 | rng.randint(0, 1) << 19
               | rng.choice([0, 0, rng.randint(0, 255)]) << 24)
         P = rng.choice([4, 5, 6, 8, 10, 16]) if rng.random() < 0.9 else rng.randint(2, 40)
-        if longp or rng.random() < 0.04:
+        if longp or (not fullp and rng.random() < 0.04):
             P = rng.randint(2729 if longp else 2700, 4095)   # 1.5 P near or past el's 4,093
+        if fullp:
+            P = rng.choice([4, 5, 6, 8])       # short bits: 8,192 of them fit a run
         both = int(prof == "rxcell" and rng.random() < 0.4)   # P and S then count half ticks
         S = max(1, min(P - 1, round(0.75 * P) + rng.choice([0, 0, -1, 1])))
         if rng.random() < 0.05:
@@ -73,6 +78,8 @@ def rand_cfg(rng, force=None):
         w4 = (rng.choice([0x04C1, 0, rng.getrandbits(16)]) | rng.randint(0, 7) << 16
               | (1 if prof == "rxcell" else 2) << 21 | rng.randint(0, 1) << 23
               | (both if prof == "rxcell" else rng.randint(0, 1)) << 24 | rng.choice([0, 0, 1]) << 25)
+        if fullp:
+            w4 |= 1 << 25                      # long: the limit counts 256 bits
         w2, w3, w4 = rand_ext(rng, rng.choice([0x1DB7, 0x8005, 0, rng.getrandbits(16)])
                               | rng.randint(0, 3) << 16 | rng.randint(0, 1) << 18
                               | rng.choice([0, 0, 0, 1, 2]) << 21, w3, w4)   # short idle minimum
@@ -149,6 +156,7 @@ class Line:
         self.cur = 0xFF
         self.loop = False
         self.flip = 0.0
+        self.full = False       # (the rxfull profile) packets long enough to fill a long receive
 
     def _emit(self, ticks, v):
         if ticks > 0:
@@ -204,6 +212,8 @@ class Line:
         elif cfg.sync_skip:
             bits += [0] * rng.randint(0, 9) + [1]
         nb = rng.choice([0, 1, 7, 8, 16, 31, 32, 33, 64, 72, rng.randint(0, 300)])
+        if self.full:
+            nb = rng.choice([200, 300, 520, 8300])
         data = [rng.getrandbits(1) for _ in range(nb)]
         if rng.random() < 0.5 and cfg.poly32:
             crc = cfg.crc_start()
@@ -319,6 +329,7 @@ def main():
     tape = [rng.getrandbits(32) for _ in range(256)]
     lu = LineUnit()
     line = Line(rng)
+    line.full = force == "rxfull"
     owns = 0xFF if rng.random() < 0.7 else rng.getrandbits(8)
     pending = []                 # deadlines of the owner's queued LINE entries
     pval = poe = 0               # the owner's logical pin state, as the unit leaves it
@@ -362,6 +373,8 @@ def main():
 
         # ---- inputs
         r = rng.random()
+        if force == "rxfull" and lu.mode in (ARM, RX):
+            r = 1.0                  # (rxfull) a long receive runs to its end: no start or stop
         if r < 0.00002:
             start = 1
         elif r < 0.00006:
@@ -378,6 +391,8 @@ def main():
             # an owner slot with the unit free: act now and then, as firmware does; an armed
             # receiver is mostly left to find its packet
             act = rng.random() < (rate * 0.02 if mode == ARM else rate)
+            if force == "rxfull" and mode in (ARM, RX):
+                act = False          # (rxfull) nor any op
             if act and not engaged and (lu.owner is None or mine) and (
                     not lu.configured or rng.random() < 0.04):
                 op = 5
@@ -394,6 +409,8 @@ def main():
                     opv = (OP_RECV << 28) | rng.getrandbits(13) | rng.getrandbits(15) << 13
                     if rng.random() < 0.5:
                         opv = (opv & ~0x1F00) | rng.choice([1, 2, 4, 8, 9, 31, 0]) << 8
+                    if force == "rxfull":   # 256 or 512 bits, or 0: the most, 8,192
+                        opv = (opv & ~0x1F00) | rng.choice([1, 1, 2, 0, 0]) << 8
                 elif k == "crc":
                     op = 4
                     nb = rng.choice([0, 1, 5, 16, 31, 32, 33, 64, 255, rng.randint(0, 255)])
@@ -488,6 +505,10 @@ def main():
                     if lu.cap_ends != cap_seen:                # ended by silence at el's cap
                         st("sil_cap")
                         cap_seen = lu.cap_ends
+                if exp_state[8] == RX and lu.cfg.long and lu.cause == FULL:
+                    st("long_full")                            # v3: a long receive filled
+                    if lu.rx_limit in (256, 8192):             # RECV's limit field 1 or 0
+                        st(f"long_full_{lu.rx_limit}")
         lines.append(" ".join(f"{x:x}" for x in (
             tm & M32, view, owns, start, kill, stop, op, opctx, opv & 0x3FFFFFFF, lret, halt,
             ewe, eaddr, edata) + exp_state + (rel, drv, dval, doe, view_h)))

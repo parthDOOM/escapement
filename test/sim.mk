@@ -26,6 +26,8 @@ ifeq ($(STORE_MACROS),)
 $(error test/sim.mk: no STORE_MACROS in src/project.v)
 endif
 COMPILE_ARGS    += -DESC_STORE_MACROS=$(STORE_MACROS)
-VERILOG_SOURCES += $(ESC_REPO)/src/escapement_sram_big.v
+# the wrappers from the suite's SRC_DIR, as every other source (11-15: from the repository's
+# src/ instead, so the mutation campaign's mutants of this file never reached a simulation)
+VERILOG_SOURCES += $(if $(SRC_DIR),$(SRC_DIR),$(ESC_REPO)/src)/escapement_sram_big.v
 VERILOG_SOURCES += $(ESC_REPO)/macro/RM_IHPSG13_1P_512x32_c2_bm_bist/RM_IHPSG13_1P_512x32_c2_bm_bist.v
 VERILOG_SOURCES += $(ESC_REPO)/macro/RM_IHPSG13_1P_1024x32_c2_bm_bist/RM_IHPSG13_1P_1024x32_c2_bm_bist.v

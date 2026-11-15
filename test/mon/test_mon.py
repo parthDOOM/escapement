@@ -23,6 +23,11 @@ from esciss.monitor import Monitor  # noqa: E402
 
 CYCLES = int(os.environ.get("MON_CYCLES", "200000"))
 STORM = min(20000, CYCLES // 2)
+# a directed stretch after the storm: one interval of LONG_IVL ticks on pin 1, longer than the
+# 16-bit count, against MIN 0xFFFF (11-15: a mutant whose count wrapped instead of saturating
+# passed every suite). Only when the run is long enough to hold it.
+LONG, LONG_IVL = STORM + 6000, 70000
+LONG_ON = CYCLES >= LONG + LONG_IVL + 100
 
 
 def rand_rule(rng):
@@ -53,6 +58,8 @@ async def test_mon_lockstep(dut):
     pins, rate, running, now = 0, 0.1, False, 0
     tick = 0                                     # the core's copy (esc_core mon_tick)
     cov = {"early": 0, "late": 0, "record": 0, "sat": 0, "clear": 0}
+    if LONG_ON:
+        cov["cnt_sat"] = 0                       # the long interval's count reached 0xFFFF
     errors = 0
     for cyc in range(CYCLES):
         await FallingEdge(dut.clk)
@@ -60,23 +67,29 @@ async def test_mon_lockstep(dut):
         # a directed stretch: one rule that every pulse on pin 0 breaks, with no start, stop
         # or clear for 4,000 cycles, so its count saturates (random runs rarely get there)
         storm = STORM <= cyc < STORM + 4000
+        long_ = LONG_ON and LONG <= cyc < LONG + LONG_IVL + 50
         if rng.random() < 0.002:
             rate = rng.choice([0.01, 0.05, 0.2, 0.5])
         for p in range(13):
             if rng.random() < (0.5 if storm and p == 0 else rate if p < 4 else rate / 8):
                 pins ^= 1 << p
-        start = int(rng.random() < 0.0005 or cyc in (5, STORM))
-        if storm and cyc != STORM:
+        if long_:                                # pin 1: low, then high for LONG_IVL ticks, then low
+            hi = LONG + 10 <= cyc < LONG + 10 + LONG_IVL
+            pins = (pins & ~2) | (int(hi) << 1)
+        start = int(rng.random() < 0.0005 or cyc in (5, STORM) or (LONG_ON and cyc == LONG))
+        if (storm and cyc != STORM) or (long_ and cyc != LONG):
             start = 0
         if start:
             running = True
-        elif running and not storm and rng.random() < 0.0003:
+        elif running and not storm and not long_ and rng.random() < 0.0003:
             running = False                      # this is the stop edge: no evaluation
         stop_edge = not start and not running and dut.run.value == 1
         run = int(running and not start)
-        mon = rand_rule(rng) if (run and rng.random() < 0.01) else None
+        mon = rand_rule(rng) if (run and not long_ and rng.random() < 0.01) else None
         if storm:                                # rule 0: pin 0 rise -> fall, MIN 0xFFFF
             mon = ((1 << 31 | 1 << 23 | 2 << 17 | 0xFFFF, 0) if cyc == STORM + 1 else None)
+        if long_ and cyc == LONG + 1:            # rule 1: pin 1 rise -> pin 1 fall, MIN 0xFFFF
+            mon = (1 << 31 | 1 << 29 | 1 << 25 | 1 << 23 | 1 << 19 | 2 << 17 | 0xFFFF, 0)
         dut.psync.value = pins
         dut.start.value = start
         dut.run.value = run
@@ -111,6 +124,8 @@ async def test_mon_lockstep(dut):
             cov["late" if m.rec_late else "early"] += 1
         if any(r.nv == 0xFF for r in m.rules):
             cov["sat"] += 1
+        if long_ and m.rules[1].armed and m.rules[1].cnt == 0xFFFF:
+            cov["cnt_sat"] += 1
         now = (now + 1) & 0xFFFFFFFF
         _ = stop_edge
     dut._log.info(f"{CYCLES} cycles, coverage {cov}")

@@ -1675,3 +1675,56 @@ async def test_monitor_belongs_to_its_first_user(dut):
     await env.run(30)
     mon = [c for c in env.commits() if c["insn"] >> 24 == 0x3E]
     assert [(c["ctx"], c["oc"]) for c in mon] == [(1, C)], mon
+
+
+MON_LATE_SRC = """
+    .entry 0, a
+    .own 0, 0
+    a:  MOVI r1, 0
+        MOVHI r1, 0x8082        ; enable, rule 0, pin 0 rise -> pin 0 rise, MIN 0
+        MOVI r2, 10             ; MAX 10: late 10 ticks after the rise (no second rise comes)
+        MON r1, r2
+        GETM r3, 2              ; the record's tick, before any record: 0 from reset
+        ADDT 40
+        EMIT 1, 1, 1            ; pin 0 high at tick 40 and never low again
+        ADDT 30
+        WAITT
+        GETM r3, 1              ; the record
+        GETM r0, 2              ; its tick
+        HALT
+"""
+
+
+@cocotb.test()
+async def test_monitor_tick_and_stop(dut):
+    """v3: the record's tick (GETM 2) is 0 from reset until a record, and the monitor does not
+    evaluate at a stop edge or while stopped (§6.7: it evaluates at every edge of a run except
+    the stop edge). A rule from a rise on pin 0 to the next rise, armed by a rise at tick 40,
+    goes late at about tick 53 when the run goes on; stopped at tick 48 (the stop releases the
+    pin, a fall, which the rule ignores) it records nothing, so after a restart the tick still
+    reads 0. (11-15: mutants that reset the tick to 1, or let the monitor run
+    while stopped, passed every suite.)"""
+    getm = lambda e: [c for c in e.commits() if c["insn"] >> 24 == 0x3F and c["ctx"] == 0]
+    env = await new_env(dut)
+    await env.load_and_start(MON_LATE_SRC, lb=1)        # pins loop back: the monitor sees the rise
+    await env.run(110)
+    g = getm(env)
+    assert [c["oc"] for c in g] == [C, C, C], g
+    assert g[0]["r3"] == 0, g[0]                       # no record yet
+    assert g[1]["r3"] >> 30 == 0b11, g[1]              # valid, late: the rule does fire
+    assert g[2]["r0"] != 0, g[2]                       # at a tick of this run
+
+    env = await new_env(dut)
+    await env.load_and_start(MON_LATE_SRC, lb=1)
+
+    def stim(t):
+        dut.stop.value = 1 if t == 48 else 0
+
+    await env.run(60, stim=stim, full=False)
+    g = getm(env)
+    assert [(c["oc"], c["r3"]) for c in g] == [(C, 0)], g   # only the first GETM ran
+    # restart: the monitor recorded nothing in the run, at its stop edge or while stopped
+    await env.load_and_start(".entry 0, a\n.own 0, 0\na:  MOVI r1, 0\n MON r1, r1\n GETM r3, 2\n HALT\n")
+    await env.run(30)
+    g = getm(env)
+    assert [(c["oc"], c["r3"]) for c in g] == [(C, 0)], g

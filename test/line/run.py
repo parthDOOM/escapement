@@ -33,7 +33,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SRC = HERE.parents[1] / "src"
 PROFILED = [(1001, "eth"), (1002, "spi"), (1003, "canmon"), (1004, "rxcell"), (1005, "rxclk"),
-            (1006, "rxcell"), (1007, "rxclk"), (1008, "rxlongc"), (1009, "rxlongk")]   # (v3: two seeds each for the new receivers)   # (seed, profile) runs after the random seeds
+            (1006, "rxcell"), (1007, "rxclk"), (1008, "rxlongc"), (1009, "rxlongk"),
+            (1010, "rxfull"), (1011, "rxfull")]   # (v3: two seeds each for the new receivers)   # (seed, profile) runs after the random seeds
 
 
 def one(seed: int, edges: int, work: Path, vvp: Path, profile: str = "") -> tuple[int, int, int, dict, str]:
@@ -106,6 +107,14 @@ def main() -> int:
     # (random ops abort long-P receives first, so this is usually 0: the end at el's cap is
     # covered on the whole chip by test/cosim's spi_sniff_long case and its tooth)
     print(f"v3 silence at el's cap (1.5 P > 4,093): {cov.get('sil_cap', 0)} jobs")
+    # a long receive filled to its limit, 256 x n bits and the most, 8,192 (11-15: a mutant of
+    # the long limit's compare passed every suite; the rxfull runs make it happen)
+    full = {n: cov.get(f"long_full_{n}", 0) for n in (256, 8192)}
+    print(f"v3 long receive filled: {cov.get('long_full', 0)} jobs, {full[256]} of them at 256 bits, "
+          f"{full[8192]} at 8,192")
+    if not a.no_profiled and not all(full.values()):
+        print("a long receive never filled to 256 bits or to 8,192: the rxfull runs cover too little")
+        bad.append("rxfull")
     print(f"{a.seeds} seeds + {len(res) - a.seeds} profiled, {total} edges{' (ESC_NO_CG)' if a.no_cg else ''}: "
           f"{'PASS' if not bad else f'FAIL {bad}'}")
     return 1 if bad else 0

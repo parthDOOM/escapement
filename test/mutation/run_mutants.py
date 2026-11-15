@@ -251,6 +251,38 @@ EXCLUDED = {
                                       "function in any model, and the macro model flags any other value",
     "escapement_sram_const_8907efe9": "A_BIST_REN is read only in the macro's BIST mode, which A_BIST_EN = 0 "
                                       "never enables",
+    # v3 campaign (run 43664480488, 11-15): undecided by the 30-minute proof, each argued here
+    **{m: "a rule's cnt is read only while the rule is armed (early, late, the record's interval of the "
+          "lowest violating rule, and the increment are all gated by armed), and every assignment that "
+          "arms it sets cnt to 1; this one assigns cnt together with armed <= 0, so its value is never read"
+       for m in ("esc_mon_stuck_a9886d2c",    # esc_mon.v:116 reset: cnt keeps its value
+                 "esc_mon_const_0dbac10b",    # esc_mon.v:118 start: cnt <= all ones
+                 "esc_mon_const_69cc696c",    # esc_mon.v:128 rule write: cnt <= all ones
+                 "esc_mon_stuck_ade180bf")},  # esc_mon.v:128 rule write: cnt keeps its value
+    "esc_mon_const_a2eabace": "prev's reset value only feeds the rise and fall terms of the first cycle "
+                              "after reset, which act only with run, and run is 0 until the edge after a "
+                              "start; from then prev follows the pins",
+    "esc_core_const_8b682ea3": "p1_spc is loaded with the fetch PC at every edge, so its reset value lives "
+                               "one cycle; it is read only through p2_spc in x_ok, gated by p2v, which is 0 "
+                               "from reset until three edges after a start",
+    **{m: "nq and fq while not running, and nq in run cycle 0, are never read: fq addresses the fetch, "
+          "which is off (imem_re = f_valid needs run; the store is the host's while stopped); nq selects "
+          "the X stage's operands, whose registers (opa, opb, the ahead tests, lead16, p3ok) reach only a "
+          "commit, which needs p3v, and p3v is 0 while stopped and for three edges after a start; f_chain "
+          "needs x_ok, gated by p2v, likewise. Every start reloads both before they matter"
+       for m in ("esc_core_stuck_f2077774",   # esc_core.v:1128 start: nq keeps its value
+                 "esc_core_arith_acea6627",   # esc_core.v:1138 stopped: nq = dbg_sel_ctx - 1
+                 "esc_core_const_ca1d67be",   # esc_core.v:1138 stopped: nq = dbg_sel_ctx + 2
+                 "esc_core_stuck_17c3571e")}, # esc_core.v:1139 stopped: fq keeps its value
+    "esc_line_const_48ae550c": "ld set at a start lasts one cycle (the next edge loads rd_now | rd_commit) "
+                               "with the unit IDLE; ld acts only in CFG, CRC, PEND, TX and RX (the buffer, "
+                               "W1 to W3, nxt_q, the sample bits), none of which a start leaves",
+    "esc_line_stuck_e1b77044": "the CONFIG that completes here set cause to OK when it was issued, and "
+                               "nothing changes cause while the unit stays in CFG: every operation that "
+                               "sets another cause also leaves CFG (RECV with no receiver to IDLE)",
+    "project_const_25d7c148": "pin_h reloads from the pins at every falling edge, so its reset value lives "
+                              "half a cycle; it reaches only the line unit's receive strobe (h2, h3), which "
+                              "acts only in a receive, many cycles after a start",
     # reset and idle values of state that is always loaded before anything reads it
     "esc_core_const_ed962f97": "s2 reloads from s1 at every edge, so its reset value lives one cycle; nothing "
                                "reads the synchronised pins before a START, which takes a whole SPI frame",
@@ -474,6 +506,7 @@ SUITES = {
     "chip": ("test", [], 2400),
     "pins": ("test", ["COCOTB_TEST_MODULES=test_firmware_pins"], 2400),
     "line": ("test/line", [], 900),          # run.py, not make (v1.4)
+    "mon": ("test/mon", [], 900),            # v3: esc_mon against its model, every cycle
 }
 PIPELINE = {
     "esc_line.v": ["line", "cosim", "unit", "chip", "pins"],
@@ -482,6 +515,9 @@ PIPELINE = {
     "escapement_pstore.v": ["host", "cosim", "chip"],
     "escapement_sram_big.v": ["host", "cosim", "chip"],
     "project.v": ["chip", "pins"],
+    # v3 (11-15): the monitor's own lockstep suite first; without it the campaign ran only the
+    # core's suites on esc_mon.v, and nine of its mutants survived them
+    "esc_mon.v": ["mon", "cosim", "unit", "chip", "pins"],
 }
 CORE_PIPELINE = ["cosim", "unit", "chip", "pins"]
 # A suite that runs out of time on a mutant counts as a kill, so its limit must be far
@@ -627,6 +663,7 @@ def kill_evidence(suite: str, work: Path) -> str:
 # else complained.)
 CANARY = {   # suite -> (file, old, new): a fault that suite must catch
     "line": ("esc_line.v", "drv_m = claimed; drv_val = dq_val;", "drv_m = claimed; drv_val = ~dq_val;"),
+    "mon": ("esc_mon.v", "assign rdata = rsel ? rec : counts;", "assign rdata = rsel ? counts : rec;"),
     "cosim": ("esc_core.v", "w_rd_data = {16'd0, f_imm16};", "w_rd_data = {16'd0, ~f_imm16};"),
     "unit": ("esc_core.v", "w_rd_data = {16'd0, f_imm16};", "w_rd_data = {16'd0, ~f_imm16};"),
     "host": ("escapement_host.v", "localparam [3:0] VERSION = (PAGES > 1) ? 4'hA", "localparam [3:0] VERSION = (PAGES > 1) ? 4'h8"),

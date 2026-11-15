@@ -115,6 +115,36 @@ async def test_identity_over_spi(dut):
 
 
 @cocotb.test()
+async def test_store_reads_only_for_the_host_while_stopped(dut):
+    """D-29: while the chip is stopped, the program store's macro is enabled only for the host:
+    never in an idle cycle, and during a READ_IMEM frame (the host holds its read enable for
+    the frame). (11-15: a mutant that read the store in every stopped cycle passed every suite;
+    it changes nothing but power.) RTL only: the gate-level netlist renames the hierarchy."""
+    if os.environ.get("GATES") == "yes":
+        return
+    from cocotb.triggers import RisingEdge
+    host = await bring_up(dut, Board())
+    words = [0x11111111, 0x22222222, 0x33333333]
+    await host.write_imem(0x40, words)
+    men = dut.user_project.u_sram.g_whole.u0.sram.A_MEN
+    count = {"on": 0, "cycles": 0}
+
+    async def watch():
+        while True:
+            await RisingEdge(dut.clk)
+            count["cycles"] += 1
+            count["on"] += int(men.value)
+
+    w = cocotb.start_soon(watch())
+    await ClockCycles(dut.clk, 2000)
+    assert count["on"] == 0, f"store enabled in {count['on']} of {count['cycles']} idle stopped cycles"
+    count["on"] = count["cycles"] = 0
+    assert await host.read_imem(0x40, 3) == words
+    w.cancel()
+    assert count["on"] > 0, "the store was never enabled for a READ_IMEM"
+
+
+@cocotb.test()
 async def test_output_delays_match_the_build(dut):
     """Whether this run has live delays, measured on the pins: every uo_out change lags the
     last input change (clk, rst_n, ena, ui_in, uio_in) by exactly 0 in a zero-delay RTL run,
