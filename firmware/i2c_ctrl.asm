@@ -20,9 +20,9 @@
 ;   After any variable-length code (call/return, flag tests) the bit timeline is
 ;   re-anchored to `now + RA` once the scheduled SCL fall has happened (WAITT first):
 ;   that only lengthens an SCL low phase, which UM10204 allows, and never shortens one,
-;   whatever the clock. (v1.5's program, fixed at 25 MHz, relied on the fall having
-;   passed by tick count alone: true with its constants, but rebuilt from CLK_KHZ for
-;   33 MHz that would cut tLOW short.)
+;   whatever the clock. (Counting ticks alone to know the fall had passed holds with
+;   the constants for 25 MHz, but with constants rebuilt from CLK_KHZ for 33 MHz it
+;   would cut tLOW short.)
 ;   Found by the ISS: without a re-anchor the first data bit of a byte missed its
 ;   deadline and the hardware rejected it (ADMIT/PAST) instead of emitting a late edge.
 ;   The rise of SCL is watched for only once its release is due (WAITT), so every edge

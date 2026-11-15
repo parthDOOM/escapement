@@ -1,4 +1,4 @@
-; I2C bus timing checker (v3, the bus timing monitor): watches SCL and SDA between other
+; I2C bus timing checker (the bus timing monitor): watches SCL and SDA between other
 ; devices, drives nothing, and reports every clock pulse or data change that breaks the
 ; bus's timing. Four interval rules on the synchronised pins, checked by the monitor at
 ; every tick (the firmware only reads the results):

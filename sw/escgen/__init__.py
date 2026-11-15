@@ -264,7 +264,7 @@ class _Gen:
         self.emit(f"JNZ   {lbl}")
 
     def choose_msb(self, s0, s1, p0, p1, bits, last):
-        """v1.6: a choose field MSB first: r0 shifts a copy of the word left, r3 counts up."""
+        """A choose field MSB first: r0 shifts a copy of the word left, r3 counts up."""
         self.emit("MOV   r0, r1", f"{bits} bits, MSB first, each {s0} or {s1}")
         if bits < 32:
             self.emit(f"SHL   r0, {32 - bits}", "the field's first bit to bit 31")

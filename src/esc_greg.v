@@ -8,7 +8,7 @@
  * low clears q asynchronously. Exactly an enable flip-flop, so every proof and every
  * model of the chip is unchanged by it (formal/esc_greg.sby proves the equivalence).
  *
- * Why: post-CTS power analysis of the v1.0 chip (asic/reports, docs/06 D-29) put 72%
+ * Why: post-CTS power analysis of the first, ungated chip (asic/reports, docs/06 D-29) put 72%
  * of total power in flip-flop internal power and 22% in the clock tree, against 1.5%
  * in logic; nearly all of it is clock pins toggling on registers that are written
  * rarely (a context's FIFO entry is written at most once per 4 ticks, a mailbox word
@@ -80,7 +80,7 @@ module esc_greg #(
 endmodule
 
 /*
- * esc_lreg - a gated bank stored in latches (v1.4, D-40: area).
+ * esc_lreg - a gated bank stored in latches (D-40: area).
  *
  * Function: exactly esc_greg (q <= d at a rising edge where en is high). The caller also
  * supplies dq, the value d had at the last rising edge, from a flip-flop it shares with

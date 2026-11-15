@@ -1,4 +1,4 @@
-"""The line unit (docs/11-SEMANTICS.md v1.6.0 §6.6), as the ISS models it.
+"""The line unit (docs/11-SEMANTICS.md §6.6), as the ISS models it.
 
 Written from the semantics document only, like the rest of the ISS. For every edge E_t of
 a run the machine calls
@@ -93,7 +93,7 @@ class Cfg:
     def idle_min(self): return (self.w2 >> 21) & 0xF
     @property
     def ext(self): return (self.w2 >> 25) & 1
-    # v1.6 extended configuration (W3, W4); without ext they take their legacy values
+    # Extended configuration (W3, W4); without ext they take their plain values
     @property
     def cells(self): return ((self.w3 & 7) + 1) if self.ext else 1
     @property
@@ -118,7 +118,7 @@ class Cfg:
     @property
     def ilow(self): return (self.w4 >> 20) & 1 if self.ext else 0
 
-    # v3 S-D: the receive strobe source, its polarity, both-edge sampling, long receive
+    # The receive strobe source, its polarity, both-edge sampling, long receive
     @property
     def rxs(self): return (self.w4 >> 21) & 3 if self.ext else 0
 
@@ -130,13 +130,13 @@ class Cfg:
 
     @property
     def both(self):
-        """v3: both-edge sampling of the receive line for the cell decoder: a second sample
+        """Both-edge sampling of the receive line for the cell decoder: a second sample
         half a tick earlier, and the decoder's timer, P and S count half ticks."""
         return (self.w4 >> 24) & 1 if self.ext else 0
 
     @property
     def sil(self) -> int:
-        """v3: a packet with the cell decoder or an external clock ends after this many
+        """A packet with the cell decoder or an external clock ends after this many
         ticks with no strobe (1.5 bit times; 13 bits, so never above 6142)."""
         return self.P_int + (self.P_int >> 1)
 
@@ -162,7 +162,7 @@ class Cfg:
         return (1 << self.d) | ((1 << self.n) if self.diff else 0)
 
     def cell(self, L: int, c: int) -> int:
-        """The level a line bit L drives in its cell c (v1.6 symbol coding)."""
+        """The level a line bit L drives in its cell c (the symbol coding)."""
         return ((self.p1 if L else self.p0) >> c) & 1
 
     def stream_bits(self, v: int) -> int:
@@ -210,8 +210,8 @@ class Request:
     earliest: int
     addr: int
     write: bool
-    nxt: bool = False            # v1.6 ext transmit: the read fills the next-word buffer
-    data: int = 0                # v3: a receive write's word, handed over when it completed
+    nxt: bool = False            # ext transmit: the read fills the next-word buffer
+    data: int = 0                # a receive write's word, handed over when it completed
 
 
 @dataclass
@@ -225,13 +225,13 @@ class PinWrite:
 @dataclass
 class LineUnit:
     owner: Optional[int] = None
-    cap_ends: int = 0            # v3: silence ends at el's cap (coverage only)
+    cap_ends: int = 0            # silence ends at el's cap (coverage only)
     configured: bool = False
     cfg: Cfg = field(default_factory=Cfg)
     claimed: int = 0
     mode: int = IDLE
     buf: int = 0
-    nxt: int = 0                 # v1.6 ext transmit: the next stream word
+    nxt: int = 0                 # ext transmit: the next stream word
     crc: int = 0
     last_job: int = 0
     cause: int = 0
@@ -258,7 +258,7 @@ class LineUnit:
     tx_pos: int = 0
     tx_k: int = 0                # line bits driven so far
     tx_tail: list[str] = field(default_factory=list)
-    tx_sym: Optional[tuple] = None   # v1.6: the symbol in progress (kind, L) and its cell
+    tx_sym: Optional[tuple] = None   # the symbol in progress (kind, L) and its cell
     tx_cel: int = 0
     mon_at: Optional[int] = None
     mon_L: int = 0
@@ -273,9 +273,9 @@ class LineUnit:
     rx_alpha: int = 0            # accumulator of the current bit's boundary
     rx_nxt: int = 0              # next timed boundary
     rx_sample: Optional[int] = None
-    rx_el: int = 0               # v3: the receive timer of the cell decoder / external clock
-    k_prev: int = 0              # v3: n during the previous cycle (external clock)
-    pb: int = 0                  # v3: the last decoded bit (the 802.3 hunt)
+    rx_el: int = 0               # the receive timer of the cell decoder / external clock
+    k_prev: int = 0              # n during the previous cycle (external clock)
+    pb: int = 0                  # the last decoded bit (the 802.3 hunt)
     x_prev: int = 1
     ref: int = 1
     rx_stf: Stuffer = field(default_factory=Stuffer)
@@ -312,7 +312,7 @@ class LineUnit:
         CONFIG words 1 and 2, CRC words from 1, SEND words from 1, RECV writes.
 
         CONFIG and CRC reads keep the slot of the LINE that started them (every 4 ticks
-        after it); SEND and RECV words move in the owner's own slot (v1.7: a paired owner's
+        after it); SEND and RECV words move in the owner's own slot (in pair mode, a paired owner's
         LINE may commit in its partner's slot, which is also its commit cycle)."""
         if self.owner is None:
             return False
@@ -381,7 +381,7 @@ class LineUnit:
         return PinWrite(self.claimed, 0, self.claimed)
 
     def _idle(self) -> Optional[PinWrite]:
-        """The idle state: L = 1, or with ilow L = 0 (v1.6), driven with idle_drive."""
+        """The idle state: L = 1, or with ilow L = 0, driven with idle_drive."""
         return self._drive(self.cfg.ilow ^ 1, self.cfg.idle_drive) if self.claimed else None
 
     def _end(self, cause: int, count: int, e: int) -> None:
@@ -404,7 +404,7 @@ class LineUnit:
         """Everything the LU does at E_t.
 
         sync           the owner's logical input view during cycle t (0 with no owner)
-        sync_h         v3: the same view sampled half a tick earlier (default: sync)
+        sync_h         the same view sampled half a tick earlier (default: sync)
         owner_faulted  the owner faults at E_t (§8)
         op             a COMPLETE commit at E_t acting on the LU: ("LINE", v, k) or
                        ("SEND", v, k), k the committing context
@@ -464,7 +464,7 @@ class LineUnit:
             self.cfg_words = [tape[self.cfg_addr]]
             return [], None, True
         if o == OP_RECV:
-            # v1.6: no receiver for a symbol coding; v3: except two cells with the decoder
+            # no receiver for a symbol coding, except two cells with the decoder
             if self.cfg.cells > 1 and not (self.cfg.rxs == 1 and self.cfg.cells == 2):
                 self.last_job, self.mode = JOB_RECV, IDLE
                 self._end(VIOL, 0, t)
@@ -547,7 +547,7 @@ class LineUnit:
         if (v >> 15) & 1 and c.poly32:
             segs.append(("crc", c.width()))
         self.tx_segs, self.tx_seg, self.tx_pos = segs, 0, 0
-        if c.diff and c.eop:                     # v1.6: eopl sends L = 1 and no J after it
+        if c.diff and c.eop:                     # eopl sends L = 1 and no J after it
             self.tx_tail = ["pos"] * c.eop if c.eopl else ["se0"] * c.eop + ["j"]
         else:
             self.tx_tail = []
@@ -592,7 +592,7 @@ class LineUnit:
                     nw = ((self.tx_cmd & 0xFF) + (j + 1) // 32) & 0xFF   # the next word's address
                     if not c.ext and j % 32 == 31 and j + 1 < nb:
                         self.req = Request(B + 1, nw, False)
-                    if c.ext and j % 32 == 15 and j + 17 < nb:   # v1.6: fetched mid-word
+                    if c.ext and j % 32 == 15 and j + 17 < nb:   # fetched mid-word
                         self.req = Request(B + 1, ((self.tx_cmd & 0xFF) + (j + 17) // 32) & 0xFF,
                                            False, nxt=True)
                     if c.ext and j % 32 == 31 and j + 1 < nb:
@@ -627,7 +627,7 @@ class LineUnit:
     def _tx_edge(self, t: int, tape: list[int], sync: int, pins: list[PinWrite]) -> bool:
         c = self.cfg
         if t == self.tx_nxt and self.tx_sym is not None and self.tx_cel + 1 < c.cells:
-            self.tx_cel += 1                     # v1.6: the next cell of the same symbol
+            self.tx_cel += 1                     # the next cell of the same symbol
             pins.append(self._cell_write())
             self.tx_nxt = t + c.bit_len(self.tx_alpha)
             self.tx_alpha = (self.tx_alpha + c.P_frac) & 0xFF
@@ -665,7 +665,7 @@ class LineUnit:
         c = self.cfg
         x, se0 = self._line(sync)
         k_need = max(1, c.idle_min * c.P_int)
-        # v3: an external-clock receive starts at once (no start bit on a clocked bus)
+        # An external-clock receive starts at once (no start bit on a clocked bus)
         if c.rxs == 2 or (x == 0 and self.idle_run >= k_need):
             self._rx_start(t, x, (sync >> c.n) & 1)
             return
@@ -690,7 +690,7 @@ class LineUnit:
         tw: Optional[tuple[int, int]] = None
         used = False
         if self.req is not None and owner_cycle(t, self.owner) and t >= self.req.earliest:
-            tw, used = (self.req.addr, self.req.data), True   # v3: the handed-over word
+            tw, used = (self.req.addr, self.req.data), True   # the handed-over word
             self.req = None
             if self.finishing:
                 self.mode, self.finishing = IDLE, False
@@ -704,7 +704,7 @@ class LineUnit:
                 self._eop_end(t)
             self.x_prev, self.k_prev = x, nl
             return tw, used
-        if c.rxs in (1, 2):                      # v3 S-D: cell decoder or external clock
+        if c.rxs in (1, 2):                      # cell decoder or external clock
             both = c.rxs == 1 and c.both         # (the early sample matters to the decoder)
             xh = self._line(sync_h)[0] if both else x
             e1 = both and xh != self.x_prev      # an edge in the first half of the tick
@@ -750,7 +750,7 @@ class LineUnit:
             return
         if not self.storing:
             return
-        if c.rxs == 1:                           # 2. decode (v3: the level after a mid-bit edge)
+        if c.rxs == 1:                           # 2. decode (the level after a mid-bit edge)
             b = x ^ c.rxpol
         elif c.nrzi:
             b = 1 if x == self.ref else 0
@@ -769,7 +769,7 @@ class LineUnit:
                 self._finish(VIOL, self.count, t)
             return
         self.rx_stf.push(b, c)
-        if self.hunt:                            # 4. sync pattern (v3 decoder: two 1s, an SFD)
+        if self.hunt:                            # 4. sync pattern (decoder: two 1s, an SFD)
             if b == 1 and (c.rxs != 1 or pb == 1):
                 self.hunt = False
             return
@@ -779,7 +779,7 @@ class LineUnit:
             self.crc = crc_step(self.crc, b, c.poly32)
         self.count = n + 1
         if self.count % 32 == 0:
-            # v3: the word and its address are handed over now and the buffer starts the next
+            # The word and its address are handed over now and the buffer starts the next
             # word, so a bit that arrives before the owner's write slot cannot touch it
             assert self.req is None, "a receive word completes while the last one is unwritten"
             self.req = Request(t + 1, (self.rx_addr + self.count // 32 - 1) & 0xFF, True,

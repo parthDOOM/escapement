@@ -1,4 +1,4 @@
-; RC servo outputs (v1.6): NCH channels on bank A pins 0..NCH-1 (it owns the whole bank),
+; RC servo outputs: NCH channels on bank A pins 0..NCH-1 (it owns the whole bank),
 ; one pulse each per 22 ms frame (45 Hz), 500 to 2547 us wide (1500 us centres a standard
 ; servo), the pulses one after another so a single context times them all.
 ;

@@ -39,7 +39,7 @@ except ImportError:                       # on a PC (tests): sw/eschost
 
 PROJECT = "tt_um_escapement"
 F_CLK = 25000000
-VERSION = 10                              # v2: program pages (S-A)
+VERSION = 10                              # program pages
 M32 = 0xFFFFFFFF
 DG_POLY = 0x04C11DB7
 CS, SCK, MOSI = 1, 2, 4                   # ui_in bits (docs/12-HOST-PROTOCOL.md)
@@ -50,7 +50,7 @@ CAUSE = {1: "ILLEGAL", 2: "PC_RANGE", 3: "ADMIT", 4: "LATE_HEAD"}
 RESET_STATUS = b"\x0a\x00\x0f\x00"        # version 10, all IDLE, TX mailboxes empty
 MIN_HALF_NS = 8 * 1000000000 // F_CLK     # bit-bang margin: 2x the 4-clock SCK minimum
 # Every data bit at 0 and 1, and every pair of bits different in at least one word.
-# v2 (S-A): each program page's patterns are masked with its own word (the tape: M32)
+# Each program page's patterns are masked with its own word (the tape: M32)
 PAGE_MASK = (0, 0x0F0F0F0F, 0xF0F0F0F0, 0x3C3C3C3C)
 DATA_LINE_PATTERNS = (0, M32, 0x55555555, 0xAAAAAAAA, 0x33333333, 0xCCCCCCCC, 0x0F0F0F0F,
                       0xF0F0F0F0, 0x00FF00FF, 0xFF00FF00, 0x0000FFFF, 0xFFFF0000)
@@ -74,10 +74,10 @@ BSQUARE = [0x22000040, 0x281F151F, 0x220030D4, 0x281F0A1F, 0x220030D4, 0x281F151
            0x18000002]
 BSQUARE_CFG = (1, 0, 0x1F00, 0, 0, 1)
 GETP_B_CFG = (1, 0, 0, 0, 0, 1)
-# v1.3: context 0 uses the tape port in two of every three commits (STT, LDT, JMP)
+# context 0 uses the tape port in two of every three commits (STT, LDT, JMP)
 STORM = [0x09800010, 0x35600000, 0x34E00001, 0x18000001]
 STORM_CFG = (1, 0, 0, 0, 0)
-# v1.3: logic_analyzer.asm with STREAM 1, MASK 0x01: uio[0] streamed into tape 0x80-0x87
+# logic_analyzer.asm with STREAM 1, MASK 0x01: uio[0] streamed into tape 0x80-0x87
 STREAM_LA = [0x09008880, 0x0A008401, 0x36000000, 0x02000000]
 STREAM_LA_CFG = (1, 0, 0, 0, 0)
 STREAM_BASE, STREAM_LIM = 0x80, 0x88
@@ -326,7 +326,7 @@ class Bringup:
     def load(self, words, cfg, tape=None, verify=True):
         h = self.host
         h.stop()
-        h.imem_page(0)                    # v2: a bundle is one page, page 0
+        h.imem_page(0)                    # a bundle is one page, page 0
         h.write_imem(0, words)
         if verify:
             got = h.read_imem(0, len(words))
@@ -343,7 +343,7 @@ class Bringup:
         h.clear_err()
 
     def check_tripwires(self, num):
-        """v2 (S-C): after every stage with a host link, the proof tripwires must read 0.
+        """After every stage with a host link, the proof tripwires must read 0.
         A set bit is an invariant the proofs say cannot break, seen broken on this chip."""
         tw = self.host.tripwires()
         if tw:
@@ -514,8 +514,8 @@ class Bringup:
         """Per SRAM: (a) data lines, one word at two addresses, so an address fault
         cannot hide or fake a data fault; (b) address lines, 'address in data' over all
         256 words, where an aliased read names the address it came from; (c) cells,
-        whole-array patterns. v2: the program store is four macros, one per page (IMEM_PAGE),
-        each tested as its own SRAM. Every page gets each pattern under its own mask and the
+        whole-array patterns. The program store has four pages (IMEM_PAGE),
+        each tested as its own array. Every page gets each pattern under its own mask and the
         tape the inverse, all written before any is read, so the five spaces are shown
         independent and a page that reads another page's words names the page bits."""
         host = self.host
@@ -619,7 +619,7 @@ class Bringup:
                 "the port" % len(pats))
 
     def _tape_during_run(self):
-        """v1.3: READ_TAPE while a program keeps the tape port busy in two of every three
+        """READ_TAPE while a program keeps the tape port busy in two of every three
         of its commits. Every word must be right, and fetched in time (no host error)."""
         host = self.host
         pat = [(0x9E3779B9 * (i + 1)) & M32 for i in range(32)]
@@ -728,7 +728,7 @@ class Bringup:
                 "through an 8-word ring" % (f / 1e6, 2 * SQUARE_HALF, k))
 
     def _stream(self, toggles=16):
-        """v1.3 streaming capture: the RP toggles uio[0] while the chip streams the edges
+        """Streaming capture: the RP toggles uio[0] while the chip streams the edges
         into an 8-word ring and the host reads and acknowledges them. Every edge must
         arrive, in order, with no overflow: more than twice what the ring holds."""
         io, host = self.io, self.host

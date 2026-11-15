@@ -1,4 +1,4 @@
-; Quadrature encoder decoder (v1.6), counting every edge of A and B (x4): the capture unit
+; Quadrature encoder decoder, counting every edge of A and B (x4): the capture unit
 ; records each change of the two pins with its tick, and the program follows the records.
 ; A position the host can ask for at any time; no edge is missed or counted twice while
 ; the program keeps up, and when it cannot, it says so.

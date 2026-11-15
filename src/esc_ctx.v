@@ -1,6 +1,6 @@
 /*
  * esc_ctx.v - Escapement per-context state: architectural registers, event FIFO,
- * expectation checker, telemetry, IRQ and host mailboxes (docs/11-SEMANTICS.md v1.1.0).
+ * expectation checker, telemetry, IRQ and host mailboxes (docs/11-SEMANTICS.md).
  *
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
@@ -17,14 +17,14 @@
  *   late  : reached(now, head) && != now   -> LATE_HEAD (reported to esc_core)
  * Retirement and checker evaluation are suppressed by `fault` or `stop_i`
  * at the same edge (sec. 6.3, 8, 9).
- * v1.5: due and late are flip-flops, decided one edge early for the entry that will be
+ * Due and late are flip-flops, decided one edge early for the entry that will be
  * the head, against now + 1 (asserted equal to the definitions above, below), so the
  * deadline compare is off the cycle that retires, faults and drives the pins.
  *
  * FIFO entry layout (58 bits): [57:56] kind (0 LINE, 1 DRIVE, 2 EXPECT, 3 SAMPLE),
  * [55:24] deadline, [23:0] payload = instruction bits [23:0] of the queued
  * instruction (DRIVE: mask/value/oe with the effective value; EXPECT:
- * mask/level/mode/window; SAMPLE: pin [18:16], dir [15]; LINE, v1.4: unused, the line
+ * mask/level/mode/window; SAMPLE: pin [18:16], dir [15]; LINE: unused, the line
  * unit keeps the SEND command, and the entry only starts it at its deadline).
  */
 `default_nettype none
@@ -32,11 +32,11 @@ module esc_ctx (
     input  wire        clk,
     input  wire        rst_n,
     input  wire        start_i,       // run initialisation at this edge (wins over all)
-    input  wire [31:0] start_tmr,     // v1.7 (S3): tmr after a start (0; a restart: the frame base)
+    input  wire [31:0] start_tmr,     // tmr after a start (0; a restart: the frame base)
     input  wire        stop_i,        // stop at this edge (already masked by start)
     input  wire        run,           // run flag during this cycle
     input  wire [31:0] now,
-    input  wire [31:0] now_n,         // v1.5: now + 1 (the core's counter incrementer)
+    input  wire [31:0] now_n,         // now + 1 (the core's counter incrementer)
     input  wire [7:0]  sync,          // synchronised input vector during this cycle
     input  wire        cfg_enable,
     input  wire [7:0]  cfg_entry_pc,
@@ -73,11 +73,11 @@ module esc_ctx (
     input  wire        w_rx_pop,
     input  wire        w_tx_push,
     input  wire [31:0] w_tx_data,
-    // ---- v1.1 deferred LDT write (the LDT committed at the previous edge, sec. 7.6)
+    // ---- deferred LDT write (the LDT committed at the previous edge, sec. 7.6)
     input  wire        ld_we,
     input  wire [1:0]  ld_idx,
     input  wire [31:0] ld_data,
-    // ---- v1.4 (D-40) the write data of the last edge, from the core's shared flip-flops:
+    // ---- D-40: the write data of the last edge, from the core's shared flip-flops:
     // the latch banks (esc_lreg) copy these while their gated clock is high
     input  wire [31:0] q_wr,          // w_rd_data, w_sh or w_tx_data, whichever was written
     input  wire [31:0] q_tmr,         // w_tmr (= w_lee when an EXPECT is admitted)
@@ -89,7 +89,7 @@ module esc_ctx (
     input  wire        h_rx_push,
     input  wire [31:0] h_rx_data,
     input  wire        h_tx_pop,
-    input  wire        h_irq_clear,   // host IRQ clear (v1.0.1); a same-edge IRQ commit wins
+    input  wire        h_irq_clear,   // host IRQ clear; a same-edge IRQ commit wins
 
     // ---- state outputs ----
     output wire [31:0] o_r0,
@@ -135,8 +135,8 @@ module esc_ctx (
     output wire [7:0]  o_drv_mask,
     output wire [7:0]  o_drv_val,
     output wire [7:0]  o_drv_oe,
-    output wire        o_has_smp,     // v1.1: a SAMPLE entry is in the FIFO (sec. 7.3 GETI)
-    output wire        o_line_ret     // v1.4: a LINE entry retires at this edge (after suppression)
+    output wire        o_has_smp,     // a SAMPLE entry is in the FIFO (sec. 7.3 GETI)
+    output wire        o_line_ret     // a LINE entry retires at this edge (after suppression)
 `ifdef FORMAL
     , input wire [7:0] f_owned        // formal only: pins this context owns (for H4)
 `endif
@@ -165,7 +165,7 @@ module esc_ctx (
     endcase
   end
 
-  // v1.1 GETI: any valid entry (head .. head+cnt-1) of kind SAMPLE during this cycle
+  // GETI: any valid entry (head .. head+cnt-1) of kind SAMPLE during this cycle
   wire [1:0] rel0 = 2'd0 - head, rel1 = 2'd1 - head, rel2 = 2'd2 - head, rel3 = 2'd3 - head;
   assign o_has_smp = ((ent0[57:56] == K_SAMPLE) & ({1'b0, rel0} < o_cnt)) |
                      ((ent1[57:56] == K_SAMPLE) & ({1'b0, rel1} < o_cnt)) |
@@ -173,7 +173,7 @@ module esc_ctx (
                      ((ent3[57:56] == K_SAMPLE) & ({1'b0, rel3} < o_cnt));
 
   // sec. 6.3: retire when head deadline == now; LATE_HEAD when reached and !=. Both are
-  // registers (v1.5): due_q and late_q hold, during this cycle, exactly those two tests.
+  // registers: due_q and late_q hold, during this cycle, exactly those two tests.
   reg         due_q, late_q;
   wire        due       = due_q;
   assign      o_late    = late_q;
@@ -200,7 +200,7 @@ module esc_ctx (
   wire        due_n   = run & (n_keep ? (n_diff == 32'd0) : (push & (w_lead16 == 16'd1)));
   wire        late_n  = run & n_keep & (n_diff != 32'd0) & ~n_diff[31];
 
-  // v1.6: the head's kind and payload are registered the same way (h_q): the entry that is
+  // The head's kind and payload are registered the same way (h_q): the entry that is
   // the head after this edge, or the entry pushed at it (any, if none is pushed: the FIFO
   // is then empty and nothing reads h_q). Equal to the head entry whenever the FIFO is not
   // empty (D3, below), so a retiring DRIVE reaches the pins from flip-flops, not through
@@ -252,7 +252,7 @@ module esc_ctx (
                                    : {s_bit, ish_base[31:1]};   // LSB-first
 
   // ------------------------------------------------------------------ mailboxes
-  // Two words each, in a ring: a word stays in its slot from push to pop (v1.4, so each
+  // Two words each, in a ring: a word stays in its slot from push to pop (so each
   // slot is written from one source only; the head of an empty mailbox is unspecified).
   wire [31:0] rx0, rx1, tx0, tx1;       // latch banks, below
   reg [1:0]  rx_cnt, tx_cnt;
@@ -380,7 +380,7 @@ module esc_ctx (
   wire       rdw  = cm_ok & w_rd_we;
   // A deferred LDT write never meets this context's own commit; if it did, LDT wins,
   // as the later assignment did.
-  // v1.4 (D-40): the banks below except ish and the first-fail record are latches; their
+  // D-40: the banks below except ish and the first-fail record are latches; their
   // dq is the shared write data of the last edge (zero after a start), or the LDT data
   // when that edge's write here was a deferred LDT.
   wire [31:0] d_r  = st ? 32'd0 : ld_we ? ld_data : w_rd_data;
@@ -501,7 +501,7 @@ module esc_ctx (
 `ifndef ESC_CORE_PDR
   always @(*) if (rst_n) assert (o_cnt <= 3'd4);
 `endif
-  // v1.5 D1, D2: the precomputed tests are the definitions of sec. 6.3. Proved here (from
+  // D1, D2: the precomputed tests are the definitions of sec. 6.3. Proved here (from
   // the core's guarantees about a push, B5 among them); the core's PDR task skips them.
   wire [31:0] h_dl        = f_ent[head][55:24];
   wire        nonempty    = (o_cnt != 3'd0);
@@ -510,7 +510,7 @@ module esc_ctx (
   always @(*) if (rst_n) begin
     assert (due_q  == (run & nonempty & (h_dl == now)));                              // D1
     assert (late_q == (run & nonempty & (f_late_diff != 32'd0) & ~f_late_diff[31]));  // D2
-    // v1.6 D3: the registered head is the head entry's kind and payload
+    // D3: the registered head is the head entry's kind and payload
     if (nonempty) assert (h_q == {f_ent[head][57:56], f_ent[head][23:0]});            // D3
   end
 `endif

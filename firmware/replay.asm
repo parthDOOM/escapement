@@ -1,4 +1,4 @@
-; Replay: re-emit a captured trace from the tape at its original tick spacing (v1.1).
+; Replay: re-emit a captured trace from the tape at its original tick spacing.
 ; The host turns a capture into records {levels[7:0], tick[23:0]} at tape 0..N-1 (or
 ; builds one by hand) and assembles this file with N, PINS and CTX set; sw/esctape's
 ; build_replay() does both. Record k is driven at tick24(k) + offset, where the offset

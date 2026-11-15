@@ -1,5 +1,5 @@
 /*
- * esc_cap.v - Escapement capture unit (docs/11-SEMANTICS.md v1.3.0 §6.5, §7.6).
+ * esc_cap.v - Escapement capture unit (docs/11-SEMANTICS.md §6.5, §7.6).
  *
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
@@ -14,8 +14,8 @@
  * to T[ptr] when the port is free; 2 generate a record (snapshot, watched change, or
  * the epoch marker at tick mod 2^24 == 0); 3 a completing CAPT overrides. After stop,
  * staged records still drain.
- * v1.2: the unit watches one pin bank, chosen by CAPT operand bit 25.
- * v1.3: stream mode (CAPT bit 26) shares the ring with the host, which reads records
+ * The unit watches one pin bank, chosen by CAPT operand bit 25.
+ * Stream mode (CAPT bit 26) shares the ring with the host, which reads records
  * during the run and acknowledges them by setting `rptr` (TAPE_ACK). The drain is held
  * rather than write over an unacknowledged record, so a slow host ends in `ovf`, never
  * in silently lost data.
@@ -30,7 +30,7 @@ module esc_cap (
     input  wire [31:0] now,
     input  wire [12:0] psync,       // synchronised physical pins during this cycle
     input  wire        busy,        // an LDT/STT commit or a host write owns the port
-    input  wire        ack,         // v1.3: TAPE_ACK this cycle
+    input  wire        ack,         // TAPE_ACK this cycle
     input  wire [7:0]  ack_v,       //       its new rptr
     input  wire        capt_we,     // a CAPT completes at this edge
     input  wire [31:0] capt_v,      // its operand
@@ -39,7 +39,7 @@ module esc_cap (
     output wire [31:0] head_o,
     output wire [31:0] status,      // GETC / dbg sel 17
     output wire [31:0] cfg,         // dbg sel 18
-    output reg  [7:0]  rptr,        // dbg sel 20 (v1.3)
+    output reg  [7:0]  rptr,        // dbg sel 20
     output reg  [31:0] ovf_tick     // dbg sel 19
 );
   reg       en, snap, ring, stream, bank, ovf, full, wrapped;
@@ -140,7 +140,7 @@ module esc_cap (
     if (en || n != 2'd0) assert (f_size == 8'd0 || f_off < f_size);
     assert (n <= 2'd2);
     if (gen) assert (run);
-    // C4 (v1.3) in stream mode a drain never makes ptr reach rptr, so it never writes
+    // C4: in stream mode a drain never makes ptr reach rptr, so it never writes
     // over a record the host has not acknowledged
     if (drain_c && stream) assert (ptr_nxt != rptr);
   end

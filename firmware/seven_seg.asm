@@ -1,4 +1,4 @@
-; Seven-segment animation for the Tiny Tapeout demo board's display (bank B, v1.2).
+; Seven-segment animation for the Tiny Tapeout demo board's display (bank B).
 ; The board's display is common cathode, segment a..g on uo_out[0..6] and the decimal
 ; point on uo_out[7], active high. uo_out[2:0] are the host link (MISO, IRQ, RUN), so
 ; a, b and c show the link: c stays lit while the chip runs. Bank B is uo_out[7:3], so

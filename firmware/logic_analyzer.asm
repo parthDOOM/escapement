@@ -4,8 +4,8 @@
 ; Times are ticks of whatever clock the chip runs at; the host converts them with that
 ; clock (esctape records it in the capture), so the program is the same at any clock.
 ; The host STOPs, reads the capture status (READ_DBG sel 17) and the tape (READ_TAPE),
-; and decodes it with sw/esctape. No pins are owned: observation only (v1.1, D-24).
-; STREAM = 1 (v1.3): the host reads records during the run and acknowledges them
+; and decodes it with sw/esctape. No pins are owned: observation only (D-24).
+; STREAM = 1: the host reads records during the run and acknowledges them
 ; (TAPE_ACK); the unit never writes over an unacknowledged record, so a capture can run
 ; for as long as the host keeps up (docs/12-HOST-PROTOCOL.md, "Streaming capture").
 
@@ -14,7 +14,7 @@
 .default BASE, 0               ; region [BASE, LIM) of the tape; LIM == BASE: all 256
 .default LIM, 0
 .default RING, 0               ; 1: overwrite the oldest records (pre-trigger history)
-.default STREAM, 0             ; 1: stream to the host during the run (v1.3)
+.default STREAM, 0             ; 1: stream to the host during the run
 
 .entry CTX, main
 

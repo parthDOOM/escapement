@@ -63,7 +63,7 @@ class Board:
 
 
 class SplitBoard(Board):
-    """The world around pin bank B (v1.2): the `board_b(t, ob) -> ib` callable.
+    """The world around pin bank B: the `board_b(t, ob) -> ib` callable.
 
     A bank B pin is split, an output on uo_out and an input on ui_in, so each logical pin
     is wired in one direction. Pins in `outputs` carry the chip's uo_out level to the

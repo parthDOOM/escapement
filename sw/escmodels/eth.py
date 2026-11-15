@@ -1,4 +1,4 @@
-"""10BASE-T on the wire, as the chip's receive comparator sees it (v3, the both-edge sampler).
+"""10BASE-T on the wire, as the chip's receive comparator sees it (through the both-edge sampler).
 
 `EthSource` plays 802.3 frames on one pin: preamble (seven 0x55), SFD (0xD5), the frame,
 its CRC-32 frame check sequence, then TP_IDL (the line held high). Bits go least

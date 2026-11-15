@@ -1,4 +1,4 @@
-; Modbus RTU server (v1.6): a device on an RS-485 bus, answering a Modbus client from a
+; Modbus RTU server: a device on an RS-485 bus, answering a Modbus client from a
 ; table of holding registers in the tape. Functions 03 (Read Holding Registers), 06 (Write
 ; Single Register) and 16 (Write Multiple Registers); any other function gets exception
 ; 01, a bad quantity or length 03, registers past the table 02 (Modbus Application

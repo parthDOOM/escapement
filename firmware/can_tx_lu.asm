@@ -1,4 +1,4 @@
-; Classic CAN 2.0A transmitter at line rate on the line unit (v1.6): up to 1 Mbit/s, with
+; Classic CAN 2.0A transmitter at line rate on the line unit: up to 1 Mbit/s, with
 ; arbitration. Context 0; TXD on pin TX (1 = recessive, driven) to a transceiver, RXD on
 ; pin RX. The host interface is can_tx.asm's, which bit-bangs at 250 kbit/s and can share
 ; a bus with can_rx.asm; this one owns the line unit, so a node needing both uses those.

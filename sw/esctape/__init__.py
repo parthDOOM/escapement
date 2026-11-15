@@ -1,4 +1,4 @@
-"""Host tools for the v1.1 tape (docs/11-SEMANTICS.md §6.5, §7.6).
+"""Host tools for the tape (docs/11-SEMANTICS.md §6.5, §7.6).
 
 decode_capture() turns the tape words written by the capture unit into (tick, levels)
 pairs with absolute ticks; build_replay() turns such pairs into an assembled image that
@@ -39,7 +39,7 @@ def decode_capture(tape: list[int], status: int, cfg: int, first_epoch: int = 0
 
 def decode_records(words: list[int], first_epoch: int = 0) -> list[tuple[int, int]]:
     """As decode_capture, for words already in time order, e.g. streamed during a run
-    (v1.3 stream mode, Host.stream_poll): [(absolute tick, levels)]."""
+    (stream mode, Host.stream_poll): [(absolute tick, levels)]."""
     out, epoch = [], first_epoch
     for i, w in enumerate(words):
         t24 = w & 0xFFFFFF

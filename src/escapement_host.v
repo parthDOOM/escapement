@@ -9,21 +9,21 @@
  * MOSI is sampled at each detected SCK rise; MISO advances right after the same
  * detected rise, so the host sees a stable bit for a whole SCK period.
  * Byte n of the MISO stream answers byte n-1 of the MOSI stream; byte 0 is status.
- * v1.1 (protocol version 6): WRITE_TAPE/READ_TAPE reuse the IMEM word engine with
- * mem_space = 1, and READ_DBG takes a 5-bit select ({1'b0, sel[4], ctx, sel[3:0]}).
- * v1.2 (protocol version 7): WRITE_CFG takes four more optional bytes for pin bank B.
- * v1.3 (protocol version 8): READ_TAPE works during a run. Each word is fetched in a
- * cycle the core leaves the tape port free (tape_req until tape_gnt) and latched here;
- * a word not fetched by the time it is sent sets host error. TAPE_ACK sets the capture
- * unit's rptr (streaming capture).
- * v2 (protocol version 10, PAGES = 4): IMEM_PAGE selects the program-store page that
- * WRITE_IMEM and READ_IMEM address (mem_page), and WRITE_CFG byte 14 sets each context's
- * page (ctx_page). With PAGES = 1 both are absent (0x24 is an unknown command, byte 14 is
- * ignored, ctx_page and mem_page stay 0) and the interface is v1.7's, version 9.
+ * WRITE_TAPE/READ_TAPE reuse the IMEM word engine with mem_space = 1, and READ_DBG takes a
+ * 5-bit select ({1'b0, sel[4], ctx, sel[3:0]}). WRITE_CFG takes optional bytes after the
+ * ninth: 10 to 13 for pin bank B (byte 10's high nibble pairs contexts) and 14 for the
+ * program pages. READ_TAPE works during a run: each word is fetched in a cycle the core
+ * leaves the tape port free (tape_req until tape_gnt) and latched here; a word not fetched
+ * by the time it is sent sets host error. TAPE_ACK sets the capture unit's rptr (streaming
+ * capture). IMEM_PAGE selects the program-store page that WRITE_IMEM and READ_IMEM
+ * address (mem_page), and WRITE_CFG byte 14 sets each context's page (ctx_page). VERSION
+ * reads 10. With PAGES = 1 both are absent (0x24 is an unknown command, byte 14 is
+ * ignored, ctx_page and mem_page stay 0) and VERSION reads 9: the same interface without
+ * pages.
  */
 `default_nettype none
 module escapement_host #(
-    parameter integer PAGES = 4    // v2 (S-A): 1 or 4, set in project.v
+    parameter integer PAGES = 4    // 1 or 4, set in project.v
 ) (
     input  wire         clk,
     input  wire         rst_n,
@@ -41,12 +41,12 @@ module escapement_host #(
     output reg  [25:0]  pin_owner,
     output reg  [7:0]   pin_od,
     output reg  [3:0]   ctx_bank,
-    output reg  [3:0]   ctx_pair,      // v1.7: WRITE_CFG byte 10 bits 7:4
-    output reg  [7:0]   ctx_page,      // v2 (S-A): WRITE_CFG byte 14
+    output reg  [3:0]   ctx_pair,      // pair mode: WRITE_CFG byte 10 bits 7:4
+    output reg  [7:0]   ctx_page,      // WRITE_CFG byte 14
     output reg  [3:0]   irq_clear,
-    output reg  [3:0]   ctx_stop,      // v1.7 (S3): CTX_STOP strobe, a context mask
-    output reg  [3:0]   ctx_start,     // v1.7 (S3): CTX_START strobe, a context mask
-    output reg          imem_wpend,    // v1.7 (S3): a program word written during a run waits
+    output reg  [3:0]   ctx_stop,      // CTX_STOP strobe, a context mask
+    output reg  [3:0]   ctx_start,     // CTX_START strobe, a context mask
+    output reg          imem_wpend,    // a program word written during a run waits
     input  wire         imem_wgnt,     //            ... and is written in this cycle
     input  wire         running,
     input  wire [7:0]   ctx_state,
@@ -55,12 +55,12 @@ module escapement_host #(
     // program memory host port (the top muxes it in while the core is stopped)
     output reg          mem_we,
     output reg  [7:0]   mem_addr,
-    output reg  [1:0]   mem_page,    // v2 (S-A): IMEM_PAGE; the program store only
+    output reg  [1:0]   mem_page,    // IMEM_PAGE; the program store only
     output reg  [31:0]  mem_wdata,
-    output reg          mem_space,   // v1.1: 0 program store, 1 tape
+    output reg          mem_space,   // 0 program store, 1 tape
     output wire         mem_re,      // D-29: a READ_IMEM is in progress
     input  wire [31:0]  mem_rdata,
-    // tape host side (v1.3): a fetch at mem_addr is wanted until the top grants a cycle
+    // tape host side: a fetch at mem_addr is wanted until the top grants a cycle
     output reg          tape_req,
     input  wire         tape_gnt,
     output reg          tape_ack,    // TAPE_ACK strobe and the new rptr
@@ -84,8 +84,8 @@ module escapement_host #(
                    C_IMEM_PAGE = 8'h24,
                    C_READ_DBG = 8'h30, C_MBX_PUSH = 8'h40, C_MBX_POP = 8'h41,
                    C_IRQ_CLEAR = 8'h50, C_CLEAR_ERR = 8'h51, C_IGNORE = 8'hFF;
-  localparam [3:0] VERSION = (PAGES > 1) ? 4'hA   // v2 (S-A): pages
-                                         : 4'h9;  // v1.7: WRITE_CFG byte 10 bits 7:4
+  localparam [3:0] VERSION = (PAGES > 1) ? 4'hA   // with program pages
+                                         : 4'h9;  // without
 
   // ---------------------------------------------------------------- synchronisers
   reg [1:0] cs_s, sck_s, mosi_s;
@@ -122,7 +122,7 @@ module escapement_host #(
   // The program store reads for the host only while READ_IMEM runs; the first word is
   // sampled a whole SPI byte (>= 64 clocks) after its address is set, every later one 4
   // bytes after the prefetch address. Outside a read the stopped chip's macro idles.
-  // The tape reads once per word instead, in the cycle tape_gnt grants (v1.3), and the
+  // The tape reads once per word instead, in the cycle tape_gnt grants, and the
   // word is held in tdata until it is sent.
   assign mem_re = (cmd == C_READ_IMEM);
   reg        gnt_d;      // the granted fetch's data is on mem_rdata this cycle
@@ -171,7 +171,7 @@ module escapement_host #(
     end
   end
 
-  // v1.7 (S3): the buffer is free for a new word (empty, or emptied at this edge), and the
+  // Live reload: the buffer is free for a new word (empty, or emptied at this edge), and the
   // contexts RUNNING now (ST_RUN = 1 in each 2-bit field of ctx_state). While a word waits,
   // mem_addr is its address: a command that would move it is refused (host error). A word
   // waits more than 4 cycles only when every context is RUNNING.
@@ -203,7 +203,7 @@ module escapement_host #(
       if (tape_gnt) tape_req <= 1'b0;
       // a word was written at this edge: advance for the next one
       if (mem_we) mem_addr <= mem_addr + 8'd1;
-      // v1.7 (S3): a word written during a run went to the program store in this cycle
+      // a word written during a run went to the program store in this cycle
       if (imem_wgnt) begin imem_wpend <= 1'b0; mem_addr <= mem_addr + 8'd1; end
 
       if (!selected) begin
@@ -234,7 +234,7 @@ module escapement_host #(
               C_CLEAR_ERR: host_err <= 1'b0;
               default: begin host_err <= 1'b1; cmd <= C_IGNORE; end
             endcase
-            // v1.7 (S3): WRITE_IMEM is accepted during a run (its words wait for a free slot)
+            // WRITE_IMEM is accepted during a run (its words wait for a free slot)
             if ((rx_byte == C_WRITE_CFG || rx_byte == C_WRITE_TAPE) && running)
               host_err <= 1'b1;
           end else begin
@@ -294,12 +294,12 @@ module escapement_host #(
                   4'd7: pin_owner[15:8]  <= rx_byte;
                   4'd8: pin_owner[7:0]   <= rx_byte;
                   4'd9: pin_od           <= rx_byte;
-                  // v1.2 bank B; a 9-byte WRITE_CFG leaves these unchanged
+                  // bank B and pair mode; a 9-byte WRITE_CFG leaves these unchanged
                   4'd10: begin ctx_bank <= rx_byte[3:0]; ctx_pair <= rx_byte[7:4]; end
                   4'd11: pin_owned[12:8]   <= rx_byte[4:0];
                   4'd12: pin_owner[25:24]  <= rx_byte[1:0];
                   4'd13: pin_owner[23:16]  <= rx_byte;
-                  // v2 (S-A); a 9- or 13-byte WRITE_CFG leaves it unchanged
+                  // program pages; a 9- or 13-byte WRITE_CFG leaves it unchanged
                   4'd14: if (PAGES > 1) ctx_page <= rx_byte;
                   default: ;
                 endcase
@@ -331,12 +331,12 @@ module escapement_host #(
                 end
               end
               C_IRQ_CLEAR: if (idx == 4'd1) irq_clear <= rx_byte[3:0];
-              // v2 (S-A): running or stopped; refused while a live word waits (its page is
+              // running or stopped; refused while a live word waits (its page is
               // part of its address, as for a new address byte)
               C_IMEM_PAGE: if (idx == 4'd1) begin
                 if (wslot) mem_page <= rx_byte[1:0]; else host_err <= 1'b1;
               end
-              // v1.7 (S3): stop / restart contexts during a run. CTX_START refuses (host error,
+              // Live reload: stop / restart contexts during a run. CTX_START refuses (host error,
               // nothing started) a context that is not enabled or is RUNNING.
               C_CTX_STOP: if (idx == 4'd1) begin
                 if (running) ctx_stop <= rx_byte[3:0]; else host_err <= 1'b1;

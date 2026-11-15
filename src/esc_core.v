@@ -1,30 +1,30 @@
 /*
  * esc_core.v - Escapement core: 4-context fixed-slot barrel, shared execute /
- * admission in the commit stage (decode and operand reads a stage earlier, v1.6), pins,
+ * admission in the commit stage (decode and operand reads a stage earlier), pins,
  * synchronisers, first-fault register and the verification observation ports.
  *
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
  *
- * Normative semantics: docs/11-SEMANTICS.md v1.6.0 (section numbers below refer
+ * Normative semantics: docs/11-SEMANTICS.md (section numbers below refer
  * to it). Encodings: isa/isa.yaml (decoder constants hand-copied).
  *
- * v1.1: the tape port (LDT/STT in the commit cycle; the capture unit esc_cap drains
- * into free cycles), the execution digest (sec. 10.1) and the wait-class GETI.
- * v1.2: pin bank B (sec. 5). Every context works in 8 logical pins; the mapping onto the
- * 13 physical pins happens only at the input view, the ownership masks, DRIVE and fault
- * updates of the pin registers, and the outputs.
- * v1.3: streaming capture. tape_busy marks only the cycles the core uses the tape port,
- * so the host can read during a run; TAPE_ACK sets the capture unit's rptr (sec. 6.5).
- * v1.4: the line unit esc_line (sec. 6.6, 7.7): SEND queues a LINE entry that starts a
- * packet at its deadline (dropped with Z = 0 when late), LINE and GETL control it, and
- * its tape accesses and pin writes go through the ports here.
+ * Beside the barrel: the tape port (LDT/STT in the commit cycle; the capture unit esc_cap
+ * drains into the cycles the core leaves, and so does the host, during a run too), the
+ * execution digest (sec. 10.1), and pin banks A and B (sec. 5): every context works in 8
+ * logical pins, mapped onto the 13 physical pins only at the input view, the ownership
+ * masks, DRIVE and fault updates of the pin registers, and the outputs. The line unit
+ * esc_line (sec. 6.6, 7.7): SEND queues a LINE entry that starts a packet at its deadline
+ * (dropped with Z = 0 when late), LINE and GETL control it, and its tape accesses and pin
+ * writes go through the ports here. The bus timing monitor esc_mon (sec. 6.7, 7.8). Pair
+ * mode (sec. 3), live reload of single contexts, program pages, and the tripwire bank of
+ * proved invariants.
  *
  * Pipeline (each stage holds a different context, so no same-context hazards):
  *   F  cycle t   : imem_addr = {page, PC} of ctx (now mod 4) (combinational); slot valid if the
  *                  context is RUNNING during t. SRAM samples the address at E_t.
  *   D  cycle t+1 : imem_rdata valid; registered into p2_insn at E_(t+1).
- *   X  cycle t+2 : p2_insn -> p3_insn at E_(t+2); beside it (v1.6) the decode (d_op,
+ *   X  cycle t+2 : p2_insn -> p3_insn at E_(t+2); beside it the decode (d_op,
  *                  illegal) and the operands of the context committing next (opa, opb).
  *   C  cycle t+3 : the instruction is evaluated combinationally from the state
  *                  during cycle t+3 and commits at E_(t+3). The committing
@@ -38,35 +38,35 @@
  */
 `default_nettype none
 module esc_core #(
-    parameter integer TRIPWIRES = 1   // v2 (S-C): 0 removes the tripwire bank (select 27 reads 0)
+    parameter integer TRIPWIRES = 1   // 0 removes the tripwire bank (select 27 reads 0)
 ) (
     input  wire         clk,
     input  wire         rst_n,
     input  wire         start,
     input  wire         stop,
-    input  wire [3:0]   ctx_stop,      // v1.7 (S3): stop these contexts at this edge
-    input  wire [3:0]   ctx_start,     // v1.7 (S3): restart these contexts (at their first slot)
+    input  wire [3:0]   ctx_stop,      // live reload: stop these contexts at this edge
+    input  wire [3:0]   ctx_start,     // live reload: restart these contexts (at their first slot)
     // configuration (static during a run)
     input  wire [3:0]   ctx_enable,
     input  wire [31:0]  entry_pcs,
     input  wire [12:0]  pin_owned,     // physical pins: 0..7 bank A, 8..12 bank B
     input  wire [25:0]  pin_owner,
     input  wire [7:0]   pin_od,        // bank A only
-    input  wire [3:0]   ctx_bank,      // v1.2: context k's logical pins are bank B
-    input  wire [3:0]   ctx_pair,      // v1.7: context k also takes slot k^2 when context k^2 is off
-    input  wire [7:0]   ctx_page,      // v2 (S-A): context k fetches from program page [2k+1:2k]
+    input  wire [3:0]   ctx_bank,      // context k's logical pins are bank B
+    input  wire [3:0]   ctx_pair,      // pair mode: context k also takes slot k^2 when context k^2 is off
+    input  wire [7:0]   ctx_page,      // context k fetches from program page [2k+1:2k]
     // instruction memory
-    output wire [9:0]   imem_addr,     // v2 (S-A): {page, PC}
+    output wire [9:0]   imem_addr,     // {page, PC}
     output wire         imem_re,       // D-29: this slot's fetch will be used (else no read)
-    output wire         imem_free,     // v1.7 (S3): no fetch in this cycle (a host write may go)
+    output wire         imem_free,     // no fetch in this cycle (a host program write may go)
     input  wire [31:0]  imem_rdata,
     // pins
     input  wire [7:0]   uio_in,
     output wire [7:0]   uio_out,
     output wire [7:0]   uio_oe,
-    input  wire [4:0]   ib_in,         // v1.2 bank B inputs (ui_in[7:3])
-    input  wire [12:0]  pin_h,         // v3: {ib_in, uio_in} sampled at the falling edge (project.v)
-    output wire [4:0]   ob_out,        // v1.2 bank B outputs (uo_out[7:3])
+    input  wire [4:0]   ib_in,         // bank B inputs (ui_in[7:3])
+    input  wire [12:0]  pin_h,         // {ib_in, uio_in} sampled at the falling edge (project.v)
+    output wire [4:0]   ob_out,        // bank B outputs (uo_out[7:3])
     // status
     output wire         running,
     output wire [7:0]   ctx_state,
@@ -99,15 +99,15 @@ module esc_core #(
     input  wire [1:0]   dbg_sel_ctx,
     input  wire [4:0]   dbg_sel,
     output reg  [31:0]  dbg_rdata,
-    // tape (v1.1): same timing contract as the instruction memory
+    // tape: same timing contract as the instruction memory
     output wire [7:0]   tape_addr,
     output wire         tape_re,       // D-29: a read is needed (LDT); otherwise the macro idles
     output wire         tape_we,
     output wire [31:0]  tape_wdata,
     input  wire [31:0]  tape_rdata,
-    output wire         tape_busy,     // v1.3: the core uses the port this cycle; else the host may
-    input  wire         tape_host_we,  // v1.3: the host writes the tape this cycle (stopped only)
-    input  wire         tape_ack,      // v1.3: TAPE_ACK, the host's new capture rptr
+    output wire         tape_busy,     // the core uses the port this cycle; else the host may
+    input  wire         tape_host_we,  // the host writes the tape this cycle (stopped only)
+    input  wire         tape_ack,      // TAPE_ACK, the host's new capture rptr
     input  wire [7:0]   tape_ack_v
 `ifdef ESC_NI
     // formal only (formal/esc_ni.sby): each context's architectural state, the pins and the
@@ -147,9 +147,9 @@ module esc_core #(
                    OP_GETI = 8'h32, OP_GETX = 8'h33, OP_LDT = 8'h34, OP_STT = 8'h35,
                    OP_CAPT = 8'h36, OP_GETC = 8'h37, OP_POP = 8'h38, OP_PUSH = 8'h39,
                    OP_RXREADY = 8'h3A, OP_TXREADY = 8'h3B,
-                   OP_SEND = 8'h2D, OP_LINE = 8'h3C, OP_GETL = 8'h3D,          // v1.4
-                   OP_MON = 8'h3E, OP_GETM = 8'h3F;                            // v3 monitor
-  // v1.6: bit I_x of the registered decode d_op is set iff the opcode is OP_x
+                   OP_SEND = 8'h2D, OP_LINE = 8'h3C, OP_GETL = 8'h3D,          // line unit
+                   OP_MON = 8'h3E, OP_GETM = 8'h3F;                            // bus timing monitor
+  // Bit I_x of the registered decode d_op is set iff the opcode is OP_x
   localparam integer I_NOP = 0, I_HALT = 1, I_IRQ = 2, I_RET = 3, I_MOV = 4, I_MOVI = 5,
                      I_MOVHI = 6, I_ADD = 7, I_SUB = 8, I_AND = 9, I_OR = 10, I_XOR = 11,
                      I_CMP = 12, I_TSTI = 13, I_SHL = 14, I_SHR = 15, I_ADDI = 16,
@@ -185,12 +185,12 @@ module esc_core #(
 `endif
   reg [12:0] pin_val, pin_oe;          // physical pins (sec. 5)
   reg [12:0] s1, s2;
-  reg [12:0] h2, h3;                   // v3: pin_h re-timed; h3 is half a tick older than s2
+  reg [12:0] h2, h3;                   // pin_h re-timed; h3 is half a tick older than s2
   reg        p1v, p2v, p3v;
-  reg  [7:0] p1_spc, p2_spc;           // v1.7: the PC each instruction was fetched from
-  reg        p3ok;                     // v1.7: ... equal to its context's PC in X
+  reg  [7:0] p1_spc, p2_spc;           // the PC each instruction was fetched from
+  reg        p3ok;                     // ... equal to its context's PC in X
   reg [31:0] p2_insn, p3_insn;
-  reg [54:0] d_op;                     // v1.6: decode of p3_insn, registered (below)
+  reg [54:0] d_op;                     // decode of p3_insn, registered (below)
   reg        illegal;
   reg        ff_valid;
   reg [2:0]  ff_cause, ff_sub;
@@ -209,15 +209,15 @@ module esc_core #(
   wire [7:0]   c_state;
   wire [3:0]   c_z, c_c, c_late, c_act, c_acta, c_failed, c_eseen, c_irqp;
   wire [3:0]   c_rxe, c_rxf, c_txe, c_txf, c_drv, c_hsmp, c_lret;
-  // capture unit (v1.1)
+  // capture unit
   wire        cap_drain;
   wire [7:0]  cap_ptr, cap_rptr;
   wire [31:0] cap_head, cap_status, cap_cfg, cap_ovf_tick;
-  wire [31:0] mon_rdata;                                     // v3 bus timing monitor: GETM 0/1
+  wire [31:0] mon_rdata;                                     // bus timing monitor: GETM 0/1
   wire        mon_rec_load;
   reg  [31:0] mon_tick;                                      // GETM 2: the record's tick, kept here
   wire        mon_irq;
-  // v3: the monitor has an owner like the line unit: the first context whose MON commits in
+  // The monitor has an owner like the line unit: the first context whose MON commits in
   // a run, until the next START (one-hot, so the commit path reads one flop). Another
   // context's MON faults ADMIT/OWNER and its GETM 0-2 read 0: a program loaded live beside
   // the owner can neither rewrite its rules nor read what they caught.
@@ -235,12 +235,12 @@ module esc_core #(
   // ------------------------------------------------------------------ commit stage selection
   // The committing context, (now + 1) mod 4 during a run, is a register that counts with
   // now. While stopped no commit happens, and it holds the context the host's debug reads
-  // of selects 0-8 select instead (v1.4, D-41); `run` stays off this path.
-  // v1.7 pair mode: slot s belongs to context s, except that it belongs to context s^2 (its
+  // of selects 0-8 select instead (D-41); `run` stays off this path.
+  // Pair mode: slot s belongs to context s, except that it belongs to context s^2 (its
   // partner) when that one is paired and s is off. sq counts the slots as cq did; cq, nq
   // and fq hold the owners of the commit, X and fetch slots, each a register, so the commit
   // stage's context selects start from flip-flops as before. With no pair, cq = sq,
-  // nq = sq + 1 and fq = now mod 4, as in v1.6.
+  // nq = sq + 1 and fq = now mod 4.
   wire [3:0]  pair_on = ctx_pair & ~{ctx_enable[1:0], ctx_enable[3:2]};
   function [1:0] own(input [1:0] s, input [3:0] pr);
     own = pr[s ^ 2'd2] ? (s ^ 2'd2) : s;
@@ -293,14 +293,14 @@ module esc_core #(
   wire [7:0] owned_c = owned_by[8*cctx +: 8];
   wire [7:0] sync    = vsync[8*cctx +: 8];      // the committing context's input view
 
-  // Line unit (v1.4, sec. 6.6): its state during this cycle, as commits see it.
+  // Line unit (sec. 6.6): its state during this cycle, as commits see it.
   wire        lu_owned, lu_conf, lu_engaged, lu_busy, lu_port, lu_pwe, lu_flto, lu_fltc;
   wire        lu_doe;
-  wire        lu_srd;                  // v1.6: a SEND with this R[rs] reads stream word 0
+  wire        lu_srd;                  // a SEND with this R[rs] reads stream word 0
   wire [1:0]  lu_owner;
   wire [2:0]  lu_mode;
   wire [7:0]  lu_claimed, lu_paddr, lu_rel, lu_drv, lu_dval;
-  // v1.7 (timing): the owner's bank, registered. ctx_bank is static during a run and the
+  // The owner's bank, registered for timing. ctx_bank is static during a run and the
   // owner changes only at a CONFIG that takes the unit (and at start); the unit uses its
   // view and pins no earlier than that CONFIG's completion, 9 cycles on, so a copy one
   // cycle behind is never seen (formal: lu_bank below). Off the high-fanout ctx_bank and
@@ -310,9 +310,9 @@ module esc_core #(
   wire [11:0] lu_el;
 `endif
   wire [31:0] lu_status, lu_e, lu_pwdata;
-  wire [31:0] lu_getm;                                        // v3: GETM's one word (esc_line aux_o)
+  wire [31:0] lu_getm;                                        // GETM's one word (esc_line aux_o)
   wire        lu_e_ld;
-  // v2 (timing, 11-12): the unit's one-hot owner register (u_line.sel = owned ? 1 << owner
+  // For timing, the unit's one-hot owner register (u_line.sel = owned ? 1 << owner
   // : 0, formal: sel_def), so lu_sel, lu_mine and the owner's line return start at a flop
   wire [3:0]  lu_selq;
   wire        lu_mine   = lu_selq[cctx];                    // the committing context owns it
@@ -330,7 +330,7 @@ module esc_core #(
   wire        f_dir   = insn[15];
   wire [6:0]  f_win   = insn[6:0];
 
-  reg [31:0] opa, opb;                 // v1.6: registered in the cycle before (below)
+  reg [31:0] opa, opb;                 // registered in the cycle before (below)
   function [31:0] pick(input [1:0] i, input [31:0] a0, input [31:0] a1, input [31:0] a2,
                        input [31:0] a3);
     pick = i[1] ? (i[0] ? a3 : a2) : (i[0] ? a1 : a0);
@@ -376,7 +376,7 @@ module esc_core #(
   function illegal_of(input [31:0] w);
     illegal_of = ~(|onehot(w[31:24])) | (|(w[23:0] & rsv_of(onehot(w[31:24]))));
   endfunction
-  // v1.6: the instruction is decoded in the X stage, from p2_insn, and registered beside
+  // The instruction is decoded in the X stage, from p2_insn, and registered beside
   // p3_insn (both load at every edge), so the commit cycle starts from flip-flops instead
   // of the opcode compare and legality trees. Equal to the decode of p3_insn in every
   // cycle (formal, B6 and B7).
@@ -408,14 +408,14 @@ module esc_core #(
                        d_op[I_ADDTR] ? opb : {25'd0, f_win};
   wire [31:0] t_sum  = cs_tmr + t_add;
 
-  // Deadline arithmetic. d = tmr during the commit cycle; c = now. v1.5: computed in the
+  // Deadline arithmetic. d = tmr during the commit cycle; c = now. Computed in the
   // cycle before, for the context that commits next, (cq + 1) mod 4: its timer, its FIFO
   // tail and its EXPECT window end change only at its own commit, four edges back, so they
   // are the same in the commit cycle, and c is then now + 1 (a commit needs a run and no
   // start or stop at the edge between). Registered here; asserted equal to the definitions
   // in every commit cycle (formal, below).
   wire [31:0] n_tmr   = c_tmr[32*nq +: 32];
-  // v1.6: the operands likewise, from p2_insn's register fields: a context's registers
+  // The operands likewise, from p2_insn's register fields: a context's registers
   // change only at its own commit, four edges back, or (an LDT's load) at the edge after
   // it, three back. Asserted equal to the commit cycle's reads in every commit cycle
   // (formal, B8 and B9).
@@ -495,7 +495,7 @@ module esc_core #(
         d_op[I_HALT]: begin
           seq  = 1'b0;
           w_pc = cs_pc;
-          // v1.4: the owner of an engaged line unit waits too (sec. 7.2)
+          // the owner of an engaged line unit waits too (sec. 7.2)
           if (cs_cnta == 3'd0 && !cs_acta && !(lu_mine && lu_engaged)) w_halt = 1'b1;
           else                                                         outcome = OC_W;
         end
@@ -554,7 +554,7 @@ module esc_core #(
           else              outcome = OC_W;
         end
         d_op[I_GETI]: begin
-          // v1.1 (D-20): wait while a SAMPLE is in the FIFO during the commit cycle
+          // D-20: wait while a SAMPLE is in the FIFO during the commit cycle
           if (cs_hsmp) outcome = OC_W;
           else begin
             w_rd_we = 1'b1; w_rd_data = cs_ish; z_src = 3'd1; w_geti = 1'b1;
@@ -563,7 +563,7 @@ module esc_core #(
         d_op[I_GETC]: begin
           w_rd_we = 1'b1; w_rd_data = cap_status; z_src = 3'd1;
         end
-        // v3: GETM reads state during cycle c: the monitor's (sel 0 counts, 1 record, 2 its
+        // GETM reads state during cycle c: the monitor's (sel 0 counts, 1 record, 2 its
         // tick) and, for the line unit's owner only, its whole bit count (3) and CRC
         // register (4), which the status word cannot hold; else 0. MON writes a rule at E_c
         d_op[I_GETM]: begin
@@ -581,11 +581,11 @@ module esc_core #(
           end
         end
         // LDT: the tape reads at this edge; the register is written at the next one
-        // (ld_* below). STT: tape_we at this edge. CAPT: esc_cap. v1.4: LDT and STT wait
+        // (ld_* below). STT: tape_we at this edge. CAPT: esc_cap. LDT and STT wait
         // in a cycle the line unit uses the port (always one of its owner's cycles).
         d_op[I_LDT], d_op[I_STT]: if (lu_port) outcome = OC_W;
         d_op[I_CAPT]: ;
-        // v1.4 line unit (sec. 7.7)
+        // line unit (sec. 7.7)
         d_op[I_LINE]: begin
           if (l_op > 4'd3) begin
             outcome = OC_F; f_cause = FC_ILLEGAL;
@@ -690,18 +690,18 @@ module esc_core #(
     w_z_we = (z_src != 3'd0);
   end
 
-  // v1.7: p3ok, registered in X, says the instruction was fetched from its context's PC
+  // p3ok, registered in X, says the instruction was fetched from its context's PC
   // as of X, which no commit changes before this one (pair mode: a guessed fetch).
   wire commit_valid = run & p3v & p3ok & (cs_state == ST_RUN) & ~start & ~stop & ~ctx_stop[cctx];
   wire cm_ok        = commit_valid & (outcome == OC_C);
 
-  // ------------------------------------------------------------------ tape port (v1.1)
+  // ------------------------------------------------------------------ tape port
   // Busy in a cycle whose observed commit has opcode LDT/STT, whatever its outcome
-  // (sec. 6.5); otherwise the capture unit may drain into it. v1.3: the host has the
+  // (sec. 6.5); otherwise the capture unit may drain into it. The host has the
   // port in every cycle the core does not use (tape_busy low), during a run too.
   wire        is_tm    = d_op[I_LDT] | d_op[I_STT];
   wire        tp_busy  = commit_valid & is_tm;
-  // v1.4 (sec. 6.6): the line unit has the port for its scheduled accesses (an owner LDT
+  // Sec. 6.6: the line unit has the port for its scheduled accesses (an owner LDT
   // or STT then waits), and in the commit cycle of every SEND and LINE, whose operation
   // reads word R[rs][7:0] when it starts a CONFIG, a CRC job or a packet with data.
   // At a start or stop edge the unit makes no access.
@@ -726,7 +726,7 @@ module esc_core #(
       .drain(cap_drain), .ptr_o(cap_ptr), .head_o(cap_head),
       .status(cap_status), .cfg(cap_cfg), .rptr(cap_rptr), .ovf_tick(cap_ovf_tick));
 
-  // v3: the bus timing monitor, global like the capture unit; it evaluates at every edge of
+  // The bus timing monitor, global like the capture unit; it evaluates at every edge of
   // a run except the stop edge, on the same synchronised pins. It sends GETM one word and
   // a strobe for the record's tick, which is kept here beside now (esc_mon.v, "narrow")
   esc_mon u_mon (
@@ -748,7 +748,7 @@ module esc_core #(
   wire cm_wf        = commit_valid & (outcome == OC_W) & waitfull;
   wire cm_fault     = commit_valid & (outcome == OC_F);
 
-  // per-context fault at this edge: commit fault, LATE_HEAD or (v1.4) a CONFIG of the
+  // per-context fault at this edge: commit fault, LATE_HEAD or a CONFIG of the
   // context's line unit completing invalid (not on start/stop)
   wire [3:0] cm_sel, lu_sel;
   wire [3:0] fault_k;
@@ -762,7 +762,7 @@ module esc_core #(
     end
   endgenerate
 
-  // v1.7 (S3) live reload. CTX_STOP k: k's context sees a stop at this edge (RUN becomes
+  // Live reload. CTX_STOP k: k's context sees a stop at this edge (RUN becomes
   // HALT, FIFO and checker killed), a commit of k at it is suppressed, k's pins release and
   // a line-unit job of k ends, as on a fault but with no record and no IRQ. CTX_START k
   // waits for the edge whose commit slot is k's first slot (k, or min(k, k^2) when paired):
@@ -798,7 +798,7 @@ module esc_core #(
     else if (start || stop)  rs_pend <= 4'd0;
     else                     rs_pend <= rs_want & ~rs_k & ~ctx_stop;
 
-  // v1.7 (S3): the fetch slot of the coming cycle belongs to a context that is not RUNNING
+  // The fetch slot of the coming cycle belongs to a context that is not RUNNING
   // (states become RUN only at a start or a restart), so that cycle reads nothing and a
   // program word written during a run may take the port. A register: the top's port select
   // is this flop and the host's, nothing from the fetch logic.
@@ -810,7 +810,7 @@ module esc_core #(
   assign imem_free = free_q;
 
   // ------------------------------------------------------------------ latch write data
-  // v1.4 (D-40): most of the contexts' banks are latches (esc_lreg). Each copies, while
+  // D-40: most of the contexts' banks are latches (esc_lreg). Each copies, while
   // its gated clock is high, what was written at the last edge, from these flip-flops:
   // one per write port, shared by all four contexts. No commit writes a register and SH
   // or a TX word together (asserted below), so those three share one; EXPECT's lee is
@@ -827,15 +827,15 @@ module esc_core #(
   esc_greg #(58) g_qent (.clk(clk), .rst_n(rst_n), .en(commit_valid & w_push),
       .d(w_entry), .q(q_entry));
   esc_greg #(32) g_qld (.clk(clk), .rst_n(rst_n), .en(ld_v), .d(tape_rdata), .q(q_ld));
-  // v3: the line unit's end tick e, kept here beside now (the unit sends e_ld): GETL's tmr
+  // The line unit's end tick e, kept here beside now (the unit sends e_ld): GETL's tmr
   esc_greg #(32) g_lue (.clk(clk), .rst_n(rst_n), .en(start | lu_e_ld), .d(start ? 32'd0 : now), .q(lu_e));
 
-  // ------------------------------------------------------------------ line unit (v1.4)
+  // ------------------------------------------------------------------ line unit
   wire lu_cm = cm_ok & d_op[I_LINE];
   esc_line u_line (
       .clk(clk), .rst_n(rst_n), .start(start), .now(now[1:0]),
       .view(lu_bank ? {3'd0, s2[12:8]} : s2[7:0]), .owns(owned_by[8*lu_owner +: 8]),
-      // v3: the same pins half a tick earlier (the falling-edge sample), for W4's both bit
+      // the same pins half a tick earlier (the falling-edge sample), for W4's both bit
       .view_h(lu_bank ? {3'd0, h3[12:8]} : h3[7:0]),
       .op_send(cm_ok & d_op[I_SEND] & w_push),
       .op_off(lu_cm & (l_op == 4'd0)), .op_recv(lu_cm & (l_op == 4'd1)),
@@ -975,7 +975,7 @@ module esc_core #(
   assign fault_valid  = ff_valid;
 
   // ------------------------------------------------------------------ fetch
-  // v1.7: a paired context fetches its next instruction while the one before it is in X
+  // A paired context fetches its next instruction while the one before it is in X
   // (fq == nq). The X instruction's state is final then (its predecessor committed at the
   // edge before), so its branch resolves exactly; a wait-class instruction is guessed to
   // complete, except HALT (its own PC). (WAITT too: its reached test, a 32-bit compare on
@@ -995,7 +995,7 @@ module esc_core #(
                       : x_pc + 8'd1;
   wire        f_chain = x_ok & (nq == fq);           // only a paired context, 2 slots apart
   wire [7:0]  f_pc    = f_chain ? x_npc : c_pc[8*fq +: 8];
-  // v2 (S-A): the page is the fetching context's. f_chain means nq == fq, so f_pc is always
+  // The page is the fetching context's. f_chain means nq == fq, so f_pc is always
   // fq's PC; fq is a register and ctx_page static, so the page bits are off the f_pc path.
   assign imem_addr = {ctx_page[2*fq +: 2], f_pc};
   wire   f_valid   = run & (c_state[2*fq +: 2] == ST_RUN) & ~(f_chain & d_op_n[I_LDT]);
@@ -1020,7 +1020,7 @@ module esc_core #(
     input [7:0] v;
     to_phys = bank ? {v[4:0], 8'd0} : {5'd0, v};
   endfunction
-  // v1.4: a DRIVE leaves the pins its line unit claims during this cycle unchanged, and
+  // A DRIVE leaves the pins its line unit claims during this cycle unchanged, and
   // the unit's own writes come after DRIVE retirement (and after fault release; the unit
   // of a faulting owner writes nothing).
   reg [12:0] val_n, oe_n, dm, dv, de, lm;
@@ -1048,7 +1048,7 @@ module esc_core #(
 
   // ------------------------------------------------------------------ digest (sec. 10.1)
   // Bank B outputs fold in at bits 12:8 as ~ob (0 when released), so a run that never
-  // drives bank B keeps its v1.1 digest.
+  // drives bank B has the digest of a chip with no bank B.
   reg  [31:0] dg;
   reg  [20:0] dg_prev;                 // outputs during the previous cycle (bank B as ~ob)
   wire [4:0]  ob_low = ~ob_out;
@@ -1151,7 +1151,7 @@ module esc_core #(
         pin_val <= val_n;
         pin_oe  <= oe_n;
         if (!ff_valid) begin
-          // a commit fault and a line unit CONFIG fault (v1.4, never the owner's commit
+          // a commit fault and a line unit CONFIG fault (never the owner's commit
           // edge) at one edge: the lower-numbered context is recorded (sec. 8)
           if (cm_fault && !(lu_cfgf && lu_owner < cctx)) begin
             ff_valid <= 1'b1; ff_cause <= f_cause; ff_sub <= f_sub;
@@ -1189,7 +1189,7 @@ module esc_core #(
   assign dbg_post_c   = c_c[pk_];
   assign dbg_post_pc  = c_pc[8*pk_ +: 8];
 
-  // v1.4 (D-41): a context's registers (selects 0-8) are read through the commit stage's
+  // D-41: a context's registers (selects 0-8) are read through the commit stage's
   // multiplexers, which select that context in its commit slot during a run and in every
   // cycle while stopped; dbg_cs holds the value from the last such cycle. Selects 9-31
   // read their sources directly.
@@ -1208,7 +1208,7 @@ module esc_core #(
       default: dcs = cs_ish;
     endcase
   end
-  // ------------------------------------------------------------------ tripwires (v2, S-C)
+  // ------------------------------------------------------------------ tripwires
   // Twelve proved invariants, watched in silicon. Bit i sets one edge after the first edge its
   // invariant is seen broken and holds until reset; debug select 27 reads them. Nothing else reads tw,
   // so behaviour, NI and the digest are untouched. The bank is clocked only when a monitor
@@ -1241,8 +1241,8 @@ module esc_core #(
     if (TRIPWIRES != 0) begin : g_tw
       // The monitors read the ends of the core's longest paths (the line unit's owner
       // fields, pin_oe, uio_out), so they are registered first and the bank sets one edge
-      // later: at 8x4 the 12-input OR into the bank's clock gate was a -1.42 ns gating
-      // check (T1 harden, 11-10). A tripwire is sticky, so the cycle costs nothing.
+      // later: at 8x4 a 12-input OR straight into the bank's clock gate fails its gating
+      // check (by 1.42 ns in a trial layout). A tripwire is sticky, so the cycle costs nothing.
       reg [11:0] tw_q;
       always @(posedge clk or negedge rst_n)
         if (!rst_n) tw_q <= 12'd0;
@@ -1311,7 +1311,7 @@ module esc_core #(
       assume ($stable(ctx_page));    // v2 (S-A)
     end
 
-  // v1.5 B1-B5: the deadline tests registered in the cycle before a commit are their
+  // B1-B5: the deadline tests registered in the cycle before a commit are their
   // definitions (sec. 6.2) on the state of the commit cycle. Proved by k-induction
   // (esc_core.sby task `ahead`, which keeps only these labelled assertions): a commit
   // follows at least three edges of an uninterrupted run (p1v-p3v clear on start and
@@ -1353,7 +1353,7 @@ module esc_core #(
     ahead_b8: `ESC_AHEAD (opa == pick(f_rd, cs_r0, cs_r1, cs_r2, cs_r3));
     ahead_b9: `ESC_AHEAD (opb == pick(f_rs, cs_r0, cs_r1, cs_r2, cs_r3));
   end
-  // D-41: the committing-context register counts with now during a run; v1.7: the slot
+  // D-41: the committing-context register counts with now during a run; with pair mode the slot
   // counter does, and the commit, X and fetch registers hold their slots' owners. B0 is
   // proved with B1-B9 (the `ahead` task); B8-B9 are not 8-inductive without it.
   always @(*) if (rst_n && run)
@@ -1377,15 +1377,15 @@ module esc_core #(
                    p3v, p2_insn, p2_spc, p2v, p1_spc, p1v, s2, s1, fq, nq, cq, sq, now, run};
   assign f_lu   = {lu_el, lu_port, lu_rel, lu_drv, lu_mode, lu_bank};
 `endif
-  // v1.7 S3: a restart edge has no commit (the shared latch write flops are free for the
+  // Live reload: a restart edge has no commit (the shared latch write flops are free for the
   // restarted context's zeros), and a cycle given to a host program write reads nothing.
   always @(*) if (rst_n) begin
     assert (!rs_any || !commit_valid);
     assert (!free_q || !imem_re);
-    // v2 (S-A): a context fetches only from its own page
+    // a context fetches only from its own page
     if (imem_re) assert (imem_addr[9:8] == ctx_page[2*fq +: 2]);
   end
-  // v2 (C6) a live program write waits at most 4 cycles: while some context is not RUNNING
+  // C6: a live program write waits at most 4 cycles: while some context is not RUNNING
   // and still owns its own slot (pair mode gives an off context's slot to its partner), the
   // slot counter brings that slot round within 4 cycles, and imem_free rises for it. A start,
   // a stop or a restart ends the count (a restarted context is RUNNING again).
@@ -1404,7 +1404,7 @@ module esc_core #(
   wire [12:0] f_driven = {~ob_out, uio_oe};
   integer fk;
 `ifdef ESC_TW_CHECK
-  // v2 (S-C) tw task (esc_core.sby): the twelve properties, stated as written above (each
+  // The tw task (esc_core.sby): the twelve properties, stated as written above (each
   // proved by its own task), imply that no monitor ever fires, so tw stays 0. 1-inductive.
   integer twf;
   always @(*) if (rst_n) begin
@@ -1434,7 +1434,7 @@ module esc_core #(
 `ifndef ESC_CORE_PDR
     assert (c_late == 4'd0);
 `endif
-    // v1.7: with no context paired, the fetch is v1.6's (never a guessed PC)
+    // with no context paired, the fetch is never a guessed PC
     if (run && pair_on == 4'd0) assert (!f_chain && fq == now[1:0]);
     for (fk = 0; fk < 4; fk = fk + 1)
       // P4 FIFO occupancy bounded (§6).
@@ -1460,15 +1460,15 @@ module esc_core #(
     assert ((pin_oe & ~pin_owned) == 13'd0);                                     // lemma-group: faulted
     for (fk = 0; fk < 4; fk = fk + 1)
       if (c_state[2*fk +: 2] == 2'd3) assert ((pin_oe & pown[13*fk +: 13]) == 13'd0);  // lemma-group: faulted
-    // v1.4 the line unit writes only pins it claims (and, at a CONFIG, pins the CONFIG
+    // The line unit writes only pins it claims (and, at a CONFIG, pins the CONFIG
     // checked): it claims only pins its owner owns, and it is idle and unconfigured while
     // stopped and once its owner has faulted (that owner never commits again).
     if (lu_owned) assert ((lu_claimed & ~owned_by[8*lu_owner +: 8]) == 8'd0);  // lemma-group: faulted
     if (!run) assert (lu_mode == 3'd0 && !lu_conf);                             // lemma-group: faulted
     if (lu_owned && c_state[2*lu_owner +: 2] == 2'd3) assert (lu_mode == 3'd0 && !lu_conf);  // lemma-group: faulted
-    // v1.7 lu_bank: unowned, the unit claims, drives and releases nothing
+    // lu_bank: unowned, the unit claims, drives and releases nothing
     if (!lu_owned) assert (lu_claimed == 8'd0 && lu_drv == 8'd0 && lu_rel == 8'd0);  // lemma-group: lubank
-    // LI (v1.6) what formal/esc_line_env.v assumes about the line unit's inputs, from
+    // LI: what formal/esc_line_env.v assumes about the line unit's inputs, from
     // which esc_line.sby proves the unit's registered values (D-44): one op at an edge,
     // only a running context's commit (so in its commit cycle, D-41), the owner's (or a
     // CONFIG taking an unowned unit), never while engaged (OFF excepted), RECV and CRC
@@ -1486,7 +1486,7 @@ module esc_core #(
     end
     if (lu_owned && lu_cfgf && !start && !stop) assert ((fault_k & lu_sel) != 4'd0);  // lemma-group: lineio
     if ((fault_k & lu_sel) != 4'd0) assert (run);  // lemma-group: lineio
-    // v3 monitor ownership: at most one owner, and a MON completes only for the owner or
+    // Monitor ownership: at most one owner, and a MON completes only for the owner or
     // takes an unowned monitor
     assert ((mon_sel & (mon_sel - 4'd1)) == 4'd0);  // lemma-group: monown
     if (cm_ok && d_op[I_MON]) assert (mon_sel == 4'd0 || mon_sel[cctx]);  // lemma-group: monown
@@ -1502,7 +1502,7 @@ module esc_core #(
     // A late FIFO head is a fault too (fault_k includes c_late), so "no fault on a
     // commit" contains P2. The pdr task proves the rest, faults other than lateness;
     // esc_ctx.sby assumes no more than that and proves P2, which completes the clause.
-    // v1.4: the committing context's own fault; another context's CONFIG may fault it at
+    // The committing context's own fault; another context's CONFIG may fault it at
     // the same edge (esc_ctx_env.v assumes the per-context clause only).
 `ifdef ESC_CORE_PDR
     if (cm_ok) assert (run && cs_state == ST_RUN && !start && !stop             // lemma-group: commit
@@ -1515,7 +1515,7 @@ module esc_core #(
     if (fault_k != 4'd0) assert (run && !start && !stop);
   end
 
-  // v1.7 lu_bank: the registered bank is the owner's once the unit has been owned for a
+  // lu_bank: the registered bank is the owner's once the unit has been owned for a
   // cycle of the run; in the cycle after a CONFIG takes the unit (the only other owned
   // cycle), the unit is loading that CONFIG and uses neither its view nor its pins.
   always @(posedge clk)
@@ -1525,7 +1525,7 @@ module esc_core #(
       else
         assert (lu_mode == 3'd1 && lu_drv == 8'd0 && lu_rel == 8'd0);  // lemma-group: lubank
     end
-  // LI (v2, 11-12) owns_cfg: the owner's pins hold while the unit stays in CONFIG (the owner is
+  // LI owns_cfg: the owner's pins hold while the unit stays in CONFIG (the owner is
   // fixed at the CONFIG's start, pin ownership static in a run). esc_line_env.v assumes it;
   // the unit registers its CONFIG fault terms a cycle early on that basis.
   always @(posedge clk)
@@ -1533,7 +1533,7 @@ module esc_core #(
       assert ($stable(owned_by[8*lu_owner +: 8]));  // lemma-group: lineio
 
   // P7 fixed slot timing: a commit observed during cycle c+1 belongs to the owner of slot
-  // (c+1) mod 4 (v1.6: context (c+1) mod 4; v1.7: its partner when that one is paired and
+  // (c+1) mod 4 (context (c+1) mod 4, or its partner when that one is paired and
   // it is off), and only enabled contexts ever commit (§3).
   always @(posedge clk)
     if (f_past_valid && rst_n && $past(rst_n) && dbg_commit_valid && run && $past(run)) begin
@@ -1557,7 +1557,7 @@ module esc_core #(
     cover (lu_fltc);                              // ... a CONFIG faults its owner
     cover (cm_ok && f_chain && pair_on != 4'd0);  // v1.7: a commit while a guessed fetch is made
   end
-  always @(posedge clk)                           // v1.7: a commit in a partner's slot
+  always @(posedge clk)                           // a commit in a partner's slot
     if (f_past_valid && rst_n && run && $past(run))
       cover (dbg_commit_valid && dbg_commit_ctx != now[1:0]);
 `endif

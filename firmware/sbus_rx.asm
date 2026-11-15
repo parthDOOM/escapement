@@ -1,4 +1,4 @@
-; S.BUS receiver (v1.6): the 16 proportional channels, two digital channels and the
+; S.BUS receiver: the 16 proportional channels, two digital channels and the
 ; frame-lost and failsafe flags that an RC receiver sends a flight controller, decoded
 ; into the tape for the host to read at any time.
 ;

@@ -39,7 +39,7 @@ def run(bundle_file):
 
 def stream(seconds=5, path="capture.json", bundle_file="bundles/logic_analyzer_stream.json",
            rows=24):
-    """v1.3 streaming capture: watch uio[7:0] for `seconds`, reading and acknowledging
+    """Streaming capture: watch uio[7:0] for `seconds`, reading and acknowledging
     records during the run, so the capture is not limited to the tape's 256 words. Writes
     an Escapement capture file (sw/esctape/export.py) and prints the first `rows` records
     as a timing table. Returns the record words."""

@@ -1,5 +1,5 @@
 /*
- * escapement_sram.v - program store: one IHP 1P 256x32 SRAM macro.
+ * escapement_sram.v - one IHP 1P 256x32 SRAM macro: the tape (and escapement_pstore's pages).
  *
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
@@ -8,10 +8,10 @@
  *   read   `re` and `addr` presented in cycle N -> `rdata` = mem[addr] from cycle
  *          N+1, held until the next read completes. A cycle with neither `re` nor
  *          `we` makes no access at all (A_MEN low: D-29, the macro idles instead of
- *          reading every cycle); the program store ties `re` high.
+ *          reading every cycle); each user reads only when it uses the word.
  *   write  `we` in cycle N stores `wdata` at `addr` on the N->N+1 edge; all 32
  *          bits (bit mask tied all-ones). No read happens in a write cycle, so
- *          `rdata` keeps its previous value (A_REN = ~we avoids the macro's
+ *          `rdata` keeps its previous value (A_REN = re & ~we avoids the macro's
  *          write-through, which would return the written data instead). `we` wins
  *          over `re`.
  *   reset  `rst_n` low deasserts A_MEN: no access, `rdata` holds. Contents are

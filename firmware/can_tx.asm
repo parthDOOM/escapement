@@ -1,6 +1,6 @@
 ; Classic CAN 2.0A transmitter in firmware: CRC-15 and bit stuffing computed on-chip,
 ; the frame played out at exact ticks, the ACK slot sampled at 70% - a bus the design
-; never names, with the tape as frame buffer (v1.1).
+; never names, with the tape as frame buffer.
 ; Context 0; TXD on pin 0 (push-pull, 1 = recessive) to a transceiver, RXD on pin 1.
 ; BAUD (250 kbit/s, the J1939 rate) at CLK_KHZ (25 MHz: BIT = 100 ticks). Single transmitter.
 ;

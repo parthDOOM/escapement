@@ -1,15 +1,15 @@
-"""Escapement instruction-set simulator: a cycle-by-cycle model of docs/11-SEMANTICS.md v1.6.0.
+"""Escapement instruction-set simulator: a cycle-by-cycle model of docs/11-SEMANTICS.md.
 
-v1.1 adds the tape and capture unit (§6.5, §7.6), the execution digest (§10.1) and the
-wait-class GETI (§7.3). v1.2 adds pin bank B (§5): five split pins seen by a context as
-its logical pins 0..4. Bus models keep the 8-bit `board(t, uio_out, uio_oe) -> uio_in`
-interface for bank A; bank B has its own `board_b(t, ob) -> ib` (5 bits, default 0).
-v1.3 adds streaming capture (§6.5): CAPT bit 26, the host's read pointer `rptr` set by
-TAPE_ACK (`host_tape_ack`), and a drain that is held rather than overwrite an
-unacknowledged record. Host tape reads never affect the machine; `tape_log` records
-every tape write so a host read at any cycle can be checked. v1.4 adds the line unit
-(§6.6, `line.py`) and SEND, LINE and GETL (§6.2, §7.7); v1.6 its extended configuration
-(symbol coding, clock pattern, CRC up to 32 bits, prefix, long streams; `line.py`).
+Besides the contexts, the model has the tape and capture unit (§6.5, §7.6), the execution
+digest (§10.1), and pin bank B (§5): five split pins seen by a context as its logical
+pins 0..4. Bus models keep the 8-bit `board(t, uio_out, uio_oe) -> uio_in` interface for
+bank A; bank B has its own `board_b(t, ob) -> ib` (5 bits, default 0). Streaming capture
+(§6.5): CAPT bit 26, the host's read pointer `rptr` set by TAPE_ACK (`host_tape_ack`), and
+a drain that is held rather than overwrite an unacknowledged record. Host tape reads never
+affect the machine; `tape_log` records every tape write so a host read at any cycle can be
+checked. The line unit (§6.6, `line.py`) with SEND, LINE and GETL (§6.2, §7.7) and its
+extended configuration (symbol coding, clock pattern, CRC up to 32 bits, prefix, long
+streams), the bus timing monitor (§6.7, `monitor.py`), pair mode, live reload and pages.
 
 One loop iteration = one run cycle t, ending with edge E_t. State held in the Python
 objects is always "state during cycle self.now" (i.e. the register values after the
@@ -44,17 +44,17 @@ IDLE, RUNNING, HALTED, FAULTED = 0, 1, 2, 3
 STATE_NAMES = {IDLE: "IDLE", RUNNING: "RUNNING", HALTED: "HALTED", FAULTED: "FAULTED"}
 
 DRIVE, EXPECT, SAMPLE = EVENT_KIND["DRIVE"], EVENT_KIND["EXPECT"], EVENT_KIND["SAMPLE"]
-LINE = EVENT_KIND["LINE"]     # v1.4
+LINE = EVENT_KIND["LINE"]     # the line unit's entries
 HOLD, ARRIVE = 0, 1
 
 FIFO_DEPTH = 4          # §1
 MBX_DEPTH = 2           # §1
 N_CTX = 4               # §1
 N_PINS = 8              # §1 logical pins per context, and bank A
-N_PHYS = 13             # §5 physical pins: 0..7 bank A, 8..12 bank B (v1.2)
+N_PHYS = 13             # §5 physical pins: 0..7 bank A, 8..12 bank B
 BANK_B = 8              # first bank B physical pin
-TAPE_WORDS = 256        # §1 (v1.1)
-CAP_STAGE = 2           # §1 (v1.1) capture staging records
+TAPE_WORDS = 256        # §1
+CAP_STAGE = 2           # §1 capture staging records
 OP_LDT, OP_STT = ISA.by_name["LDT"].op, ISA.by_name["STT"].op
 OP_SEND, OP_LINE = ISA.by_name["SEND"].op, ISA.by_name["LINE"].op
 DG_POLY = 0x04C11DB7    # §10.1
@@ -62,7 +62,7 @@ OUTCOME_CODE = {"C": 0, "W": 1, "F": 2}
 
 Board = Callable[[int, int, int], int]
 BoardB = Callable[[int, int], int]
-Half = Callable[[int, int, int], int]    # v3: (t, inputs t-1, inputs t) -> pins at the falling edge
+Half = Callable[[int, int, int], int]    # (t, inputs t-1, inputs t) -> pins at the falling edge
 
 
 # --------------------------------------------------------------------------- notation
@@ -126,7 +126,7 @@ class Entry:
     window: int = 0
     pin: int = 0
     dir: int = 0
-    cmd: int = 0            # LINE (v1.4): the SEND command, R[rs][23:0]
+    cmd: int = 0            # LINE: the SEND command, R[rs][23:0]
 
 
 @dataclass
@@ -183,22 +183,22 @@ class Context:
     # EXPECT admission history (§6.2 step 6)
     expect_admitted: bool = False
     last_expect_end: int = 0
-    inflight: list[InFlight] = field(default_factory=list)   # v1.7: two when paired
+    inflight: list[InFlight] = field(default_factory=list)   # two when paired
 
 
 @dataclass
 class Capture:
-    """§6.5 capture unit (v1.1)."""
+    """§6.5 capture unit."""
     en: bool = False
     snap: bool = False
     mask: int = 0
     base: int = 0
     lim: int = 0
     ring: bool = False
-    stream: bool = False    # v1.3: ring shared with the host
-    bank: int = 0           # v1.2: the watched pin bank
+    stream: bool = False    # ring shared with the host
+    bank: int = 0           # the watched pin bank
     ptr: int = 0
-    rptr: int = 0           # v1.3: first record the host has not acknowledged
+    rptr: int = 0           # first record the host has not acknowledged
     prev: int = 0
     ovf: bool = False
     full: bool = False
@@ -222,7 +222,7 @@ class Capture:
         return self.base if (n == self.lim and (self.ring or self.stream)) else n
 
     def held(self) -> bool:
-        """§6.5 v1.3: the drain would make ptr reach rptr."""
+        """§6.5: the drain would make ptr reach rptr."""
         return self.stream and self.succ() == self.rptr
 
 
@@ -287,13 +287,13 @@ class Commit:
     rx_pop: bool = False
     tx_push: Optional[int] = None
     wait_full_inc: bool = False
-    # v1.1
+    # tape and digest
     rd_val: Optional[int] = None        # §10.1 wv: rd result written at E_c
     ld_val: Optional[int] = None        # §7.6 LDT loaded value (digest folds it at E_(c+1))
     tape_write: Optional[tuple[int, int]] = None   # STT (address, word)
     capt: Optional[int] = None          # CAPT operand
-    mon: Optional[tuple[int, int]] = None   # v3 MON operands (R[rd], R[rs])
-    # v1.4
+    mon: Optional[tuple[int, int]] = None   # MON operands (R[rd], R[rs])
+    # line unit
     lu_op: Optional[tuple[str, int, int]] = None   # ("LINE"|"SEND", R[rs], ctx)
 
 
@@ -312,17 +312,17 @@ class Machine:
         self.image = image
         self.board: Board = board or default_board
         self.board_b: BoardB = board_b or no_board_b
-        # v3: the 13 pins at the falling edge inside cycle t (the both-edge sample),
+        # The 13 pins at the falling edge inside cycle t (the both-edge sample),
         # half(t, before, during) with before/during the inputs of cycles t-1 and t. The
         # default, `before`, is a pin that changes after the falling edge, as every bench
         # drives them; then the half-tick view equals the previous full-tick view.
         self.half: Optional[Half] = half
-        # v2 (S-A): a 1,024-word program store of four 256-word pages; context k fetches from
+        # A 1,024-word program store of four 256-word pages; context k fetches from
         # page ctx_page[k]. A 256-word image is page 0, with every context on it.
         self.imem = [w & M32 for w in image.words] + [0] * (1024 - len(image.words))
         self.ctx_page = ([p & 3 for p in getattr(image, "ctx_page", [0] * N_CTX)]
                          if len(image.words) == 1024 else [0] * N_CTX)
-        # §4 v1.1: the tape is not reset and not cleared by start; it starts with the
+        # §4: the tape is not reset and not cleared by start; it starts with the
         # image's host-loaded contents (WRITE_TAPE before START).
         self.tape = [w & M32 for w in getattr(image, "tape", [0] * TAPE_WORDS)]
         self.image_tape = list(self.tape)
@@ -335,7 +335,7 @@ class Machine:
         del self.pin_owned[N_PHYS:], self.pin_owner[N_PHYS:]
         self.pin_od = [bool(o) for o in image.pin_od]
         self.ctx_bank = [int(bool(b)) for b in getattr(image, "ctx_bank", [0] * N_CTX)]
-        # v1.7 pair mode: context k also takes its partner's slot k^2 when that one is off
+        # Pair mode: context k also takes its partner's slot k^2 when that one is off
         pair = list(getattr(image, "ctx_pair", [0] * N_CTX)) + [0] * N_CTX
         self.pair_on = [bool(pair[k]) and not self.ctx_enable[k ^ 2] for k in range(N_CTX)]
         # observation records (§10)
@@ -346,7 +346,7 @@ class Machine:
         self._host_tx_pop: list[bool] = [False] * N_CTX
         self._host_irq_clear = 0
         self._host_tape_ack: Optional[int] = None
-        # v1.7 (S3) live reload: contexts to stop at the next edge, and contexts waiting for
+        # Live reload: contexts to stop at the next edge, and contexts waiting for
         # their first slot to restart; the contexts restarted at the edge being simulated
         self._ctx_stop = 0
         self._ctx_start = 0
@@ -364,13 +364,13 @@ class Machine:
         self.oe = 0
         self.s1 = 0
         self.s2 = 0
-        self.h2 = 0                                # v3: the falling-edge sample, re-timed;
+        self.h2 = 0                                # the falling-edge sample, re-timed;
         self.h3 = 0                                # h3 is half a tick older than s2
         self.pin_before = 0                        # the inputs of the previous cycle
         self.ff = FirstFault()
         self.now = 0
         self.cap = Capture()
-        self.mon = Monitor()                       # v3 bus timing monitor
+        self.mon = Monitor()                       # bus timing monitor
         self.lu = LineUnit()
         self._lu_acc = False
         self._lu_busy_port = False
@@ -387,10 +387,10 @@ class Machine:
         Hence sync during cycle 0 = 0 and sync during cycle 1 = uio_in during cycle -1.
         """
         out, oe = self._pin_outputs()
-        p_start = self.s2                          # psync during cycle -1 (v3 monitor)
+        p_start = self.s2                          # psync during cycle -1 (the monitor)
         self._sync_shift(self._inputs(-1, out, oe, self._ob()), -1)
         self._apply_start()
-        self.mon.start()                           # v3: at E_-1 rules off, counts cleared;
+        self.mon.start()                           # at E_-1 rules off, counts cleared;
         self.mon.prev = p_start & 0x1FFF           # prev follows the pins at every edge
 
     def _apply_start(self) -> None:
@@ -409,7 +409,7 @@ class Machine:
         self.oe = 0
         self.ff = FirstFault()
         self.cap = Capture()                       # §6.5 start
-        self.lu = LineUnit()                       # §9 v1.4 line unit
+        self.lu = LineUnit()                       # §9 line unit
         self.dg = 0xFFFFFFFF                       # §10.1
         self._ld_dg = None                         # no pending LDT write
         self._dg_prev = (0, 0, 0)                  # outputs during the previous cycle
@@ -430,13 +430,13 @@ class Machine:
         self._stop_pending = True
 
     def host_ctx_stop(self, mask: int) -> None:
-        """v1.7 (S3) CTX_STOP at the next edge: each context in mask stops there as on a run
+        """CTX_STOP at the next edge: each context in mask stops there as on a run
         stop (RUNNING becomes HALTED, FIFO and checker killed, its commit at that edge
         discarded), its pins release and a line-unit job it owns ends; no fault record."""
         self._ctx_stop |= mask & 0xF
 
     def host_ctx_start(self, mask: int) -> None:
-        """v1.7 (S3) CTX_START: each context in mask restarts at the edge ending the cycle
+        """CTX_START: each context in mask restarts at the edge ending the cycle
         before its first slot (k, or min(k, k^2) when paired), as at a run start at that
         frame: registers cleared, PC = entry, tmr = the frame base, RUNNING if enabled.
         A context not enabled, or RUNNING in the strobe's cycle, is left out (the host
@@ -446,13 +446,13 @@ class Machine:
                                             if self.ctx_enable[k] and self.ctx[k].state != RUNNING)
 
     def imem_write(self, addr: int, word: int, page: int = 0) -> None:
-        """v1.7 (S3) a program word written during a run (the chip writes it in a cycle with
-        no fetch); fetches from the next cycle on read it. v2 (S-A): into page `page` (the
+        """A program word written during a run (the chip writes it in a cycle with
+        no fetch); fetches from the next cycle on read it. It goes into page `page` (the
         host's IMEM_PAGE), at addr mod 256."""
         self.imem[256 * (page & 3) + (addr & 0xFF)] = word & M32
 
     def _first_slot(self, k: int) -> int:
-        """v1.7: the first of context k's slots in a frame (k, or min(k, k^2) when paired)."""
+        """The first of context k's slots in a frame (k, or min(k, k^2) when paired)."""
         return k & 1 if self.pair_on[k] else k
 
     def host_rx_push(self, ctx: int, value: int) -> None:
@@ -474,7 +474,7 @@ class Machine:
         return tx[0]
 
     def host_tape_ack(self, rptr: int) -> None:
-        """§6.5 v1.3 TAPE_ACK: rptr <= rptr at the next edge. While stopped the edges are
+        """§6.5 TAPE_ACK: rptr <= rptr at the next edge. While stopped the edges are
         not simulated one by one, so it applies at once and the records it releases
         drain at once (the host cannot observe the few cycles this takes)."""
         if self.run_flag:
@@ -498,11 +498,11 @@ class Machine:
         return self._pin_outputs()
 
     def outputs_b(self) -> int:
-        """Bank B outputs uo_out[7:3] during the current cycle (§5, v1.2)."""
+        """Bank B outputs uo_out[7:3] during the current cycle (§5)."""
         return self._ob()
 
     def host_irq_clear(self, mask: int) -> None:
-        """§10 (v1.0.1) irq_clear[3:0], asserted for the next edge."""
+        """§10 irq_clear[3:0], asserted for the next edge."""
         self._host_irq_clear |= mask & 0xF
 
     @property
@@ -520,12 +520,12 @@ class Machine:
         x = self.ctx[ctx & 3]
         ch = x.chk
         sel &= 0x1F
-        if sel >= 16:                              # v1.1, ignore ctx
+        if sel >= 16:                              # global selects, ignore ctx
             lu = self.lu
             return {16: self.dg, 17: self.cap.status(), 18: self.cap.config(),
                     19: self.cap.ovf_tick, 20: self.cap.rptr,
                     21: lu.status(), 25: lu.e, 26: lu.dbg26(),
-                    # v2 (S-C) 27, the tripwires: 0. The model keeps every invariant by
+                    # 27, the tripwires: 0. The model keeps every invariant by
                     # construction, so the cosim's end-of-case read of 27 requires the
                     # RTL's tripwires to be 0 in every case
                     27: 0}.get(sel, 0)
@@ -584,7 +584,7 @@ class Machine:
                 | ((self.board_b(t, ob) & 0x1F) << BANK_B))
 
     def _sync_shift(self, pins_in: int, t: int) -> None:
-        """§5 two flip-flop synchroniser, at every edge; v3: the falling-edge sample of
+        """§5 two flip-flop synchroniser, at every edge, and the falling-edge sample of
         cycle t and its two re-timing stages."""
         h = self.pin_before if self.half is None else self.half(t, self.pin_before, pins_in)
         self.s2 = self.s1
@@ -625,10 +625,10 @@ class Machine:
         if self._stop_pending:                                 # §9 Stop at E_t
             self._edge_stop()
             self._ctx_stop = self._ctx_start = 0
-            self.mon.prev = psync & 0x1FFF                     # v3: no evaluation at a stop
+            self.mon.prev = psync & 0x1FFF                     # no evaluation at a stop
         else:
             self._fetch(t)                                     # §3
-            # v1.7 (S3): restarts at E_t, then stops (a restart wins over a same-edge stop)
+            # live reload: restarts at E_t, then stops (a restart wins over a same-edge stop)
             rs = sum(1 << k for k in range(N_CTX)
                      if self._ctx_start >> k & 1 and (t + 1) % N_CTX == self._first_slot(k))
             cs, raw_stop = self._ctx_stop & ~rs, self._ctx_stop
@@ -636,14 +636,14 @@ class Machine:
             self._ctx_stop = 0
             self._restarted = rs
             commit = self._edge(t, tm, psync, cs, raw_stop, rs)
-            self._capture_edge(tm, psync, commit)              # §6.5 (v1.1)
+            self._capture_edge(tm, psync, commit)              # §6.5
             mon_c = commit.mon if (commit is not None and commit.outcome == "C") else None
-            self.mon.edge(tm, psync, True, mon_c)              # v3 bus timing monitor
+            self.mon.edge(tm, psync, True, mon_c)              # bus timing monitor
             if mon_c is not None and self.mon.owner is None:
-                self.mon.owner = commit.k                      # v3: the first MON takes it
-            self._digest_edge(out, oe, ob, commit)             # §10.1 (v1.1)
+                self.mon.owner = commit.k                      # the first MON takes it
+            self._digest_edge(out, oe, ob, commit)             # §10.1
         self._apply_mailboxes(commit)                          # §7.5, §10 host ports
-        self._apply_irq_clear(commit)                          # §10 irq_clear (v1.0.1)
+        self._apply_irq_clear(commit)                          # §10 irq_clear
         self._sync_shift(pins_in, t)                           # §5
         self.now = t + 1                                       # §2
         return idle
@@ -651,14 +651,14 @@ class Machine:
     # ------------------------------------------------------------------ §3 fetch
 
     def _owner(self, s: int) -> int:
-        """v1.7: the context of slot s (mod 4): s, or its partner s^2 when that one is paired."""
+        """The context of slot s (mod 4): s, or its partner s^2 when that one is paired."""
         s %= N_CTX
         return s ^ 2 if self.pair_on[s ^ 2] else s
 
     def _fetch(self, t: int) -> None:
         """§3: a RUNNING context fetches in its slots, t = k (mod 4) (and k ^ 2 if paired).
 
-        v1.7: a paired context fetches while its previous instruction is one cycle from
+        A paired context fetches while its previous instruction is one cycle from
         committing. If that instruction was fetched from the context's PC, the fetch uses
         its next PC as computed from the state during t (exact for branches, RET and HALT;
         PC + 1 otherwise, WAITT included), and after an LDT the slot is skipped (§3)."""
@@ -690,11 +690,11 @@ class Machine:
 
     def _edge(self, t: int, tm: int, psync: int, cs: int = 0, raw_stop: int = 0,
               rs: int = 0) -> Optional[Commit]:
-        # Each context sees its own bank's inputs as its logical pins (§5, v1.2).
+        # Each context sees its own bank's inputs as its logical pins (§5).
         views = [view(self.ctx_bank[k], psync) for k in range(N_CTX)]
         # ---- plan: event engine for every context (§6.3, §6.4), state during cycle t
         plans = [self._event_plan(x, tm, views[k]) for k, x in enumerate(self.ctx)]
-        # ---- plan: the line unit (v1.4, §6.6): its scheduled access in cycle t (the
+        # ---- plan: the line unit (§6.6): its scheduled access in cycle t (the
         # owner's LDT/STT then waits) and a CONFIG completing at E_t that faults the owner
         lu = self.lu
         lu_owner = lu.owner
@@ -713,8 +713,8 @@ class Machine:
             xj.inflight.remove(fl)
             # SPEC-Q 1: an instruction whose context is no longer RUNNING during its
             # commit cycle (only possible after LATE_HEAD) is discarded, like §9 Stop.
-            # v1.7: so is one fetched from a PC that is not the context's (a wrong guess).
-            # v1.7 (S3): and one whose context a CTX_STOP stops at E_t.
+            # so is one fetched from a PC that is not the context's (a wrong guess).
+            # and one whose context a CTX_STOP stops at E_t.
             if xj.state == RUNNING and fl.pc == xj.pc and not raw_stop >> j & 1:
                 commit = self._commit(j, fl, tm, views[j], plans[j])
 
@@ -730,7 +730,7 @@ class Machine:
             pc_during_t = x.pc
 
             if cs >> k & 1:
-                # v1.7 (S3) CTX_STOP: as §9 Stop for this context; its pins release as on
+                # CTX_STOP: as §9 Stop for this context; its pins release as on
                 # a fault, and a line-unit job of its ends (the unit's kill), no record.
                 if x.state == RUNNING:
                     x.state = HALTED
@@ -766,14 +766,14 @@ class Machine:
                 e = x.fifo.pop(0)
                 assert e is p.retire
                 if e.kind == DRIVE:                # §6.3 onto the context's bank
-                    mask = e.mask & ~(claimed_t if k == lu_owner else 0)   # §6.6 v1.4
+                    mask = e.mask & ~(claimed_t if k == lu_owner else 0)   # §6.6
                     pm = to_phys(bank, mask)
                     new_val = (new_val & ~pm) | (to_phys(bank, e.value) & pm)
                     new_oe = (new_oe & ~pm) | (to_phys(bank, e.oe) & pm)
                 elif e.kind == SAMPLE:
                     x.ish = shift_in(x.ish, (sync >> e.pin) & 1, e.dir)
                 elif e.kind == LINE:
-                    line_retired = True            # §6.3 v1.4: starts the line unit
+                    line_retired = True            # §6.3: starts the line unit
                 # EXPECT: the checker start is part of p.chk
             if p.chk is not None:
                 self._apply_checker_eval(x, p.chk, tm, sync)
@@ -815,7 +815,7 @@ class Machine:
 
         self.val, self.oe = new_val & 0x1FFF, new_oe & 0x1FFF
 
-        # v1.7 (S3) CTX_START: k re-initialises at E_t as at a run start (the start wins over
+        # CTX_START: k re-initialises at E_t as at a run start (the start wins over
         # everything else of k at this edge), with tmr the frame base; pins and the line
         # unit's ownership are unchanged.
         for k in range(N_CTX):
@@ -842,19 +842,19 @@ class Machine:
         self.oe = 0
         self.run_flag = False
         self._stop_pending = False
-        # §6.5/§9 v1.1: generation stops; staged records drain in the following cycles
+        # §6.5/§9: generation stops; staged records drain in the following cycles
         # (the port is free while stopped), so their effect is applied here.
         self.cap.en = self.cap.snap = False
         self._take_ack()
         self._drain_stopped()
         self._ld_dg = None                         # dg does not change while stopped
-        self.lu._abort()                           # §9 v1.4: as OFF, no access at E_t
+        self.lu._abort()                           # §9: as OFF, no access at E_t
         self.lu._unconfigure()
 
-    # ------------------------------------------------------------------ §6.5 capture (v1.1)
+    # ------------------------------------------------------------------ §6.5 capture
 
     def _take_ack(self) -> None:
-        """§6.5 v1.3: rptr <= tape_ack_v at this edge, if the host acknowledged."""
+        """§6.5: rptr <= tape_ack_v at this edge, if the host acknowledged."""
         if self._host_tape_ack is not None:
             self.cap.rptr, self._host_tape_ack = self._host_tape_ack, None
 
@@ -883,15 +883,15 @@ class Machine:
     def _capture_edge(self, tm: int, psync: int, commit: Optional[Commit]) -> None:
         """§6.5 at E_t (not start/stop): drain, generate, then CAPT."""
         cp = self.cap
-        sync = view(cp.bank, psync)                                     # csync (v1.2)
+        sync = view(cp.bank, psync)                                     # csync
         en_t, snap_t, prev_t, mask_t = cp.en, cp.snap, cp.prev, cp.mask
         busy = ((commit is not None and ((commit.insn >> 24) & 0xFF) in (OP_LDT, OP_STT))
-                or self._lu_busy_port)             # v1.4 line unit (§6.6)
+                or self._lu_busy_port)             # line unit (§6.6)
         capt = commit.capt if (commit is not None and commit.outcome == "C") else None
         set_full = False
         if cp.stage and not busy and not cp.held():                     # 1 drain
             set_full = self._capture_drain()
-        self._take_ack()                                                # v1.3 TAPE_ACK
+        self._take_ack()                                                # TAPE_ACK
         if en_t and not set_full and capt is None:                      # 2 generate
             if snap_t or ((sync ^ prev_t) & mask_t) or (tm & 0xFFFFFF) == 0:
                 cp.prev, cp.snap = sync & 0xFF, False
@@ -909,7 +909,7 @@ class Machine:
             else:
                 cp.en = cp.snap = False
 
-    # ------------------------------------------------------------------ §10.1 digest (v1.1)
+    # ------------------------------------------------------------------ §10.1 digest
 
     def _digest_edge(self, out: int, oe: int, ob: int, commit: Optional[Commit]) -> None:
         # §10.1: only active edges fold (commit observed, LDT write, or outputs changed)
@@ -983,7 +983,7 @@ class Machine:
 
     def _apply_checker_eval_on_fault(self, x: Context, p: EventPlan, tm: int, sync: int
                                      ) -> None:
-        """Spec v1.0.2 §8 (resolves SPEC-Q 4): a fault at E_t cancels the checker's
+        """§8 (resolves SPEC-Q 4): a fault at E_t cancels the checker's
         evaluation of tick t, like the retirement it also cancels; the checker is
         deactivated with no pass/fail count or first_fail update at that edge."""
         x.chk.active = False
@@ -1082,7 +1082,7 @@ class Machine:
         ignored when full or empty; never visible to a commit at the same edge). SPEC-Q 9."""
         for k, x in enumerate(self.ctx):
             if self._restarted >> k & 1:
-                continue                           # v1.7 (S3): its start wins, mailboxes empty
+                continue                           # live reload: its start wins, mailboxes empty
             mine = commit if (commit is not None and commit.k == k
                               and commit.outcome == "C") else None
             rx_full_before = len(x.rx) >= MBX_DEPTH
@@ -1099,7 +1099,7 @@ class Machine:
         self._host_tx_pop = [False] * N_CTX
 
     def _apply_irq_clear(self, commit: Optional[Commit]) -> None:
-        """§10 v1.0.1: at an edge where irq_clear[k] is high, irq_pending[k] is cleared,
+        """§10: at an edge where irq_clear[k] is high, irq_pending[k] is cleared,
         unless an IRQ instruction of context k commits at that edge (set wins; its code
         was recorded by _apply_commit). SPEC-Q 15: "commits" = COMPLETE (an IRQ at PC 255
         faults PC_RANGE and has no effect, so the clear applies); irq_code is left as is.
@@ -1120,19 +1120,19 @@ class Machine:
             self._wait(cm, full=True)
         if e.kind in (DRIVE, EXPECT) and e.mask == 0:                   # 2
             self._fail(cm, "ADMIT", "MASK")
-        claimed = self.lu.claimed if self.lu.owner == k else 0         # v1.4 §6.6
+        claimed = self.lu.claimed if self.lu.owner == k else 0         # §6.6
         if e.kind == DRIVE and any((e.mask >> i) & 1 and (not self._owns(k, i)
                                                           or (claimed >> i) & 1)
                                    for i in range(N_PINS)):             # 3
             self._fail(cm, "ADMIT", "OWNER")
-        if e.kind == LINE:                                              # 3 (v1.4 SEND)
+        if e.kind == LINE:                                              # 3 (SEND)
             lu = self.lu
             if lu.owner != k or not lu.configured or not lu.cfg.tx_pins:
                 self._fail(cm, "ADMIT", "OWNER")
             if lu.engaged():
                 self._wait(cm)
         if not ahead(e.deadline, c):                                    # 4
-            if e.kind == LINE:                                          # v1.4: a late SEND
+            if e.kind == LINE:                                          # a late SEND
                 cm.z = 0                                                # is dropped
                 return False
             self._fail(cm, "ADMIT", "PAST")
@@ -1359,7 +1359,7 @@ def _IRQ(m, x, k, cm, f, c, sync, q, ca):
 
 
 def _HALT(m, x, k, cm, f, c, sync, q, ca):
-    # v1.4: an owner of an engaged line unit waits too (§7.2)
+    # An owner of an engaged line unit waits too (§7.2)
     if not q and not ca and not (m.lu.owner == k and m.lu.engaged()):
         cm.halt = True
         cm.next_pc = cm.pc                            # PC unchanged (not sequential)
@@ -1405,7 +1405,7 @@ def _WAITP(m, x, k, cm, f, c, sync, q, ca):
 
 
 def _GETI(m, x, k, cm, f, c, sync, q, ca):
-    # v1.1 (D-20): wait while the FIFO during cycle c holds a SAMPLE (even one retiring
+    # D-20: wait while the FIFO during cycle c holds a SAMPLE (even one retiring
     # at E_c), so the last sampled bit is never lost into the next word.
     if any(e.kind == SAMPLE for e in x.fifo):
         Machine._wait(cm)
@@ -1456,7 +1456,7 @@ def _SEND(m, x, k, cm, f, c, sync, q, ca):
         cm.lu_op = ("SEND", v, k)                     # admitted; Z = 0 if dropped
 
 
-# ---- §7.7 line unit (v1.4)
+# ---- §7.7 line unit
 
 def _LINE(m, x, k, cm, f, c, sync, q, ca):
     v = cm.r[f["rs"]]
@@ -1489,14 +1489,14 @@ def _GETL(m, x, k, cm, f, c, sync, q, ca):
     cm.r[f["rd"]] = cm.rd_val = st
 
 
-# ---- §7.6 tape and capture (v1.1)
+# ---- §7.6 tape and capture
 
 def _tape_addr(cm, f):
     return (cm.r[f["rb"]] + f["imm"]) & 0xFF
 
 
 def _lu_conflict(m, k, cm) -> None:
-    """§6.6 v1.4: the owner's LDT/STT waits in a cycle with a scheduled LU access."""
+    """§6.6: the owner's LDT/STT waits in a cycle with a scheduled LU access."""
     if m._lu_acc and m.lu.owner == k:
         Machine._wait(cm)
 
@@ -1522,15 +1522,15 @@ def _GETC(m, x, k, cm, f, c, sync, q, ca):
 
 
 def _MON(m, x, k, cm, f, c, sync, q, ca):
-    # v3: the monitor belongs to the first context whose MON commits in a run (taken at E_c);
+    # The monitor belongs to the first context whose MON commits in a run (taken at E_c);
     # another context's MON faults ADMIT/OWNER, like a LINE
     if m.mon.owner is not None and m.mon.owner != k:
         Machine._fail(cm, "ADMIT", "OWNER")
-    cm.mon = (cm.r[f["rd"]], cm.r[f["rs"]])            # v3: the rule is written at E_c
+    cm.mon = (cm.r[f["rd"]], cm.r[f["rs"]])            # the rule is written at E_c
 
 
 def _GETM(m, x, k, cm, f, c, sync, q, ca):
-    # v3: monitor state during cycle c (sel 0..2) and the line unit's whole bit count (3) and
+    # Monitor state during cycle c (sel 0..2) and the line unit's whole bit count (3) and
     # CRC register (4) (the status word holds 9 and 16 bits of them), each for its owner only
     sel, lu = f["imm"], m.lu
     if sel in (3, 4):

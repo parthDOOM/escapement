@@ -1,4 +1,4 @@
-; SPI controller, write-only, at line rate on the line unit (v1.6): one bit every 4 ticks
+; SPI controller, write-only, at line rate on the line unit: one bit every 4 ticks
 ; with the default 2-tick cells (10 Mb/s at 40 MHz, 6.25 Mb/s at 25 MHz), any SPI mode.
 ; For shift registers, display and LED drivers, DACs, flash page writes: devices that only
 ; listen. (spi_ctrl.asm bit-bangs full duplex, slower.)

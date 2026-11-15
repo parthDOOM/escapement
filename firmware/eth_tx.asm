@@ -1,4 +1,4 @@
-; 10BASE-T Ethernet transmitter on the line unit (v1.6): normal link pulses every 16 ms
+; 10BASE-T Ethernet transmitter on the line unit: normal link pulses every 16 ms
 ; while idle, and each frame the host sends as one packet on the wire: preamble, SFD, the
 ; frame, its CRC-32 frame check sequence and the end-of-transmission pulse (TP_IDL).
 ; TD+ on pin TDP and TD- on pin TDN, through a 10BASE-T transformer (or an RJ45 jack with

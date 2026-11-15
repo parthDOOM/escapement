@@ -1,4 +1,4 @@
-; Frequency, period and duty meter (v1.6), by reciprocal counting: the capture unit stamps
+; Frequency, period and duty meter, by reciprocal counting: the capture unit stamps
 ; every edge of one input with its tick, so a measurement over N whole periods is exact to
 ; one tick (the synchroniser delays every edge alike), at any frequency. Gates follow one
 ; another with no dead time: the rise that ends one starts the next.

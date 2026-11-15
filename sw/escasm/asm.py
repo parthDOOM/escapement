@@ -8,15 +8,15 @@ Syntax (one statement per line; `;` or `#` starts a comment):
     .org expr                   set the current word address
     .word expr                  emit a raw 32-bit word
     .tape addr, w0, w1, ...     initial tape words from addr (host-loaded with WRITE_TAPE)
-    .tapeb addr, b0, b1, ...    initial tape bytes from addr, packed little-endian (v1.4)
+    .tapeb addr, b0, b1, ...    initial tape bytes from addr, packed little-endian
     .entry ctx, label           context `ctx` starts at `label` and is enabled
     .own pin, ctx               context `ctx` owns its pin `pin`: 0..7 in bank A; in bank B
                                 0..4, which are B0..B4 (also written B0..B4)
     .od pin                     bank A pin `pin` is open-drain
-    .bank ctx                   context `ctx` uses bank B (v1.2); put it before that
+    .bank ctx                   context `ctx` uses bank B; put it before that
                                 context's .own lines
     .pair ctx                   context `ctx` also takes the slot of context ctx ^ 2, which
-                                must not be enabled (v1.7)
+                                must not be enabled
 
 Operands: registers r0..r3; integers (123, 0x7B, 0b1111011); labels and .equ names;
 `LSB`/`MSB` for dir; `HOLD`/`ARRIVE` for mode; `+ - * << >> | & ~ ( )` expressions.
@@ -77,25 +77,25 @@ class Image:
     words: list[int]
     entry_pcs: list[int]
     ctx_enable: list[bool]
-    pin_owned: list[bool]       # physical pins 0..12 (8..12: bank B, v1.2)
+    pin_owned: list[bool]       # physical pins 0..12 (8..12: bank B)
     pin_owner: list[int]
     pin_od: list[bool]          # bank A only
     symbols: dict[str, int] = field(default_factory=dict)
     listing: list[str] = field(default_factory=list)
     used_words: int = 0
-    # v1.1 tape initial contents (host-loaded with WRITE_TAPE; the SRAM powers up undefined)
+    # tape initial contents (host-loaded with WRITE_TAPE; the SRAM powers up undefined)
     tape: list[int] = field(default_factory=lambda: [0] * 256)
     tape_used: list[int] = field(default_factory=list)   # addresses set by .tape
-    # v1.2: contexts whose logical pins are bank B
+    # contexts whose logical pins are bank B
     ctx_bank: list[bool] = field(default_factory=lambda: [False] * 4)
-    # v1.7: contexts that also take their partner's slot (context k ^ 2, which is off)
+    # pair mode: contexts that also take their partner's slot (context k ^ 2, which is off)
     ctx_pair: list[bool] = field(default_factory=lambda: [False] * 4)
-    # v2 (S-A program pages): the 256-word page of the 1,024-word program store each
+    # Program pages: the 256-word page of the 1,024-word program store each
     # context fetches from. An image of 256 words is page 0 alone (every context on it).
     ctx_page: list[int] = field(default_factory=lambda: [0] * 4)
 
     def __post_init__(self) -> None:
-        # images from v1.1 tools describe 8 pins; bank B pins are then unowned
+        # images from tools without bank B describe 8 pins; bank B pins are then unowned
         self.pin_owned = list(self.pin_owned) + [False] * (13 - len(self.pin_owned))
         self.pin_owner = list(self.pin_owner) + [0] * (13 - len(self.pin_owner))
 
@@ -220,7 +220,7 @@ _ALLOWED_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant, ast.Name
                   ast.Add, ast.Sub, ast.Mult, ast.LShift, ast.RShift, ast.BitOr,
                   ast.BitAnd, ast.BitXor, ast.Invert, ast.USub, ast.UAdd, ast.Load,
                   ast.FloorDiv, ast.Mod,
-                  # v1.6: comparisons (1 or 0), for .assert
+                  # comparisons (1 or 0), for .assert
                   ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)
 
 
@@ -385,7 +385,7 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
             elif directive == ".tapeb":
                 # .tapeb ADDR, b0, b1, ... : bytes packed little-endian into tape words from
                 # ADDR (byte 4k+i in bits 8i+7..8i of word ADDR+k; a last partial word is
-                # padded with zeros), the order the line unit sends with `lsb` (v1.4)
+                # padded with zeros), the order the line unit sends with `lsb`
                 if len(ops) < 2:
                     raise AsmError(f"{where}: .tapeb ADDR, byte[, byte...]")
                 base_addr = ev(ops[0])
@@ -401,7 +401,7 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
                             raise AsmError(f"{where}: tape word {ta} written twice")
                         tape[ta] = sum((v & 0xFF) << (8 * j) for j, v in enumerate(vals[i:i + 4]))
             elif directive == ".assert":
-                # .assert EXPR[, message] : assembly fails unless EXPR is non-zero (v1.6; for
+                # .assert EXPR[, message] : assembly fails unless EXPR is non-zero (for
                 # a program's assumptions about its parameters, such as the clock)
                 if not 1 <= len(ops) <= 2:
                     raise AsmError(f"{where}: .assert EXPR[, message]")

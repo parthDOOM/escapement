@@ -1,4 +1,4 @@
-# Escapement host protocol v1.3 (docs/12-HOST-PROTOCOL.md) - frame builders/parsers.
+# Escapement host protocol (docs/12-HOST-PROTOCOL.md) - frame builders/parsers.
 # Plain Python, MicroPython-compatible (no typing/dataclasses), so the same code drives
 # cocotb tests on a PC and the RP2350 loader on the Tiny Tapeout demo board.
 #
@@ -6,13 +6,13 @@
 # frame and returns the MISO bytes. Host (sync) and AsyncHost (async transports, e.g.
 # cocotb) both execute the same plans, so there is one encoding of the protocol.
 
-VERSION = 0x9                 # v1.7: WRITE_CFG byte 10 bits 7:4 (pair mode)
+VERSION = 0x9                 # pair mode: WRITE_CFG byte 10 bits 7:4
 STATUS, WRITE_IMEM, READ_IMEM, WRITE_CFG = 0x00, 0x10, 0x11, 0x12
 WRITE_TAPE, READ_TAPE, TAPE_ACK = 0x13, 0x14, 0x15
 START, STOP, READ_DBG, MBX_PUSH, MBX_POP = 0x20, 0x21, 0x30, 0x40, 0x41
-CTX_STOP, CTX_START = 0x22, 0x23    # v1.7 (S3): live reload of one context
-IMEM_PAGE = 0x24                    # v2 (S-A): the program-store page WRITE/READ_IMEM use
-PAGES_VERSION = 0xA                 # v2 (S-A): the first protocol version with pages
+CTX_STOP, CTX_START = 0x22, 0x23    # live reload of one context
+IMEM_PAGE = 0x24                    # the program-store page WRITE/READ_IMEM use
+PAGES_VERSION = 0xA                 # the first protocol version with pages
 IRQ_CLEAR, CLEAR_ERR = 0x50, 0x51
 
 
@@ -35,7 +35,7 @@ def _st(r):
 
 
 def check_pair(image, st):
-    """v1.7: a paired image needs a chip that pairs (protocol version 9); an older chip
+    """A paired image needs a chip that pairs (protocol version 9); an older chip
     ignores the bits, would run it unpaired, and its timing certificate would not hold."""
     if getattr(image, "ctx_pair_mask", 0) and st["version"] < 9:
         raise IOError("image uses pair mode, chip reports protocol version %d (needs 9)"
@@ -43,12 +43,12 @@ def check_pair(image, st):
 
 
 def is_paged(image):
-    """v2 (S-A): an image of four pages (1,024 words)."""
+    """An image of four pages (1,024 words)."""
     return len(image.words) > 256
 
 
 def check_pages(image, st):
-    """v2: a paged image needs a chip with pages (protocol version 10); an older chip has
+    """A paged image needs a chip with pages (protocol version 10); an older chip has
     one page and would run every context from it."""
     if is_paged(image) and st["version"] < PAGES_VERSION:
         raise IOError("image uses program pages, chip reports protocol version %d (needs %d)"
@@ -91,7 +91,7 @@ def plan_read_tape(addr, count):
 
 
 def plan_tape_ack(rptr):
-    # v1.3: the capture records before rptr have been read (streaming capture)
+    # the capture records before rptr have been read (streaming capture)
     return bytes((TAPE_ACK, rptr & 0xFF)), _st
 
 
@@ -115,9 +115,9 @@ def stream_chunks(base, lim, rptr, ptr):
 
 def plan_write_cfg(ctx_enable, entry_pcs, pin_owned, pin_owner, pin_od, ctx_bank=0, ctx_pair=0,
                    ctx_page=None):
-    # Always the 13-byte v1.2 frame: a v1.1 chip ignores bytes after the ninth, and a
-    # v1.2 chip never keeps a previous program's bank B settings. v1.7: byte 10 bits 7:4 are
-    # the pair-mode contexts (an older chip ignores them). v2 (S-A): byte 14, the contexts'
+    # Always the 13-byte frame with bank B: a chip of protocol version 6 ignores bytes after
+    # the ninth, and from version 7 on no chip keeps a previous program's bank B settings.
+    # Byte 10 bits 7:4 are the pair-mode contexts (ignored below version 9). Byte 14, the contexts'
     # pages, when ctx_page is given: load() gives it to every chip with pages, so none keeps
     # a previous program's pages, and an older chip's frame is unchanged.
     e = entry_pcs
@@ -132,7 +132,7 @@ def plan_write_cfg(ctx_enable, entry_pcs, pin_owned, pin_owner, pin_od, ctx_bank
 
 
 def plan_imem_page(page):
-    # v2 (S-A): the page the following WRITE_IMEM and READ_IMEM address (refused while a
+    # The page the following WRITE_IMEM and READ_IMEM address (refused while a
     # live word waits, as a new address is)
     return bytes((IMEM_PAGE, page & 3)), _st
 
@@ -146,22 +146,22 @@ def plan_stop():
 
 
 def plan_ctx_stop(mask):
-    # v1.7 (S3): stop these contexts at the end of the mask byte (during a run only)
+    # Stop these contexts at the end of the mask byte (during a run only)
     return bytes((CTX_STOP, mask & 0xF)), _st
 
 
 def plan_ctx_start(mask):
-    # v1.7 (S3): restart these contexts at their first slot (each enabled and not RUNNING)
+    # Restart these contexts at their first slot (each enabled and not RUNNING)
     return bytes((CTX_START, mask & 0xF)), _st
 
 
 def plan_read_dbg(ctx, sel):
-    # v1.1: select byte {0, sel[4], ctx[1:0], sel[3:0]}
+    # select byte {0, sel[4], ctx[1:0], sel[3:0]}
     sb = ((sel & 0x10) << 2) | ((ctx & 3) << 4) | (sel & 0xF)
     return bytes((READ_DBG, sb, 0, 0, 0, 0, 0)), lambda r: _r32(r, 3)
 
 
-# v2 (S-C): debug select 27, the proof tripwires. Bit i is set if invariant i was ever seen
+# Debug select 27, the proof tripwires. Bit i is set if invariant i was ever seen
 # broken since reset (docs/04, "Proof tripwires"). An older chip reads 0.
 TRIPWIRE_SEL = 27
 TRIPWIRES = ("P2 never late (a FIFO head past its deadline)",
@@ -222,7 +222,7 @@ PLANS = {
     "write_tape": plan_write_tape, "read_tape": plan_read_tape,
     "tape_ack": plan_tape_ack, "ctx_stop": plan_ctx_stop, "ctx_start": plan_ctx_start,
     "imem_page": plan_imem_page,
-    "tripwires": plan_tripwires,                                  # v2 (S-C)
+    "tripwires": plan_tripwires,                                  # debug select 27
 }
 
 
@@ -312,7 +312,7 @@ class Host:
         return n
 
     def reload(self, ctx, runs, paged=False):
-        """v1.7 (S3) live reload of context ctx during a run: CTX_STOP, the program words
+        """Live reload of context ctx during a run: CTX_STOP, the program words
         `runs` ([(addr, [words])], from eschost.live.plan_reload, which checks they are
         certified and touch no word a running context can reach), CTX_START. The chip
         writes each word in a cycle with no fetch. READ_IMEM reads only while stopped, so
@@ -333,7 +333,7 @@ class Host:
             raise IOError("reload of context %d: the chip reported a host error" % ctx)
 
     def stream_poll(self, base, lim, rptr, retries=3):
-        """One round of streaming capture (v1.3): read the capture status, every record
+        """One round of streaming capture: read the capture status, every record
         from rptr up to ptr, then acknowledge them. Returns (words, new rptr, status).
         A word the chip could not fetch in time sets host error; the round then re-reads
         (CLEAR_ERR returns the status byte before clearing it)."""

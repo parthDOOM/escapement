@@ -1,6 +1,6 @@
 /*
  * escapement_sram_big.v - the 512x32 and 1024x32 IHP 1P SRAM macros behind escapement_sram's
- * contract (v2, S-A: the program store's alternatives to four 256x32 macros; see
+ * contract (the program store's alternatives to four 256x32 macros; see
  * escapement_pstore.v, MACROS).
  *
  * Copyright (c) 2026 Escapement contributors

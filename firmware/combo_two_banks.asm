@@ -1,4 +1,4 @@
-; Concurrent image on both pin banks (v1.2): eleven protocol signals at once, more than
+; Concurrent image on both pin banks: eleven protocol signals at once, more than
 ; the eight bidirectional pins could carry. Four unchanged firmware modules, linked with
 ; .include; the two bank B contexts name their pins 0..4, which are B0..B4.
 ;

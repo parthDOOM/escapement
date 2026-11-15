@@ -1,5 +1,5 @@
 ; USB low-speed HID keyboard, self-contained: enumeration, descriptors, SET_ADDRESS with
-; the token CRC-5 computed on chip, and key reports from the host mailbox (v1.4 line unit).
+; the token CRC-5 computed on chip, and key reports from the host mailbox (the line unit).
 ;
 ; Board: 24 MHz clock (16 ticks per bit). D+ on pin 0, D- on pin 1, 27 ohm in series each,
 ; 1.5 kohm from D- to 3.3 V (a low-speed device). The line unit does NRZI, bit stuffing,
@@ -8,7 +8,7 @@
 ; Context 0 is the device. Every reply leaves exactly TURN ticks after the end of the
 ; host's packet (TURN + 3 at the pins: 4.69 bit times, inside USB's 2 to 6.5), and escert
 ; proves it on time on every path where the host keeps to USB timing; a reply that would
-; be late is dropped (v1.4 SEND) and the host's retry is answered. Context 1
+; be late is dropped (SEND) and the host's retry is answered. Context 1
 ; moves key reports from its mailbox into the tape: the host pushes a report as two words
 ; (bytes 0-3, bytes 4-7, little-endian) and they go out on the next IN to endpoint 1.
 ;

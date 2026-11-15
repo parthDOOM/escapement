@@ -1,4 +1,4 @@
-; Pong on a VGA monitor, 640x480 at 60 Hz, from bank B (v1.2 pins, no new hardware).
+; Pong on a VGA monitor, 640x480 at 60 Hz, from bank B (no new hardware).
 ; With the Tiny VGA Pmod on uo_out, bank B is VSYNC (B0), R0 (B1), G0 (B2), B0 (B3) and
 ; HSYNC (B4). The pixel clock is the core clock: 25 MHz against the standard 25.175 MHz,
 ; so the frame rate is 59.5 Hz, which monitors accept.

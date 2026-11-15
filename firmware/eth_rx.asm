@@ -1,10 +1,10 @@
-; 10BASE-T Ethernet receiver on the line unit (v3): every frame on the wire, its frame
+; 10BASE-T Ethernet receiver on the line unit: every frame on the wire, its frame
 ; check sequence verified, handed to the host. RD+/RD- through a 10BASE-T transformer to a
 ; line comparator biased so that the idle line reads 1 (TP_IDL's level, and link pulses),
 ; its output on pin RXP. No pin is driven: eth_tx.asm in another context can share the
 ; jack's transmit pair.
 ;
-; The line unit does the bit work (19-LINE-UNIT, v3 receive): the cell decoder takes each
+; The line unit does the bit work (19-LINE-UNIT, receive): the cell decoder takes each
 ; mid-bit edge (an edge at least S after the last one; a cell boundary comes sooner) and
 ; stores the level after it as the bit, hunting first for the SFD's closing two 1s; the
 ; packet ends after 1.5 bit times with no mid-bit edge (TP_IDL); CRC-32 runs over the frame

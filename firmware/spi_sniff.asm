@@ -1,4 +1,4 @@
-; SPI sniffer (v3, the line unit's external-clock receiver): logs every frame a controller
+; SPI sniffer (the line unit's external-clock receiver): logs every frame a controller
 ; sends to a target on a shared bus, the chip only listening. The line unit takes one bit
 ; per edge of SCK (the edge each SPI mode samples on) from MOSI into the tape, so a frame
 ; runs at the controller's clock however fast, up to one bit every 2 ticks (25 MHz SCK at

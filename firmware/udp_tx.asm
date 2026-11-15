@@ -1,4 +1,4 @@
-; UDP over IPv4 over 10BASE-T (v1.6): the host gives a payload, the chip puts a complete
+; UDP over IPv4 over 10BASE-T: the host gives a payload, the chip puts a complete
 ; datagram on the wire, one a PC's network stack accepts: Ethernet header, IPv4 header
 ; with its checksum computed here, UDP header, the payload, padding to the 802.3 minimum,
 ; and the CRC-32 frame check sequence (the line unit). Link pulses every 16 ms while idle,

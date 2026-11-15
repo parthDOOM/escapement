@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: © 2026 Escapement contributors
 # SPDX-License-Identifier: Apache-2.0
-"""v3 bus timing monitor (src/esc_mon.v): the reference model.
+"""The bus timing monitor (src/esc_mon.v): the reference model.
 
 RULES interval rules on the synchronised pins (both banks, pins 0..12). A rule starts on an
 edge of its from-pin and ends on the next edge of its to-pin; the interval is the ticks

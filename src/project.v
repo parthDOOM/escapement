@@ -6,11 +6,11 @@
  *   ui_in[0] CS_n, ui_in[1] SCK, ui_in[2] MOSI   host SPI (docs/12-HOST-PROTOCOL.md)
  *   uo_out[0] MISO, uo_out[1] IRQ, uo_out[2] RUN
  *   uio[7:0] protocol pins, bank A, owned per context (docs/11-SEMANTICS.md)
- *   uo_out[7:3] / ui_in[7:3] protocol pins, bank B: five split pins (v1.2)
- * v1.1: a second 256x32 SRAM, the tape (firmware LDT/STT, capture, host while stopped).
- * v1.3: the host reads the tape during a run too, in cycles the core leaves free.
- * v2 (S-A): the program store has four pages of 256 words, one per macro; context k
- * fetches from page ctx_page[k] (docs/11-SEMANTICS.md §3).
+ *   uo_out[7:3] / ui_in[7:3] protocol pins, bank B: five split pins
+ * The tape: a second 256x32 SRAM (firmware LDT/STT, capture, and the host, which reads it
+ * during a run too, in cycles the core leaves free). The program store: 1,024 words in
+ * four pages of 256 (escapement_pstore.v); context k fetches from page ctx_page[k]
+ * (docs/11-SEMANTICS.md §3).
  */
 
 `default_nettype none
@@ -26,18 +26,18 @@ module tt_um_escapement (
     input  wire       rst_n     // reset_n - low to reset
 );
 
-  // v2 feature switch (runbook 28 §5): program pages, S-A. 4: four pages; 1: the v1.7
-  // store and host interface, cycle for cycle.
+  // Program pages. 4: four pages; 1: one page of 256 words, with the store and the host
+  // interface of a chip without pages, cycle for cycle.
   localparam integer PAGES = 4;
   // How the four pages are built (escapement_pstore.v): 4 x 256x32, 2 x 512x32 or 1 x 1024x32.
   localparam integer STORE_MACROS = 1;
-  // v2 feature switch (runbook 28 §5): proof tripwires, S-C. 1: on; 0: the v1.7 core (debug
+  // Proof tripwires. 1: on; 0: the core without the tripwire bank (debug
   // select 27 reads 0), cycle for cycle.
   localparam integer TRIPWIRES = 1;
 
   // ------------------------------------------------------------------ host
   wire         start, stop, running, fault_valid, miso;
-  wire [3:0]   ctx_stop, ctx_start;            // v1.7 (S3)
+  wire [3:0]   ctx_stop, ctx_start;            // live reload
   wire         imem_wpend, imem_wgnt, core_imem_free;
   wire [3:0]   ctx_enable, irq_clear, irq_pending;
   wire [31:0]  entry_pcs;
@@ -45,7 +45,7 @@ module tt_um_escapement (
   wire [7:0]   pin_od, ctx_state;
   wire [3:0]   ctx_bank;
   wire [3:0]   ctx_pair;
-  wire [7:0]   ctx_page;                       // v2 (S-A)
+  wire [7:0]   ctx_page;                       // program pages
   wire [1:0]   host_mem_page;
   wire [4:0]   ob_out;
   wire [25:0]  pin_owner;
@@ -80,8 +80,8 @@ module tt_um_escapement (
 
   // ------------------------------------------------------------------ program store
   // The core owns the single port while running, except in a cycle it reads nothing
-  // (core_imem_free) when a program word written during the run waits (v1.7, S3: live
-  // reload); the host has it while stopped. The select is two flip-flops. v2: the address
+  // (core_imem_free) when a program word written during the run waits (live
+  // reload); the host has it while stopped. The select is two flip-flops. The address
   // is {page, word} on both sides; a live write is granted in a cycle with no used fetch,
   // whatever page either is in.
   wire [9:0] core_imem_addr;
@@ -123,9 +123,9 @@ module tt_um_escapement (
   end
 `endif
 
-  // ------------------------------------------------------------------ tape (v1.1)
+  // ------------------------------------------------------------------ tape
   // The core has the port in the cycles it uses it (tape_busy: an LDT/STT commit or a
-  // capture drain); the host has it in every other cycle, during a run too (v1.3). A
+  // capture drain); the host has it in every other cycle, during a run too. A
   // host write happens only while stopped, and a drain waits for it (tape_host_we).
   wire [7:0]  core_tape_addr;
   wire        core_tape_we, core_tape_re, tape_busy;
@@ -141,7 +141,7 @@ module tt_um_escapement (
       .wdata(tape_busy ? core_tape_wdata : host_mem_wdata),
       .rdata(tape_rdata));
 
-  // v3: the 13 protocol pins sampled at the falling edge, half a period before the core's
+  // The 13 protocol pins sampled at the falling edge, half a period before the core's
   // rising-edge synchroniser samples them; the core re-times this through two more flops
   // (h2, h3), so the line unit's both-edge decoder sees each pin at two points per tick
   reg [12:0] pin_h;

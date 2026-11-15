@@ -7,7 +7,7 @@
 #
 # SUMP is a buffer protocol: the analyser is told a sample rate and a sample count, arms,
 # captures, and then sends every sample, newest first. Here the chip does the capturing:
-# the logic analyser firmware streams change records over SPI during the run (v1.3
+# the logic analyser firmware streams change records over SPI during the run (the
 # streaming capture), the bridge keeps the records (not samples), and on sending it
 # expands them into samples at the requested rate. So the window can be long, and the
 # chip's timestamps are exact to one 40 ns tick whatever rate PulseView asks for.

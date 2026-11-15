@@ -1,4 +1,4 @@
-"""v1.7 (S3) live reload, the checks a host makes before it (CPython: uses escert).
+"""Live reload: the checks a host makes before it (CPython: uses escert).
 
 plan_reload(running, new, ctx) returns the program-store runs that turn `running` (the image
 the chip runs) into `new` for context ctx, after checking that the reload cannot disturb any

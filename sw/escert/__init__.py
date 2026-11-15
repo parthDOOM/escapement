@@ -5,7 +5,7 @@ OVERLAP) can occur for ANY input behaviour, and give a lower bound on the
 hardware's own `min_lead` telemetry. The chip measures `min_lead`, so every certificate
 is falsifiable on RTL, gates and silicon: a measurement below the bound is a checker bug.
 
-Line unit (v1.4). The zone also holds `lue`, the end tick of the unit's current or last
+Line unit. The zone also holds `lue`, the end tick of the unit's current or last
 job, `lua`, the tick the receiver was last armed, and `ge`, the end tick the last GETL
 returned. The unit is abstracted as idle, armed (a reception may be under way: its end
 is an input), own (a job the program started: CONFIG ends at c + 9, CRC at c + nb, a
@@ -206,8 +206,8 @@ class St:
     lee: bool                        # an EXPECT has been admitted
     lu: str = "idle"                 # line unit: idle | armed | own | top
     stale: bool = False              # the line was busy while the firmware was not waiting
-    zrx: bool = False                # v1.6: Z is RXREADY's (the RX mailbox is empty)
-    rxne: bool = False               # v1.6: the RX mailbox holds a word (POP will not wait)
+    zrx: bool = False                # Z is RXREADY's (the RX mailbox is empty)
+    rxne: bool = False               # the RX mailbox holds a word (POP will not wait)
     cf: int = 0                      # line unit: 0 not the owner, 1 the first CONFIG ends
                                      # at lue, 2 configured, 3 unconfigured by an OFF
 
@@ -462,7 +462,7 @@ def _writes(name: str, f: dict) -> Optional[int]:
 def _reach(image: Image, ctx: int, stop=None) -> set:
     """Instructions reachable in the control-flow graph (every branch both ways, RET to
     every CALL's return address). With `stop(name, f)`, instructions after one that stops
-    are not followed (the stopping instruction itself is reached). v2 (S-A): within the
+    are not followed (the stopping instruction itself is reached). Within the
     context's own page, the only words it can fetch."""
     image = page_view(image, ctx)
     rets = {pc + 1 for pc, w in enumerate(image.words) if _decode(w)[0] == "CALL"}
@@ -575,7 +575,7 @@ def const_tape(image: Image) -> dict:
     for k, en in enumerate(image.ctx_enable):
         if not en:
             continue
-        vk = page_view(image, k)                 # v2 (S-A): context k's page
+        vk = page_view(image, k)                 # context k's page
         fixed = _fixed_regs(vk, k)
         for pc in _reach(vk, k):
             name, f = _decode(vk.words[pc])
@@ -595,7 +595,7 @@ def const_tape(image: Image) -> dict:
 
 
 def const_tape_before_stores(image: Image, ctx: int) -> tuple:
-    """(words, pcs): v1.6. The tape words that still hold their image value at the
+    """(words, pcs): the tape words that still hold their image value at the
     instructions `pcs` of context ctx, those reached from its entry before any STT whose
     address is not fixed: words set by .tape, never the target of a fixed STT, outside
     every receive buffer a constant RECV word names. Empty if a capture unit is used or
@@ -604,7 +604,7 @@ def const_tape_before_stores(image: Image, ctx: int) -> tuple:
     for k, en in enumerate(image.ctx_enable):
         if not en:
             continue
-        vk = page_view(image, k)                 # v2 (S-A): context k's page
+        vk = page_view(image, k)                 # context k's page
         fixed = _fixed_regs(vk, k)
         for pc in _reach(vk, k):
             name, f = _decode(vk.words[pc])
@@ -680,17 +680,17 @@ def _port_waits(lu: str) -> list:
 
 
 def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
-    full = image                           # v2 (S-A): checks across contexts
+    full = image                           # checks across contexts
     image = page_view(image, ctx)          # the 256 words ctx fetches
     words = image.words
     z0 = Zone()
     # Context k fetches first in run cycle k and commits at tick k + 3 (sec. 3), while
     # tmr starts at 0: the first instruction sees lead tmr - now = -(k + 3).
-    # v1.7 pair mode: a paired context also has slot k ^ 2, so its first fetch is in cycle
+    # Pair mode: a paired context also has slot k ^ 2, so its first fetch is in cycle
     # min(k, k ^ 2); it then commits every 2 ticks, except that the instruction after an
     # LDT is not fetched early (4) and a wait retries every 4 (its early fetch of pc + 1 is
     # discarded), so only the step to the next instruction uses the 2-tick period; the
-    # wait windows (WAITT tmr..tmr+3, ...) are v1.6's.
+    # wait windows (WAITT tmr..tmr+3, ...) are as unpaired.
     paired = bool(getattr(image, "ctx_pair", [False] * 4)[ctx]) and not image.ctx_enable[ctx ^ 2]
     step = 2 if paired else SLOT
     first = (min(ctx, ctx ^ 2) if paired else ctx) + 3
@@ -724,7 +724,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     keys_at: dict = {}
     work = [(image.entry_pcs[ctx], init)]
     visited_events: set = set()
-    # the context's owned logical pins (v1.2: bank B contexts see B0..B4 as pins 0..4)
+    # the context's owned logical pins (bank B contexts see B0..B4 as pins 0..4)
     phys = [8 + j for j in range(5)] if image.ctx_bank[ctx] else list(range(8))
     owned = sum(1 << j for j, p in enumerate(phys)
                 if image.pin_owned[p] and image.pin_owner[p] == ctx)
@@ -812,7 +812,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             _advance(t, wlo + d, whi + d)
             push(to, t)
 
-        # v1.6: whether Z holds RXREADY's answer (anything else that writes Z ends it)
+        # whether Z holds RXREADY's answer (anything else that writes Z ends it)
         if name == "RXREADY":
             s.zrx = True
         elif name in _ZW or name in ("GETL", "SEND"):
@@ -896,7 +896,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
         elif name in ("JZ", "JNZ"):
             want = 1 if name == "JZ" else 0
             if s.zf is None and s.zrx:
-                # v1.6: only this context pops its RX mailbox, so where RXREADY saw a word
+                # only this context pops its RX mailbox, so where RXREADY saw a word
                 # it is still there at the next POP
                 for to, z in ((f["target"], want), (nxt, 1 - want)):
                     t = s.copy()
@@ -1047,7 +1047,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                     t.z.constrain(LUE, NOW, crc_nb[1])
                     t.z.constrain(NOW, LUE, -crc_nb[0])
                 elif op == 3:                            # CONFIG: complete at E_(c+9)
-                    t.lu = "own"                         # (v1.6: E_(c+17) with ext)
+                    t.lu = "own"                         # (E_(c+17) with ext)
                     t.cf = 2 if t.cf in (1, 2) else 1    # (a running one ended: it waited)
                     a = v & 0xFF
                     src = consts if consts else (early if pc in early_pcs else {})

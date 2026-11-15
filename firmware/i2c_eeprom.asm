@@ -1,6 +1,6 @@
 ; I2C EEPROM emulator: a 24C02-compatible target (256 bytes, 8-byte write pages) whose
 ; memory is the TAPE (one byte per tape word). The chip becomes a real device on a
-; real bus - a protocol it was never designed for, in firmware (v1.1 tape, D-24).
+; real bus - a protocol it was never designed for, in firmware (the tape, D-24).
 ; Context 0, SCL on pin 2, SDA on pin 3, both open-drain (value 1 = release).
 ;
 ; Supported: byte/page write (S A|W word data.. P), random read (S A|W word Sr A|R ..),

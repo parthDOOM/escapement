@@ -1,7 +1,7 @@
 /*
- * escapement_pstore.v - the program store (v2, S-A): 1,024 words in four pages of 256.
+ * escapement_pstore.v - the program store: 1,024 words in four pages of 256.
  * The chip builds them as one IHP 1P 1024x32 SRAM macro (MACROS = 1, set in project.v;
- * the 8x4 layout trade of 11-12, below); four 256x32 macros remain a build option.
+ * the layout trade below); four 256x32 macros remain a build option.
  *
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
@@ -17,16 +17,16 @@
  *
  * PAGES (1 or 4) is the feature switch, set once in project.v. With PAGES = 1 this is one
  * escapement_sram on addr[7:0] (addr[9:8] unused, and 0 from the host and the core): the
- * v1.7 store, cycle for cycle. Instance names (`g_one.u0.sram`, `g_pages.u_p<k>.sram`)
+ * store of a chip without pages, cycle for cycle. Instance names (`g_one.u0.sram`, `g_pages.u_p<k>.sram`)
  * are the flattened paths src/config.json names.
  *
- * MACROS (with PAGES = 4; 11-12, the layout trade): how the 1,024 words are built, behind
+ * MACROS (with PAGES = 4; the layout trade): how the 1,024 words are built, behind
  * the same contract.
  *   4  four 256x32 macros, one per page (`g_pages.u_p<k>.sram`), a 4:1 mux on rdata;
  *   2  two 512x32 macros, pages 0-1 and 2-3 (`g_half.u_h<k>.sram`), a 2:1 mux on rdata;
  *   1  one 1024x32 macro (`g_whole.u0.sram`), no mux.
  * Only the macro holding the address is enabled. Five macros (with the tape) did not route
- * at 8x4 (G0.md, floorplans a and c); 2 and 1 keep the v1.7 floorplan's shape.
+ * at 8x4 in two trial floorplans; 2 and 1 keep the few macros of the 6x4 floorplan.
  */
 `default_nettype none
 module escapement_pstore #(

@@ -1,4 +1,4 @@
-; LIN commander (v1.6): frames whose data the commander publishes, for a LIN transceiver's
+; LIN commander: frames whose data the commander publishes, for a LIN transceiver's
 ; TXD: a break (13 bit times low) and delimiter, the sync byte 0x55, the protected
 ; identifier (the 6-bit ID and its parity bits P0, P1), 1 to 8 data bytes and the checksum,
 ; each byte 8N1 LSB first at 19200 baud. The checksum is LIN 2.x's enhanced one (the

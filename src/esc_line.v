@@ -1,5 +1,5 @@
 /*
- * esc_line.v - the line unit (docs/11-SEMANTICS.md v1.6.0 section 6.6, D-33..D-37).
+ * esc_line.v - the line unit (docs/11-SEMANTICS.md section 6.6, D-33..D-37).
  *
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
@@ -41,9 +41,9 @@ module esc_line (
     input  wire        clk,
     input  wire        rst_n,
     input  wire        start,          // start at this edge: reset (section 9)
-    input  wire [1:0]  now,            // the slot (now[1:0]); v3: the end tick e is kept in the core
+    input  wire [1:0]  now,            // the slot (now[1:0]); the end tick e is kept in the core
     input  wire [7:0]  view,           // the owner's logical inputs (sync) during this cycle
-    input  wire [7:0]  view_h,         // v3 S-D: the same inputs sampled half a tick earlier
+    input  wire [7:0]  view_h,         // the same inputs sampled half a tick earlier
     input  wire [7:0]  owns,           // the owner's logical pins (section 5)
     // a COMPLETE commit acting on the unit at this edge; at most one is set
     input  wire        op_send,
@@ -60,7 +60,7 @@ module esc_line (
     // state during this cycle
     output reg         owned,
     output reg  [1:0]  owner,
-    // v2 (timing, 11-12): (owned ? 1 << owner : 0), a second register written by the same
+    // For timing: (owned ? 1 << owner : 0), a second register written by the same
     // assignments, so the core's per-context selects start at a flop (formal: sel_def)
     (* keep *) output reg [3:0] sel,
     output reg         conf,
@@ -68,15 +68,15 @@ module esc_line (
     output wire        engaged,
     output wire        busy,
     output wire [31:0] status,
-    input  wire [1:0]  aux_sel,        // v3: GETM's read chain: 0x aux_in (the monitor's word),
+    input  wire [1:0]  aux_sel,        // GETM's read chain: 0x aux_in (the monitor's word),
     input  wire [31:0] aux_in,         //   2 the whole bit count, 3 the CRC register: one word
     output wire [31:0] aux_o,          //   to the core's write-back mux for every GETM
-    output wire        e_ld,           // v3: e (the end tick, = now) is taken at this edge; the
+    output wire        e_ld,           // e (the end tick, = now) is taken at this edge; the
                                        //   core keeps it beside now (32 bits fewer each way)
     output reg  [2:0]  mode,
     output wire        flt_owner,      // a CONFIG completing at this edge faults ADMIT/OWNER
     output wire        flt_config,     //   ... or ADMIT/CONFIG
-    output wire        send_rd,        // v1.6: a SEND with operand op_v reads stream word 0
+    output wire        send_rd,        // a SEND with operand op_v reads stream word 0
     // a scheduled tape access in this cycle (the commit-cycle reads of SEND, CRC and
     // CONFIG use the committing instruction's address, R[rs][7:0])
     output wire        port,
@@ -99,20 +99,20 @@ module esc_line (
 
   // ------------------------------------------------------------------ state
   wire [28:0] w0;                          // configuration (gated banks): W0[31:24, 20:0],
-  wire [31:0] w1;                          //   W1, W2[25:0], and with ext (v1.6) W3[28:0],
+  wire [31:0] w1;                          //   W1, W2[25:0], and with ext W3[28:0],
   wire [25:0] w2;                          //   W4[20:0] (the bits section 6.6 defines)
   wire [28:0] w3;
   wire [25:0] w4;
   wire [29:0] cmd;                         // SEND command, RECV/CRC/CONFIG operand
   reg  [31:0] buf_q;                       // stream word
-  reg  [31:0] nxt_q;                       // v1.6 ext transmit: the next stream word;
-                                           // v3 receive: the word waiting for its write
-  reg  [7:0]  wa_q;                        // v3 receive: that word's index in the buffer
+  reg  [31:0] nxt_q;                       // ext transmit: the next stream word;
+                                           // receive: the word waiting for its write
+  reg  [7:0]  wa_q;                        // receive: that word's index in the buffer
   reg         ld;                          // the unit read the tape in the previous cycle
   reg         ldn;                         // ... into the next-word buffer
-  reg  [31:0] crc;                         // v1.6: 32 bits, the polynomial left-aligned
+  reg  [31:0] crc;                         // 32 bits, the polynomial left-aligned
   reg  [2:0]  job, cause;
-  reg  [13:0] count;                       // v3: 14 bits (8,192 = a full long buffer)
+  reg  [13:0] count;                       // 14 bits (8,192 = a full long buffer)
   reg  [11:0] el;                          // tick counter (see header)
 `ifdef ESC_NI
   assign f_el = el;
@@ -123,7 +123,7 @@ module esc_line (
   reg         rb;                          // the run's bit (any = 1)
   reg  [8:0]  kc;                          // TX: monitored bits; RX: ticks since t0 (to 255)
   reg  [12:0] pos;                         // TX: bit within the segment
-  reg  [2:0]  cel;                         // TX: cell of the symbol in progress (v1.6)
+  reg  [2:0]  cel;                         // TX: cell of the symbol in progress
   reg  [1:0]  sk;                          // TX: that symbol: 0 a line bit, 1 SE0, 2 L = 1
   reg  [2:0]  seg;                         // TX: 0 prefix, 1 header, 2 data, 3 CRC, 4 EOP
   reg         lv;                          // TX: line level L; RX: NRZI reference
@@ -133,7 +133,7 @@ module esc_line (
   reg         fin;                         // RX: ended; a last word waits for its write
   reg         eopw;                        // RX: waiting for the end of SE0
   reg         hunt, dec, stor;             // RX: in sync hunt; decoded a bit; storing
-  reg         nkp, pb;                     // v3 RX: n in the previous cycle; the last bit
+  reg         nkp, pb;                     // RX: n in the previous cycle; the last bit
   reg  [1:0]  noted;                       // RX: 0 OK, 1 STUFF, 2 FULL
   reg         mon, abt;                    // TX: monitor armed for this bit; mismatch seen
 
@@ -151,7 +151,7 @@ module esc_line (
   wire        c_init = w2[16], c_inv = w2[17], c_hdr = w2[18], c_fall = w2[19],
               c_abort = w2[20];
   wire [3:0]  c_imin = w2[24:21];
-  // v1.6 extended configuration; without ext the legacy values (one cell, NRZ patterns)
+  // Extended configuration (ext); without it, one cell per symbol and NRZ patterns
   wire        c_ext   = w2[25];
   wire [2:0]  c_cells = c_ext ? w3[2:0] : 3'd0;         // cells per symbol, minus one
   wire [7:0]  c_p0    = c_ext ? w3[10:3] : 8'h00;       // cell levels of a line bit 0
@@ -163,7 +163,7 @@ module esc_line (
   wire [2:0]  c_prep  = c_ext ? w4[18:16] : 3'd0;       // the prefix goes prep + 1 times
   wire        c_eopl  = c_ext & w4[19];                 // EOP symbols are L = 1, no J
   wire        c_ilow  = c_ext & w4[20];                 // the idle state is L = 0
-  // v3 S-D: receive strobe source (0 bit timer, 1 cell decoder, 2 external clock on n),
+  // Receive strobe source (0 bit timer, 1 cell decoder, 2 external clock on n),
   // polarity (cells: bit = level after the mid-bit edge, inverted; clock: falling edge),
   // both-edge sampling of the receive line, long receive (limit in 32-byte units)
   wire [1:0]  c_rxs   = c_ext ? w4[22:21] : 2'd0;
@@ -210,7 +210,7 @@ module esc_line (
                  | (mode == CRCM);
   assign busy    = (mode != IDLE);
   assign status  = {busy, job, cause, count[8:0], crc[31:16]};
-  // v3: a long receive counts to 8,192 bits and CRC-32 needs all 32 bits; the status word
+  // A long receive counts to 8,192 bits and CRC-32 needs all 32 bits; the status word
   // has room for neither, so the owner reads them whole with GETM 3 and 4
   assign aux_o = !aux_sel[1] ? aux_in : aux_sel[0] ? crc : {18'd0, count};
 
@@ -236,7 +236,7 @@ module esc_line (
   // stream bit of the buffer (TX data, CRC job); a word read in the previous cycle is
   // used straight from the tape, and then always from its bit 0 in stream order
   wire [4:0] sidx = ((mode == CRCM) ? el[4:0] : pos[4:0]) ^ {5{~c_lsb}};
-  // (v1.6: not a load of the next-word buffer, which fills nxt_q, not buf_q)
+  // (not a load of the next-word buffer, which fills nxt_q, not buf_q)
   wire sbit = (ld & ~ldn) ? (c_lsb ? rdata[0] : rdata[31]) : buf_q[sidx];
 
   // ------------------------------------------------------------------ CONFIG
@@ -251,11 +251,11 @@ module esc_line (
   wire        n_diff = buf_q[9], n_tx = buf_q[20];
   wire [7:0]  n_cl = n_tx ? (dec8(n_d) | (n_diff ? dec8(n_n) : 8'd0)) : 8'd0;
 `ifdef FORMAL
-  // the definition (v1.4), which the registered terms below must reproduce (cfg_pre)
+  // the definition, which the registered terms below must reproduce (cfg_pre)
   wire        n_valid = (cfg_x & (w3[2:0] != 3'd0)) ? (w1[11:0] >= 12'd2)
                       : (w1[11:0] >= 12'd8) & (w1[31:20] >= 12'd4) & (w1[31:20] < w1[11:0]);
 `endif
-  // v2 (timing, 11-12): the fault terms are registered at the edge before they are used.
+  // For timing, the fault terms are registered at the edge before they are used.
   // Every input is final by then: W0's fields (buf_q) from el 1 of the CONFIG (registered from el 2); owns all
   // CONFIG long (the owner is fixed at its start and pin ownership is static in a run, the
   // LI rule `owns_cfg`); w1 from el 5 and w3 from el 13, against completion at el 8 or 16.
@@ -285,7 +285,7 @@ module esc_line (
 
   // ------------------------------------------------------------------ transmit
   wire        tx_start = (mode == PEND) & line_ret;
-  // v1.6: a symbol lasts cells timed boundaries; a symbol boundary starts the next one
+  // A symbol lasts cells timed boundaries; a symbol boundary starts the next one
   wire        lastc    = (cel == c_cells);
   wire        tx_bnd   = tx_start | ((mode == TX) & tb_hit & lastc);
   wire        tx_cb    = (mode == TX) & tb_hit & ~lastc;     // the next cell of a symbol
@@ -302,7 +302,7 @@ module esc_line (
         if (si[2:0] >= from && en[si]) first_seg = si[2:0];
     end
   endfunction
-  // v1.6: the line bit of a boundary starts from flip-flops. The packet bit, its
+  // The line bit of a boundary starts from flip-flops. The packet bit, its
   // last-of-segment flag and its segment depend on seg, pos, the stream buffer and crc,
   // which change only at a boundary, at a SEND, and when a stream word loads, at least
   // three cycles before the next boundary (sec. 6.6: usable from u + 1 <= B + 5, and
@@ -350,14 +350,14 @@ module esc_line (
   wire        cel_rx = (c_rxs == 2'd1), clk_rx = (c_rxs == 2'd2);   // v3 receive strobes
   wire        idle_t = x & ~se0;
   wire        idle_ok = (c_imin == 4'd0) ? ((rn != 4'd0) | (el != 12'd1)) : (rn >= c_imin);
-  // v3: an external-clock receive starts at once (a clocked bus has no start bit; the
+  // An external-clock receive starts at once (a clocked bus has no start bit; the
   // firmware arms at the frame's start, on its select); the others after idle, on x low
   wire        arm_go = arm_on & (clk_rx | (~x & idle_ok));
   wire        rx_on  = (mode == RX);
   wire        rx_wr  = rx_on & req & own_cyc;
   wire        rx_go  = rx_on & ~fin;
   wire        rs     = (x != xp) & (~c_fall | ~x);             // a resync boundary
-  // v3 S-D. Cell decoder (rxs 1): el counts from the last accepted mid-bit edge (in half
+  // Cell decoder (rxs 1): el counts from the last accepted mid-bit edge (in half
   // ticks with both-edge sampling); an edge at or after the mask point S is the next mid-bit
   // edge and the bit is the level after it; earlier edges are cell boundaries. External
   // clock (rxs 2): an edge of n of the chosen polarity is the strobe. Both end a packet
@@ -393,7 +393,7 @@ module esc_line (
   wire        rx_fin = f_viol | f_full | e_eop;
   wire        rx_lastw = f_full | ((f_viol | (e_eop & ~hunt)) & (count[4:0] != 5'd0));
   // the word of the last stored bit, (count - 1) / 32 (count is 1..256 when it is used)
-  // v3: a word is handed over when it completes (or the packet ends with part of one): the
+  // A word is handed over when it completes (or the packet ends with part of one): the
   // word with this edge's bit goes to nxt_q (unused while receiving) and its tape index to
   // wa_q, and buf_q starts the next word. The write in the owner's slot takes nxt_q, so a bit
   // that arrives first (the cell decoder and the external clock can strobe every 2 ticks)
@@ -421,13 +421,13 @@ module esc_line (
 
   // ------------------------------------------------------------------ banks
   wire tx_endev = live & tx_bnd & t_end;
-  // v1.6: no receiver for cells > 1; v3 S-D: except two-cell codes with the cell decoder
+  // no receiver for cells > 1, except two-cell codes with the cell decoder
   wire rx_none = op_recv & (c_cells != 3'd0) & ~(cel_rx & (c_cells == 3'd1));
   wire e_ev = (live & (cfg_done | crc_last | tx_endev | rx_fin))
             | (~start & ~kill & ((op_crc & (op_v[15:8] == 8'd0)) | rx_none));
   assign e_ld = e_ev;                    // (the core: e <= start ? 0 : now, enabled by start | e_ld)
   // W0 is a latch bank (D-40): the buffer holds still at the CONFIG's last edge, so it is
-  // its own dq. v1.7 (timing): its low fields (pin numbers, diff, NRZI, LSB first) fan out
+  // its own dq. For timing, its low fields (pin numbers, diff, NRZI, LSB first) fan out
   // over the receive and drive logic, and a path from a latch starts when the latch opens,
   // so those 12 bits are flip-flops, written at the same edge.
   esc_lreg #(17) g_w0 (.clk(clk), .rst_n(rst_n), .en(cfg_done), .d({buf_q[31:24], buf_q[20:12]}),
@@ -435,7 +435,7 @@ module esc_line (
   esc_greg #(12) g_w0f (.clk(clk), .rst_n(rst_n), .en(cfg_done), .d(buf_q[11:0]), .q(w0[11:0]));
   esc_greg #(32) g_w1 (.clk(clk), .rst_n(rst_n), .en(cfg_on & ld & (el == 12'd4)),
                        .d(rdata), .q(w1));
-  // v1.6: W2 is written when it arrives (its ext decides whether W3 and W4 follow); the
+  // W2 is written when it arrives (its ext decides whether W3 and W4 follow); the
   // unit is in CFG, so nothing uses the configuration until the CONFIG completes
   esc_greg #(26) g_w2 (.clk(clk), .rst_n(rst_n), .en(cfg_on & ld & (el == 12'd8)),
                        .d(rdata[25:0]), .q(w2));
@@ -446,7 +446,7 @@ module esc_line (
                         .en(op_send | op_recv | op_crc | op_cfg), .d(op_v), .q(cmd));
 
   // ------------------------------------------------------------------ pin writes
-  // v1.6: a transmit write is decided in the cycle before its edge and registered (dq_*),
+  // A transmit write is decided in the cycle before its edge and registered (dq_*),
   // so the pins are a few gates from flip-flops. Everything it depends on is known a cycle
   // ahead: the next timed boundary from el, acc and ext (a cell lasts at least 2 ticks, so
   // a boundary never follows a boundary); at a cell boundary the symbol's level, kind and
@@ -513,7 +513,7 @@ module esc_line (
     end
   end
 `ifdef ESC_LINE_CHECK
-  // v1.6's registered values and the lemmas they need are proved by k-induction in
+  // The registered values and the lemmas they need are proved by k-induction in
   // formal/esc_line.sby (esc_line_env.v), from the input rules esc_core proves (its
   // LI assertions); esc_core's proofs leave them out (D-44).
   // the definitions the registered writes replace (section 6.6)
@@ -541,7 +541,7 @@ module esc_line (
   esc_icg icg_lu (.clk(clk), .en(lu_en), .gclk(lclk));
   wire lu_hold = 1'b0;
 `endif
-  // v1.6: the next stream word loads outside the start/kill/op priority below, from
+  // The next stream word loads outside the start/kill/op priority below, from
   // flip-flops only (mode, ld, ldn): a start never finds the unit in PEND or TX (a stop
   // kills it first), and a word loaded at a kill or OFF is never read, since the next
   // packet's prefetch refills nxt_q before its first word ends.
@@ -655,7 +655,7 @@ module esc_line (
               if (eseg == 3'd2) begin
                 crc <= crc_nx(tx_start ? crc_start : crc, pbit, c_poly);
                 if (!c_ext && pos[4:0] == 5'd31 && !s_last) req <= 1'b1;
-                // v1.6 ext: the next word is fetched mid-word, and used from bit 0 on
+                // ext: the next word is fetched mid-word, and used from bit 0 on
                 if (c_ext && pos[4:0] == 5'd15 && pos + 13'd17 < nb) begin
                   req <= 1'b1; reqn <= 1'b1;
                 end
@@ -743,7 +743,7 @@ module esc_line (
     end
   end
 `ifdef ESC_LINE_CHECK
-  // v1.6: a transmit boundary other than the first uses registered values equal to the
+  // A transmit boundary other than the first uses registered values equal to the
   // values of its own cycle (the timing argument above).
   always @(*) if (rst_n && mode == TX && tb_hit && lastc && !kill && !start && !anyop)
     assert (es_q == es_c && pb_q == pb_c && sl_q == sl_c);
@@ -773,8 +773,8 @@ module esc_line (
   end
 `endif
 `ifdef FORMAL
-  // A CONFIG keeps its phase: it commits in an owner cycle c (now = owner - 1 mod 4; v1.7
-  // pair mode: or owner ^ 2 - 1, the same parity) and during cycle c+1+k it has el = k, so
+  // A CONFIG keeps its phase: it commits in an owner cycle c (now = owner - 1 mod 4, or in
+  // pair mode owner ^ 2 - 1, the same parity) and during cycle c+1+k it has el = k, so
   // it completes at E_(c+9) (or E_(c+17)), of the other parity, never at one of the owner's
   // commit edges (the lemma for esc_core's P8 clause).
   always @(*) if (rst_n && mode == CFG) assert ((now[0] ^ el[0]) == owner[0]);  // lemma-group: commit
@@ -783,7 +783,7 @@ module esc_line (
   always @(posedge clk) f_pv <= 1'b1;
   always @(posedge clk)
     if (f_pv && rst_n && $past(rst_n) && $past(cfg_done)) assert ($stable(buf_q));
-  // v2 (11-12): the one-hot owner copy (sel_def), and the CONFIG fault terms registered a
+  // The one-hot owner copy (sel_def), and the CONFIG fault terms registered a
   // cycle early. sel_def is proved in the core's commit group, whose "no fault at a commit"
   // reads lu_sel: alone, that group's PDR did not converge in 3 h (10 s with sel_def).
   always @(*) if (rst_n) assert (sel == (owned ? 4'd1 << owner : 4'd0));  // lemma-group: commit (sel_def)

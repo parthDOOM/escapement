@@ -1,5 +1,5 @@
 /*
- * esc_mon.v - Escapement bus timing monitor (v3 prototype, 2026-11-13).
+ * esc_mon.v - Escapement bus timing monitor (docs/11-SEMANTICS.md §6.7, §7.8).
  *
  * Copyright (c) 2026 Escapement contributors
  * SPDX-License-Identifier: Apache-2.0
@@ -30,13 +30,13 @@
  * (`run` = run & ~stop); `prev` follows the pins at every edge. Reference model:
  * sw/esciss/monitor.py.
  *
- * Narrow to the core (v3, 11-14): the unit sits where its pins are, far from the core's
+ * Narrow to the core: the unit sits where its pins are, far from the core's
  * write-back mux, so it sends GETM one 32-bit word (rdata: counts or the record, by rsel)
  * and not both, and the record's tick is not kept here: rec_load says the record is taken at
- * this edge and the core loads its own copy of now (no 32-bit now in, no tick out). The
- * first v3 harden did not route with the three words and now crossing the core.
+ * this edge and the core loads its own copy of now (no 32-bit now in, no tick out). A
+ * trial layout with the three words and now crossing the core did not route.
  *
- * Area (v3, 11-14): a rule's pins, edges, MIN and MAX change only at a MON write, so they
+ * Area: a rule's pins, edges, MIN and MAX change only at a MON write, so they
  * are latch banks (esc_lreg, D-40) written through one shared word, cfg_q; the record's
  * body is a gated bank. 31.2k -> 26.0k um2 standalone, the same behaviour: esc_lreg's
  * contract is M7 here, the latch build is formal/esc_lreg.sby's, and the chip is

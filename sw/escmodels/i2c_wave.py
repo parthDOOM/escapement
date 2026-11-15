@@ -1,4 +1,4 @@
-"""I2C traffic between two other devices, with planted timing faults (v3: the bus timing
+"""I2C traffic between two other devices, with planted timing faults (the bus timing
 monitor's tests).
 
 `I2cWave` builds the waveform of controller writes (START, address and data bytes each

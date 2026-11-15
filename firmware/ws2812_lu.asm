@@ -1,4 +1,4 @@
-; WS2812(B) LED chain on the line unit (v1.6): a whole chain from one SEND, the context
+; WS2812(B) LED chain on the line unit: a whole chain from one SEND, the context
 ; free while it streams. (ws2812.asm bit-bangs it: three events a bit, its context busy.)
 ;
 ; A bit is a symbol of three cells of 0.417 us (the extended configuration's cells and
