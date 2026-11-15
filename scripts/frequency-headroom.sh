@@ -13,18 +13,18 @@
 # parasitics with the sign-off constraints (src/escapement.sdc: latches modelled, time
 # borrowing allowed), the period shortened and the 20% I/O delays scaled with it. Setup
 # holds when the worst slack is >= 0; a latch input that borrows reports exactly 0 (printed
-# as 0.000 or -0.000). On the v1.6 run (v16s) this gives the docs/03 table: setup holds at
-# 19.7, 12.4 and 8.3 ns and fails at 19.6, 12.3 and 8.2 ns (v1.5, v15c: holds at 25.9, 16.3 and
-# 10.6 ns, with slow:25.9 slow:25.8 typ:16.3 typ:16.2 fast:10.6 fast:10.5).
+# as 0.000 or -0.000). On the signed-off version 3 run (netlist fa1f6601eb894419) this gives
+# the docs/03 table: setup holds at 18.6, 11.6 and 7.7 ns and fails at 18.5, 11.5 and 7.6 ns
+# (v1.6, v16s: holds at 19.7, 12.4 and 8.3 ns; v1.5, v15c: 25.9, 16.3 and 10.6 ns).
 # Prints one RESULT line per corner and period, with the number of minimum pulse width
 # violators; reports go to RUN_DIR/frequency/.
 set -euo pipefail
 
 RUN=$(realpath "$1"); shift
 POINTS=("$@")
-[[ ${#POINTS[@]} -eq 0 ]] && POINTS=(slow:19.8 slow:19.7 slow:19.6
-                                      typ:12.5 typ:12.4 typ:12.3
-                                      fast:8.4 fast:8.3 fast:8.2)
+[[ ${#POINTS[@]} -eq 0 ]] && POINTS=(slow:18.7 slow:18.6 slow:18.5
+                                      typ:11.7 typ:11.6 typ:11.5
+                                      fast:7.8 fast:7.7 fast:7.6)
 DUTY=${DUTY:-50}
 
 REPO=$(realpath "$(dirname "$0")/..")

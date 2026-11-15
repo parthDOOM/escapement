@@ -9,11 +9,14 @@
 
 if { [info exists ::env(_TCL_ENV_IN)] } { source $::env(_TCL_ENV_IN) }
 set pdk $::env(PDK_LIB)
-set mac $::env(MACRO_DIR)/RM_IHPSG13_1P_256x32_c2_bm_bist
 
 define_corners nom_typ_1p20V_25C
 read_liberty -corner nom_typ_1p20V_25C $pdk/sg13cmos5l_stdcell_typ_1p20V_25C.lib
-read_liberty -corner nom_typ_1p20V_25C $mac/RM_IHPSG13_1P_256x32_c2_bm_bist_typ_1p20V_25C.lib
+# every SRAM macro's liberty (v2: the 1024x32 store and the 256x32 tape; an unused one is harmless)
+foreach mac [lsort [glob -type d $::env(MACRO_DIR)/RM_IHPSG13_1P_*]] {
+    set name [file tail $mac]
+    read_liberty -corner nom_typ_1p20V_25C $mac/${name}_typ_1p20V_25C.lib
+}
 
 read_db $::env(ODB)
 read_sdc $::env(SDC)

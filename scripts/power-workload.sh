@@ -27,9 +27,17 @@ WORKLOADS=("$@")
 
 REPO=$(realpath "$(dirname "$0")/..")
 EDA="${EDA:-$HOME/eda}"
-export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ihp-2bbec755dc67ca3db0261c3d6163e15735d66710}"
-IMAGE=ghcr.io/librelane/librelane:3.1.0.dev3
-LL=/nix/store/6a08ghhhzl5a07nr0ly762yh1ah6m5bj-python3-3.13.13-env/lib/python3.13/site-packages/librelane/scripts
+# FLOW as for scripts/local-harden.sh (default ttihp27a): the PDK and container the run used
+case "${FLOW:-ttihp27a}" in
+  pre)      export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ihp-2bbec755dc67ca3db0261c3d6163e15735d66710}"
+            IMAGE=ghcr.io/librelane/librelane:3.1.0.dev3 ;;
+  ttihp27a) export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ciel/ciel/ihp-sg13/versions/89d42ee6d2fd9b50b86a1aada6fee6673c3e6008}"
+            IMAGE=ghcr.io/librelane/librelane:3.1.0.dev4 ;;
+  *) echo "FLOW must be pre or ttihp27a" >&2; exit 2 ;;
+esac
+# LibreLane's own OpenROAD scripts (io.tcl, set_rc.tcl), wherever the container keeps them
+LL=$(docker run --rm "$IMAGE" python3 -c \
+  'import librelane, os; print(os.path.join(os.path.dirname(librelane.__file__), "scripts"))')
 OUT="$RUN/power"
 mkdir -p "$OUT"
 # shellcheck disable=SC1091
@@ -43,7 +51,7 @@ ln -s "$REPO/sw" "$SIM/sw"; ln -s "$REPO/firmware" "$SIM/firmware"
 cp "$RUN/$STEP/tt_um_escapement.nl.v" "$SIM/test/gate_level_netlist.v"
 
 pw() {   # $1 = VCD path or "" ; $2 = report
-  docker run --rm -v "$HOME:$HOME" -v /tmp:/tmp -v "$REPO:$REPO" \
+  docker run --rm -v "$HOME:$HOME" -v /tmp:/tmp -v "$REPO:$REPO" -v "$PDK_ROOT:$PDK_ROOT" \
     -e SCRIPTS_DIR="$LL" -e _TCL_ENV_IN="$RUN/$STEP/_env.tcl" \
     -e PDK_LIB="$PDK_ROOT/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib" \
     -e MACRO_DIR="$REPO/macro" -e ODB="$RUN/$STEP/tt_um_escapement.odb" \
