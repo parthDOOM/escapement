@@ -47,7 +47,7 @@ case $target in
     ;;
   chip)
     cd "$R"
-    SRC="src/project.v src/escapement_host.v src/esc_core.v src/esc_ctx.v src/esc_cap.v src/esc_line.v
+    SRC="src/project.v src/escapement_host.v src/escapement_pstore.v src/esc_core.v src/esc_ctx.v src/esc_cap.v src/esc_mon.v src/esc_line.v
          src/esc_greg.v src/escapement_art.v fpga/escapement_sram_fpga.v fpga/escapement_board.v"
     SRC=$(echo $SRC)
     DROP_ART="hierarchy -top escapement_board; delete tt_um_escapement/t:escapement_art"

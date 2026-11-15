@@ -1,0 +1,73 @@
+repo: 72a74f717487ee82363cc6144ad7d5a21fe91a25 (72a74f7, clean archive)
+built: 2026-11-15T00:19:28+05:30
+avr_isp.asm              steady  digest 0xe5832aa4 at tick 8192, period 4 ticks, 1 folds
+can_rx.asm               steady  digest 0x6dab5631 at tick 8192, period 4 ticks, 1 folds
+can_tx.asm               steady  digest 0xbacc1ca1 at tick 8192, period 4 ticks, 1 folds
+can_tx_lu.asm            steady  digest 0x9f816691 at tick 8192, period 4 ticks, 1 folds
+cec.asm                  none    no prediction within 4096 ticks
+combo_two_banks.asm      steady  digest 0x16d29081 at tick 16384, period 4 ticks, 3 folds
+combo_uart_i2c.asm       steady  digest 0xdc896c69 at tick 16384, period 4 ticks, 2 folds
+dali.asm                 none    no prediction within 4096 ticks
+dcc_tx.asm               steady  digest 0xca2c35e3 at tick 8192, period 4 ticks, 1 folds
+dcf77_tx.asm             steady  digest 0x18b2add6 at tick 8192, period 4 ticks, 1 folds
+dmx512_tx.asm            none    no prediction within 4096 ticks
+dshot_tx.asm             none    no prediction within 4096 ticks
+em4100_tag.asm           steady  digest 0x185c7570 at tick 8192, period 4 ticks, 1 folds
+eth_rx.asm               steady  digest 0x2706737e at tick 8192, period 4 ticks, 1 folds
+eth_tx.asm               none    no prediction within 4096 ticks
+ev1527_tx.asm            steady  digest 0xca2c35e3 at tick 8192, period 4 ticks, 1 folds
+freq_meter.asm           steady  digest 0x0362dccd at tick 8192, period 36 ticks, 9 folds
+i2c_burst.asm            steady  digest 0x2f033d83 at tick 8192, period 4 ticks, 1 folds
+i2c_ctrl.asm             steady  digest 0x2f033d83 at tick 8192, period 4 ticks, 1 folds
+i2c_eeprom.asm           steady  digest 0x8012457d at tick 8192, period 4 ticks, 1 folds
+i2c_timing.asm           steady  digest 0xb4261525 at tick 8192, period 16 ticks, 4 folds
+jtag_idcode.asm          steady  digest 0xaeb3911e at tick 8192, period 4 ticks, 1 folds
+jvc_tx.asm               steady  digest 0xca2c35e3 at tick 8192, period 4 ticks, 1 folds
+lin_resp.asm             none    no prediction within 4096 ticks
+lin_tx.asm               steady  digest 0x18b2add6 at tick 8192, period 4 ticks, 1 folds
+logic_analyzer.asm       halt    digest 0xcdce7920 at tick 16
+max7219.asm              steady  digest 0x45dcb635 at tick 8192, period 4 ticks, 1 folds
+midi_tx.asm              steady  digest 0x185c7570 at tick 8192, period 4 ticks, 1 folds
+modbus_rtu.asm           none    no prediction within 4096 ticks
+morse.asm                steady  digest 0xac5fdca4 at tick 8192, period 4 ticks, 1 folds
+nec_rx.asm               steady  digest 0x2f48e03f at tick 8192, period 4 ticks, 1 folds
+nec_tx.asm               steady  digest 0x5dd7a9f6 at tick 8192, period 4 ticks, 1 folds
+nec_tx_gen.asm           steady  digest 0xca2c35e3 at tick 8192, period 4 ticks, 1 folds
+nrf24_tx.asm             steady  digest 0x6fafa9f3 at tick 8192, period 4 ticks, 1 folds
+oled_disp.asm            steady  digest 0xfc5c264b at tick 8192, period 16 ticks, 6 folds
+oled_menu.asm            steady  digest 0xa21b3fc5 at tick 8192, period 16 ticks, 6 folds
+oled_pong.asm            steady  digest 0xb9b71a96 at tick 8192, period 12 ticks, 4 folds
+oled_text.asm            steady  digest 0x3feda0fe at tick 8192, period 16 ticks, 6 folds
+onewire.asm              steady  digest 0x0b1599c0 at tick 8192, period 4 ticks, 1 folds
+onewire_dev.asm          none    no prediction within 4096 ticks
+ps2_device.asm           steady  digest 0xe04d5752 at tick 8192, period 4 ticks, 1 folds
+qi_rx.asm                steady  digest 0x2e43a3e8 at tick 8192, period 4 ticks, 1 folds
+quadrature.asm           steady  digest 0xe42e759e at tick 8192, period 44 ticks, 11 folds
+rc5_tx.asm               steady  digest 0xca2c35e3 at tick 8192, period 4 ticks, 1 folds
+rc6_tx.asm               steady  digest 0xca2c35e3 at tick 8192, period 4 ticks, 1 folds
+sbus_rx.asm              none    no prediction within 4096 ticks
+sd_spi.asm               halt    digest 0xbccf5392 at tick 17456
+sent_tx.asm              none    no prediction within 4096 ticks
+servo.asm                none    no prediction within 4096 ticks
+seven_seg.asm            none    no prediction within 4096 ticks
+sirc_tx.asm              steady  digest 0xca2c35e3 at tick 8192, period 4 ticks, 1 folds
+spi_ctrl.asm             steady  digest 0xdd7a7dd7 at tick 8192, period 4 ticks, 1 folds
+spi_flash.asm            steady  digest 0x45dcb635 at tick 8192, period 4 ticks, 1 folds
+spi_sniff.asm            steady  digest 0x3c31a00a at tick 8192, period 4 ticks, 1 folds
+spi_target.asm           steady  digest 0xce5594ba at tick 8192, period 4 ticks, 1 folds
+spi_tx.asm               steady  digest 0x68eaee30 at tick 8192, period 4 ticks, 1 folds
+stepper.asm              steady  digest 0x43e95daa at tick 8192, period 4 ticks, 1 folds
+swd_idcode.asm           steady  digest 0xe00aed5d at tick 8192, period 4 ticks, 1 folds
+uart_rx.asm              steady  digest 0xf35f1ca1 at tick 8192, period 4 ticks, 1 folds
+uart_tx.asm              halt    digest 0x63114ed9 at tick 8700
+uart_tx_gen.asm          steady  digest 0x185c7570 at tick 8192, period 4 ticks, 1 folds
+udp_tx.asm               none    no prediction within 4096 ticks
+usb_hid.asm              steady  digest 0xc2212eaa at tick 8192, period 4 ticks, 2 folds
+usbpd_tx.asm             steady  digest 0x2f033d83 at tick 8192, period 4 ticks, 1 folds
+vga_pong.asm             none    no prediction within 4096 ticks
+wiegand_rx.asm           steady  digest 0xc502f320 at tick 8192, period 24 ticks, 6 folds
+wiegand_tx.asm           steady  digest 0x68ce2eef at tick 8192, period 4 ticks, 1 folds
+ws2812.asm               steady  digest 0x371c8104 at tick 8192, period 4 ticks, 1 folds
+ws2812_gen.asm           none    no prediction within 4096 ticks
+ws2812_lu.asm            steady  digest 0x8d25f29b at tick 8192, period 4 ticks, 1 folds
+logic_analyzer_stream.json halt    digest 0xddcb7f20 at tick 16

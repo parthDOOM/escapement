@@ -12,8 +12,10 @@ mods = {k: v for k, v in allmods.items()
 
 
 def base(name):
-    """yosys names parametrised copies '$paramod...\\esc_ctx' or 'esc_ctx'; keep the base name."""
-    return re.sub(r"^\$paramod.*?\\", "", name).split("\\")[-1]
+    """The module's own name. yosys names a parametrised copy '$paramod\\esc_core\\TRIPWIRES=...'
+    (the parameters after the name) or, when they are long, '$paramod$<hash>\\escapement_pstore'."""
+    m = re.match(r"^\$paramod(?:\$[0-9a-f]+)?\\([^\\]+)", name)
+    return m.group(1) if m else name
 
 
 by_base = {}
@@ -99,6 +101,15 @@ def edges(modname):
     return [{"from": a, "to": b, "bits": v["bits"], "ports": sorted(v["ports"])} for (a, b), v in sorted(pair.items())]
 
 
+def deep_counts(modname):
+    """Primitive cells inside one module and every block kept below it (the program store
+    holds its SRAM as a kept child)."""
+    c = leaf_counts(modname)
+    for _, (_, _, _, full) in instances(modname).items():
+        c.update(deep_counts(full))
+    return c
+
+
 top = by_base["tt_um_escapement"]
 core = by_base["esc_core"]
 blocks = []
@@ -106,7 +117,7 @@ for parent in (top, core):
     for iname, (typ, _, _, full) in sorted(instances(parent).items()):
         if typ == "esc_core":
             continue
-        blocks.append({"inst": iname, "type": typ, "parent": base(parent), **leaf_counts(full)})
+        blocks.append({"inst": iname, "type": typ, "parent": base(parent), **deep_counts(full)})
 blocks.append({"inst": "u_core", "type": "esc_core", "parent": "tt_um_escapement", **leaf_counts(core)})
 blocks.append({"inst": "(top glue)", "type": "tt_um_escapement", "parent": "escapement_board", **leaf_counts(top)})
 total = Counter()

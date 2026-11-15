@@ -11,6 +11,44 @@ so the script runs unchanged.
 | Chip | Sipeed Tang Primer 25K Dock (GW5A-LV25MG121NC1/I0), loaded over its onboard USB debugger |
 | Build | `fpga/escapement_board.v` with `ESC_NO_CG` and `fpga/escapement_sram_fpga.v`, as in `fpga/README.md` |
 
+## Result, 2026-11-15 (version 3)
+
+The bitstream was built from commit fa0491a and the firmware bundles from 72a74f7, which
+adds OLED Pong and changes no RTL.
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| 0 board and project | PASS | `results/2026-11-15/bringup.log` |
+| 1 clock and reset | PASS: 25 MHz from the Pico, outputs correct in and after reset | same |
+| 2 host link | PASS: STATUS reports protocol version 10, fast and slow SCK | same |
+| 3 memories | PASS: 4 patterns x 256 words in each of the four program pages and the tape, tape reads during a run | same |
+| 4 pins and clock rate | PASS: every uio, input and bank B pin; chip clock 25.0031 MHz | same |
+| 5 firmware | PASS: 71 of 71 firmware match the model's digest or final state and their certificates | same |
+
+The run also has limits, and they are recorded:
+
+- **The bitstream failed two of `build.sh`'s own checks and was packed by hand.** The
+  half-tick input sampler is a bank of falling-edge flip-flops. Yosys built it from
+  rising-edge flip-flops behind an inverter in a LUT, so the clock is not wholly on the
+  global network (one LUT input), and the skew to that input is 0.682 ns against the
+  0.05 ns the build allows (`results/2026-11-15/clkskew.txt`). nextpnr times the rest
+  of the design and passes setup at 25 MHz (57.39 MHz possible), but it treats the
+  inverted clock as its own domain and does not time the half-cycle path from the sampler
+  into the core. The fix is to map the bank onto the FPGA's falling-edge flip-flops. The
+  chip's own layout does not have this problem: its sampler is signed off at every corner
+  with the rest of the design ([03-PHYSICAL-DESIGN](../../docs/03-PHYSICAL-DESIGN.md)).
+- **The new receivers ran with nothing on their pins.** `eth_rx`, `spi_sniff` and
+  `i2c_timing` run and stay in step with the model, but the bench had no Ethernet line, no
+  SPI bus and no I2C traffic on those pins, so it does not show them decoding or measuring.
+  That is shown in simulation, on the simulator and on the RTL
+  ([04-VERIFICATION](../../docs/04-VERIFICATION.md)).
+- An earlier run of the same bitstream, before two wires (uio[2] and uio[3]) were
+  reconnected, failed stage 4 on exactly those pins ("pins 2,3 never read 0") and three
+  firmware in stage 5 that use them (68 of 71); the log above is the run after.
+
+OLED Pong was also played on this bitstream with an SSD1306 display on uio[2] and uio[3]
+([23-OLED-PONG](../../docs/23-OLED-PONG.md)).
+
 ## Result, 2026-11-08 (v1.6, commit d3b5dbc)
 
 | Step | Result | Evidence |
@@ -44,7 +82,8 @@ RTL-to-netlist equivalence checks and timing signoff.
 | `test_pinid.py`, `test_barepico.py` | software tests: pinid.v simulated through pinid.py; bring-up through barepico's wiring on the simulated chip |
 | `bench.ps1` | Windows helper: build, deploy, load, run (the Dock's USB goes to WSL with usbipd-win) |
 | `hierarchy.sh`, `hierarchy.py` | block-level LUT, flip-flop and bus counts of the FPGA build |
-| `results/2026-11-08/` | the run above |
+| `results/2026-11-15/` | the version 3 run above: the bring-up log, the bitstream's and bundles' MANIFESTs, the clock skew report |
+| `results/2026-11-08/` | the version 1.6 run above |
 
 ## Running it
 

@@ -1,0 +1,801 @@
+Info: Using uarch 'gowin' for device 'GW5A-LV25MG121NC1/I0'
+
+Info: Reading constraints...
+Info: Create constant nets...
+Info: Modify LUTs...
+Info: Pack IOBs...
+Info: Pack I3C IOs...
+Info: Pack MIPI IOs...
+Info: Pack diff IOBs...
+Info: Pack FFs into IO cells...
+Info: Pack IODELAY...
+Info: Pack Input Edge Monitors...
+Info: Pack IO logic...
+Info: Pack DESER16 logic...
+Info: Pack GSR...
+Info: Pack PINCFG...
+Info: Pack HCLK cells...
+Info: Pack DLLDLYs...
+Info: Pack wide LUTs...
+Info: Packed MUX2_LUT8:123, MUX2_LU7:19, MUX2_LUT6:65, MUX2_LUT5:1803
+Info: Pack ALUs...
+Info: Pack SSRAMs...
+Info: Constrained 2116 LUTFF pairs.
+Info: Pack PLL...
+Info: Pack ADC...
+Info: Pack GW JTAG...
+Info: Pack BSRAMs...
+Info: Pack DSP...
+Info: Pack INV...
+Info: Pack buffered nets...
+Info: Pack EMCU and UserFlash cells...
+Info: Pack UserFlash cells...
+Info: Pack DQCE cells...
+Info: Pack DCS cells...
+Info: Checksum: 0x9f27f265
+
+Info: Device utilisation:
+Info: 	                 VCC:       1/      1   100%
+Info: 	                 IOB:      18/    240     7%
+Info: 	                LUT4:   15736/  23040    68%
+Info: 	            IOLOGICI:       0/    230     0%
+Info: 	            IOLOGICO:       0/    230     0%
+Info: 	           MUX2_LUT5:    2993/  11520    25%
+Info: 	           MUX2_LUT6:     595/   5760    10%
+Info: 	           MUX2_LUT7:     265/   2880     9%
+Info: 	           MUX2_LUT8:     123/   2880     4%
+Info: 	                 ALU:    1262/  17280     7%
+Info: 	                 GND:       1/      1   100%
+Info: 	                 DFF:    5091/  23040    22%
+Info: 	               BSRAM:       3/     56     5%
+Info: 	           MULT12X12:       0/     56     0%
+Info: 	        MULTALU27X18:       0/     28     0%
+Info: 	     MULTADDALU12X12:       0/     28     0%
+Info: 	                 GSR:       1/      1   100%
+Info: 	              PINCFG:       1/      1   100%
+Info: 	                OSCA:       0/      1     0%
+Info: 	                PLLA:       0/      6     0%
+Info: 	                 ADC:       0/      1     0%
+Info: 	                BUFG:       1/      5    20%
+Info: 	                 DCS:       0/      8     0%
+Info: 	              CLKDIV:       0/     16     0%
+Info: 	             CLKDIV2:       0/     16     0%
+
+Info: Running custom HCLK placer...
+Info: Placed 0 cells based on constraints.
+Info: Creating initial analytic placement for 13599 cells, random placement wirelen = 827160.
+Info:     at initial placer iter 0, wirelen = 4168
+Info:     at initial placer iter 1, wirelen = 3975
+Info:     at initial placer iter 2, wirelen = 4331
+Info:     at initial placer iter 3, wirelen = 4086
+Info: Running main analytical placer, max placement attempts per cell = 85144725.
+Info:     at iteration #1, type ALL: wirelen solved = 4319, spread = 197363, legal = 585816; time = 25.70s
+Info:     at iteration #2, type ALL: wirelen solved = 13039, spread = 157884, legal = 454098; time = 9.56s
+Info:     at iteration #3, type ALL: wirelen solved = 42011, spread = 163678, legal = 391555; time = 7.61s
+Info:     at iteration #4, type ALL: wirelen solved = 58602, spread = 157839, legal = 350569; time = 7.79s
+Info:     at iteration #5, type ALL: wirelen solved = 64180, spread = 152840, legal = 297940; time = 5.22s
+Info:     at iteration #6, type ALL: wirelen solved = 69804, spread = 142677, legal = 270565; time = 3.81s
+Info:     at iteration #7, type ALL: wirelen solved = 75991, spread = 139140, legal = 246082; time = 3.15s
+Info:     at iteration #8, type ALL: wirelen solved = 81415, spread = 120984, legal = 239600; time = 3.09s
+Info:     at iteration #9, type ALL: wirelen solved = 84805, spread = 117915, legal = 232907; time = 3.19s
+Info:     at iteration #10, type ALL: wirelen solved = 88210, spread = 117433, legal = 227932; time = 2.97s
+Info:     at iteration #11, type ALL: wirelen solved = 91034, spread = 122204, legal = 230657; time = 3.07s
+Info:     at iteration #12, type ALL: wirelen solved = 96843, spread = 123886, legal = 213279; time = 2.53s
+Info:     at iteration #13, type ALL: wirelen solved = 100904, spread = 123669, legal = 196097; time = 1.81s
+Info:     at iteration #14, type ALL: wirelen solved = 103046, spread = 127038, legal = 202424; time = 2.22s
+Info:     at iteration #15, type ALL: wirelen solved = 106887, spread = 132884, legal = 179230; time = 1.36s
+Info:     at iteration #16, type ALL: wirelen solved = 108868, spread = 127136, legal = 174502; time = 1.30s
+Info:     at iteration #17, type ALL: wirelen solved = 108759, spread = 125924, legal = 175179; time = 1.40s
+Info:     at iteration #18, type ALL: wirelen solved = 111681, spread = 125945, legal = 176042; time = 1.46s
+Info:     at iteration #19, type ALL: wirelen solved = 113851, spread = 131225, legal = 171758; time = 1.15s
+Info:     at iteration #20, type ALL: wirelen solved = 116089, spread = 133094, legal = 172816; time = 1.77s
+Info:     at iteration #21, type ALL: wirelen solved = 118577, spread = 135846, legal = 165076; time = 0.93s
+Info:     at iteration #22, type ALL: wirelen solved = 120327, spread = 135226, legal = 160996; time = 0.92s
+Info:     at iteration #23, type ALL: wirelen solved = 121375, spread = 137270, legal = 162305; time = 0.98s
+Info:     at iteration #24, type ALL: wirelen solved = 122762, spread = 134373, legal = 160448; time = 1.08s
+Info:     at iteration #25, type ALL: wirelen solved = 122887, spread = 133955, legal = 161205; time = 0.97s
+Info:     at iteration #26, type ALL: wirelen solved = 124193, spread = 137394, legal = 160774; time = 0.84s
+Info:     at iteration #27, type ALL: wirelen solved = 126604, spread = 138908, legal = 161501; time = 0.88s
+Info:     at iteration #28, type ALL: wirelen solved = 127446, spread = 140284, legal = 160925; time = 0.90s
+Info:     at iteration #29, type ALL: wirelen solved = 128933, spread = 137665, legal = 160676; time = 0.91s
+Info: HeAP Placer Time: 101.86s
+Info:   of which solving equations: 8.46s
+Info:   of which spreading cells: 1.13s
+Info:   of which strict legalisation: 89.83s
+
+Info: Running simulated annealing placer for refinement.
+Info:   at iteration #1: temp = 0.000000, timing cost = 666, wirelen = 160448
+Info:   at iteration #5: temp = 0.000000, timing cost = 314, wirelen = 135998
+Info:   at iteration #10: temp = 0.000000, timing cost = 322, wirelen = 126970
+Info:   at iteration #15: temp = 0.000000, timing cost = 286, wirelen = 122606
+Info:   at iteration #20: temp = 0.000000, timing cost = 275, wirelen = 119187
+Info:   at iteration #25: temp = 0.000000, timing cost = 272, wirelen = 118044
+Info:   at iteration #30: temp = 0.000000, timing cost = 267, wirelen = 117567
+Info:   at iteration #33: temp = 0.000000, timing cost = 267, wirelen = 117488 
+Info: SA placement time 46.50s
+
+Info: Max frequency for clock 'chip.clk': 41.83 MHz (PASS at 25.00 MHz)
+
+Info: Clock 'uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT4_F_1_I2_DFFCE_Q_D_DFFCE_Q_D_DFFCE_Q_CLK' has no interior paths
+
+Info: Max delay posedge uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT4_F_1_I2_DFFCE_Q_D_DFFCE_Q_D_DFFCE_Q_CLK -> posedge chip.clk: 0.37 ns
+
+Info: Slack histogram:
+Info:  legend: * represents 10 endpoint(s)
+Info:          + represents [1,10) endpoint(s)
+Info: [ 16094,  17667) |+
+Info: [ 17667,  19240) |*+
+Info: [ 19240,  20813) |*******+
+Info: [ 20813,  22386) |****************+
+Info: [ 22386,  23959) |****************+
+Info: [ 23959,  25532) |***************************+
+Info: [ 25532,  27105) |*******************+
+Info: [ 27105,  28678) |***************+
+Info: [ 28678,  30251) |*********************************+
+Info: [ 30251,  31824) |*********************************+
+Info: [ 31824,  33397) |**********************************+
+Info: [ 33397,  34970) |****************************+
+Info: [ 34970,  36543) |********************************************+
+Info: [ 36543,  38116) |************************************************************ 
+Info: [ 38116,  39689) |*******************************************************+
+Info: [ 39689,  41262) |********************************+
+Info: [ 41262,  42835) |+
+Info: [ 42835,  44408) | 
+Info: [ 44408,  45981) | 
+Info: [ 45981,  47554) |**+
+Info: Checksum: 0xf1cfbd7b
+Info: Routing globals...
+Warning: Failed to route net 'chip.clk' from X91Y18/CLK2 to X68Y1/A3 using dedicated routing.
+Info:     'chip.clk' net was routed.
+Warning: Failed to route net 'chip.ui_in[3]' from X0Y4/F5 to X26Y4/D6 using dedicated routing.
+Warning: Failed to route net 'chip.ui_in[3]' from X0Y4/F5 to X63Y2/D4 using dedicated routing.
+Warning: Failed to route net 'uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[0]' from X91Y30/F5 to X72Y30/A5 using dedicated routing.
+Warning: Failed to route net 'uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[0]' from X91Y30/F5 to X40Y28/A4 using dedicated routing.
+Warning: Failed to route net 'uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[0]' from X91Y30/F5 to X40Y32/A7 using dedicated routing.
+Warning: Failed to route net 'uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[0]' from X91Y30/F5 to X40Y32/A6 using dedicated routing.
+Warning: Failed to route net 'uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[0]' from X91Y30/F5 to X42Y28/A6 using dedicated routing.
+
+Info: Routing..
+Info: Setting up routing queue.
+Info: Routing 75239 arcs.
+Info:            |   (re-)routed arcs  |   delta    | remaining|       time spent     |
+Info:    IterCnt |  w/ripup   wo/ripup |  w/r  wo/r |      arcs| batch(sec) total(sec)|
+Info:       1000 |        6        993 |    6   993 |     74247|       0.84       0.84|
+Info:       2000 |        9       1990 |    3   997 |     73250|       0.38       1.22|
+Info:       3000 |       21       2978 |   12   988 |     72270|       0.39       1.61|
+Info:       4000 |       36       3963 |   15   985 |     71289|       0.38       1.99|
+Info:       5000 |       51       4948 |   15   985 |     70327|       0.39       2.38|
+Info:       6000 |       78       5921 |   27   973 |     69367|       0.35       2.73|
+Info:       7000 |       98       6901 |   20   980 |     68393|       0.35       3.07|
+Info:       8000 |      123       7734 |   25   833 |     67425|       0.30       3.38|
+Info:       9000 |      138       8424 |   15   690 |     66443|       0.27       3.65|
+Info:      10000 |      163       9226 |   25   802 |     65473|       0.33       3.98|
+Info:      11000 |      189       9944 |   26   718 |     64504|       0.24       4.22|
+Info:      12000 |      217      10729 |   28   785 |     63535|       0.22       4.45|
+Info:      13000 |      227      11515 |   10   786 |     62550|       0.23       4.68|
+Info:      14000 |      244      12254 |   17   739 |     61567|       0.26       4.93|
+Info:      15000 |      263      13122 |   19   868 |     60591|       0.26       5.19|
+Info:      16000 |      279      14000 |   16   878 |     59610|       0.34       5.53|
+Info:      17000 |      289      14879 |   10   879 |     58621|       0.48       6.01|
+Info:      18000 |      296      15763 |    7   884 |     57628|       0.49       6.50|
+Info:      19000 |      306      16637 |   10   874 |     56645|       0.50       7.00|
+Info:      20000 |      315      17515 |    9   878 |     55687|       0.48       7.48|
+Info:      21000 |      330      18387 |   15   872 |     54710|       0.51       7.99|
+Info:      22000 |      343      19263 |   13   876 |     53732|       0.52       8.51|
+Info:      23000 |      362      20127 |   19   864 |     52769|       0.54       9.05|
+Info:      24000 |      375      21011 |   13   884 |     51786|       0.55       9.61|
+Info:      25000 |      393      21863 |   18   852 |     50808|       0.58      10.19|
+Info:      26000 |      410      22709 |   17   846 |     49826|       0.60      10.79|
+Info:      27000 |      441      23579 |   31   870 |     48995|       0.59      11.37|
+Info:      28000 |      459      24430 |   18   851 |     48016|       0.56      11.93|
+Info:      29000 |      484      25271 |   25   841 |     47047|       0.59      12.52|
+Info:      30000 |      520      26101 |   36   830 |     46102|       0.63      13.15|
+Info:      31000 |      554      26933 |   34   832 |     45178|       0.67      13.82|
+Info:      32000 |      585      27787 |   31   854 |     44227|       0.65      14.47|
+Info:      33000 |      615      28636 |   30   849 |     43264|       0.63      15.11|
+Info:      34000 |      660      29460 |   45   824 |     42341|       0.69      15.80|
+Info:      35000 |      713      30286 |   53   826 |     41401|       0.81      16.60|
+Info:      36000 |      776      31118 |   63   832 |     40571|       0.90      17.50|
+Info:      37000 |      820      31965 |   44   847 |     39657|       0.97      18.47|
+Info:      38000 |      883      32794 |   63   829 |     38772|       0.86      19.34|
+Info:      39000 |      944      33624 |   61   830 |     37903|       0.87      20.20|
+Info:      40000 |     1015      34444 |   71   820 |     37015|       0.92      21.12|
+Info:      41000 |     1097      35256 |   82   812 |     36232|       0.97      22.09|
+Info:      42000 |     1183      36051 |   86   795 |     35362|       0.96      23.04|
+Info:      43000 |     1315      36809 |  132   758 |     34780|       1.10      24.15|
+Info:      44000 |     1420      37609 |  105   800 |     33974|       1.16      25.30|
+Info:      45000 |     1552      38401 |  132   792 |     33525|       1.24      26.54|
+Info:      46000 |     1652      39193 |  100   792 |     32659|       1.18      27.72|
+Info:      47000 |     1786      39971 |  134   778 |     31933|       1.19      28.91|
+Info:      48000 |     1965      40705 |  179   734 |     31265|       1.56      30.47|
+Info:      49000 |     2131      41433 |  166   728 |     30597|       1.46      31.93|
+Info:      50000 |     2298      42160 |  167   727 |     29910|       1.42      33.34|
+Info:      51000 |     2474      42889 |  176   729 |     29174|       1.38      34.72|
+Info:      52000 |     2661      43618 |  187   729 |     28538|       1.54      36.26|
+Info:      53000 |     2872      44335 |  211   717 |     27925|       1.53      37.79|
+Info:      54000 |     3046      45060 |  174   725 |     27159|       1.52      39.30|
+Info:      55000 |     3254      45777 |  208   717 |     26594|       1.53      40.84|
+Info:      56000 |     3528      46440 |  274   663 |     26245|       1.88      42.72|
+Info:      57000 |     3775      47131 |  247   691 |     25768|       1.71      44.43|
+Info:      58000 |     4016      47806 |  241   675 |     25338|       1.84      46.27|
+Info:      59000 |     4313      48470 |  297   664 |     25131|       1.99      48.26|
+Info:      60000 |     4547      49148 |  234   678 |     24504|       1.74      50.00|
+Info:      61000 |     4837      49788 |  290   640 |     24107|       1.90      51.90|
+Info:      62000 |     5174      50413 |  337   625 |     23793|       2.00      53.90|
+Info:      63000 |     5474      51049 |  300   636 |     23381|       1.96      55.85|
+Info:      64000 |     5716      51724 |  242   675 |     22789|       1.57      57.42|
+Info:      65000 |     6023      52362 |  307   638 |     22370|       2.25      59.67|
+Info:      66000 |     6312      53003 |  289   641 |     21928|       1.95      61.62|
+Info:      67000 |     6626      53610 |  314   607 |     21478|       1.94      63.56|
+Info:      68000 |     6975      54215 |  349   605 |     21124|       2.05      65.61|
+Info:      69000 |     7246      54879 |  271   664 |     20641|       1.97      67.58|
+Info:      70000 |     7590      55478 |  344   599 |     20363|       2.32      69.90|
+Info:      71000 |     7913      56112 |  323   634 |     20031|       2.34      72.24|
+Info:      72000 |     8297      56694 |  384   582 |     19868|       2.33      74.57|
+Info:      73000 |     8675      57268 |  378   574 |     19649|       2.37      76.94|
+Info:      74000 |     9058      57862 |  383   594 |     19498|       2.57      79.51|
+Info:      75000 |     9423      58464 |  365   602 |     19272|       2.46      81.97|
+Info:      76000 |     9797      59065 |  374   601 |     19176|       2.57      84.54|
+Info:      77000 |    10138      59674 |  341   609 |     18827|       2.40      86.94|
+Info:      78000 |    10460      60288 |  322   614 |     18386|       2.32      89.26|
+Info:      79000 |    10857      60856 |  397   568 |     18160|       2.51      91.76|
+Info:      80000 |    11252      61427 |  395   571 |     17933|       2.93      94.70|
+Info:      81000 |    11623      62010 |  371   583 |     17586|       2.57      97.26|
+Info:      82000 |    11998      62612 |  375   602 |     17384|       2.34      99.61|
+Info:      83000 |    12372      63195 |  374   583 |     17054|       2.74     102.35|
+Info:      84000 |    12772      63772 |  400   577 |     16977|       2.35     104.70|
+Info:      85000 |    13182      64323 |  410   551 |     16720|       3.09     107.79|
+Info:      86000 |    13585      64901 |  403   578 |     16735|       2.83     110.61|
+Info:      87000 |    13946      65507 |  361   606 |     16409|       2.69     113.30|
+Info:      88000 |    14351      66091 |  405   584 |     16338|       2.58     115.88|
+Info:      89000 |    14774      66636 |  423   545 |     16197|       3.11     118.99|
+Info:      90000 |    15126      67242 |  352   606 |     15869|       2.61     121.60|
+Info:      91000 |    15541      67808 |  415   566 |     15743|       2.93     124.53|
+Info:      92000 |    15961      68364 |  420   556 |     15635|       3.13     127.66|
+Info:      93000 |    16389      68926 |  428   562 |     15569|       2.84     130.50|
+Info:      94000 |    16795      69485 |  406   559 |     15395|       2.68     133.18|
+Info:      95000 |    17237      70014 |  442   529 |     15203|       2.94     136.11|
+Info:      96000 |    17646      70582 |  409   568 |     15052|       3.11     139.22|
+Info:      97000 |    18059      71151 |  413   569 |     14866|       2.95     142.18|
+Info:      98000 |    18511      71678 |  452   527 |     14760|       3.19     145.37|
+Info:      99000 |    18982      72198 |  471   520 |     14904|       3.77     149.15|
+Info:     100000 |    19431      72730 |  449   532 |     14763|       3.02     152.17|
+Info:     101000 |    19880      73277 |  449   547 |     14738|       3.27     155.44|
+Info:     102000 |    20290      73841 |  410   564 |     14555|       3.32     158.76|
+Info:     103000 |    20701      74406 |  411   565 |     14362|       3.10     161.85|
+Info:     104000 |    21131      74954 |  430   548 |     14149|       2.98     164.83|
+Info:     105000 |    21548      75513 |  417   559 |     13851|       3.25     168.08|
+Info:     106000 |    22015      76028 |  467   515 |     13708|       3.23     171.31|
+Info:     107000 |    22419      76593 |  404   565 |     13372|       3.04     174.35|
+Info:     108000 |    22861      77128 |  442   535 |     13188|       3.15     177.50|
+Info:     109000 |    23332      77655 |  471   527 |     13430|       3.98     181.48|
+Info:     110000 |    23750      78224 |  418   569 |     13168|       3.64     185.12|
+Info:     111000 |    24106      78838 |  356   614 |     12811|       2.88     188.00|
+Info:     112000 |    24525      79400 |  419   562 |     12894|       3.22     191.22|
+Info:     113000 |    24933      79990 |  408   590 |     12758|       3.07     194.28|
+Info:     114000 |    25377      80536 |  444   546 |     12637|       3.59     197.87|
+Info:     115000 |    25869      81041 |  492   505 |     12722|       4.71     202.58|
+Info:     116000 |    26277      81614 |  408   573 |     12490|       3.40     205.98|
+Info:     117000 |    26709      82168 |  432   554 |     12351|       3.84     209.82|
+Info:     118000 |    27148      82712 |  439   544 |     12248|       3.77     213.59|
+Info:     119000 |    27573      83272 |  425   560 |     12080|       3.68     217.27|
+Info:     120000 |    28007      83825 |  434   553 |     11878|       3.06     220.33|
+Info:     121000 |    28463      84362 |  456   537 |     11867|       3.91     224.24|
+Info:     122000 |    28917      84887 |  454   525 |     11684|       3.68     227.92|
+Info:     123000 |    29311      85486 |  394   599 |     11682|       3.03     230.95|
+Info:     124000 |    29742      86040 |  431   554 |     11477|       3.92     234.87|
+Info:     125000 |    30180      86585 |  438   545 |     11267|       3.82     238.69|
+Info:     126000 |    30634      87120 |  454   535 |     11213|       4.11     242.80|
+Info:     127000 |    31067      87684 |  433   564 |     11284|       3.55     246.35|
+Info:     128000 |    31447      88296 |  380   612 |     11232|       3.54     249.88|
+Info:     129000 |    31958      88780 |  511   484 |     11355|       3.77     253.65|
+Info:     130000 |    32394      89337 |  436   557 |     11243|       5.58     259.24|
+Info:     131000 |    32883      89832 |  489   495 |     11124|       8.06     267.29|
+Info:     132000 |    33357      90346 |  474   514 |     11031|       5.66     272.95|
+Info:     133000 |    33857      90837 |  500   491 |     11066|       5.44     278.39|
+Info:     134000 |    34370      91320 |  513   483 |     11089|       5.60     283.99|
+Info:     135000 |    34868      91821 |  498   501 |     11185|       5.28     289.27|
+Info:     136000 |    35369      92314 |  501   493 |     11198|       6.43     295.70|
+Info:     137000 |    35808      92861 |  439   547 |     11003|       5.90     301.60|
+Info:     138000 |    36238      93402 |  430   541 |     10731|       5.50     307.10|
+Info:     139000 |    36690      93929 |  452   527 |     10472|       4.96     312.06|
+Info:     140000 |    37147      94466 |  457   537 |     10486|       6.82     318.88|
+Info:     141000 |    37616      94983 |  469   517 |     10256|       5.28     324.16|
+Info:     142000 |    38086      95506 |  470   523 |     10282|       6.17     330.32|
+Info:     143000 |    38556      96028 |  470   522 |     10207|       5.56     335.89|
+Info:     144000 |    39001      96578 |  445   550 |     10180|       5.58     341.47|
+Info:     145000 |    39415      97148 |  414   570 |     10012|       5.34     346.80|
+Info:     146000 |    39881      97682 |  466   534 |     10152|       6.28     353.09|
+Info:     147000 |    40309      98244 |  428   562 |     10054|       5.42     358.51|
+Info:     148000 |    40711      98831 |  402   587 |      9874|       4.65     363.16|
+Info:     149000 |    41180      99351 |  469   520 |      9812|       6.04     369.20|
+Info:     150000 |    41621      99899 |  441   548 |      9733|       5.71     374.90|
+Info:     151000 |    42066     100449 |  445   550 |      9634|       4.05     378.95|
+Info:     152000 |    42529     100975 |  463   526 |      9510|       4.89     383.84|
+Info:     153000 |    42946     101546 |  417   571 |      9358|       4.16     388.01|
+Info:     154000 |    43379     102107 |  433   561 |      9311|       4.19     392.20|
+Info:     155000 |    43829     102650 |  450   543 |      9248|       3.65     395.85|
+Info:     156000 |    44317     103162 |  488   512 |      9302|       5.32     401.16|
+Info:     157000 |    44760     103701 |  443   539 |      9081|       4.06     405.22|
+Info:     158000 |    45185     104261 |  425   560 |      8799|       4.07     409.29|
+Info:     159000 |    45623     104813 |  438   552 |      8690|       3.90     413.19|
+Info:     160000 |    46087     105340 |  464   527 |      8572|       4.63     417.82|
+Info:     161000 |    46549     105871 |  462   531 |      8478|       4.88     422.70|
+Info:     162000 |    46993     106424 |  444   553 |      8501|       4.41     427.11|
+Info:     163000 |    47434     106983 |  441   559 |      8615|       3.78     430.88|
+Info:     164000 |    47889     107525 |  455   542 |      8524|       4.55     435.43|
+Info:     165000 |    48333     108079 |  444   554 |      8536|       5.43     440.86|
+Info:     166000 |    48748     108659 |  415   580 |      8480|       6.00     446.86|
+Info:     167000 |    49179     109219 |  431   560 |      8362|       4.82     451.68|
+Info:     168000 |    49623     109762 |  444   543 |      8195|       4.39     456.07|
+Info:     169000 |    50097     110286 |  474   524 |      8426|       5.98     462.05|
+Info:     170000 |    50540     110843 |  443   557 |      8288|       4.92     466.97|
+Info:     171000 |    50984     111396 |  444   553 |      8202|       4.55     471.52|
+Info:     172000 |    51449     111927 |  465   531 |      8141|       3.99     475.52|
+Info:     173000 |    51878     112485 |  429   558 |      8033|       4.72     480.23|
+Info:     174000 |    52329     113030 |  451   545 |      7973|       5.37     485.60|
+Info:     175000 |    52793     113561 |  464   531 |      8088|       4.54     490.14|
+Info:     176000 |    53236     114116 |  443   555 |      7930|       4.75     494.88|
+Info:     177000 |    53701     114642 |  465   526 |      7839|       5.38     500.27|
+Info:     178000 |    54157     115169 |  456   527 |      7599|       4.81     505.07|
+Info:     179000 |    54649     115666 |  492   497 |      7496|       5.70     510.77|
+Info:     180000 |    55090     116212 |  441   546 |      7447|       5.36     516.13|
+Info:     181000 |    55514     116783 |  424   571 |      7326|       4.17     520.30|
+Info:     182000 |    55974     117317 |  460   534 |      7260|       5.21     525.51|
+Info:     183000 |    56397     117891 |  423   574 |      7168|       4.83     530.34|
+Info:     184000 |    56845     118438 |  448   547 |      7008|       5.07     535.41|
+Info:     185000 |    57296     118986 |  451   548 |      6963|       4.76     540.17|
+Info:     186000 |    57719     119555 |  423   569 |      6908|       5.53     545.70|
+Info:     187000 |    58142     120131 |  423   576 |      6835|       4.81     550.50|
+Info:     188000 |    58561     120704 |  419   573 |      6731|       4.43     554.94|
+Info:     189000 |    59026     121236 |  465   532 |      6955|       5.79     560.73|
+Info:     190000 |    59534     121728 |  508   492 |      6906|       5.50     566.23|
+Info:     191000 |    59992     122264 |  458   536 |      6716|       5.31     571.54|
+Info:     192000 |    60412     122840 |  420   576 |      6681|       6.37     577.91|
+Info:     193000 |    60828     123411 |  416   571 |      6502|       5.08     582.99|
+Info:     194000 |    61309     123922 |  481   511 |      6436|       5.08     588.07|
+Info:     195000 |    61775     124450 |  466   528 |      6310|       5.41     593.48|
+Info:     196000 |    62228     124994 |  453   544 |      6359|       6.08     599.56|
+Info:     197000 |    62643     125579 |  415   585 |      6338|       4.62     604.18|
+Info:     198000 |    63071     126138 |  428   559 |      6085|       4.37     608.55|
+Info:     199000 |    63547     126657 |  476   519 |      6000|       6.36     614.91|
+Info:     200000 |    63988     127209 |  441   552 |      5887|       4.17     619.08|
+Info:     201000 |    64383     127811 |  395   602 |      5696|       4.73     623.81|
+Info:     202000 |    64876     128316 |  493   505 |      5826|       5.81     629.62|
+Info:     203000 |    65313     128879 |  437   563 |      6012|       4.36     633.98|
+Info:     204000 |    65759     129433 |  446   554 |      5964|       5.57     639.54|
+Info:     205000 |    66231     129961 |  472   528 |      5826|       6.74     646.28|
+Info:     206000 |    66681     130511 |  450   550 |      6066|       5.52     651.81|
+Info:     207000 |    67140     131052 |  459   541 |      5958|       5.02     656.83|
+Info:     208000 |    67558     131634 |  418   582 |      5961|       5.64     662.47|
+Info:     209000 |    67986     132205 |  428   571 |      5910|       6.14     668.61|
+Info:     210000 |    68428     132763 |  442   558 |      5877|       5.90     674.51|
+Info:     211000 |    68898     133291 |  470   528 |      5914|       5.62     680.12|
+Info:     212000 |    69258     133931 |  360   640 |      5858|       4.25     684.38|
+Info:     213000 |    69739     134450 |  481   519 |      5922|       6.77     691.15|
+Info:     214000 |    70117     135068 |  378   618 |      6155|       3.90     695.05|
+Info:     215000 |    70476     135707 |  359   639 |      5777|       5.67     700.72|
+Info:     216000 |    70928     136253 |  452   546 |      5761|       5.71     706.42|
+Info:     217000 |    71369     136811 |  441   558 |      6053|       4.50     710.92|
+Info:     218000 |    71776     137404 |  407   593 |      5999|       4.54     715.46|
+Info:     219000 |    72191     137989 |  415   585 |      5958|       4.82     720.28|
+Info:     220000 |    72637     138543 |  446   554 |      5846|       4.89     725.17|
+Info:     221000 |    73075     139105 |  438   562 |      5797|       5.39     730.57|
+Info:     222000 |    73504     139672 |  429   567 |      5994|       5.72     736.29|
+Info:     223000 |    73952     140224 |  448   552 |      5978|       5.90     742.19|
+Info:     224000 |    74402     140774 |  450   550 |      5782|       6.25     748.44|
+Info:     225000 |    74832     141343 |  430   569 |      6112|       6.95     755.39|
+Info:     226000 |    75304     141871 |  472   528 |      5995|       6.40     761.79|
+Info:     227000 |    75710     142465 |  406   594 |      5887|       5.04     766.83|
+Info:     228000 |    76179     142990 |  469   525 |      5820|       5.74     772.57|
+Info:     229000 |    76589     143578 |  410   588 |      5696|       4.75     777.32|
+Info:     230000 |    77042     144116 |  453   538 |      5551|       5.49     782.81|
+Info:     231000 |    77521     144631 |  479   515 |      5470|       7.05     789.86|
+Info:     232000 |    77967     145183 |  446   552 |      5326|       5.42     795.28|
+Info:     233000 |    78397     145741 |  430   558 |      5096|       6.05     801.33|
+Info:     234000 |    78883     146246 |  486   505 |      4905|       7.58     808.91|
+Info:     235000 |    79359     146770 |  476   524 |      5097|       7.97     816.88|
+Info:     236000 |    79768     147361 |  409   591 |      5286|       6.66     823.53|
+Info:     237000 |    80199     147930 |  431   569 |      5115|       6.20     829.73|
+Info:     238000 |    80597     148531 |  398   601 |      5048|       6.04     835.77|
+Info:     239000 |    81055     149070 |  458   539 |      4919|       5.40     841.17|
+Info:     240000 |    81516     149604 |  461   534 |      4733|       6.05     847.23|
+Info:     241000 |    81972     150147 |  456   543 |      4745|       6.86     854.08|
+Info:     242000 |    82424     150692 |  452   545 |      4619|       6.18     860.27|
+Info:     243000 |    82772     151332 |  348   640 |      4437|       5.34     865.61|
+Info:     244000 |    83202     151898 |  430   566 |      4346|       5.80     871.40|
+Info:     245000 |    83637     152461 |  435   563 |      4338|       5.99     877.39|
+Info:     246000 |    84006     153085 |  369   624 |      4106|       5.96     883.35|
+Info:     247000 |    84418     153663 |  412   578 |      3947|       4.69     888.04|
+Info:     248000 |    84825     154243 |  407   580 |      3827|       5.37     893.41|
+Info:     249000 |    85290     154774 |  465   531 |      3634|       5.60     899.01|
+Info:     250000 |    85712     155339 |  422   565 |      3380|       6.10     905.11|
+Info:     251000 |    86179     155870 |  467   531 |      3481|       7.18     912.29|
+Info:     252000 |    86641     156408 |  462   538 |      3748|       7.13     919.42|
+Info:     253000 |    87046     157003 |  405   595 |      3695|       5.71     925.12|
+Info:     254000 |    87441     157608 |  395   605 |      3502|       6.50     931.63|
+Info:     255000 |    87829     158215 |  388   607 |      3262|       5.48     937.11|
+Info:     256000 |    88227     158817 |  398   602 |      3339|       5.11     942.22|
+Info:     257000 |    88606     159430 |  379   613 |      3051|       6.25     948.47|
+Info:     258000 |    88989     160045 |  383   615 |      2971|       5.48     953.94|
+Info:     259000 |    89390     160633 |  401   588 |      2766|       6.81     960.75|
+Info:     260000 |    89807     161215 |  417   582 |      2674|       6.08     966.84|
+Info:     261000 |    90287     161734 |  480   519 |      2640|       7.14     973.97|
+Info:     262000 |    90757     162264 |  470   530 |      2570|       6.28     980.26|
+Info:     263000 |    91181     162840 |  424   576 |      2555|       6.00     986.26|
+Info:     264000 |    91539     163480 |  358   640 |      2348|       6.25     992.51|
+Info:     265000 |    91986     164031 |  447   551 |      2316|       5.67     998.18|
+Info:     266000 |    92369     164645 |  383   614 |      2229|       6.58    1004.76|
+Info:     267000 |    92788     165224 |  419   579 |      2154|       5.40    1010.17|
+Info:     268000 |    93216     165786 |  428   562 |      2010|       6.43    1016.60|
+Info:     269000 |    93673     166327 |  457   541 |      1913|       6.73    1023.33|
+Info:     270000 |    94125     166874 |  452   547 |      1858|       7.79    1031.12|
+Info:     271000 |    94473     167526 |  348   652 |      2299|       4.74    1035.86|
+Info:     272000 |    94825     168174 |  352   648 |      2185|       5.51    1041.37|
+Info:     273000 |    95228     168771 |  403   597 |      2098|       7.06    1048.43|
+Info:     274000 |    95635     169364 |  407   593 |      1929|       6.30    1054.73|
+Info:     275000 |    96092     169903 |  457   539 |      1729|       7.51    1062.23|
+Info:     276000 |    96509     170486 |  417   583 |      1800|       6.35    1068.59|
+Info:     277000 |    96937     171058 |  428   572 |      1694|       6.96    1075.55|
+Info:     278000 |    97367     171623 |  430   565 |      1542|       5.98    1081.53|
+Info:     279000 |    97780     172205 |  413   582 |      1359|       6.19    1087.72|
+Info:     280000 |    98205     172774 |  425   569 |      1222|       6.37    1094.09|
+Info:     281000 |    98622     173356 |  417   582 |      1123|       6.48    1100.57|
+Info:     282000 |    99077     173898 |  455   542 |      1416|       7.87    1108.44|
+Info:     283000 |    99541     174434 |  464   536 |      1484|       9.35    1117.79|
+Info:     284000 |    99965     175010 |  424   576 |      1414|       6.83    1124.62|
+Info:     285000 |   100351     175624 |  386   614 |      1714|       7.00    1131.63|
+Info:     286000 |   100774     176201 |  423   577 |      1577|       7.54    1139.16|
+Info:     287000 |   101183     176792 |  409   591 |      1587|       7.58    1146.74|
+Info:     288000 |   101636     177339 |  453   547 |      1588|       7.73    1154.47|
+Info:     289000 |   102089     177886 |  453   547 |      1552|       6.74    1161.21|
+Info:     290000 |   102506     178469 |  417   583 |      1524|       7.03    1168.24|
+Info:     291000 |   102915     179060 |  409   591 |      1315|       7.33    1175.57|
+Info:     292000 |   103310     179665 |  395   605 |      1269|       6.04    1181.61|
+Info:     293000 |   103759     180216 |  449   551 |      1650|       8.22    1189.83|
+Info:     294000 |   104174     180801 |  415   585 |      1632|       7.13    1196.96|
+Info:     295000 |   104645     181330 |  471   529 |      1750|       7.32    1204.28|
+Info:     296000 |   105051     181924 |  406   594 |      1661|       5.73    1210.01|
+Info:     297000 |   105476     182499 |  425   575 |      1582|       8.85    1218.86|
+Info:     298000 |   105920     183055 |  444   556 |      1515|       6.47    1225.33|
+Info:     299000 |   106341     183634 |  421   579 |      1489|       9.06    1234.39|
+Info:     300000 |   106762     184213 |  421   579 |      1468|       7.27    1241.66|
+Info:     301000 |   107126     184849 |  364   636 |      1291|       6.20    1247.86|
+Info:     302000 |   107539     185436 |  413   587 |      1539|       6.50    1254.36|
+Info:     303000 |   108012     185963 |  473   527 |      1898|       9.61    1263.96|
+Info:     304000 |   108337     186638 |  325   675 |      2012|       5.34    1269.30|
+Info:     305000 |   108746     187229 |  409   591 |      1830|       6.63    1275.93|
+Info:     306000 |   109154     187821 |  408   592 |      1801|       5.96    1281.89|
+Info:     307000 |   109599     188376 |  445   555 |      1892|       5.97    1287.86|
+Info:     308000 |   109984     188991 |  385   615 |      1674|       5.37    1293.23|
+Info:     309000 |   110358     189617 |  374   626 |      1458|       5.38    1298.60|
+Info:     310000 |   110716     190259 |  358   642 |      1402|       5.39    1303.99|
+Info:     311000 |   111157     190818 |  441   559 |      1456|       5.43    1309.42|
+Info:     312000 |   111535     191440 |  378   622 |      1153|       6.12    1315.54|
+Info:     313000 |   111977     191996 |  442   556 |      1024|       7.28    1322.82|
+Info:     314000 |   112404     192567 |  427   571 |       930|       6.01    1328.83|
+Info:     315000 |   112791     193178 |  387   611 |       863|       4.90    1333.73|
+Info:     316000 |   113184     193779 |  393   601 |       699|       5.14    1338.87|
+Info:     317000 |   113663     194300 |  479   521 |       766|       6.01    1344.88|
+Info:     318000 |   114058     194905 |  395   605 |       680|       4.98    1349.85|
+Info:     319000 |   114484     195479 |  426   574 |       526|       5.97    1355.83|
+Info:     320000 |   114910     196053 |  426   574 |       616|       5.69    1361.52|
+Info:     321000 |   115306     196656 |  396   603 |       504|       6.33    1367.85|
+Info:     322000 |   115692     197270 |  386   614 |       516|       6.53    1374.38|
+Info:     323000 |   116085     197877 |  393   607 |       344|       6.39    1380.77|
+Info:     324000 |   116533     198426 |  448   549 |       318|       6.52    1387.29|
+Info:     325000 |   116984     198973 |  451   547 |       197|       8.21    1395.50|
+Info:     326000 |   117408     199547 |  424   574 |        72|       6.87    1402.37|
+Info:     326144 |   117456     199643 |   48    96 |         0|       0.89    1403.26|
+Info: Routing complete.
+Info: Router1 time 1403.26s
+Info: Checksum: 0xb2214d69
+
+Info: Critical path report for clock 'chip.clk' (posedge -> posedge):
+Info:       type curr  total name
+Info:   clk-to-q  0.23  0.23 Source chip.u_host.mosi_pin_DFFCE_D_Q_DFFCE_D_Q_LUT2_F_1_I1_LUT4_I2_F_LUT2_I1_F_DFFCE_D_Q_DFFCE_Q_D_LUT4_F_I0_LUT4_I2_F_MUX2_LUT5_I0_O_LUT3_I2_F_DFFCE_D.Q
+Info:    routing  1.68  1.91 Net uio_IOBUF_IO_1_OEN_LUT4_I3_I2_LUT4_I1_F_LUT4_F_1_I3_LUT4_I3_F_LUT4_F_1_I2_LUT3_F_1_I1_LUT4_I0_F_LUT3_I2_F_LUT4_I3_F_LUT4_I3_F_LUT4_I2_F_LUT4_I3_I1_LUT3_F_I2_MUX2_LUT5_O_I1_LUT3_F_I0[3] (34,23) -> (56,16)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT3_I0_F_LUT3_F_I1_LUT4_I2_2_F_LUT4_I1_F_LUT4_F_I2_LUT4_F_1_I1_LUT4_I3_F_LUT4_F_1_I3_LUT4_I0_F_MUX2_LUT5_O_I0_LUT3_F_I1_LUT3_F_I0_LUT4_I0_1_F_DFFCE_D_Q_DFFCE_Q_1_CE_LUT2_F_I1_LUT3_I2_2_F_LUT3_I2_F_DFFCE_CE_Q_DFFCE_Q_CE_LUT3_F_I2_LUT3_I2_F_DFFCE_CE_1_Q_LUT4_I0_F_MUX2_LUT6_O_I1_MUX2_LUT5_O_I0_LUT4_F.I3
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.37  2.28 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT3_I0_F_LUT3_F_I1_LUT4_I2_2_F_LUT4_I1_F_LUT4_F_I2_LUT4_F_1_I1_LUT4_I3_F_LUT4_F_1_I3_LUT4_I0_F_MUX2_LUT5_O_I0_LUT3_F_I1_LUT3_F_I0_LUT4_I0_1_F_DFFCE_D_Q_DFFCE_Q_1_CE_LUT2_F_I1_LUT3_I2_2_F_LUT3_I2_F_DFFCE_CE_Q_DFFCE_Q_CE_LUT3_F_I2_LUT3_I2_F_DFFCE_CE_1_Q_LUT4_I0_F_MUX2_LUT6_O_I1_MUX2_LUT5_O_I0_LUT4_F.F
+Info:    routing  0.00  2.28 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT3_I0_F_LUT3_F_I1_LUT4_I2_2_F_LUT4_I1_F_LUT4_F_I2_LUT4_F_1_I1_LUT4_I3_F_LUT4_F_1_I3_LUT4_I0_F_MUX2_LUT5_O_I0_LUT3_F_I1_LUT3_F_I0_LUT4_I0_1_F_DFFCE_D_Q_DFFCE_Q_1_CE_LUT2_F_I1_LUT3_I2_2_F_LUT3_I2_F_DFFCE_CE_Q_DFFCE_Q_CE_LUT3_F_I2_LUT3_I2_F_DFFCE_CE_1_Q_LUT4_I0_F_MUX2_LUT6_O_I1_MUX2_LUT5_O_I0 (56,16) -> (56,16)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT3_I0_F_LUT3_F_I1_LUT4_I2_2_F_LUT4_I1_F_LUT4_F_I2_LUT4_F_1_I1_LUT4_I3_F_LUT4_F_1_I3_LUT4_I0_F_MUX2_LUT5_O_I0_LUT3_F_I1_LUT3_F_I0_LUT4_I0_1_F_DFFCE_D_Q_DFFCE_Q_1_CE_LUT2_F_I1_LUT3_I2_2_F_LUT3_I2_F_DFFCE_CE_Q_DFFCE_Q_CE_LUT3_F_I2_LUT3_I2_F_DFFCE_CE_1_Q_LUT4_I0_F_MUX2_LUT6_O_I1_MUX2_LUT5_O.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:159.41-159.66
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:151.9-151.11
+Info:      logic  0.27  2.55 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT3_I0_F_LUT3_F_I1_LUT4_I2_2_F_LUT4_I1_F_LUT4_F_I2_LUT4_F_1_I1_LUT4_I3_F_LUT4_F_1_I3_LUT4_I0_F_MUX2_LUT5_O_I0_LUT3_F_I1_LUT3_F_I0_LUT4_I0_1_F_DFFCE_D_Q_DFFCE_Q_1_CE_LUT2_F_I1_LUT3_I2_2_F_LUT3_I2_F_DFFCE_CE_Q_DFFCE_Q_CE_LUT3_F_I2_LUT3_I2_F_DFFCE_CE_1_Q_LUT4_I0_F_MUX2_LUT6_O_I1_MUX2_LUT5_O.O
+Info:    routing  0.00  2.55 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT3_I0_F_LUT3_F_I1_LUT4_I2_2_F_LUT4_I1_F_LUT4_F_I2_LUT4_F_1_I1_LUT4_I3_F_LUT4_F_1_I3_LUT4_I0_F_MUX2_LUT5_O_I0_LUT3_F_I1_LUT3_F_I0_LUT4_I0_1_F_DFFCE_D_Q_DFFCE_Q_1_CE_LUT2_F_I1_LUT3_I2_2_F_LUT3_I2_F_DFFCE_CE_Q_DFFCE_Q_CE_LUT3_F_I2_LUT3_I2_F_DFFCE_CE_1_Q_LUT4_I0_F_MUX2_LUT6_O_I1 (56,16) -> (56,16)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT3_I0_F_LUT3_F_I1_LUT4_I2_2_F_LUT4_I1_F_LUT4_F_I2_LUT4_F_1_I1_LUT4_I3_F_LUT4_F_1_I3_LUT4_I0_F_MUX2_LUT5_O_I0_LUT3_F_I1_LUT3_F_I0_LUT4_I0_1_F_DFFCE_D_Q_DFFCE_Q_1_CE_LUT2_F_I1_LUT3_I2_2_F_LUT3_I2_F_DFFCE_CE_Q_DFFCE_Q_CE_LUT3_F_I2_LUT3_I2_F_DFFCE_CE_1_Q_LUT4_I0_F_MUX2_LUT6_O.I1
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:157.13-157.15
+Info:      logic  0.27  2.82 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT3_I0_F_LUT3_F_I1_LUT4_I2_2_F_LUT4_I1_F_LUT4_F_I2_LUT4_F_1_I1_LUT4_I3_F_LUT4_F_1_I3_LUT4_I0_F_MUX2_LUT5_O_I0_LUT3_F_I1_LUT3_F_I0_LUT4_I0_1_F_DFFCE_D_Q_DFFCE_Q_1_CE_LUT2_F_I1_LUT3_I2_2_F_LUT3_I2_F_DFFCE_CE_Q_DFFCE_Q_CE_LUT3_F_I2_LUT3_I2_F_DFFCE_CE_1_Q_LUT4_I0_F_MUX2_LUT6_O.O
+Info:    routing  1.10  3.92 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT3_I0_F_LUT3_F_I1_LUT4_I2_2_F_LUT4_I1_F_LUT4_F_I2_LUT4_F_1_I1_LUT4_I3_F_LUT4_F_1_I3_LUT4_I0_F_MUX2_LUT5_O_I0_LUT3_F_I1_LUT3_F_I0_LUT4_I0_1_F_DFFCE_D_Q_DFFCE_Q_1_CE_LUT2_F_I1_LUT3_I2_2_F_LUT3_I2_F_DFFCE_CE_Q_DFFCE_Q_CE_LUT3_F_I2_LUT3_I2_F_DFFCE_CE_1_Q_LUT4_I0_F[3] (56,16) -> (65,10)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT3_I2_I0_DFFCE_D_Q_MUX2_LUT5_O_I1_LUT4_F.I3
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.37  4.29 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT3_I2_I0_DFFCE_D_Q_MUX2_LUT5_O_I1_LUT4_F.F
+Info:    routing  0.00  4.29 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT3_I2_I0_DFFCE_D_Q_MUX2_LUT5_O_I1 (65,10) -> (65,10)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT3_I2_I0_DFFCE_D_Q_MUX2_LUT5_O.I1
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:151.13-151.15
+Info:      logic  0.27  4.56 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT3_I2_I0_DFFCE_D_Q_MUX2_LUT5_O.O
+Info:    routing  0.40  4.96 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT3_I2_I0_DFFCE_D_Q[3] (65,10) -> (66,10)
+Info:                          Sink uio_IOBUF_IO_3_I_LUT4_I3_I2_LUT4_I1_F_LUT4_F_I2_LUT3_F_1_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_I1_LUT3_I1_F_LUT4_I2_F_LUT4_F_1_I2_LUT3_F_1_I1_DFFCE_Q_D_LUT2_F_I0_DFFCE_D_Q_LUT3_F_I1_LUT4_I1_I2_LUT4_I2_F_LUT4_I2_F_LUT4_F_I0_LUT4_I3_F_LUT3_I2_F_LUT3_F_I2_MUX2_LUT5_O_S0_LUT4_I3_F_LUT4_I3_F_LUT4_F_1_I2_LUT4_I2_F_LUT3_F_I2_LUT3_I2_F_MUX2_LUT6_O_I0_MUX2_LUT5_O_I1_LUT4_F.I3
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.37  5.33 Source uio_IOBUF_IO_3_I_LUT4_I3_I2_LUT4_I1_F_LUT4_F_I2_LUT3_F_1_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_I1_LUT3_I1_F_LUT4_I2_F_LUT4_F_1_I2_LUT3_F_1_I1_DFFCE_Q_D_LUT2_F_I0_DFFCE_D_Q_LUT3_F_I1_LUT4_I1_I2_LUT4_I2_F_LUT4_I2_F_LUT4_F_I0_LUT4_I3_F_LUT3_I2_F_LUT3_F_I2_MUX2_LUT5_O_S0_LUT4_I3_F_LUT4_I3_F_LUT4_F_1_I2_LUT4_I2_F_LUT3_F_I2_LUT3_I2_F_MUX2_LUT6_O_I0_MUX2_LUT5_O_I1_LUT4_F.F
+Info:    routing  0.00  5.33 Net uio_IOBUF_IO_3_I_LUT4_I3_I2_LUT4_I1_F_LUT4_F_I2_LUT3_F_1_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_I1_LUT3_I1_F_LUT4_I2_F_LUT4_F_1_I2_LUT3_F_1_I1_DFFCE_Q_D_LUT2_F_I0_DFFCE_D_Q_LUT3_F_I1_LUT4_I1_I2_LUT4_I2_F_LUT4_I2_F_LUT4_F_I0_LUT4_I3_F_LUT3_I2_F_LUT3_F_I2_MUX2_LUT5_O_S0_LUT4_I3_F_LUT4_I3_F_LUT4_F_1_I2_LUT4_I2_F_LUT3_F_I2_LUT3_I2_F_MUX2_LUT6_O_I0_MUX2_LUT5_O_I1 (66,10) -> (66,10)
+Info:                          Sink uio_IOBUF_IO_3_I_LUT4_I3_I2_LUT4_I1_F_LUT4_F_I2_LUT3_F_1_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_I1_LUT3_I1_F_LUT4_I2_F_LUT4_F_1_I2_LUT3_F_1_I1_DFFCE_Q_D_LUT2_F_I0_DFFCE_D_Q_LUT3_F_I1_LUT4_I1_I2_LUT4_I2_F_LUT4_I2_F_LUT4_F_I0_LUT4_I3_F_LUT3_I2_F_LUT3_F_I2_MUX2_LUT5_O_S0_LUT4_I3_F_LUT4_I3_F_LUT4_F_1_I2_LUT4_I2_F_LUT3_F_I2_LUT3_I2_F_MUX2_LUT6_O_I0_MUX2_LUT5_O.I1
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:158.41-158.66
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:151.13-151.15
+Info:      logic  0.27  5.60 Source uio_IOBUF_IO_3_I_LUT4_I3_I2_LUT4_I1_F_LUT4_F_I2_LUT3_F_1_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_I1_LUT3_I1_F_LUT4_I2_F_LUT4_F_1_I2_LUT3_F_1_I1_DFFCE_Q_D_LUT2_F_I0_DFFCE_D_Q_LUT3_F_I1_LUT4_I1_I2_LUT4_I2_F_LUT4_I2_F_LUT4_F_I0_LUT4_I3_F_LUT3_I2_F_LUT3_F_I2_MUX2_LUT5_O_S0_LUT4_I3_F_LUT4_I3_F_LUT4_F_1_I2_LUT4_I2_F_LUT3_F_I2_LUT3_I2_F_MUX2_LUT6_O_I0_MUX2_LUT5_O.O
+Info:    routing  0.00  5.60 Net uio_IOBUF_IO_3_I_LUT4_I3_I2_LUT4_I1_F_LUT4_F_I2_LUT3_F_1_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_I1_LUT3_I1_F_LUT4_I2_F_LUT4_F_1_I2_LUT3_F_1_I1_DFFCE_Q_D_LUT2_F_I0_DFFCE_D_Q_LUT3_F_I1_LUT4_I1_I2_LUT4_I2_F_LUT4_I2_F_LUT4_F_I0_LUT4_I3_F_LUT3_I2_F_LUT3_F_I2_MUX2_LUT5_O_S0_LUT4_I3_F_LUT4_I3_F_LUT4_F_1_I2_LUT4_I2_F_LUT3_F_I2_LUT3_I2_F_MUX2_LUT6_O_I0 (66,10) -> (66,10)
+Info:                          Sink uio_IOBUF_IO_3_I_LUT4_I3_I2_LUT4_I1_F_LUT4_F_I2_LUT3_F_1_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_I1_LUT3_I1_F_LUT4_I2_F_LUT4_F_1_I2_LUT3_F_1_I1_DFFCE_Q_D_LUT2_F_I0_DFFCE_D_Q_LUT3_F_I1_LUT4_I1_I2_LUT4_I2_F_LUT4_I2_F_LUT4_F_I0_LUT4_I3_F_LUT3_I2_F_LUT3_F_I2_MUX2_LUT5_O_S0_LUT4_I3_F_LUT4_I3_F_LUT4_F_1_I2_LUT4_I2_F_LUT3_F_I2_LUT3_I2_F_MUX2_LUT6_O.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:157.9-157.11
+Info:      logic  0.27  5.87 Source uio_IOBUF_IO_3_I_LUT4_I3_I2_LUT4_I1_F_LUT4_F_I2_LUT3_F_1_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_I1_LUT3_I1_F_LUT4_I2_F_LUT4_F_1_I2_LUT3_F_1_I1_DFFCE_Q_D_LUT2_F_I0_DFFCE_D_Q_LUT3_F_I1_LUT4_I1_I2_LUT4_I2_F_LUT4_I2_F_LUT4_F_I0_LUT4_I3_F_LUT3_I2_F_LUT3_F_I2_MUX2_LUT5_O_S0_LUT4_I3_F_LUT4_I3_F_LUT4_F_1_I2_LUT4_I2_F_LUT3_F_I2_LUT3_I2_F_MUX2_LUT6_O.O
+Info:    routing  0.55  6.41 Net uio_IOBUF_IO_3_I_LUT4_I3_I2_LUT4_I1_F_LUT4_F_I2_LUT3_F_1_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_I1_LUT3_I1_F_LUT4_I2_F_LUT4_F_1_I2_LUT3_F_1_I1_DFFCE_Q_D_LUT2_F_I0_DFFCE_D_Q_LUT3_F_I1_LUT4_I1_I2_LUT4_I2_F_LUT4_I2_F_LUT4_F_I0_LUT4_I3_F_LUT3_I2_F_LUT3_F_I2_MUX2_LUT5_O_S0_LUT4_I3_F_LUT4_I3_F_LUT4_F_1_I2_LUT4_I2_F_LUT3_F_I2_LUT3_I2_F[7] (66,10) -> (67,10)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I0_LUT3_I0_F_DFFCE_D_Q_MUX2_LUT8_O.S0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.10  6.52 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I0_LUT3_I0_F_DFFCE_D_Q_MUX2_LUT8_O.O
+Info:    routing  0.55  7.06 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I0_LUT3_I0_F_DFFCE_D_Q[7] (67,10) -> (65,11)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I0_LUT3_I0_F_DFFCE_D_Q_LUT3_F_I0_LUT4_I1_F_MUX2_LUT8_O.S0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.10  7.17 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I0_LUT3_I0_F_DFFCE_D_Q_LUT3_F_I0_LUT4_I1_F_MUX2_LUT8_O.O
+Info:    routing  1.44  8.61 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I0_LUT3_I0_F_DFFCE_D_Q_LUT3_F_I0_LUT4_I1_F[7] (65,11) -> (42,13)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_I2_LUT4_F_I0_DFFCE_D_Q_MUX2_LUT8_O.S0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.10  8.71 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_I2_LUT4_F_I0_DFFCE_D_Q_MUX2_LUT8_O.O
+Info:    routing  0.55  9.26 Net uio_IOBUF_IO_6_OEN_LUT4_I3_I2_LUT4_I0_F_LUT4_F_I0_DFFCE_Q_D_LUT4_F_I3_LUT4_I3_I1_LUT4_F_I3[1] (42,13) -> (43,15)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT3_I0_F_LUT3_F_I1_LUT4_I2_2_F_LUT4_I1_F_LUT4_F_I2_LUT4_F_1_I1_LUT4_I3_F_LUT4_F_1_I3_LUT4_I0_F_MUX2_LUT5_O_I0_LUT3_F_I1_LUT3_F_I0_LUT4_I0_F_LUT4_I2_F_LUT3_I2_F_MUX2_LUT8_O.S0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.10  9.36 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT3_I0_F_LUT3_F_I1_LUT4_I2_2_F_LUT4_I1_F_LUT4_F_I2_LUT4_F_1_I1_LUT4_I3_F_LUT4_F_1_I3_LUT4_I0_F_MUX2_LUT5_O_I0_LUT3_F_I1_LUT3_F_I0_LUT4_I0_F_LUT4_I2_F_LUT3_I2_F_MUX2_LUT8_O.O
+Info:    routing  0.62  9.98 Net uio_IOBUF_IO_3_I_LUT4_I3_I2_DFFCE_Q_D_DFFCE_D_Q_LUT4_I1_F_LUT4_F_3_I2_LUT3_F_1_I1_LUT4_I0_F_LUT3_I2_F_LUT4_I3_F_LUT4_I3_F_LUT4_F_I3_LUT4_F_I3_LUT3_I1_F_LUT2_F_I1_LUT3_I2_F_LUT4_F_I3_LUT4_I3_F_LUT4_I2_F_LUT3_F_I1_LUT3_F_I1_LUT4_I2_F_LUT3_I2_F_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I1_LUT3_F_I0_LUT3_I0_F_LUT3_F_1_I2_MUX2_LUT5_S0_O[3] (43,15) -> (47,15)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I0_LUT3_I0_F_LUT4_I3_1_F_LUT4_I3_F_DFFPE_D_Q_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O.S0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.10  10.08 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I0_LUT3_I0_F_LUT4_I3_1_F_LUT4_I3_F_DFFPE_D_Q_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O.O
+Info:    routing  0.38  10.46 Net uio_IOBUF_IO_3_I_LUT4_I3_I2_DFFCE_Q_D_DFFCE_D_Q_LUT4_I1_F_LUT4_F_3_I2_LUT3_F_1_I1_LUT4_I0_F_LUT3_I2_F_LUT4_I3_F_LUT4_I3_F_LUT4_F_I3_LUT4_F_I3_LUT3_I1_F_LUT2_F_I1_LUT3_I2_F_LUT4_F_I3_LUT4_I3_F_LUT4_I2_F_LUT3_F_I1_LUT3_F_I1_LUT4_I2_F_LUT3_I2_F_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I1_LUT3_F_I0_LUT3_I0_F_LUT3_F_1_I2_MUX2_LUT5_S0_O_MUX2_LUT5_O_I1_LUT4_F_I2[4] (47,15) -> (48,15)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I0_DFFCE_D_Q_LUT3_I0_F_LUT2_F_I1_LUT2_I1_F_LUT4_I3_F_DFFCE_D_Q_DFFCE_Q_D_LUT4_F_I3_LUT2_I1_F_MUX2_LUT5_O.S0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.10  10.56 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I0_DFFCE_D_Q_LUT3_I0_F_LUT2_F_I1_LUT2_I1_F_LUT4_I3_F_DFFCE_D_Q_DFFCE_Q_D_LUT4_F_I3_LUT2_I1_F_MUX2_LUT5_O.O
+Info:    routing  0.38  10.94 Net uio_IOBUF_IO_3_I_LUT4_I3_I2_DFFCE_Q_D_DFFCE_D_Q_LUT4_I1_F_LUT4_F_3_I2_LUT3_F_1_I1_DFFCE_Q_D_LUT2_F_I0_ALU_SUM_COUT_ALU_CIN_SUM_LUT2_I0_F_DFFCE_D_Q_DFFCE_Q_CE_LUT4_F_I2[3] (48,15) -> (48,16)
+Info:                          Sink uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_LUT4_I0_F_LUT4_I3_F_LUT4_I1_F_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_MUX2_LUT6_O_I0_MUX2_LUT5_O.S0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.10  11.05 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_LUT4_I0_F_LUT4_I3_F_LUT4_I1_F_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_MUX2_LUT6_O_I0_MUX2_LUT5_O.O
+Info:    routing  0.00  11.05 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_LUT4_I0_F_LUT4_I3_F_LUT4_I1_F_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_MUX2_LUT6_O_I0 (48,16) -> (48,16)
+Info:                          Sink uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_LUT4_I0_F_LUT4_I3_F_LUT4_I1_F_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_MUX2_LUT6_O.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:157.9-157.11
+Info:      logic  0.27  11.31 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_LUT4_I0_F_LUT4_I3_F_LUT4_I1_F_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_MUX2_LUT6_O.O
+Info:    routing  0.71  12.03 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_LUT4_I0_F_LUT4_I3_F_LUT4_I1_F_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F[7] (48,16) -> (44,17)
+Info:                          Sink uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_LUT4_I0_F_LUT4_I3_F_LUT4_I1_F_DFFCE_D_Q_MUX2_LUT8_O.S0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.10  12.13 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_LUT4_I0_F_LUT4_I3_F_LUT4_I1_F_DFFCE_D_Q_MUX2_LUT8_O.O
+Info:    routing  0.91  13.04 Net uio_IOBUF_IO_3_I_LUT4_I3_I2_DFFCE_Q_D_DFFCE_D_Q_LUT4_I1_F_LUT4_F_3_I2_LUT3_F_1_I1_LUT4_I0_F_LUT3_I2_F_LUT4_I3_F_LUT4_I3_F_LUT4_F_I3_LUT4_F_I3_LUT3_I1_F_LUT2_F_I1_LUT3_I2_F_LUT4_F_I3_LUT4_I3_F_LUT4_I2_F_LUT3_F_I1_LUT3_F_I1_LUT4_I2_F_LUT3_I2_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_SUM_LUT3_F_I2_LUT4_I3_F_LUT4_F_I1_LUT3_I1_I2_LUT4_I1_F_LUT4_I3_F_LUT4_F_I3_LUT4_F_I1_LUT3_F_1_I1_DFFCE_Q_1_D_LUT2_F_I0_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_SUM_LUT2_I0_F_DFFCE_D_Q_LUT3_I1_F_DFFCE_Q_1_D_MUX2_LUT5_O_S0_LUT4_F_1_I1[1] (44,17) -> (47,11)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_LUT3_F_I0_LUT4_I2_I0_LUT4_I0_2_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_I0_I1_LUT3_I1_F_LUT2_F_I0_LUT4_I0_F_LUT2_F_I0_LUT2_F_I1_LUT4_I3_1_F_LUT4_I3_F_LUT4_I3_F_LUT4_I3_F_DFFPE_D_Q_MUX2_LUT5_O.S0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.10  13.14 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_LUT3_F_I0_LUT4_I2_I0_LUT4_I0_2_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_I0_I1_LUT3_I1_F_LUT2_F_I0_LUT4_I0_F_LUT2_F_I0_LUT2_F_I1_LUT4_I3_1_F_LUT4_I3_F_LUT4_I3_F_LUT4_I3_F_DFFPE_D_Q_MUX2_LUT5_O.O
+Info:    routing  1.34  14.48 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_I1_I3_LUT4_F_I2[3] (47,11) -> (30,20)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_I0_MUX2_LUT6_O.S0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.10  14.59 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_I0_MUX2_LUT6_O.O
+Info:    routing  0.00  14.59 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_I0 (30,20) -> (30,20)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:163.9-163.11
+Info:      logic  0.27  14.86 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O.O
+Info:    routing  0.38  15.24 Net uio_IOBUF_IO_3_I_LUT4_I3_I2_DFFCE_Q_D_DFFCE_D_Q_LUT4_I1_F_LUT4_F_3_I2_LUT3_F_1_I1_DFFCE_Q_D_LUT2_F_I0_ALU_SUM_CIN_ALU_COUT_SUM_LUT2_I0_F_DFFCE_D_Q_LUT4_I1_1_F_LUT4_I3_F_LUT4_I3_F_LUT4_F_I1_LUT4_F_I1_LUT4_I0_F_LUT3_I0_F[4] (30,20) -> (28,20)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_MUX2_LUT6_O_I0_MUX2_LUT5_O_I0_LUT4_F.I3
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.37  15.61 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_MUX2_LUT6_O_I0_MUX2_LUT5_O_I0_LUT4_F.F
+Info:    routing  0.00  15.61 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_MUX2_LUT6_O_I0_MUX2_LUT5_O_I0 (28,20) -> (28,20)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_MUX2_LUT6_O_I0_MUX2_LUT5_O.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:158.41-158.66
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:151.9-151.11
+Info:      logic  0.27  15.87 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_MUX2_LUT6_O_I0_MUX2_LUT5_O.O
+Info:    routing  0.00  15.87 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_MUX2_LUT6_O_I0 (28,20) -> (28,20)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_MUX2_LUT6_O.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:157.9-157.11
+Info:      logic  0.27  16.14 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_MUX2_LUT6_O.O
+Info:    routing  0.88  17.02 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O[3] (28,20) -> (28,20)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_LUT4_I3.I3
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.37  17.39 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_LUT4_I3.F
+Info:    routing  0.00  17.39 Net chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_LUT4_I3_F (28,20) -> (28,20)
+Info:                          Sink chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_LUT4_I3_F_DFFCE_D.D
+Info:      setup  0.04  17.42 Source chip.u_sram.g_whole.u0.mem.0.1_AD_3_LUT3_F_I2_LUT4_F_I3_LUT3_F_I0_LUT3_I1_F_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I3_DFFCE_D_Q_LUT2_F_I1_LUT2_I1_F_LUT2_I0_I1_LUT2_I0_F_MUX2_LUT7_O_S0_LUT2_I0_F_LUT4_F_I3_MUX2_LUT5_S0_I0_LUT4_F_I2_LUT3_I2_F_MUX2_LUT5_O_I1_LUT4_F_I3_MUX2_LUT7_S0_O_LUT4_I3_I2_MUX2_LUT5_S0_O_LUT3_I2_F_MUX2_LUT5_I1_O_LUT4_I3_F_DFFCE_D.D
+Info: 5.57 ns logic, 11.86 ns routing
+
+Info: 8 Hold/min time violations (showing 10 worst paths):
+
+Warning: Hold/min time violation for clock 'posedge chip.clk':
+Info:       type curr  total name
+Info:   clk-to-q  0.20  0.20 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_DFFCE_Q.Q
+Info:    routing  0.91  1.11 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0[0] (51,31) -> (42,28)
+Info:                          Sink uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.34  1.45 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.F
+Info:    routing  0.40  1.86 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[2] (42,28) -> (40,28)
+Info:                          Sink chip.rst_n_LUT4_I0.I2
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.29  2.14 Source chip.rst_n_LUT4_I0.F
+Info:    routing  0.55  2.69 Net chip.rst_n_LUT4_I0_F (40,28) -> (40,27)
+Info:                          Sink chip.u_tape.mem.0.0.ADB1
+Info:       hold -0.12  2.57 Source chip.u_tape.mem.0.0.ADB1
+Info: 0.72 ns logic, 1.86 ns routing
+
+Warning: Hold/min time violation for clock 'posedge chip.clk':
+Info:       type curr  total name
+Info:   clk-to-q  0.20  0.20 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_DFFCE_Q.Q
+Info:    routing  0.91  1.11 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0[0] (51,31) -> (42,28)
+Info:                          Sink uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.34  1.45 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.F
+Info:    routing  0.40  1.86 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[2] (42,28) -> (40,28)
+Info:                          Sink chip.rst_n_LUT4_I0.I2
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.29  2.14 Source chip.rst_n_LUT4_I0.F
+Info:    routing  0.55  2.69 Net chip.rst_n_LUT4_I0_F (40,28) -> (40,27)
+Info:                          Sink chip.u_tape.mem.0.0.ADB1
+Info:       hold -0.12  2.57 Source chip.u_tape.mem.0.0.ADB1
+Info: 0.72 ns logic, 1.86 ns routing
+
+Warning: Hold/min time violation for clock 'posedge chip.clk':
+Info:       type curr  total name
+Info:   clk-to-q  0.20  0.20 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_DFFCE_Q.Q
+Info:    routing  0.91  1.11 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0[0] (51,31) -> (42,28)
+Info:                          Sink uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.34  1.45 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.F
+Info:    routing  0.40  1.86 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[2] (42,28) -> (40,28)
+Info:                          Sink chip.rst_n_LUT4_I0.I2
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.29  2.14 Source chip.rst_n_LUT4_I0.F
+Info:    routing  0.55  2.69 Net chip.rst_n_LUT4_I0_F (40,28) -> (40,27)
+Info:                          Sink chip.u_tape.mem.0.0.ADB1
+Info:       hold -0.12  2.57 Source chip.u_tape.mem.0.0.ADB1
+Info: 0.72 ns logic, 1.86 ns routing
+
+Warning: Hold/min time violation for clock 'posedge chip.clk':
+Info:       type curr  total name
+Info:   clk-to-q  0.20  0.20 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_DFFCE_Q.Q
+Info:    routing  0.91  1.11 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0[0] (51,31) -> (42,28)
+Info:                          Sink uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.34  1.45 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.F
+Info:    routing  0.40  1.86 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[2] (42,28) -> (40,28)
+Info:                          Sink chip.rst_n_LUT4_I0.I2
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.29  2.14 Source chip.rst_n_LUT4_I0.F
+Info:    routing  0.55  2.69 Net chip.rst_n_LUT4_I0_F (40,28) -> (40,27)
+Info:                          Sink chip.u_tape.mem.0.0.ADB1
+Info:       hold -0.12  2.57 Source chip.u_tape.mem.0.0.ADB1
+Info: 0.72 ns logic, 1.86 ns routing
+
+Warning: Hold/min time violation for clock 'posedge chip.clk':
+Info:       type curr  total name
+Info:   clk-to-q  0.20  0.20 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_DFFCE_Q.Q
+Info:    routing  0.91  1.11 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0[0] (51,31) -> (42,28)
+Info:                          Sink uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.34  1.45 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.F
+Info:    routing  0.40  1.86 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[2] (42,28) -> (40,28)
+Info:                          Sink chip.rst_n_LUT4_I0.I2
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.29  2.14 Source chip.rst_n_LUT4_I0.F
+Info:    routing  0.55  2.69 Net chip.rst_n_LUT4_I0_F (40,28) -> (40,27)
+Info:                          Sink chip.u_tape.mem.0.0.ADB0
+Info:       hold -0.12  2.57 Source chip.u_tape.mem.0.0.ADB0
+Info: 0.72 ns logic, 1.86 ns routing
+
+Warning: Hold/min time violation for clock 'posedge chip.clk':
+Info:       type curr  total name
+Info:   clk-to-q  0.20  0.20 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_DFFCE_Q.Q
+Info:    routing  0.91  1.11 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0[0] (51,31) -> (42,28)
+Info:                          Sink uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.34  1.45 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.F
+Info:    routing  0.40  1.86 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[2] (42,28) -> (40,28)
+Info:                          Sink chip.rst_n_LUT4_I0.I2
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.29  2.14 Source chip.rst_n_LUT4_I0.F
+Info:    routing  0.55  2.69 Net chip.rst_n_LUT4_I0_F (40,28) -> (40,27)
+Info:                          Sink chip.u_tape.mem.0.0.ADB0
+Info:       hold -0.12  2.57 Source chip.u_tape.mem.0.0.ADB0
+Info: 0.72 ns logic, 1.86 ns routing
+
+Warning: Hold/min time violation for clock 'posedge chip.clk':
+Info:       type curr  total name
+Info:   clk-to-q  0.20  0.20 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_DFFCE_Q.Q
+Info:    routing  0.91  1.11 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0[0] (51,31) -> (42,28)
+Info:                          Sink uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.34  1.45 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.F
+Info:    routing  0.40  1.86 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[2] (42,28) -> (40,28)
+Info:                          Sink chip.rst_n_LUT4_I0.I2
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.29  2.14 Source chip.rst_n_LUT4_I0.F
+Info:    routing  0.55  2.69 Net chip.rst_n_LUT4_I0_F (40,28) -> (40,27)
+Info:                          Sink chip.u_tape.mem.0.0.ADB0
+Info:       hold -0.12  2.57 Source chip.u_tape.mem.0.0.ADB0
+Info: 0.72 ns logic, 1.86 ns routing
+
+Warning: Hold/min time violation for clock 'posedge chip.clk':
+Info:       type curr  total name
+Info:   clk-to-q  0.20  0.20 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_DFFCE_Q.Q
+Info:    routing  0.91  1.11 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0[0] (51,31) -> (42,28)
+Info:                          Sink uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.I0
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.34  1.45 Source uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0.F
+Info:    routing  0.40  1.86 Net uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT2_F_I0_LUT2_I0_F_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT4_F_I2_MUX2_LUT5_O_S0_LUT4_I0_I3_LUT2_F_I0_LUT2_I0_F_LUT4_F_1_I3_LUT3_F_I2_LUT2_I1_F_ALU_COUT_1_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_I1_LUT2_I0_F_LUT4_I2_I0_DFFCE_Q_D_LUT4_F_I0_LUT3_I1_I2_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_ALU_SUM_CIN_ALU_COUT_SUM_LUT4_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT4_I3_F_LUT2_F_1_I0_LUT4_I0_F[2] (42,28) -> (40,28)
+Info:                          Sink chip.rst_n_LUT4_I0.I2
+Info:                          Defined in:
+Info:                               /root/eda/oss-cad-suite/lib/../share/yosys/gowin/cells_map.v:130.20-130.21
+Info:      logic  0.29  2.14 Source chip.rst_n_LUT4_I0.F
+Info:    routing  0.55  2.69 Net chip.rst_n_LUT4_I0_F (40,28) -> (40,27)
+Info:                          Sink chip.u_tape.mem.0.0.ADB0
+Info:       hold -0.12  2.57 Source chip.u_tape.mem.0.0.ADB0
+Info: 0.72 ns logic, 1.86 ns routing
+
+Info: Max frequency for clock 'chip.clk': 57.39 MHz (PASS at 25.00 MHz)
+
+Info: Clock 'uio_IOBUF_IO_4_I_LUT2_F_I1_LUT4_I0_F_MUX2_LUT5_S0_O_LUT4_F_I3_LUT4_F_1_I1_LUT4_F_I1_LUT3_I0_F_LUT2_F_1_I1_LUT4_I3_F_LUT4_F_1_I2_DFFCE_Q_D_DFFCE_Q_D_DFFCE_Q_CLK' has no interior paths
+
+Info: Slack histogram:
+Info:  legend: * represents 7 endpoint(s)
+Info:          + represents [1,7) endpoint(s)
+Info: [ 22575,  23422) |**+
+Info: [ 23422,  24269) |****+
+Info: [ 24269,  25116) |********+
+Info: [ 25116,  25963) |**+
+Info: [ 25963,  26810) |**********+
+Info: [ 26810,  27657) |***+
+Info: [ 27657,  28504) |*+
+Info: [ 28504,  29351) |**+
+Info: [ 29351,  30198) |*****+
+Info: [ 30198,  31045) |*********+
+Info: [ 31045,  31892) |************+
+Info: [ 31892,  32739) |*******************+
+Info: [ 32739,  33586) |************************************************************ 
+Info: [ 33586,  34433) |***************************************************+
+Info: [ 34433,  35280) |**************************+
+Info: [ 35280,  36127) |**************************+
+Info: [ 36127,  36974) |****************************+
+Info: [ 36974,  37821) |*********************+
+Info: [ 37821,  38668) |*****+
+Info: [ 38668,  39515) |****+
+
+16 warnings, 0 errors
+
+Info: Program finished normally.
