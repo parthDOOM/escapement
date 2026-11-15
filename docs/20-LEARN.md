@@ -130,8 +130,10 @@ packet: {before: [leader], after: [stop, gap]}
 
 ## Real recordings
 
-Twelve public-domain recordings from [sigrok-dumps](https://github.com/sigrokproject/sigrok-dumps)
-are in [`sw/tests/data/sigrok`](../sw/tests/data/sigrok/README.md). Where sigrok-cli has
+esclearn's tests use twelve public-domain recordings from
+[sigrok-dumps](https://github.com/sigrokproject/sigrok-dumps), kept with the others the
+real-device tests use in [`sw/tests/data/sigrok`](../sw/tests/data/sigrok/README.md)
+([04-VERIFICATION](04-VERIFICATION.md#real-devices)). Where sigrok-cli has
 a decoder that reads the file, the tests compare its decode with esclearn's, frame by
 frame. That is a separate implementation reading the same samples. CI installs sigrok-cli.
 

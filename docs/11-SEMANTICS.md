@@ -1,36 +1,28 @@
-# Escapement machine semantics v1.7.0 (normative)
+# Escapement machine semantics 3.0 (normative)
 
-This document is the single normative definition of the machine. The Python
-instruction-set simulator (`sw/esciss`) and the RTL (`src/`) are separate
-implementations of it and share only the encoding tables in `isa/isa.yaml`. Where
-[02-ISA](02-ISA.md) or [01-ARCHITECTURE](01-ARCHITECTURE.md) differ, this document wins.
+This document is the normative definition of the machine: what every register holds in
+every cycle, and what every instruction does at its commit edge. The Python
+instruction-set simulator (`sw/esciss`) and the RTL (`src/`) are two independent
+implementations of it, which share only the encoding tables in `isa/isa.yaml`, and the
+lockstep co-simulation checks that they agree. [01-ARCHITECTURE](01-ARCHITECTURE.md)
+explains the same machine informally and [02-ISA](02-ISA.md) is the instruction
+reference.
 
-Version history: 1.0 is the base machine. 1.0.1 adds the IRQ status and clear and the
-`fault_valid` core port. 1.0.2 defines the checker at a fault edge (it is cancelled,
-§8). 1.1.0 adds the tape, a second 256 × 32 memory shared by firmware loads and stores
-and a timestamped capture unit (§6.5, §7.6), the execution digest (§10.1), and makes
-GETI wait for in-flight SAMPLEs (§7.3). Rationale:
-[13-TAPE-AND-DIGEST](13-TAPE-AND-DIGEST.md). 1.2.0 adds pin bank B, five split pins on
-the chip's otherwise unused dedicated inputs and outputs, chosen per context (§5); the
-instruction set is unchanged, and a program that does not use bank B behaves exactly as
-on 1.1.0, digest included. 1.3.0 adds streaming capture: a capture mode in which the
-host reads records while the run goes on and acknowledges them, and the capture unit
-never writes over a record the host has not acknowledged (§6.5). The tape port gains a
-host side during a run (§10). A program that does not set the new CAPT bit behaves
-exactly as on 1.2.0, digest included. 1.4.0 adds the line unit (§6.6): packets with NRZI,
-bit stuffing and a CRC sent from and received into the tape, with clock recovery on
-receive, a packet start admitted as an event (`SEND`), and the instructions `LINE` and
-`GETL` (§7.7). A late `SEND` is dropped rather than faulted, so a reply is on time or
-not sent. A program that does not use them behaves exactly as on 1.3.0, digest
-included. 1.6.0 extends the line unit (§6.6) with an optional second part of its
-configuration (`ext`): symbol coding, in which each line bit is a pattern of up to eight
-cells (Manchester, pulse-width codes), a clock pattern on the second pin, a CRC of up to
-32 bits, a repeated prefix, a positive end-of-packet level and streams of up to 8191 bits.
-A configuration without `ext` behaves exactly as on 1.4.0, digest included. 1.7.0 adds
-pair mode (§3): a context whose partner (context k ^ 2) is off may take the partner's
-slot as well as its own, fetching its next instruction while the one before is a cycle
-from committing, so it commits every 2 ticks instead of every 4. A configuration without
-`ctx_pair` behaves exactly as on 1.6.0, digest included.
+**Compatibility.** Each version adds to the machine without changing what an older program
+does: a program that does not use a version's additions behaves exactly as on the version
+before, execution digest included.
+
+| Version | Adds |
+| --- | --- |
+| 1.0 | The base machine: four contexts, events with deadlines, admission, the checker, telemetry. 1.0.1 adds the IRQ status and clear; 1.0.2 cancels the checker at a fault edge (§8) |
+| 1.1 | The tape, a second 256 × 32 memory shared by loads, stores and a timestamped capture unit (§6.5, §7.6); the execution digest (§10.1); GETI waits for SAMPLEs in flight (§7.3) |
+| 1.2 | Pin bank B: five split pins on the dedicated inputs and outputs, chosen per context (§5) |
+| 1.3 | Streaming capture: the host reads and acknowledges records during a run, and no record is written over an unacknowledged one (§6.5, §10) |
+| 1.4 | The line unit (§6.6): packets with NRZI, bit stuffing and a CRC, sent from and received into the tape; `SEND`, `LINE` and `GETL` (§7.7). A late `SEND` is dropped, not faulted |
+| 1.6 | The line unit's extended configuration (`ext`): symbol coding of up to eight cells, a clock pattern, CRCs to 32 bits, a repeated prefix, a positive end of packet, streams to 8191 bits |
+| 1.7 | Pair mode (§3); context stop, restart and program writes during a run (live reload, §9) |
+| 2 | Program pages: a 1,024-word store of four pages, one selected per context (§3); proof tripwires (§10) |
+| 3 | The half-tick input sample (§5); the line unit's receive strobes, both-edge decoding and long receive (§6.6); the bus timing monitor, `MON` and `GETM` (§6.7, §7.8) |
 
 Notation: all arithmetic on 32-bit values is modulo 2^32 unless stated. `zext` is
 zero extension. `ahead(a, b)` means `1 <= (a - b) mod 2^32 < 2^31` ("a is strictly
@@ -52,6 +44,8 @@ after b within the half-range horizon"). `reached(t, d)` means `(t - d) mod 2^32
 | Tape (v1.1) | 256 words × 32 bits, single port, shared by all contexts and the capture unit |
 | Capture staging (v1.1) | 2 records |
 | Line unit (v1.4) | 1, half duplex, owned by one context per run |
+| Bus timing monitor (v3) | 1, four rules of 16-bit intervals, owned by one context per run |
+| Half-tick input sample (v3) | every protocol pin, also sampled at the falling clock edge (§5) |
 
 ## 2. Time
 
@@ -143,7 +137,8 @@ checker, telemetry, IRQ pending + code, mailboxes.
 Global: `now`, pin registers `val[12:0]` and `oe[12:0]`, input synchronisers, the
 first-fault register, run flag, the tape `T[0..255]` (not reset, not cleared by start;
 written only by STT, the capture unit and the host while stopped), the capture unit
-(§6.5), the line unit (§6.6), the execution digest `dg` (§10.1), and configuration
+(§6.5), the line unit (§6.6), the bus timing monitor (§6.7, v3), the half-tick sample
+registers `h2`, `h3` (§5, v3), the execution digest `dg` (§10.1), and configuration
 (static during a run):
 `ctx_enable[3:0]`, `entry_pc[k]`, `pin_owned[12:0]`, `pin_owner[p]` (2 b each),
 `pin_od[7:0]`, `ctx_bank[3:0]` (v1.2), `ctx_pair[3:0]` (v1.7, §3), `ctx_page[k]` (2 b
@@ -176,6 +171,16 @@ and idle-high lines (SPI CS, UART TX) are idle from reset and after a fault or s
 `s2 <= s1`. `psync` during cycle t is `s2` (13 bits), which equals the inputs during
 cycle t-2. The synchronisers run continuously (they are not cleared by `start`) and
 reset to 0.
+
+**Half-tick sample (v3).** The same 13 inputs are also sampled at the falling clock edge
+inside each cycle: `ph(t)` is `{ui_in[7:3], uio_in}` at the falling edge in cycle t. Two
+more stages carry it into the clocked logic: at every edge E_t, `h2 <= ph(t)` and
+`h3 <= h2`. `hsync` during cycle t is `h3`, which equals `ph(t-2)`: the inputs half a tick
+before the value `psync` holds during the same cycle. The registers run continuously and
+reset to 0. A source whose pins change only between a falling edge and the next rising
+edge (as the test benches drive them) has `ph(t)` equal to the inputs during cycle t-1.
+Only the line unit's cell decoder with `both` reads `hsync` (§6.6); every other input
+feature uses `psync`.
 
 **Logical pins (v1.2).** Every instruction names pins by an 8-bit logical vector: masks,
 values and output enables of DRIVE, EXPECT and WAITP, the SAMPLE pin index and GETP.
@@ -370,10 +375,14 @@ half duplex and runs one **job** at a time. Rationale and profiles:
 | `prep` | W4[18:16] | the prefix is sent `prep` + 1 times |
 | `eopl` | W4[19] | the end-of-packet symbols drive L = 1 instead of SE0, and no J follows |
 | `ilow` | W4[20] | the idle state is L = 0 instead of L = 1 |
+| `rxs` | W4[22:21] | (v3) the receive strobe: 0 the bit timer, 1 the cell decoder, 2 an external clock on `n`; 3 acts as 0 (below) |
+| `rxpol` | W4[23] | (v3) with the cell decoder, a decoded bit is inverted; with an external clock, the strobe is a falling edge of `n` instead of a rising one |
+| `both` | W4[24] | (v3) with the cell decoder, both-edge decoding: the line is also read from `hsync` (§5), and the decoder's timer, `P_int` and `S` count half ticks |
+| `long` | W4[25] | (v3) RECV's limit counts in units of 256 bits instead of 8 |
 
 Bits not listed are ignored. Without `ext`, W3 and W4 are not read and the fields above
 take their **legacy values**: one cell, `p0 = 0`, `p1 = 1`, `clk = 0`, `poly_hi` not used,
-`prep = 0`, `eopl = 0`, `ilow = 0`. A configuration is **invalid** if it has more than one
+`prep = 0`, `eopl = 0`, `ilow = 0`, `rxs = 0`, `rxpol = 0`, `both = 0`, `long = 0`. A configuration is **invalid** if it has more than one
 cell and `P_int < 2`, or it has one cell and `P_int < 8`, `S < 4` or `S ≥ P_int`.
 
 **CRC.** The register `crc` has 32 bits. A polynomial G of width w ≤ 32 is left-aligned in
@@ -430,7 +439,9 @@ stuffing violation inside a differential packet; 4 FULL, the receive limit was r
 5 NOSYNC, a packet ended before its sync pattern did; 6 MISMATCH, a transmit stopped by
 `abort`. A job sets the last-job field and clears cause and count when it starts, and
 sets cause and count when it ends. `crc` is the live register. All fields are 0 at
-start.
+start. The count itself has 14 bits (a long receive stores up to 8,192); the status field
+shows its low 9 bits, and GETM 3 reads it whole (§7.8). Likewise GETM 4 reads all 32 bits
+of `crc`, of which the status shows the high 16.
 
 #### CONFIG (from LINE, word a, committing at E_c)
 
@@ -500,44 +511,79 @@ ends there with cause MISMATCH, count = min(k, 511) and `e = B_(k+1)`.
 #### RECV and reception
 
 RECV at E_c (`v = R[rs]`) with a configuration of more than one cell ends at once: last
-job RECV, cause VIOL, count 0, `e = c`, mode IDLE (the receiver decodes one interval per
-bit only). Otherwise: mode ARM, buffer word a = `v[7:0]`, limit `L_max = 8·v[12:8]`
-stored bits (`v[12:8] = 0` means 256). During cycle t the **line level** `x_t` is
-`sync[d]` with `diff` and `sync[r]` without, and `se0_t` holds if `diff` and
-`sync[d] = sync[n] = 0`. The line is **idle** at t if `x_t = 1` and not `se0_t`.
+job RECV, cause VIOL, count 0, `e = c`, mode IDLE. The one exception (v3) is two cells
+with `rxs = 1`, which the cell decoder receives. Otherwise: mode ARM, buffer word
+a = `v[7:0]`, limit `L_max = 8·v[12:8]` stored bits, or with `long` (v3)
+`L_max = 256·v[12:8]` (`v[12:8] = 0` counts as 32, so 256 bits, or with `long` 8,192
+bits). During cycle t the **line level** `x_t` is `sync[d]` with `diff` and `sync[r]`
+without, and `se0_t` holds if `diff` and `sync[d] = sync[n] = 0`. The line is **idle** at
+t if `x_t = 1` and not `se0_t`. (`sync` here is the owner's view, §5.)
 
 **Start.** In ARM, the receiver starts at the first tick t0 > c with `x_t0 = 0` for which
 the line was idle in each of the K cycles before t0, all of them after c, where
-K = max(1, `idle_min`·`P_int`). It takes effect at E_t0, unless a LINE or SEND of the owner
+K = max(1, `idle_min`·`P_int`); with `rxs = 2` (v3) it starts at t0 = c + 1, since a
+clocked bus has no start bit. It takes effect at E_t0, unless a LINE or SEND of the owner
 completes at E_t0 (the commit wins and the receiver is cancelled). Then: mode RX, last
 job RECV, t0 is a boundary with α = 0, the NRZI reference is L = 1, the stuffing run is
 empty, count = 0, `crc` = start value, and the receiver is in **hunt** if `sync_skip`,
 else in **data**.
 
-**Boundaries.** A tick t > t0 is a boundary if `x_t ≠ x_(t−1)` and (not `fall` or
-`x_t = 0`) (a resync, α = 0), or else if it is the next timed boundary after the previous
-boundary. The receiver **samples** at tick B + S after each boundary B, unless another
-boundary comes first.
+With `rxs` 0 or 3, the receiver finds its sample points from the bit timer, as follows.
+With `rxs` 1 or 2 it uses the strobes of the next paragraphs instead, and steps 1 to 5
+below apply to each strobe.
+
+**Boundaries** (bit timer). A tick t > t0 is a boundary if `x_t ≠ x_(t−1)` and (not
+`fall` or `x_t = 0`) (a resync, α = 0), or else if it is the next timed boundary after
+the previous boundary. The receiver **samples** at tick B + S after each boundary B,
+unless another boundary comes first.
+
+**Strobes (v3).** The receiver keeps a timer `el`, which is S at t0 with `rxs = 1` and 1
+at t0 with `rxs = 2`. At each edge E_t, t > t0, with `x' = x_(t−1)`:
+
+- **Cell decoder** (`rxs = 1`). Without `both`, an edge is `x_t ≠ x'`, and it is a strobe
+  if `el + 1 ≥ S`; the level after it is `x_t`. With `both`, the line is also read half a
+  tick earlier, `xh_t` (bit `d` or `r` of the owner's view of `hsync`): an **early edge**
+  is `xh_t ≠ x'` and a **late edge** is `x_t ≠ xh_t`. If there is an early edge, it is a
+  strobe if `el + 1 ≥ S`, with level `xh_t`; if there is only a late edge, it is a strobe
+  if `el + 2 ≥ S`, with level `x_t`. So after each accepted mid-bit edge, edges are ignored until S (half) ticks
+  have passed, which skips the edges at bit boundaries, and the next edge is the next
+  mid-bit edge.
+- **External clock** (`rxs = 2`). A strobe is a rising edge of the owner's logical pin `n`
+  between cycles t−1 and t (`sync[n]` 0 then 1), or with `rxpol` a falling one. The level
+  is `x_t`. `both` has no effect.
+
+At a strobe, `el` becomes 1 for an early edge and 0 otherwise, and the receiver samples
+with the level of the strobe. Without a strobe, `el` grows by 2 with `both` and by 1
+otherwise, and stops at 4,093. A packet in which at least one bit has been decoded **ends
+by silence** at an edge with no strobe at which `el ≥ P_int + ⌊P_int/2⌋` (one and a half
+bit times) or `el = 4,093`, `el` taken before that edge's update: the end of packet
+below, at tick t.
 
 **A sample** at tick t does, in order (once storing has stopped, only step 1):
 
 1. With `se0_t`: end of packet (below).
-2. Decode b: with `nrzi`, b = 1 if `x_t` equals the reference and 0 otherwise, and the
-   reference becomes `x_t`; without, b = `x_t`.
+2. Decode b: with `rxs = 1`, b is the level after the mid-bit edge, XOR `rxpol` (802.3
+   Manchester: a rising mid-bit edge is a 1); otherwise, with `nrzi`, b = 1 if `x_t`
+   equals the reference and 0 otherwise, and the reference becomes `x_t`; without, b is
+   the level.
 3. Destuff: if the run has reached N, b must be the stuff bit (0, or the complement of
    the run's bit). If it is, it is dropped and the run continues as in transmission. If
    not, there is a **stuffing violation**: with `diff`, cause STUFF is noted and storing
    stops; without `diff`, the job ends with cause VIOL and `e = t`. Any other bit extends
    or restarts the run.
-4. In hunt: a 1 ends the sync pattern and the receiver enters data. The bit is not stored.
+4. In hunt: a 1 ends the sync pattern and the receiver enters data; with `rxs = 1`, a 1
+   that follows a decoded 1 (two 1s in a row, the 802.3 start-of-frame delimiter). The
+   bit is not stored.
 5. In data: b becomes stream bit `count` of the LU's buffer word; if `hdr` is off or
    count ≥ 8, b is also a CRC bit; count = count + 1. When count reaches a multiple of 32,
-   the buffer word is written to `T[a + count/32 − 1]` in the first owner commit cycle
-   after t, and the buffer is cleared at that edge. When count reaches `L_max`: with
+   the completed word is handed over at E_t and written to `T[a + count/32 − 1]` in the
+   first owner commit cycle after t, and the buffer starts the next word empty at E_t, so
+   a bit that arrives before that write cannot change the word. When count reaches `L_max`: with
    `diff`, cause FULL is noted and storing stops; without `diff`, the job ends with cause
    FULL and `e = t`.
 
-**End of packet** (`diff` only). After the SE0 sample at tick s, the receiver waits for
+**End of packet** (`diff`, or silence with `rxs` 1 or 2). An end by silence at tick s ends
+the job at once, with e = s and the cause below. After the SE0 sample at tick s, the receiver waits for
 the first tick t1 > s at which `se0_t1` does not hold, or for tick s + 255, whichever
 comes first, and `e` is that tick. The cause is SE0 if the receiver was in hunt and had
 decoded no bit (count = min(e − t0, 255)); NOSYNC if it was in hunt after decoding bits
@@ -567,6 +613,71 @@ leaves the LU unconfigured in mode IDLE; the owner stays. A LINE entry that reti
 not in PEND has no effect. When the owner faults (§8) the LU does the same at that edge.
 Start and stop reset the LU (§9). The owner's HALT waits while the LU is engaged and
 cancels an armed receiver when it completes (§7.2).
+
+### 6.7 Bus timing monitor (v3, one, global)
+
+The monitor checks the timing of edges on any of the 13 physical pins, whoever drives
+them, against up to four rules. Rationale and examples: [22-BUS-MONITOR](22-BUS-MONITOR.md).
+
+**Owner.** At start the monitor has no owner. The context whose MON first commits (§7.8)
+becomes its owner for the rest of the run. Only the owner's MON writes rules, and only the
+owner's GETM reads the monitor. The rules keep running after the owner halts or faults;
+only a start resets the monitor.
+
+**Rules.** Rule k (k = 0..3) has: `en`; a from-pin `fp` and from-edge `fe`; a to-pin `tp`
+and to-edge `te`; `MIN` and `MAX` (16 bits each); and its running state, `armed` and a
+16-bit interval counter `cnt`. Pins are physical pin numbers p = 0..12 (§5); 13 to 15 name
+no pin, and never have an edge. An edge kind is 1 rise, 2 fall, 3 either, 0 none. The
+monitor also counts violations per rule, `nv[k]` (8 bits, saturating at 255), and keeps
+one **record**: `valid`, `rule`, `late`, `tick` (32 bits) and `interval` (16 bits).
+
+**Edges.** The monitor keeps `prev`, the value of `psync` (§5) in the previous cycle. At
+E_t a pin p has a rise if `psync[p] = 1` and `prev[p] = 0` during cycle t, and a fall if
+the reverse. Rule k sees a **from-edge** if `en` and pin `fp` has an edge of kind `fe`, and
+a **to-edge** likewise with `tp` and `te`. Because every pin passes through the same
+synchroniser, the interval between two edges is the interval between them at the pins.
+
+**Evaluation** at every edge E_t of a run, except the stop edge (§9), with all of rule k's
+values as during cycle t:
+
+1. **Early**: `armed`, a to-edge, `MIN ≠ 0` and `cnt < MIN`.
+   **Late**: `armed`, no to-edge, `MAX ≠ 0` and `cnt = MAX`.
+   Either is a **violation** of rule k; `nv[k]` grows by 1 unless it is 255.
+2. **State**: on a from-edge, `armed = 1` and `cnt = 1`; otherwise, if `armed` and there is
+   a to-edge or a late violation, `armed = 0`; otherwise, if `armed`, `cnt` grows by 1 and
+   stops at 65,535.
+3. **Record**: if the record is not `valid` and any rule has a violation, the record takes
+   the lowest-numbered such rule: `valid = 1`, `rule`, `late` (1 for a late violation),
+   `tick = now` during cycle t, and `interval` = that rule's `cnt` during cycle t.
+
+So `cnt` is the number of ticks since the from-edge, a good interval is MIN to MAX ticks,
+and MIN = 0 or MAX = 0 turns that check off. After a to-edge or a late violation, a rule
+waits for its next from-edge. `prev` follows `psync` at every edge, stop edges included.
+
+**MON at E_c** (`a = R[rd]`, `b = R[rs]` during cycle c), applied after the evaluation
+above:
+
+| Field | Bits | Meaning |
+| --- | --- | --- |
+| `en` | a[31] | the rule is enabled |
+| `rule` | a[30:29] | which rule is written |
+| `fp`, `fe` | a[28:25], a[24:23] | from-pin and from-edge |
+| `tp`, `te` | a[22:19], a[18:17] | to-pin and to-edge |
+| `keep` | a[16] | 1: write no rule (a clear alone) |
+| `MIN` | a[15:0] | |
+| `clear` | b[31] | clear every `nv` and the record |
+| `MAX` | b[15:0] | |
+
+Unless `keep`, rule `a[30:29]` takes the new fields, with `armed = 0` and `cnt = 0`. With
+`clear`, every `nv` is 0 and the record is not `valid` after E_c, including a violation
+counted or recorded at E_c. Other bits are ignored.
+
+**Reads** (GETM, §7.8), during cycle c: `sel` 0, the four counts, `nv[k]` in bits
+[8k+7:8k]; 1, the record `{[31] valid, [30] late, [17:16] rule, [15:0] interval}`; 2, the
+record's `tick`.
+
+**Start** (§9): every rule has `en = 0`, `armed = 0`, `cnt = 0`, every `nv` is 0, the
+record is not `valid`, there is no owner, and `prev` is `psync` during the start cycle.
 
 ## 7. Instructions
 
@@ -691,7 +802,7 @@ and staged records still drain.
 
 | Instr | Effect | Flags |
 | --- | --- | --- |
-| LINE rs (wait) | op = `v[31:28]`: 0 OFF, 1 RECV (word `v[7:0]`, limit `v[12:8]` bytes), 2 CRC (word `v[7:0]`, `v[15:8]` bits, `v[16]` wire), 3 CONFIG (block at word `v[7:0]`); other bits ignored; §6.6 | — |
+| LINE rs (wait) | op = `v[31:28]`: 0 OFF, 1 RECV (word `v[7:0]`, limit `v[12:8]` bytes, or with `long` units of 32 bytes), 2 CRC (word `v[7:0]`, `v[15:8]` bits, `v[16]` wire), 3 CONFIG (block at word `v[7:0]`); other bits ignored; §6.6 | — |
 | GETL rd (wait) | if the line unit is not busy during cycle c: R[rd] = status, Z = 1, `tmr = e`. Else if `reached(c, tmr)`: R[rd] = status, Z = 0. Else WAIT | Z |
 
 LINE checks, in order: op 4..15 → FAULT ILLEGAL. CONFIG when another context is the
@@ -701,6 +812,24 @@ engaged during cycle c: WAIT. Otherwise COMPLETE: an armed receiver is cancelled
 operation starts at E_c (a CONFIG with no owner makes this context the owner). GETL by a
 context that is not the owner → FAULT ADMIT/OWNER. The status GETL returns is the status
 during cycle c.
+
+### 7.8 Bus timing monitor (v3)
+
+"Owner" is the monitor's owner (§6.7).
+
+| Instr | Effect | Flags |
+| --- | --- | --- |
+| MON rd, rs | writes a rule, or clears, from R[rd] and R[rs] at E_c (§6.7) | — |
+| GETM rd, sel | R[rd] = the value below for `sel` = imm[15:0], during cycle c | — |
+
+MON by a context that is not the owner, when the monitor has one → FAULT ADMIT/OWNER.
+Otherwise COMPLETE, and if the monitor has no owner this context becomes its owner at E_c.
+
+GETM `sel`: 0, 1 and 2 read the monitor (§6.7) if this context is the monitor's owner, and
+0 otherwise (also while the monitor has no owner); 3 reads the line unit's whole count
+(14 bits, §6.6) and 4 its `crc` register (32 bits) if this context is the line unit's
+owner, and 0 otherwise; every other value reads 0. A context that owns neither unit
+therefore always reads 0.
 
 ## 8. Faults
 
@@ -719,6 +848,8 @@ context `FAULTED` at that edge, with these effects:
 - (v1.4) If the context owns the line unit, the line unit ends its job and any armed
   receiver, unclaims its pins (released above, as the context's own) and becomes
   unconfigured (§6.6).
+- (v3) If the context owns the bus timing monitor, it stays the owner and the rules keep
+  running (§6.7).
 
 Other contexts are unaffected. ADMIT subcodes: MASK 1, OWNER 2, PAST 3, ORDER 4,
 OVERLAP 5, CONFIG 6 (v1.4, an invalid line unit configuration, §6.6).
@@ -742,6 +873,7 @@ clear, mailboxes empty, `now = 0`.
   its contents.
 - Line unit (v1.4): no owner, unconfigured (W0 = W1 = W2 = 0), no claimed pins, mode
   IDLE, buffer 0, `crc = 0`, status 0, `e = 0`.
+- Bus timing monitor (v3): as in §6.7, rules off, counts and record cleared, no owner.
 
 **Stop** at E_t (one-cycle `stop` pulse during cycle t):
 - All RUNNING contexts become HALTED and all FIFOs are flushed; nothing due at E_t
@@ -751,7 +883,8 @@ clear, mailboxes empty, `now = 0`.
 
 Instructions in flight are discarded. A pending LDT register write (§7.6) still happens.
 `dg` stops changing; capture generation stops (`en = 0`) and staged records drain. The
-line unit (v1.4) ends its job as on OFF (§6.6); no access is made at E_t.
+line unit (v1.4) ends its job as on OFF (§6.6); no access is made at E_t. The bus timing
+monitor (v3) does not evaluate at E_t and keeps its rules, counts and record.
 
 **Context stop** (v1.7) at E_t (`ctx_stop[k]` during cycle t, host CTX_STOP during a run):
 - Context k: RUNNING becomes HALTED; its FIFO is flushed and nothing of k due at E_t
@@ -766,8 +899,8 @@ RUNNING): pending until the edge E_t with (t + 1) mod 4 = first(k), where first(
 min(k, k ^ 2) if k is paired, so that cycle t + 1 is k's first slot of the frame
 4m .. 4m + 3 (4m = t + 1 - first(k)). At E_t context k is reset as at a run start (above,
 the per-context items: registers, PC = entry_pc[k], FIFO, checker, statistics, IRQ,
-mailboxes), RUNNING, with `tmr = 4m` (the frame's first tick) instead of 0. Pins and line
-unit ownership are unchanged (k's pins stay released until k drives them). A context stop
+mailboxes), RUNNING, with `tmr = 4m` (the frame's first tick) instead of 0. Pins, line
+unit ownership and monitor ownership are unchanged (k's pins stay released until k drives them). A context stop
 or run stop before that edge cancels the pending restart. A `ctx_start[k]` for k not enabled, or in a
 cycle where k is RUNNING, is ignored: the host refuses both, but decides a cycle before its
 strobe, when a pending restart of k may be landing. At E_t nothing of k commits (k is

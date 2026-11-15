@@ -7,8 +7,9 @@ diagnosis, and stops at the first failure. This page says what each stage checks
 failure means, and what to measure next.
 
 Nothing here has run on silicon yet. The script has run against a simulated demo board
-(the ISS behind a model of the host interface, with injected faults) and against the RTL
-of the whole chip; see [Before silicon](#7-before-silicon).
+(the simulator behind a model of the host interface, with injected faults), against the
+RTL of the whole chip in simulation, and on the chip's RTL built for an FPGA, with a
+Raspberry Pi Pico W as the board's microcontroller; see [Before silicon](#7-before-silicon).
 
 ## 1. Equipment
 
@@ -190,9 +191,10 @@ tt-micropython-firmware's byte functions and samples MISO just before each SCK r
 
 ### Stage 3: memories
 
-Five 256 × 32 SRAMs, through WRITE/READ_IMEM and WRITE/READ_TAPE: the program store's
-four pages (v2: one macro each, selected with IMEM_PAGE) and the tape. Each is tested as
-its own memory:
+The program store's four pages, selected with IMEM_PAGE, and the tape, through
+WRITE/READ_IMEM and WRITE/READ_TAPE. The four pages share one 1024 × 32 macro, and each
+page is tested as its own memory, so a fault in the page select shows up as one page
+reading another:
 
 1. **Data lines.** Twelve words, written and read one at a time at address 0x00 and 0xFF.
    Every data bit is seen at 0 and 1, and every pair of bits differs in at least one word,
@@ -208,7 +210,7 @@ that the five spaces are separate. A page that reads another page's words names 
 select bits that have no effect. A failing pattern is read a second time to separate a
 stored fault from an unstable read. The stage ends on page 0.
 
-4. **Tape reads during a run (v1.3).** A four-word program (STORM) uses the tape port in
+4. **Tape reads during a run.** A four-word program (STORM) uses the tape port in
    two of every three of its commits while the host reads 32 words with READ_TAPE. Every
    word must be right, and no host error may be set: each word is fetched in a cycle the
    core leaves free, before it is sent.
@@ -246,7 +248,7 @@ assembler), run first on bank A and then on bank B:
   `01010` on `uo[7:3]`, which must read high again after STOP. GETP reads `ui[7:3]` as
   logical pins 0–4 while the RP drives 14 patterns on them; logical pins 5–7 must read 0.
   The host link keeps the pattern on `ui[7:3]` during its own transfers.
-- **Streaming capture (v1.3).** The logic analyser streams uio[0] into an 8-word ring
+- **Streaming capture.** The logic analyser streams uio[0] into an 8-word ring
   while the RP drives 16 edges on it, reading and acknowledging the records after each
   edge. All 17 records (the snapshot and 16 edges) must arrive in order, with no
   overflow: more than twice what the ring holds without the acknowledgements.
@@ -342,6 +344,16 @@ The same script runs under CPython against two simulated chips:
 | --- | --- | --- |
 | `make sw-test` (`sw/tests/test_bringup.py`) | `sw/tests/demoboard_mock.py`: the host interface modelled cycle by cycle after `escapement_host.v`, the ISS as the core, both SRAMs, and faults | A correct chip passes stages 0–6 with every firmware, without the RP and the chip ever driving the same pin and with every SCK phase at least 4 clocks. 22 injected board and chip faults (selection, DIP switch, clock, reset state, MISO/MOSI stuck, a v1.0 or v1.1 chip, a too-fast host, SRAM address and data lines stuck or shorted, a dead output, a stuck input, a half-rate clock, a bank B output stuck low or high, a bank B input stuck) each fail the stage meant to catch them with the expected diagnosis; so do a stuck register bit, a fault in the digest path only, stale bundles and a certificate the chip's telemetry contradicts (stage 5) |
 | `make bringup-test` (`test/bringup/`, about 15 minutes) | The RTL of the whole chip under cocotb, with the board's uio wiring in `tb_bringup.v` | Stages 0–6 pass on the RTL with four firmware (`BRINGUP_FIRMWARE=all` for every one); a stale bundle fails stage 5 |
+
+On hardware, the same script runs on an FPGA bench: the chip's RTL built for a Sipeed
+Tang Primer 25K, with a Raspberry Pi Pico W as the host on the chip's pins
+([`fpga/tangprimer25k`](../fpga/tangprimer25k/README.md)). The FPGA build replaces the IHP
+SRAM macros with block RAM of the same timing contract, and the clock gates and latch
+banks with plain flip-flops, so it checks the logic, the host protocol, the firmware and
+the script itself, not the hardened netlist, the silicon's pads, memories or timing. On version 3 every stage passes (2026-11-15), and in stage 5 all 71 firmware
+match the simulator's digest or final state and stay within their certificates. The
+README there lists what that run does not show, including two of the FPGA build's own
+checks that the version 3 bitstream failed.
 
 The simulated board imitates the parts of tt-micropython-firmware the script uses,
 including microcotb's `Logic` type, which has no `&` with an integer.

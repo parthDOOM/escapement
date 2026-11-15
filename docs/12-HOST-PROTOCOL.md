@@ -1,27 +1,31 @@
 # Host protocol (normative)
 
-The SPI command set between a host and Escapement. Protocol version 9. Implemented by
-`src/escapement_host.v`, and driven by `sw/eschost` (PC and cocotb) and the RP2350
-MicroPython host on the Tiny Tapeout demo board (`sw/rp2350`). Version 1.1 adds
-WRITE_TAPE and READ_TAPE (0x13, 0x14) for the tape ([11-SEMANTICS](11-SEMANTICS.md) §7.6)
-and a 5-bit READ_DBG select that reaches the digest and capture registers (sel 16–19).
-Version 1.2 adds four optional WRITE_CFG bytes for pin bank B
-([11-SEMANTICS](11-SEMANTICS.md) §5). Version 1.3 lets READ_TAPE run during a run and
-adds TAPE_ACK (0x15), for streaming capture ([11-SEMANTICS](11-SEMANTICS.md) §6.5).
-Versions 1.4 to 1.6 change no command and still report protocol version 8: the line unit
-is used from firmware, and the host sees it only through READ_DBG selects 21, 25 and 26.
-Version 1.7 reports protocol version 9: WRITE_CFG byte 10 bits 7:4 set `ctx_pair`, pair
-mode ([11-SEMANTICS](11-SEMANTICS.md) §3). An older chip ignores those bits and would run a
-paired image unpaired, at half its context's rate, so its timing certificate would not
-hold: `sw/eschost` refuses to load a paired image onto a chip that reports a version below 9.
-Version 1.7 also adds live reload: CTX_STOP and CTX_START (0x22, 0x23) and WRITE_IMEM during
-a run, so one context can be stopped, given a new program and restarted while the others
-keep running (below).
-Version 2 (program pages, S-A) reports protocol version 10. WRITE_CFG byte 14 sets each
-context's page, and IMEM_PAGE (0x24) selects the page that WRITE_IMEM and READ_IMEM
-address ([11-SEMANTICS](11-SEMANTICS.md) §3). `sw/eschost` refuses to load a paged image
-onto a chip that reports a version below 10, and sends byte 14 and IMEM_PAGE only to chips
-with pages, so the frames an older chip receives are unchanged.
+This is the SPI command set between a host and Escapement: how a host loads programs and
+data, configures and starts the chip, exchanges words with running programs, and reads
+every status register. It is implemented by `src/escapement_host.v` and driven by
+`sw/eschost` (from a PC, and in the cocotb test benches) and by the MicroPython host for
+an RP2350 or a Raspberry Pi Pico (`sw/rp2350`). The chip reports **protocol version 10**.
+
+The link is deliberately plain: SPI mode 0 on four pins, sampled with the chip's own
+clock, so the design has a single clock domain. Every response begins with a status byte,
+so a host learns whether the chip is running, has a fault or wants attention from any
+frame it sends.
+
+**Versions.** Each version of the protocol adds commands or configuration bytes and
+changes nothing an older host sends. A host reads the version from the status byte, and
+`sw/eschost` refuses to load an image that needs a newer chip: a paired image onto a chip
+below version 9, which would run it unpaired at half its rate, and a paged image onto a
+chip below version 10. It sends the newer configuration bytes only to chips that have
+them, so the frames an older chip receives are unchanged.
+
+| Version | Chip | Adds |
+| --- | --- | --- |
+| 5 | 1.0 | The base command set |
+| 6 | 1.1 | WRITE_TAPE and READ_TAPE (0x13, 0x14) for the tape ([11-SEMANTICS](11-SEMANTICS.md) §7.6); a 5-bit READ_DBG select, reaching the digest and capture registers |
+| 7 | 1.2 | Four optional WRITE_CFG bytes for pin bank B ([11-SEMANTICS](11-SEMANTICS.md) §5) |
+| 8 | 1.3 to 1.6 | READ_TAPE during a run and TAPE_ACK (0x15), for streaming capture ([11-SEMANTICS](11-SEMANTICS.md) §6.5). The line unit needs no command: firmware uses it, and the host sees it through READ_DBG selects 21, 25 and 26 |
+| 9 | 1.7 | WRITE_CFG byte 10 bits 7:4 set pair mode ([11-SEMANTICS](11-SEMANTICS.md) §3); live reload: CTX_STOP and CTX_START (0x22, 0x23) and WRITE_IMEM during a run (below) |
+| 10 | 2 and 3 | Program pages: WRITE_CFG byte 14 sets each context's page, and IMEM_PAGE (0x24) selects the page that WRITE_IMEM and READ_IMEM address ([11-SEMANTICS](11-SEMANTICS.md) §3). Version 3's additions (the monitor, the receive strobes) are used from firmware and need no command |
 
 ## Physical layer
 
@@ -62,7 +66,7 @@ is the status byte**:
 | 6 | IRQ pending on any context |
 | 5 | first-fault register valid |
 | 4 | host error (sticky; see CLEAR_ERR) |
-| 3:0 | protocol version: `0x9` (v1.7; v1.3 to v1.6 chips report `0x8`, v1.2 `0x7`, v1.1 `0x6`, v1.0 `0x5`) |
+| 3:0 | protocol version: `0xA` (the table above lists earlier values) |
 
 Raising CS_n ends the frame at any point; a partial word is discarded. Bytes after the
 end of a command's payload are ignored (response 0x00). An unknown command sets host
@@ -93,7 +97,7 @@ the chip prepares data; its response is 0x00.
 | 0x50 | IRQ_CLEAR | ctx mask (bits 3:0) | zeros | Clears irq_pending for the masked contexts |
 | 0x51 | CLEAR_ERR | — | — | Clears host error |
 
-## Tape reads during a run (v1.3)
+## Tape reads during a run
 
 READ_TAPE fetches each word in a cycle in which neither the core nor the capture unit
 uses the tape port ([11-SEMANTICS](11-SEMANTICS.md) §10, `tape_busy`), so a host read
@@ -119,7 +123,7 @@ behind for long enough that the region and the staging FIFO fill, generation sto
 §6.5). The rate a host can sustain is set by its SPI link: each record costs 4 bytes of
 READ_TAPE plus a share of the status read and TAPE_ACK.
 
-## Live reload (v1.7)
+## Live reload
 
 One context `k` gets a new program while the others run on, untouched:
 
@@ -149,9 +153,11 @@ folds every commit, so it depends on when the reload happened.
 
 ## Typical session
 
-1. STATUS, and check version 0x9 (0x8 also runs any image without pair mode).
+1. STATUS, and check the version: 0xA runs every image; an older chip runs an image
+   that does not use what came after it (the table at the top).
 2. STOP.
-3. WRITE_IMEM with the image, then READ_IMEM to compare (verification is in host software).
+3. WRITE_IMEM with the image, page by page with IMEM_PAGE for a paged image, then
+   READ_IMEM to compare (verification is in host software).
    WRITE_TAPE / READ_TAPE likewise for any initial tape contents (the SRAM powers up
    undefined).
 4. WRITE_CFG.

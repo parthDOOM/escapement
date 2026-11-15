@@ -1,9 +1,37 @@
 # Power: measure first, then cut what dominates
 
-Design decisions D-28 (hold margin) and D-29 (power) in
-[design decisions](06-DECISIONS.md). Every number here comes from OpenROAD/OpenSTA on our
-own harden databases, at the typical corner (1.20 V, 25 °C) and 25 MHz, with parasitics
-estimated from placement. The scripts are in `scripts/` and the runs can be repeated.
+A protocol engine spends most of its time waiting, so its power while waiting matters
+more than its power while busy. This chapter shows how the chip's power was measured,
+what the measurements found, and the three changes that cut it: clock-gated register
+banks, memories read only on demand, and a hold margin that stopped thousands of
+needless delay cells. The decisions are D-28, D-29 and D-40 in
+[06-DECISIONS](06-DECISIONS.md). Every number comes from OpenROAD and OpenSTA on the
+project's own layout databases, at the typical corner (1.20 V, 25 °C) and 25 MHz, with
+parasitics estimated from placement; the scripts are in `scripts/` and the runs can be
+repeated.
+
+The measurements in sections 1 to 3 were taken on versions 1.1 to 1.6, on the 6 × 4
+layouts, as each change was made. The current design, version 3 at 8 × 4, was measured the
+same way on its adopted layout (`scripts/power-workload.sh`, the same three workloads and
+the same 8,000-cycle windows):
+
+| Version 3 | uart_tx (sending) | logic analyser (capturing) | idle (stopped) | static estimate |
+| --- | ---: | ---: | ---: | ---: |
+| flip-flops and latches | 2.50 mW | 2.46 mW | 2.41 mW | |
+| clock tree | 0.98 mW | 0.98 mW | 0.97 mW | |
+| logic | 0.64 mW | 0.53 mW | 0.00 mW | |
+| SRAM macros (counted edge by edge) | 0.30 mW | 0.0015 mW | 0 | |
+| **total** | **4.42 mW** | **3.97 mW** | **3.38 mW** | 3.58 mW |
+
+Against version 1.6 (3.60, 3.29 and 2.93 mW) that is 0.45 to 0.82 mW more, 15 to 23%. Most
+of it is the clocked storage the later versions added: pair mode, live reload, the four
+pages, the proof tripwires, the bus timing monitor and the half-tick sampler bring the
+sequential cells to 5,380, against 4,838 in version 1.6 (2,391 flip-flops, 2,365 latches
+and 82 clock-gate latches). The program store adds the rest of the busy workload's
+difference. It is one 1024 × 32 macro, whose read costs 48.3 pJ against 26.0 pJ for a
+256 × 32, so the same 2,000 fetches in the `uart_tx` window cost 302 µW instead of 162 µW.
+The design's shape is unchanged: a stopped chip reads no memory and switches no logic, and
+what it spends is the clocked storage that must keep running and the clock tree.
 
 ## 1. Where the power went
 
@@ -73,7 +101,7 @@ architecturally:
 OpenROAD's CTS recognised all 68 gated nets and built a subtree for each. The
 free-running register tree dropped from about 3,800 sinks to 1,179.
 
-### D-40: latch banks (`esc_lreg` in `src/esc_greg.v`, v1.4)
+### D-40: latch banks (`esc_lreg` in `src/esc_greg.v`)
 
 In 2,365 bits of those banks the storage is a latch (`sg13cmos5l_dlhrq_1`, 27.2 µm²)
 instead of a flip-flop (49.0 µm²). It is transparent while its gated clock is high and
@@ -126,6 +154,7 @@ estimate, which LibreLane prints in its power report.
 | v1.5: tests a cycle early (D-43) | 27,726 | 57.6% | 1,523 | 2.68 mW | 3.18 mW | 2.87 mW | 2.53 mW |
 | **v1.6: decode and operands a stage earlier, 50 MHz layout** | **30,752** | **63.3%** | **2,148** | 3.09 mW | **3.60 mW** | **3.29 mW** | **2.93 mW** |
 | change, before → v1.6 | −5% | | −52% | −59% | **−58%** | **−61%** | **−63%** |
+| version 3 (8 × 4) | 32,676 | 56.2% | 257 | 3.58 mW | 4.42 mW | 3.97 mW | 3.38 mW |
 
 n/m = not measured. The workload columns use the exact SRAM count below. Version 1.6 costs
 0.40–0.42 mW (13–16%) in every workload, nearly all of it in the flip-flop and clock rows.

@@ -1,9 +1,9 @@
 # VGA Pong
 
 [`firmware/vga_pong.asm`](../firmware/vga_pong.asm) plays Pong on a VGA monitor,
-640x480 at 60 Hz, from pin bank B. It uses no new hardware: two contexts, five pins, 251
-of the 256 program words and 168 tape words. The chip plays both paddles until
-someone presses a button.
+640x480 at 60 Hz, from pin bank B. It needs no hardware made for it: two contexts, five
+pins, 251 of the 256 words of one program page and 168 tape words. The chip plays both
+paddles until someone presses a button.
 
 ![A frame of VGA Pong as a monitor sees it: borders, a dashed net, the score 3 to 7, two paddles and the ball](img/vga-pong.png)
 

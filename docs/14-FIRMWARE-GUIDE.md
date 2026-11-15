@@ -1,8 +1,11 @@
 # Writing Escapement firmware: idioms and one anti-pattern
 
-For anyone adding a protocol after fabrication. Every rule here comes from shipped
-firmware in [firmware/](../firmware) and is checked by `python -m escert file.asm`.
-Run escert before trusting any timing; the semantics are in [11-SEMANTICS](11-SEMANTICS.md).
+A new protocol on Escapement is a new program, so this chapter collects what the shipped
+firmware in [firmware/](../firmware) has learned about writing one: the idioms that keep
+edges on time, the one pattern that reliably breaks them, and how to budget a protocol's
+instructions. Every rule here is checked by the certificate checker,
+`python -m escert file.asm`, which should be run before trusting any timing; the machine
+itself is defined in [11-SEMANTICS](11-SEMANTICS.md).
 
 A transmitter that is only timing (framed serial, pulse-width and burst codes) need not
 be written by hand: describe it as a timing table and `python -m escgen` writes and
@@ -12,7 +15,7 @@ are what it generates, and what receivers and two-way buses still need by hand.
 ## The timing model in one paragraph
 
 Each context commits one instruction every 4 ticks (40 ns ticks at 25 MHz), or every 2
-when it is paired (v1.7, idiom 15). Wait-class instructions repeat on a 4-tick grid. Pins change only through events (DRIVE,
+when it is paired (idiom 15). Wait-class instructions repeat on a 4-tick grid. Pins change only through events (DRIVE,
 EXPECT, SAMPLE) with absolute deadlines taken from `tmr`. The chip checks each event at
 enqueue: its deadline must be after the commit tick and after the previous queued
 event, otherwise the context faults (ADMIT) and its pins release. An admitted event
@@ -21,14 +24,7 @@ four queued events.
 
 The chip is rated up to 50 MHz (D-5). Programs that take their timing from `CLK_KHZ`
 rebuild for another clock by defining it before the include, for example
-`.equ nec_tx.CLK_KHZ, 50000` then `.include "nec_tx.asm"`. The 39 shipped ones all
-certify at 33, 33.333, 40 and 50 MHz (`sw/tests/test_escert.py`), and 36 of them run
-against their bus models at 33 and 50 MHz (`sw/tests/test_rated_clock.py`). Four are tied
-to one clock by their protocol and refuse any other with an `.assert`: `eth_tx` and
-`udp_tx` (10BASE-T, 40 MHz), `usb_hid` (USB low speed, 24 MHz, D-37) and `vga_pong` (its
-pixel clock, 25 to 25.175 MHz). The other six (`freq_meter`, `logic_analyzer`,
-`quadrature`, `replay`, `spi_target`, `spi_tx`) work in ticks of whatever clock the chip
-runs at. Rerun
+`.equ nec_tx.CLK_KHZ, 50000` then `.include "nec_tx.asm"`. {{NUM:fw_clocks}} Rerun
 `python -m escert` after any rebuild: a delay that fits at one clock can outgrow a
 16-bit compare, ADDT's 24 bits or the 2^16-tick gap escert can bound at a faster one.
 
@@ -101,7 +97,7 @@ first.
 .include "spi_ctrl.asm"
 ```
 
-**10. Reply from the line (v1.4).** With the [line unit](19-LINE-UNIT.md), a reply's
+**10. Reply from the line.** With the [line unit](19-LINE-UNIT.md), a reply's
 deadline is the end of the packet it answers plus a constant: `GETL` sets `tmr` to that
 end tick, so `ADDT TURN` then `SEND` puts the reply exactly TURN ticks after the
 packet, whatever ran in between. Three rules from `usb_hid` keep it on time:
@@ -129,7 +125,7 @@ next: ADDT  FAR
 
 **11. Keep the host out of the timed context.** A `POP` waits for the host, so a timed
 loop may only pop where `RXREADY` has just seen a word: only the context itself pops its
-mailbox, so the word is still there, and escert (since v1.6) certifies that `POP` as not
+mailbox, so the word is still there, and escert certifies that `POP` as not
 waiting (`servo` takes one update a frame this way). Even so, a frame built while values
 arrive can mix two of them. Give the host its own context: it
 takes words from the mailbox and stores them in the tape; the timed context reads the tape
@@ -152,7 +148,7 @@ one left the edge register fresh. Jump to the abort path from inside it instead 
 leaves its events far ahead of the clock, and a loop of them loses escert's upper bound on
 the lead. Anchor, compute the reply, `WAITT` until shortly before it, then queue it (`dali`).
 
-**15. Pair a busy context (v1.7).** `.pair CTX` gives context CTX the slot of its partner,
+**15. Pair a busy context.** `.pair CTX` gives context CTX the slot of its partner,
 context CTX ^ 2 (0 with 2, 1 with 3), which must stay off: the context then commits every
 2 ticks instead of 4. Its code is unchanged; escert certifies it paired, so rerun it and
 take the new bound. The cost is the partner's context, so a chip has two fast contexts,
@@ -187,6 +183,30 @@ When the exact tick matters more than reaction time, use the capture unit. It st
 every change of a watched pin with its tick, all delayed alike by the synchroniser. That
 is how `freq_meter` measures to one tick.
 
+**17. Check the other side's timing with the monitor.** When the chip only watches a bus,
+EXPECT cannot help, because it measures from the program's own deadlines. Write the
+datasheet's figures as monitor rules instead: a setup time is a rule from a data edge to
+the clock's sampling edge with a MIN, a hold time the reverse, a pulse width a rule from a
+rise to a fall of one pin, a period a rule from one rise to the next, a timeout a rule with
+only a MAX. Write the rules once with MON and poll the record with GETM; clear it with a
+MON whose keep bit is set, so the clear rewrites no rule mid-pulse. Limits are whole ticks,
+so round a minimum down: a bus inside its limits then never reports
+(`i2c_timing`, [22-BUS-MONITOR](22-BUS-MONITOR.md)).
+
+**18. Choose the receive strobe by how the line is clocked.** With the line unit, a line
+with frequent edges in a known rhythm (UART-like, USB, CAN) uses the bit timer; a line
+whose every bit has a mid-bit edge (Manchester, 10BASE-T) uses the cell decoder, with S at
+about three quarters of a bit and both-edge sampling where the half-bit is not a whole
+number of ticks; a bus with its own clock (SPI, a clocked sensor) uses the external clock,
+and starts at once when armed, so arm it at the frame's start, on chip select
+(`eth_rx`, `spi_sniff`, [19-LINE-UNIT](19-LINE-UNIT.md#receiving-three-strobes)).
+
+**19. Give each program its own page.** Four programs assembled separately can each start
+at address 0 and use 256 words; `escasm.paged()` places them on pages 0 to 3 and refuses
+two that claim the same context, pin or tape word. Programs that talk to each other do so
+through the tape, so agree on the shared words' addresses in one place and check them, as
+`test_oled_pong.py` does for the four files of [OLED Pong](23-OLED-PONG.md).
+
 ## Budgeting a protocol
 
 - One instruction takes 4 ticks (2 paired): a 3-instruction bit loop (`EMITX`, `ADDT`,
@@ -196,7 +216,8 @@ is how `freq_meter` measures to one tick.
   rates it at 416 kHz. Where the bus allows stretching, use idiom 8 instead.
 - `LDT`/`STT` take a register as base address; keep one register at 0 while working
   with fixed scratch words (`can_tx`).
-- The program store is 256 words for all four contexts: `can_tx` (157 words) and
-  `can_rx` (179) do not fit in one image.
+- A page holds 256 words. Programs assembled into one image share a page, so `can_tx`
+  (157 words) and `can_rx` (179) do not fit in one image; assembled separately and placed
+  on two pages with `escasm.paged()`, they run side by side (idiom 19).
 - Four contexts run independently. A slow protocol in one context never changes another
   context's timing, so concurrent images certify per context.

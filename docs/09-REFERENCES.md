@@ -13,6 +13,7 @@
 | [Tiny Tapeout local hardening guide](https://www.tinytapeout.com/guides/local-hardening/) | Local flow setup |
 | [Tiny Tapeout demo board](https://tinytapeout.com/specs/pcb-etr/) | RP2350 host, Pmod headers |
 | [Tiny Tapeout GPIO specification](https://www.tinytapeout.com/specs/gpio/) | Pin conventions |
+| [OpenROAD issue #9816](https://github.com/The-OpenROAD-Project/OpenROAD/issues/9816) | A clock gate disconnected in clock-tree synthesis, fixed upstream but not in the flow's release (D-45, D-61) |
 
 ## PDK and macros
 
@@ -30,6 +31,7 @@
 | --- | --- |
 | [NXP UM10204, I2C-bus specification, rev. 7](https://www.nxp.com/docs/en/user-guide/UM10204.pdf) | I2C timing, open-drain behaviour, clock stretching |
 | [USB 2.0 specification](https://www.usb.org/document-library/usb-20-specification) | Low-speed signalling, packet fields, CRC-5 and CRC-16, turnaround (`usb_hid`, the USB host model) |
+| IEEE Std 802.3, clause 14 (10BASE-T) | Manchester coding, preamble and start-of-frame delimiter, the frame check sequence, TP_IDL (`eth_tx`, `eth_rx`, the Ethernet models) |
 | ISO 11898-1 (CAN data link layer) | Frame format, bit stuffing, CRC-15 polynomial 0x4599 (`can_tx`, `can_rx`, the CAN models) |
 | [Arm Debug Interface ADIv5.2, ARM IHI 0031G](https://support.arm.com/documentation/ihi0031/latest) | SWD packets, turnaround, ACK and parity (`swd_idcode`, the SW-DP model) |
 | [Vishay, Data Formats for IR Remote Control, doc. 80071](https://www.vishay.com/docs/80071/dataform.pdf) and [SB-Projects, NEC protocol](https://www.sbprojects.net/knowledge/ir/nec.php) | NEC carrier, burst and slot timing (`nec_tx`, `nec_rx`, `nec_tx_gen`) |
@@ -38,4 +40,6 @@
 | [brushlesswhoop.com, DSHOT: the missing handbook](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/) | DShot600 timing, frame and CRC, bidirectional DShot (`dshot_tx`, the ESC model) |
 | [NXP AN4219, SENT/SPC driver for MPC5510](https://www.nxp.com/docs/en/application-note/AN4219.pdf) and [Microchip, recommended J2716 CRC](https://onlinedocs.microchip.com/oxy/GUID-04B5982F-17EC-4A6E-B7FE-72DF0A5463B9-en-US-3/GUID-23F22D39-15E3-4B81-A752-CC095EE469F1.html) | SENT pulse format, CRC-4 seed and table (`sent_tx`, the SENT receiver model) |
 | [Microchip, DALI bus communication](https://onlinedocs.microchip.com/oxy/GUID-0CDBB4BA-5972-4F58-98B2-3F0408F3E10B-en-US-1/GUID-910C4B97-3A38-4F04-A78A-DF74EE1A3612.html) | DALI Manchester coding, half-bit time, forward-to-backward settling time (`dali`, the controller model) |
+| Solomon Systech, SSD1306 datasheet | The OLED controller's I2C commands and display memory (OLED Pong, [23-OLED-PONG](23-OLED-PONG.md)) |
+| [sigrok-dumps](https://github.com/sigrokproject/sigrok-dumps) | Logic-analyser recordings of real devices that `esclearn` learns protocols from ([20-LEARN](20-LEARN.md)) |
 | [RP2040 datasheet, chapter 3 (PIO)](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf) | Prior art in deterministic I/O processors |

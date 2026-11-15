@@ -3,179 +3,83 @@
 **No pin edge is ever late, whatever program runs. Proved, for every program, on the
 netlist that goes to silicon.**
 
-Escapement is a protocol emulator ASIC for the
+Escapement is a programmable protocol engine for the
 [Jane Street protocol emulator competition](https://blog.janestreet.com/protocol-emulator-asic-competition/),
-built for IHP's 130 nm SG13CMOS5L process through Tiny Tapeout. Firmware schedules pin
-changes at absolute clock ticks. Each change is **admitted or refused when it is queued**:
-an admitted event happens on its exact tick, and an impossible one raises a visible fault
-instead of a late edge.
+built on IHP's 130 nm SG13CMOS5L process through Tiny Tapeout as an 8 × 4 tile design.
+Four hardware contexts run firmware that schedules pin changes at absolute clock ticks.
+Each change is checked when it is queued: if its deadline can still be met it happens on
+exactly that tick, and if not, the context stops with a fault that says why. A late edge
+is not one of the possible outcomes, and that is proved for every program, not checked
+one firmware at a time.
 
-The guarantee is in the hardware, not in a tool that vets programs:
-
-- **Every program.** The formal proof of "never late" (P2) leaves the program memory a
-  free input, so it covers every program anyone will ever load, not one firmware image
-  at a time. A program nobody has analysed still cannot make a late edge; at worst it is
-  refused with a fault that says why.
-- **For all time.** The proof is unbounded, from reset through counter wrap.
-- **On the silicon's netlist.** The gate-level netlist from the sign-off flow is proved
-  sequentially equivalent to the RTL, so the proved design is the one that is fabricated.
-
-These proofs run in CI on every change; the [results page](https://parthdoom.github.io/escapement/#results)
-shows their last runs.
-
-UART, SPI (controller and target), I2C, CAN, PS/2, WS2812, 1-Wire, JTAG, ARM SWD, NEC
-infrared, HDMI-CEC, DALI lighting control, SENT automotive sensors, DShot600 for four
-motor controllers at once, and whole devices such as a 24C02 EEPROM or a 25xx SPI memory
-are firmware. None of them is in the hardware.
-
-**Record it, speak it.** Point the chip at a transmitter it has never seen, such as an
-IR remote: it records the waveform, the host works out the protocol's timing table from
-the recording and generates firmware with a timing certificate, and the chip sends new
-messages in that protocol, such as a command the remote never sent. It is tested on
-twelve real recordings, five of them against sigrok's own decoders, and run end to end on the RTL
-([record it, speak it](docs/20-LEARN.md)).
-
-**VGA Pong.** The same five bank B pins drive a VGA monitor at 640x480 and 60 Hz, and
-two contexts play Pong on it: one makes the syncs, the other draws a framebuffer from the
-tape and runs the game in the vertical blank. Every edge of the picture has a deadline
-fixed in advance and only the colours come from data, so escert proves that no edge is
-ever late, and the chip's own telemetry meets the bound exactly
-([VGA Pong](docs/21-VGA-PONG.md)).
-
-> Escapement either meets the deadline it accepted, or tells you why it refused.
-
-## Design principles
-
-1. **The chip knows time, not protocols.** The silicon makes one promise: an output event
-   happens exactly at its deadline or is refused at enqueue, never late. A new protocol,
-   or a device nobody planned for, is a new program, not a respin.
-2. **Pay only for work.** A register bank that is not written does not see the clock, and
-   a memory that is not read is not selected. Sending UART costs 3.6 mW, and a stopped
-   chip 2.9 mW (typical corner, measured on gate-level workloads; [power](docs/15-POWER.md)).
-   A logic-analyser capture runs with no instruction fetches at all.
-3. **Every claim has a second, mechanical check.** Formal proofs, lockstep co-simulation
-   of the RTL against a separate Python model, mutation testing, static timing
-   certificates for firmware, and a 32-bit execution digest that checks silicon against
-   the model with one read.
-
-## What is on the chip
+UART, SPI, I2C, CAN, PS/2, WS2812, 1-Wire, JTAG, ARM SWD, low-speed USB, 10BASE-T
+Ethernet, HDMI-CEC, DALI, SENT, DShot and many more are firmware: the repository holds
+71 programs, and none of those protocols is in the hardware. What the hardware adds is
+time and the work that firmware cannot do bit by bit: a line unit for the bits of packet
+protocols, a capture unit that records timestamped pin changes, and a bus timing monitor
+that checks other devices against their datasheets.
 
 ```mermaid
 flowchart LR
     Host[Host SPI] --> Ctl[Host interface + mailboxes]
-    Ctl --> IMEM[Program SRAM 256x32]
+    Ctl --> IMEM[Program SRAM 1024x32<br/>four pages]
     IMEM --> Core[4-context barrel core]
-    Core --> Q[Per-context event FIFOs<br/>DRIVE / EXPECT / SAMPLE]
+    Core --> Q[Per-context event queues<br/>DRIVE / EXPECT / SAMPLE]
     Time[32-bit tick counter] --> Q
     Q --> Pins[Bank A: 8 pins<br/>push-pull or open-drain]
-    Q --> PinsB[Bank B: 5 split pins<br/>out uo 7:3, in ui 7:3]
-    Pins --> Sync[Input synchronisers]
+    Q --> PinsB[Bank B: 5 split pins]
+    Pins --> Sync[Input side]
     PinsB --> Sync
     Sync --> Core
     Sync --> Cap[Capture unit]
+    Sync --> Mon[Bus timing monitor]
     Core <--> Tape[Tape SRAM 256x32]
     Cap --> Tape
     Ctl <--> Tape
-    Q --> LU[Line unit<br/>NRZI, stuffing, CRC]
+    Q --> LU[Line unit<br/>coding, stuffing, CRC]
     LU <--> Tape
     LU --> Pins
     Sync --> LU
 ```
 
-- **Four hardware contexts** in a fixed barrel: each runs its own program with its own
-  pins, so a slow protocol in one context never changes another context's timing. A
-  context can take an idle partner's slot as well and commit every 2 ticks instead of 4
-  (pair mode, v1.7).
-- **Two pin banks, 18 protocol signals.** Bank A is the eight bidirectional pins; bank B
-  turns the five dedicated inputs and outputs the host link leaves free into split
-  pins. Each context sees one bank as its eight logical pins, so a module runs on
-  either bank unchanged, and the banks run at the same time: PS/2 and JTAG on bank A
-  with SPI and UART on bank B is 11 signals at once.
-- **Deadline-checked events.** DRIVE sets pins, EXPECT checks that an input holds or
-  arrives within a window, and SAMPLE captures an input bit, all at exact ticks.
-- **The tape**, a second SRAM shared by firmware loads and stores, a timestamped capture
-  unit and the host. One memory serves as device storage, logic-analyser buffer and
-  replay source. The host reads it during a run in cycles the core leaves free, so a
-  capture streams out for as long as the host keeps up, and a record is never
-  overwritten before the host has read it.
-- **Self-measurement.** Per context, the chip records its minimum scheduling lead and
-  maximum queue occupancy, so a static timing certificate can be checked against the
-  hardware. The bring-up script checks every firmware's certificate against the chip's
-  telemetry. In the lockstep co-simulation with bus models, the measured lead equals the
-  certified bound to the tick in 50 of the 60 contexts that queue events, and is never below it. Contexts reach
-  one another only through pins, tape and mailbox data, which escert treats as unknown
-  inputs, so certificates compose: firmware certified one context at a time stays
-  certified running together, on disjoint pins and tape words, with at most one context on
-  the line unit.
-- **Execution digest.** A 32-bit signature of every commit, register write and pin
-  change in a run, readable over SPI and predicted by the reference model.
-
-**Version 1.4: a line unit** ([release v1.4](https://github.com/parthDOOM/escapement/releases/tag/v1.4):
-specified, simulated, in the RTL and laid out at 6×4 with every sign-off check passing). It does the
-per-bit work of packet protocols, NRZI, bit stuffing, CRCs and clock recovery, for one
-context, while the firmware handles packets. A 187-instruction USB low-speed keyboard runs on it: a real
-Linux kernel enumerates the simulated chip over USB/IP and receives typed text through
-it, and escert proves every reply leaves exactly 72 ticks after the host's packet
-([line unit](docs/19-LINE-UNIT.md)). A CAN 2.0A and 2.0B receiver uses it too: clock
-recovery, destuffing and a CRC-15 check on every frame of a bus.
-
-**Version 1.5: deadline tests a cycle early** ([release v1.5](https://github.com/parthDOOM/escapement/releases/tag/v1.5)).
-Each FIFO and the core decide their 32-bit
-deadline and admission tests in the cycle before they are used, so the comparisons leave
-the path from the tick counter to the pins; no program can tell the difference, and the
-proofs check each registered test against its definition in every cycle that uses it. The
-layout meets timing up to 38.6 MHz at the slow corner (v1.4: 28.6 MHz), for 28 more
-flip-flops and 2% more power. Signed off at 30 ns, the chip is rated for clocks up to
-33 MHz (D-43).
-
-**Version 1.6: 50 MHz.** The instruction is decoded a stage earlier, its operands are read a
-cycle ahead, each FIFO registers its next head, and the line unit decides a transmit
-boundary's pin writes a cycle ahead; as in v1.5 each register is proved equal to its
-definition wherever it is used. Signed off at 20 ns, the chip is rated for clocks up to
-50 MHz; the layout meets timing up to 50.8 MHz at the slow corner, 80.6 MHz at the typical
-one and 120.5 MHz at the fast one, for 354 more flip-flops and 13–16% more power at 25 MHz
-(D-5, D-44). The shipped firmware runs at 25 MHz (USB at 24 MHz and 10BASE-T at 40 MHz, which their protocols fix), and the 39 programs that take their timing
-from `CLK_KHZ` rebuild and certify at 50 MHz; 10BASE-T transmit (40 MHz) now runs inside the
-rating. The line unit gains symbol coding, CRC-32 and a next-word buffer, used by CAN
-transmit, WS2812, SPI at line rate and two 10BASE-T transmitters.
-
-## Results
+## Where to read
 
 | | |
 | --- | --- |
-| Process | IHP SG13CMOS5L (130 nm), Tiny Tapeout, **6×4 tiles** (1289.28 × 710.64 µm) |
-| Clock | Rated up to 50 MHz at the slow corner (1.08 V, 125 °C), 25 MHz by default; the layout meets timing up to 50.8 MHz there, 80.6 MHz at the typical corner (1.20 V, 25 °C) and 120.5 MHz at the fast one; signed off at 20 ns on every corner, with a 40/60% duty cycle too ([frequency headroom](docs/03-PHYSICAL-DESIGN.md#sign-off-results)) |
-| Physical | 32,239 cells and two SRAM macros, 65.9% utilisation, the line unit included (registers in latches, D-40); LVS, DRC and antenna clean; Tiny Tapeout precheck passes; the netlist is proved equivalent to the RTL and passes the chip and pin tests; a second harden reproduces it bit for bit |
-| Power | 3.6 mW sending UART, 2.9 mW stopped (typical corner, 25 MHz) |
-| Firmware | 64 programs (seven for the line unit: the USB keyboard and the CAN receiver since v1.4, and since v1.6 a CAN transmitter, an LED string, SPI at line rate and two 10BASE-T transmitters), twelve of them generated from timing tables; every one except the replay template, whose deadlines come from captured data, carries a static timing certificate (CHECKED for all inputs); of 558 timing bugs planted in 60 of them, escert rejects 168, and none of the 390 it certifies faults under a randomised input search ([certificates](docs/04-VERIFICATION.md#planted-timing-bugs)) |
-| Verification | ISS and RTL agree tick for tick on random programs and on 61 of the 64 programs, 60 with their bus models and the logic analyser streaming to the host (VGA Pong runs on the chip's pins instead, the replay template has no trace of its own, and the 14 s Westminster tune plays only on the ISS); "never late" proved for all time; 653 of 710 RTL mutants killed and none surviving (19 proved equivalent, 38 excluded with a written argument) in the v1.4 campaign on the standard-cell models, all 103 mutants at every site of v1.5's new logic killed (97), proved equivalent (5) or excluded (1), and all 626 at every site of the lines v1.6 changed killed (556), proved equivalent (22) or excluded (48), none surviving; the final netlist is proved equivalent to the RTL, and the chip tests pass on it too |
-| Hardware | Not yet run on hardware: the first hardware would be the Tiny Tapeout chip, if the design is selected for fabrication. The bring-up script is rehearsed against a simulated demo board with 22 injected faults ([bring-up](docs/16-BRING-UP.md)), and FPGA bitstreams for the Tang Nano 20K and ULX3S are built and meet 25 MHz after routing ([FPGA build](fpga/README.md)) |
+| [The write-up](docs/00-WRITEUP.md) | The design, why it is built this way, and how each claim is checked |
+| [The site](https://parthdoom.github.io/escapement/) | The firmware running in your browser, the die, the proofs' latest runs and the FPGA bench |
+| [Verification](docs/04-VERIFICATION.md) | Every method, every result, and how to rerun them |
+| [How it was built](docs/07-STORY.md) | The project's history, from the first question to version 3 |
 
-Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-VERIFICATION.md),
-[power](docs/15-POWER.md), [measurements](asic/reports/area.csv).
+The rest of the documentation is in [docs/](docs/): architecture, instruction set, the
+normative machine semantics, host protocol, physical design, power, bring-up, the line
+unit, the bus monitor and the decision log.
 
-## Documentation
+## Status
 
-| Document | Contents |
+| | |
 | --- | --- |
-| [Architecture](docs/01-ARCHITECTURE.md) | Blocks, pipeline, events, tape, pins and host |
-| [ISA reference](docs/02-ISA.md) | Instructions, encodings and timing rules |
-| [Machine semantics](docs/11-SEMANTICS.md) | The normative, cycle-exact definition of the machine |
-| [Host protocol](docs/12-HOST-PROTOCOL.md) | The SPI command set |
-| [Tape and digest](docs/13-TAPE-AND-DIGEST.md) | Why one timestamped memory, and how the digest works |
-| [Instrument](docs/17-INSTRUMENT.md) | Capture, streaming, PulseView, file export and replay, with their limits |
-| [Protocols as data](docs/18-PROTOCOLS-AS-DATA.md) | Transmitter firmware generated from timing tables, and certified |
-| [Line unit](docs/19-LINE-UNIT.md) | Version 1.4: packet line coding in hardware, a USB keyboard on it, certified reply timing, and Linux over USB/IP |
-| [Record it, speak it](docs/20-LEARN.md) | A protocol's timing table learned from a recording, then certified firmware that sends new messages in it |
-| [VGA Pong](docs/21-VGA-PONG.md) | Pong on a VGA monitor from bank B, with every edge of the picture certified |
-| [Firmware guide](docs/14-FIRMWARE-GUIDE.md) | Idioms for writing new protocols |
-| [Verification](docs/04-VERIFICATION.md) | Methods, results and how to rerun them |
-| [Physical design](docs/03-PHYSICAL-DESIGN.md) | Floorplan, routing, timing and sign-off |
-| [Power](docs/15-POWER.md) | Measurement method and the clock-gating design |
-| [Bring-up](docs/16-BRING-UP.md) | First silicon on the demo board: checklist, staged script and what each failure means |
-| [Design decisions](docs/06-DECISIONS.md) | What was chosen, what was rejected, and why |
-| [Toolchain](docs/05-TOOLCHAIN.md) | Pinned flow and local reproduction |
-| [References](docs/09-REFERENCES.md) | Specifications and sources |
+| Layout | 8 × 4 tiles (1724.16 × 710.64 µm), 37,230 standard cells and two SRAM macros, 61.9% utilisation. Signed off at 20 ns at every corner, so the chip is rated for clocks up to 50 MHz (25 MHz by default); worst setup slack +1.480 ns, worst hold slack +0.180 ns. LVS, DRC and antenna clean, and the `ttihp27a` shuttle's precheck passes. The CI harden and the local one produce the same netlist, bit for bit ([physical design](docs/03-PHYSICAL-DESIGN.md)) |
+| Proofs | "Never late" is proved unbounded with the program memory a free input, so for every program; the sign-off netlist is proved equivalent to the RTL. {{NUM:formal_status}} ([verification](docs/04-VERIFICATION.md)) |
+| Tests | {{NUM:test_status}} |
+| Hardware | Version 3's RTL on a Sipeed Tang Primer 25K, driven by a Raspberry Pi Pico W running the bring-up script, passes all six bring-up stages and 71 of 71 firmware runs against the reference model ([the bench](https://parthdoom.github.io/escapement/fpga/)) |
+| Power | 4.42 mW sending UART and 3.38 mW stopped, at 25 MHz and the typical corner ([power](docs/15-POWER.md)) |
+
+## Quick start
+
+```sh
+pip install -r test/requirements.txt          # cocotb, pytest, pyyaml; Icarus Verilog for RTL
+make sw-test                                  # assembler, ISS, certificates, models
+make cert                                     # timing certificate for every firmware
+make proof-table                              # each certificate beside the measured leads
+make test                                     # chip-level RTL tests
+make cosim                                    # ISS against RTL, in lockstep
+```
+
+The assembler and the certificate checker also run on their own, from `sw/`:
+`python -m escasm ../firmware/uart_tx.asm -l -o uart_tx.json` and
+`python -m escert ../firmware/uart_tx.asm`. The [toolchain](docs/05-TOOLCHAIN.md) chapter
+covers the proofs, mutation testing, hardening and the FPGA builds.
 
 ## Repository layout
 
@@ -187,34 +91,17 @@ Details: [physical design](docs/03-PHYSICAL-DESIGN.md), [verification](docs/04-V
 | `protocols/` | Timing tables that `escgen` turns into transmitter firmware |
 | `isa/isa.yaml` | The single source of instruction encodings |
 | `sw/` | Assembler (`escasm`), instruction-set simulator (`esciss`), certificate checker (`escert`), firmware generator (`escgen`), protocol learner (`esclearn`), host library (`eschost`), tape tools (`esctape`), bus models (`escmodels`), USB/IP bridge to a Linux kernel (`escusbip`), RP2350 demo host (`rp2350`) |
-| `test/` | Chip-level, co-simulation, host, unit and mutation tests |
+| `test/` | Chip-level, co-simulation, host, unit, monitor and mutation tests |
 | `formal/` | SymbiYosys proofs |
-| `scripts/` | Local hardening, precheck, power and routing analysis |
+| `scripts/` | Local hardening, precheck, power and timing analysis |
 | `asic/reports/` | Recorded physical measurements |
-| `fpga/` | The FPGA build: block-RAM model of the SRAM, resource estimate, bitstreams for the Tang Nano 20K and ULX3S |
+| `fpga/` | FPGA builds: the Tang Primer 25K bench and a ULX3S build |
 | `site/` | The project site, with the in-browser playground that runs `sw/` under Pyodide |
-
-## Quick start
-
-```sh
-pip install -r test/requirements.txt          # cocotb, pytest, pyyaml; Icarus Verilog for RTL
-make sw-test                                  # assembler, ISS, certificates, models
-make cert                                     # timing certificate for every firmware
-make proof-table                              # each certificate beside the measured leads
-make test                                     # chip-level RTL tests
-make cosim                                    # ISS vs RTL lockstep
-```
-
-The assembler and certificate checker also run on their own, from `sw/`:
-`python -m escasm ../firmware/uart_tx.asm -l -o uart_tx.json` and
-`python -m escert ../firmware/uart_tx.asm`.
-
-See [toolchain](docs/05-TOOLCHAIN.md) for formal, mutation and hardening.
 
 ## Licence
 
 Apache-2.0 ([LICENSE](LICENSE)). The SRAM macro views come from
 [IHP-Open-PDK](https://github.com/IHP-GmbH/IHP-Open-PDK) (Apache-2.0); see
-[macro/](macro/RM_IHPSG13_1P_256x32_c2_bm_bist/README.md).
+[macro/](macro/).
 
 AI coding assistants were used for writing code.

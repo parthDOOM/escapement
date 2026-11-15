@@ -98,8 +98,8 @@ wait-class while any SAMPLE is queued: a silent failure became impossible for on
 
 **D-31 The idle pins become a second pin bank.** The host link needs three dedicated
 inputs and three outputs, so `ui_in[7:3]` and `uo_out[7:3]` did nothing: 10 of the
-chip's 24 pins. In a design judged on flexibility, pins are the scarcest resource; with
-eight, SPI plus UART plus I2C already filled the chip. Version 1.2 turns them into five
+chip's 24 pins. For a protocol engine, pins are the scarcest resource; with eight, SPI
+plus UART plus I2C already filled the chip. Version 1.2 turns them into five
 split pins, B0–B4, each an output on `uo_out[3+i]` and an input on `ui_in[3+i]`.
 
 - *Per-context banks, not wider masks.* Every pin-carrying instruction format uses
@@ -408,7 +408,8 @@ single 1024×32 routes and meets timing in the floorplan of D-51: with five macr
 pages and the tape) the halos leave no room to route (global-route overflow 1,063), and
 two 512×32 in the same shape congested (overflow 2,125 to 6,165). The single macro has a
 slower clock-to-data (7.32 ns slow corner, 5.19 ns plus the page multiplexer for four
-256×32) and a higher energy per read (36.1 pJ against 22.0 pJ), and is the smallest
+256×32) and a higher energy per read (36.1 pJ against 22.0 pJ at the slow corner; 48.3
+against 26.0 pJ at the typical one), and is the smallest
 (140,183 µm² against 197,954 µm²). Its slower read costs nothing at 50 MHz: in the
 adopted harden every flip-flop path, the fetch included, has at least +1.51 ns at the slow
 corner (D-53).
@@ -459,8 +460,114 @@ cycle: lemmas prove the registered terms equal their definitions at every comple
 that the one-hot owner equals the owner's decode; two planted faults (the one-hot owner stuck,
 the terms sampled too early) each fail them.
 
+## Version 3: receive and the bus timing monitor
+
+**D-55 Scope.** Two silicon additions, both chosen for what they let the chip do rather
+than for speed: the line unit receives as well as it sends (three strobe sources, D-56, and
+the half-tick sampler, D-57), and a bus timing monitor checks other devices' timing
+(D-58). The edge-anchored wait considered for version 2 stays out: its kill check found no
+program in the library that gains 1.5× in rate or margin from it. Each addition sits
+behind the same campaign as everything else, and the version 2 design remained the
+verified fallback until version 3 passed it.
+
+**D-56 One receiver, three strobes.** Receiving Manchester and clocked buses could have
+meant two new receivers. Instead the existing receiver gains a choice of where its bit
+strobe comes from, and everything after the strobe (decoding, destuffing, the sync hunt,
+the CRC, the tape writes) stays shared. The **cell decoder** reuses the bit timer as a mask
+timer: after each accepted mid-bit edge it ignores edges for about three quarters of a bit,
+so the next accepted edge is the next mid-bit edge. Every bit re-anchors it, so no
+phase-locked loop is needed. The **external clock** takes the strobe from an edge of the
+second pin, whose synchroniser matches the data pin's, so their skew is kept to the tick.
+Two further changes came with it: **long receive** (limits in units of 32 bytes, up to
+1,024 bytes, a 14-bit count), because a 10BASE-T frame is at least 64 bytes and the old
+limit was 32; and the **hand-over** of each completed word, because with the faster
+strobes a bit can arrive before the owner's tape-write slot, and in a first version it
+overwrote the finished word's bit 0. The additions cost about 4,300 µm² in synthesis
+against an estimate of 4,000 to 8,000.
+
+**D-57 A half-tick sampler for the line unit only.** At 50 MHz a 10BASE-T half-bit is 2.5
+ticks, and 802.3 allows each edge about ±13.5 ns of jitter. With one sample per 20 ns tick,
+a bit-boundary edge can be seen 83.5 ns into the bit, past a three-quarter mask point at
+75 ns. Sampling also on the falling clock edge places edges to 10 ns: the latest boundary
+edge at 73.5 ns, the earliest mid-bit edge at 76.5 ns, 1.5 ns either side of the mask.
+A faster clock was the alternative, and it does not work: at 60 MHz, one sample per tick
+still sees a boundary edge at 80.2 ns. The sampler is one bank of falling-edge flip-flops
+on the 13 protocol pins, re-timed by two rising-edge stages so that it adds one half-cycle
+path of 10 ns and no other. Only the cell decoder reads it, so every other input feature,
+and every existing program, sees exactly what it saw before. The test benches change
+protocol pins a quarter period after the falling edge, so a timing simulation never races
+the new flip-flops, and the co-simulation case for the 10BASE-T receiver is written to fail
+without the half sample.
+
+**D-58 The bus timing monitor: one rule shape, four rules, 16 bits.** EXPECT checks the
+answers to the chip's own edges; nothing checked traffic between two other devices. One
+rule shape, "the next edge of B comes MIN to MAX ticks after an edge of A", expresses setup,
+hold, pulse width, period and timeout, so the unit needs no notion of any protocol. Four
+rules cover the figures that matter on most buses (I2C needs about three, SPI two), and
+16-bit intervals reach 1.31 ms at 50 MHz, which covers I2C, SPI, CAN and UARTs down to
+about 1,200 baud; 12 bits would have stopped at 82 µs. The first build kept each rule's
+settings in plain flip-flops with write multiplexers (31.2k µm²); moving them into latch
+banks written through one shared word, as the chip's other rarely written registers are
+(D-40), brought it to 26.0k µm² with the same behaviour, and a proof that the latch banks
+hold what was written.
+
+**D-59 The monitor has an owner.** The first design made the monitor a shared unit that
+any context could configure and read. The non-interference induction then failed: a
+context's GETM read state that every other context's MON had shaped. Three answers were
+weighed. Excluding the monitor from the non-interference claim, as a shared channel like
+the capture unit, would have weakened the claim. Gating only GETM by an owner would not
+have isolated anything, since any context's MON could still rewrite the rules. Giving the
+monitor an owner, by the line unit's rule (the first context whose MON commits in a run,
+until the next start), isolates it fully for four flip-flops: another context's MON faults
+ADMIT/OWNER and its GETM reads 0, so a program loaded live beside the owner can neither
+rewrite its rules nor read what they caught. The non-interference proof keeps every GETM
+in the observed context's words and requires it to read 0.
+
+**D-60 Whole counts through GETM, not a trailer word.** A long receive counts to 8,192 bits
+and a CRC-32 has 32 bits, but the line unit's status word has room for 9 and 16. GETM 3 and
+4 return the whole count and the whole CRC register to the line unit's owner, with no new
+state. The alternative, a trailer word written to the tape after the packet, would have
+needed a second write and a reserved word in every buffer.
+
+**D-61 The compact floorplan: both memories in the east column.** The first version 3
+hardens did not route at any density tried (global-route overflow 932 to 4,592). Ablation
+runs, each to global routing only, removed one addition at a time: without the monitor
+the overflow fell to 0. The monitor and the line unit sat at the left with the tape
+(D-51), about 900 µm from the core's execute stage, and the words between them (rules
+written, counts and records read) crossed the die on Metal3, the only horizontal signal
+layer. Narrowing those interfaces to one 32-bit read word, with the core keeping the
+recorded ticks, cut the overflow by more than half and was proved sequentially equivalent, but did not
+make the design routable. The floorplan did: with the tape moved inboard the logic packed
+into one block, routed with no overflow and used about 20% less wire. The adopted one puts the program store at the bottom right and the tape above it at
+the top right, pins facing the logic, so the logic is one rectangle with no macro in its
+horizontal paths. The decorative layout-art macro could not stay: placed at the left, its
+halo stranded rows that the power grid fed with a stub stripe, which the shuttle's
+precheck rejects; placed beside the store, it cost 1.3 ns of setup and broke hold at the
+fast corner. It was removed. Two flow settings complete the floorplan. Clock-gate sinks
+are clustered within 50 µm, because the default 833 µm let clock-tree synthesis move gates
+far from their banks. The placement density is 61% rather than 60%, because at 60% one
+clock gate lost its clock input in clock-tree synthesis, the OpenROAD defect of D-45
+(issue #9816, fixed upstream but not in the flow's release), which the disconnected-pins
+check, LVS and the netlist proofs all catch. The adopted harden meets every criterion and
+the shuttle's precheck: setup +1.480 ns at the slow corner, hold +0.180 ns
+at the fast corner, no DRC, LVS or antenna violation.
+
+**D-62 The clock stays at 50 MHz.** The shuttle allows 60 MHz. At 8 × 4 the slow corner
+would need about 3 ns more, against under 2 ns of slack at 20 ns, so the gain would mean
+pipeline changes and a late closure fight. What it would buy is small: both-edge sampling
+already doubles the input resolution where it matters (D-57), and every protocol in the
+library already runs at 50 MHz or below.
+
 ## Measured and rejected
 
+- **The tape at the bottom left in version 3.** It anchored the line unit in version 2
+  (D-51), but with the full monitor the logic spread across the die and Metal3 overflowed
+  (932 to 4,592) at every density from 52% to 62%. D-61.
+- **Lower density to spread the version 3 logic.** It made the overflow worse (52%: 4,592;
+  60%: 3,578): spreading lengthened the horizontal nets that were the problem. D-61.
+- **The layout art beside the program store (version 3).** The precheck passed, but setup
+  fell to +0.60 ns and fast-corner hold to −0.26 ns. D-61.
+- **A 60 MHz clock.** D-62.
 - **Five macros at 8×4 (four 256×32 pages and the tape).** Either the line unit lands at the
   east end (setup −2.2 ns) or, with the pages as a block on the right, global routing
   overflows (1,063). D-50.

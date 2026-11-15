@@ -1,151 +1,165 @@
-# The tape, the execution digest and a waiting GETI
+# The tape and the execution digest
 
-Version 1.1 of the machine adds three things (D-24, D-25, D-26 in
-[design decisions](06-DECISIONS.md)). The normative text is
-[11-SEMANTICS](11-SEMANTICS.md) §6.5, §7.3, §7.6 and §10.1; this page explains why.
+This chapter explains two design choices that shape how the chip stores data and how it
+is checked: one shared, timestamped memory, the **tape**, instead of separate buffers for
+each job; and the **execution digest**, a 32-bit signature of a whole run. It also
+explains a smaller rule that came with them, that GETI waits for samples still in flight.
+The normative text is [11-SEMANTICS](11-SEMANTICS.md) §6.5, §7.3, §7.6 and §10.1, and the
+decisions are D-24 to D-26 in [06-DECISIONS](06-DECISIONS.md).
 
 ## The problem
 
-Version 1.0 could drive, sample and check pins at exact ticks, but it had **nowhere to
-put anything**. There was no data memory, so an emulated I2C device could keep only a
-few bytes in a register. A capture buffer and a replay mechanism were separate needs
-again. Building data storage, capture and replay separately in flip-flops would cost
-about 1,000 flops for each 16-entry buffer, and routing congestion with them.
+A chip that only drives, samples and checks pins at exact ticks has nowhere to put
+anything. An emulated I2C EEPROM needs 256 bytes of memory; a logic analyser needs a
+buffer of timestamped edges; replaying a recorded waveform needs that buffer again as a
+source. Built separately in flip-flops, each 16-entry buffer would cost about 1,000
+flip-flops, add routing congestion, and still be too small to be useful.
 
-## The idea: one timestamped tape
+## One timestamped memory
 
-A second `RM_IHPSG13_1P_256x32` macro (49,488 µm², 5.4% of the 6×4 die) becomes the
-**tape**. Firmware, the capture unit and the host share it:
+The tape is a second single-port SRAM macro of 256 words of 32 bits, 49,488 µm², about 4%
+of the core. Firmware, the capture unit and the host share it:
 
 | User | Access | When |
 | --- | --- | --- |
-| Firmware | `LDT ra, rb, imm8` / `STT ra, rb, imm8` (address `R[rb] + imm8`) | In its commit cycle |
-| Capture unit | One record `{levels[7:0], tick[23:0]}` per watched-pin change | Any cycle the port is free |
-| Host | `WRITE_TAPE` / `READ_TAPE` (host protocol v1.1), `TAPE_ACK` (v1.3) | Writes while stopped; reads in any cycle the core leaves free (v1.3) |
+| Firmware | `LDT ra, rb, imm8` and `STT ra, rb, imm8`, at address `R[rb] + imm8` | In its own commit cycle |
+| Capture unit | One record `{levels[7:0], tick[23:0]}` per change of a watched pin | Any cycle the port is free |
+| Line unit | Packet data, read for transmission and written on receive | Its owner's commit cycles |
+| Host | `WRITE_TAPE`, `READ_TAPE` and `TAPE_ACK` ([12-HOST-PROTOCOL](12-HOST-PROTOCOL.md)) | Writes while stopped; reads in any cycle the core leaves free |
 
-One memory then covers four jobs:
+One memory then serves four jobs:
 
-- **Device emulation.** [`i2c_eeprom.asm`](../firmware/i2c_eeprom.asm) is a 24C02
-  whose 256 bytes live in the tape. It runs at Standard and Fast mode against a
-  scripted controller with timing checks. [`spi_target.asm`](../firmware/spi_target.asm)
-  serves the same kind of memory as a 25xx-style SPI part.
+- **Device emulation.** [`i2c_eeprom.asm`](../firmware/i2c_eeprom.asm) is a 24C02 whose
+  256 bytes live in the tape, at Standard and Fast mode.
+  [`spi_target.asm`](../firmware/spi_target.asm) serves the same kind of memory as a
+  25xx-style SPI part.
 - **Logic analyser.** [`logic_analyzer.asm`](../firmware/logic_analyzer.asm) is four
-  instructions. Capture keeps running after every context halts, until the region
-  fills (or forever in ring mode, which keeps pre-trigger history). In stream mode
-  (v1.3, D-32) the host reads and acknowledges records during the run, so a capture is
-  no longer capped at 256 records but at the host link's rate.
-- **Record and replay.** A capture record has the same shape as a DRIVE event (a tick
-  and levels), so `sw/esctape.build_replay()` turns a capture straight into
-  [`replay.asm`](../firmware/replay.asm) plus tape contents. The replay is tick-exact
-  (tested), or refused if it is too dense.
-- **Exact input timestamps.** Firmware can read capture records too, so the exact tick
-  of an input edge is available without quantising to the 4-tick slot grid.
+  instructions long, because the capture unit does the work. Capture keeps running after
+  every context halts, until its region fills, or for ever in ring mode, which keeps the
+  history before a trigger. In stream mode the host reads and acknowledges records during
+  the run, so the length of a capture is limited by the host link's rate, not by the
+  tape's 256 words.
+- **Record and replay.** A capture record has the same shape as a DRIVE event, a tick and
+  levels, so `sw/esctape.build_replay()` turns a capture directly into
+  [`replay.asm`](../firmware/replay.asm) and its tape contents. The replay is exact to the
+  tick, or it is refused if the trace is too dense to replay on time.
+- **Exact input timestamps.** Firmware can read capture records too, so it can learn the
+  exact tick of an input edge without the four-tick uncertainty of a wait.
 
-## Why it stays deterministic
+## Why sharing costs no determinism
 
-The single port has three users (four with v1.4's line unit) and no stalls that firmware
-can see:
+Four users share one port, and none of them ever makes another wait in a way that changes
+a program's timing:
 
-- **Firmware owns the port only in its own commit cycle**, and one context commits per
-  cycle, so LDT/STT never conflict with each other and never WAIT. (v1.4: the line unit
-  uses its owner's commit cycles, so only the owner's LDT/STT can wait, and only for the
-  unit's own accesses; every other context is unaffected.) `STT` writes at the
-  commit edge. `LDT` reads at the commit edge, and the register is written one edge
-  later. That is architecturally invisible, because the same context's next commit is
-  four ticks away (a paired context makes no fetch after an LDT, so the same holds, v1.7).
-- **Capture fills the gaps.** A two-record staging FIFO drains into any cycle without
-  an LDT/STT. A burst that would need a third slot does not drop a record silently.
-  It latches `ovf` and `ovf_tick`, stops generation, and still writes the records
-  already staged, so the prefix is complete and the failure is visible. This is the
-  reject-not-late rule applied to observation.
-- **The host takes what is left.** It writes the tape only while stopped. Since v1.3 it
-  reads during a run, each word in a cycle the core leaves free, so a host read never
-  delays the core; a word it could not fetch in time is flagged, not wrong.
+- **Firmware uses the port only in its own commit cycle**, and one context commits per
+  cycle, so loads and stores never conflict. STT writes at the commit edge. LDT reads at
+  the commit edge and writes its register one edge later, which no program can observe,
+  because the same context's next commit is four ticks away; in pair mode too, because a
+  paired context makes no fetch right after an LDT.
+- **The line unit uses its owner's commit cycles.** Only the owner's own loads and stores
+  can therefore wait for it, and only for one of the unit's accesses; the timing
+  certificate accounts for that wait, and no other context is affected.
+- **Capture fills the gaps.** A two-record staging buffer drains into any cycle without a
+  load or store. A burst that would need a third slot does not lose a record silently:
+  capture stops, records the tick at which it overflowed, and still writes the records
+  already staged, so the recording is complete up to a known point and the failure is
+  visible. This is the chip's refuse-rather-than-be-late rule applied to observation.
+- **The host takes what is left.** It writes the tape only while the chip is stopped. It
+  can read during a run, each word in a cycle the core leaves free, so a host read never
+  delays the core; a word it could not fetch in time is flagged, not returned wrong.
 
-Whether a record overflows is therefore a pure function of program and inputs, and
-both models predict it. The random co-simulation exercises it on purpose:
-LDT/STT bursts collide with capture drains, and all 256 tape words are compared after
-every run.
+Whether a capture overflows is therefore a function of the programs and the inputs alone,
+and both the simulator and the RTL predict it. The random co-simulation provokes it on
+purpose, with bursts of loads and stores colliding with capture drains, and compares all
+256 tape words after every run.
 
-### Record format choices
+### The record format
 
-- **Ticks mod 2^24 plus epoch markers.** A record is one word, so the 256-word tape
-  holds 256 edges. A record is written at every 2^24-tick boundary while capture runs,
-  so absolute time can be recovered from the words alone (0.67 s epochs at 25 MHz).
-- **All eight levels, triggered by a mask.** A record is a full snapshot (it replays
-  without context), but only watched pins create records.
-- **A snapshot at arming**, so a trace always starts from known levels.
+- **Ticks modulo 2^24, with epoch records.** A record is one word, so the tape holds 256
+  edges. While capture runs, a record is also written at every 2^24-tick boundary, so
+  absolute time can be rebuilt from the words alone. An epoch is 0.67 s at 25 MHz and
+  0.34 s at 50 MHz.
+- **All eight levels, triggered by a mask.** Each record is a full snapshot of its bank's
+  eight pins, so it replays without context, but only the watched pins create records.
+- **A snapshot when capture is armed**, so a trace always starts from known levels.
 
-## The execution digest: a 32-bit witness of a run
+## The execution digest: a 32-bit signature of a run
 
-Every edge of a run that commits an instruction, writes a loaded register or changes
-an output folds `{pins, commit outcome/context/PC, register write data}` into a 32-bit
-MISR (CRC-32 polynomial). See [§10.1](11-SEMANTICS.md) for the exact rule.
+On every edge of a run where something happens (an instruction commits, a loaded
+register is written, or an output changes), the chip folds the pin state, the commit's
+outcome, context and program counter, and any register write data into a 32-bit
+multiple-input signature register using the CRC-32 polynomial. The exact rule is in
+[§10.1](11-SEMANTICS.md).
 
-Why it matters:
+The digest is useful in three ways:
 
-- **Silicon against model in one read.** Both models are tick-exact, so after a
-  program reaches HALT the host reads one word (`READ_DBG` sel 16). The ISS predicts
-  the same word from the same image and input trace. Equal words mean the chip executed
-  the same commits, outcomes, register values and pin states as the reference model, at
-  a confidence of about 1 − 2^−32 per run.
-- **Inputs come from the tape.** For input-dependent programs the input trace is the
-  capture. So capture, the ISS and the digest together give full observability of a
-  silicon run without a debug port: replay the captured inputs in the ISS, and the
-  digest confirms the replay is faithful.
-- **It costs 48 flops** (32 for the digest, 16 for the previous outputs).
+- **Silicon against the model in one read.** Both the simulator and the RTL are exact to
+  the tick, so after a run the host reads one word (`READ_DBG` select 16), and the
+  simulator predicts the same word from the same image and inputs. Equal words mean the
+  chip executed the same commits, outcomes, register values and pin states as the
+  reference, with a chance of about 2^−32 that a difference goes unnoticed.
+- **Inputs come from the tape.** For a program whose behaviour depends on its inputs, the
+  capture records those inputs. Capture, the simulator and the digest together therefore
+  make a silicon run fully observable without a debug port: replay the captured inputs in
+  the simulator, and the digest confirms the replay matches what the chip did.
+- **It is cheap**: 48 flip-flops, 32 for the signature and 16 for the previous outputs.
 
-The digest folds only on edges where something happens, so it freezes once every
-context has stopped. A host STOP that arrives at an unknowable SPI time therefore
-cannot change it.
+The digest changes only on edges where something happens, so it stops changing once
+every context has stopped. A host STOP that arrives at an unpredictable moment of an SPI
+transfer therefore cannot change it.
 
-## GETI waits for in-flight SAMPLEs (D-20, D-26)
+## GETI waits for samples in flight
 
-In version 1.0, a `GETI` that committed at the edge where the last `SAMPLE` retired
-returned the word without that bit, and the bit went into the next word. Firmware had to
-avoid this with an explicit `WAITT`, and an SPI routine once lost a bit by missing one.
-That is a silent failure in a design whose rule is "never silently", so `GETI` is now
-wait-class: it waits while any SAMPLE is in the FIFO, including one due that cycle. The
-cost is one OR over four FIFO kind fields.
+GETI returns the bits that SAMPLE events have shifted into `ish`. In the first version of
+the machine, a GETI that committed on the same edge as the last SAMPLE's deadline returned
+the word without that bit, and the bit went into the next word. Firmware had to avoid this
+with an explicit wait, and an SPI routine once lost a bit by missing one. That is a silent
+failure in a design whose rule is that nothing fails silently, so GETI is wait-class: it
+waits while any SAMPLE is still in the queue, including one due in that cycle. The cost is
+one OR over the queue's four entry kinds.
 
 ## Cost
 
-| Item | Flops | Area |
+| Item | Flip-flops | Area |
 | --- | ---: | --- |
-| Tape macro | – | 49,488 µm² (top-right corner, [physical design](03-PHYSICAL-DESIGN.md)) |
-| Capture unit (`esc_cap.v`) | ~150 | mostly staging (64) and the overflow tick (32) |
+| Tape macro | – | 49,488 µm² (top right, [03-PHYSICAL-DESIGN](03-PHYSICAL-DESIGN.md)) |
+| Capture unit (`esc_cap.v`) | about 150 | mostly the staging buffer (64) and the overflow tick (32) |
 | Digest | 48 | |
 | LDT write-back, GETI wait | 5 | |
 | Host tape commands | 1 | |
 
-**About 200 flops in total**, against roughly 1,000 for a 16-entry flip-flop capture
-buffer, which would have 1/16 of the depth, no data memory and no replay.
+That is about 200 flip-flops in all, against roughly 1,000 for a single 16-entry capture
+buffer in flip-flops, which would have a sixteenth of the depth, no data memory and no
+replay.
 
 ## Evidence
 
-- **Hand-derived simulator tests** (`sw/tests/test_v11.py`) cover addressing, ring,
-  full, overflow on a busy port, the epoch marker, CAPT disable and re-arm, GETC timing,
-  and a digest recomputed independently from the observation records.
-- **ISS against RTL, tick for tick.** 300 random programs with tape traffic,
-  21,055 commits, 0 mismatches, comparing every commit, every pin on every tick, the
-  digest, the capture state and all 256 tape words. Every protocol firmware also
-  matches, including the EEPROM (27,500 commits).
-- **Formal.** The cover task reached all 12 goals, including capture overflow, region
-  full, ring wrap and a drain plus push with two records staged. The new safety
-  properties are: capture never writes outside its region, staging ≤ 2, and generation
-  only during a run.
-- **Mutation** (`test/mutation/run_mutants.py`). Mutants of the digest, tape port, LDT
-  forwarding, GETI wait and capture rules are all killed
-  ([verification](04-VERIFICATION.md)).
-- **Record → replay** (`sw/tests/test_tape_replay.py`). A UART capture replays with
-  identical edge spacing, and a too-dense trace is refused with ADMIT, not replayed late.
+- **Simulator tests derived by hand** (`sw/tests/test_v11.py`) cover addressing, ring
+  mode, a full region, overflow on a busy port, the epoch record, disabling and re-arming
+  capture, the timing of GETC, and a digest recomputed independently from the observation
+  records.
+- **The simulator against the RTL, tick for tick.** Random programs with heavy tape
+  traffic, and every protocol firmware, are compared commit by commit, pin by pin on every
+  tick, and on the digest, the capture state and all 256 tape words at the end.
+- **Formal.** Proved properties: capture never writes outside its region, the staging
+  buffer never holds more than two records, and records are generated only during a run.
+  Cover goals reach capture overflow, a full region, a ring wrap, and a drain together
+  with a new record while two are staged.
+- **Mutation.** Mutants of the digest, the tape port, the LDT write-back, GETI's wait and
+  the capture rules are killed by the suites ([04-VERIFICATION](04-VERIFICATION.md)).
+- **Record and replay** (`sw/tests/test_tape_replay.py`). A UART capture replays with
+  identical edge spacing, and a trace that is too dense is refused with ADMIT, not
+  replayed late.
 
 ## Limits
 
-- **Replay** covers one 2^24-tick epoch (0.67 s) and costs 40 ticks per record in
-  firmware. A trace denser than that faults (ADMIT) at the first edge it cannot meet.
-- **Capture** sees the synchronised vector: the 2-tick synchroniser lag, and pulses
-  shorter than a tick, are not resolved.
-- **The EEPROM** clock-stretches before each ACK, which a real 24C02 does not. Fast
-  mode depends on the 28-tick fall-to-stretch path inside the 33-tick minimum tLOW,
-  which is measured in simulation against our controller model only.
+- **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz) and costs ten instructions, 40
+  ticks, per record. A denser trace faults (ADMIT) at the first edge it cannot meet; the
+  four-entry queue absorbs short bursts.
+- **Capture** sees the synchronised inputs, so it has their two-tick lag, and a pulse
+  shorter than a tick may not be seen.
+- **The EEPROM** stretches the clock before each ACK, which a real 24C02 does not. Its
+  Fast-mode timing relies on holding SCL low within 28 ticks of the eighth falling edge,
+  inside the 33-tick minimum low time at 25 MHz; this is measured in simulation against
+  the controller model, and the firmware has also stood in for a real 24LC02B on a real bus
+  recording ([04-VERIFICATION](04-VERIFICATION.md)).

@@ -1,21 +1,20 @@
 # The line unit
 
-The line unit (v1.4) moves packets between the tape and the pins and does the line coding
-on the way: NRZI, bit stuffing, a sync prefix, a CRC (of any width up to 32 bits since
-v1.6), an end-of-packet, and clock recovery on receive. Since v1.6 each bit can be a
-pattern of cells (Manchester, pulse-width codes) and the second pin can carry a clock, so
-10BASE-T Ethernet frames, SPI at 10 Mb/s and LED strips are configurations of it too.
-Firmware handles packets; the line unit handles bits. It keeps the chip's timing model: a
-packet starts as an event at an absolute deadline, and a reception reports the tick its
-packet ended, so a reply can be scheduled a fixed number of ticks after the host's packet,
-exact to the tick.
+The line unit moves packets between the tape and the pins and does the line coding on the
+way: NRZI, bit stuffing, a sync prefix, a CRC of any width up to 32 bits, and an
+end-of-packet signal. Each bit can be a pattern of cells (Manchester, pulse-width codes),
+and the second pin can carry a clock, so USB, CAN, 10BASE-T Ethernet frames, SPI at
+10 Mb/s and LED strips are all configurations of the same block. On receive it takes its
+bit strobe from one of three sources: a clock recovered from the line's own edges, a cell
+decoder for Manchester codes, or an external clock on a second pin.
 
-The normative definition is [11-SEMANTICS §6.6](11-SEMANTICS.md#66-line-unit-v14-one-global).
-Status: v1.4 specification, simulator, firmware, timing certificates and RTL
-(`src/esc_line.v`, integrated in the core and checked against the simulator cycle by
-cycle), on `master`. Laid out with the rest of v1.4 at 6×4 (harden `v14i`, reproduced by
-CI's harden), and again with v1.5 (harden `v15c`), every sign-off check passing
-([physical design](03-PHYSICAL-DESIGN.md)).
+The division of labour is simple: firmware handles packets, the line unit handles bits.
+The unit also keeps the chip's timing model. A packet starts as an event at an absolute
+deadline, and a reception reports the tick on which its packet ended, so a reply can be
+scheduled a fixed number of ticks after the host's packet, exact to the tick.
+
+The normative definition is [11-SEMANTICS §6.6](11-SEMANTICS.md#66-line-unit-v14-one-global),
+and the RTL is `src/esc_line.v`, checked against the simulator's model on every cycle.
 
 ```
 python -m escert firmware/usb_hid.asm      # the reply-timing certificate (below)
@@ -30,11 +29,10 @@ that per bit, so low-speed USB cannot be done in software on this chip (CAN
 transmission can, at modest bit rates: `firmware/can_tx.asm`).
 A small datapath does the bit work, and one block serves several roles:
 
-- **line coder** for transmission (`SEND`), with a monitor that stops a packet at the
-  first bit that reads back wrong (CAN arbitration and acknowledgement);
-- **receiver** with clock recovery: a hard sync at the start of a packet, a resync on
-  every transition, a sample point inside each bit, destuffing, and a hunt for the
-  sync pattern (`LINE` RECV);
+- **line coder** for transmission (`SEND`), with a read-back check that stops a packet at
+  the first bit that reads back wrong (CAN arbitration and acknowledgement);
+- **receiver** (`LINE` RECV): a strobe for each bit (below), destuffing, a hunt for the
+  sync pattern, the CRC, and the received bits written to the tape;
 - **CRC engine** on tape data (`LINE` CRC), which the USB firmware uses to compute its
   own token CRC-5 when the host gives it an address.
 
@@ -53,14 +51,16 @@ Two design rules come from the rest of the chip:
 
 | Instruction | Effect |
 | --- | --- |
-| `LINE rs` **W** | `rs[31:28]` = 0 OFF, 1 RECV (buffer word `rs[7:0]`, limit `rs[12:8]` bytes), 2 CRC (word `rs[7:0]`, `rs[15:8]` bits, `rs[16]` result in sent order), 3 CONFIG (three words at `rs[7:0]`). Waits while a job is running, except OFF. |
+| `LINE rs` **W** | `rs[31:28]` = 0 OFF, 1 RECV (buffer word `rs[7:0]`, limit `rs[12:8]` bytes, or units of 32 bytes in long mode), 2 CRC (word `rs[7:0]`, `rs[15:8]` bits, `rs[16]` result in sent order), 3 CONFIG (three words at `rs[7:0]`, five with `ext`). Waits while a job is running, except OFF. |
 | `SEND rs` **W** | a packet at deadline `tmr`: header `rs[23:16]`, append CRC `rs[15]`, `rs[14:8]` stream bits from word `rs[7:0]`. Z = 1 if queued, 0 if dropped as late. |
 | `GETL rd` **W** | waits for the job to end, then `rd` = status and `tmr` = its end tick, Z = 1; or at `tmr` first, `rd` = status, Z = 0 (a timeout). |
+| `GETM rd, 3` / `GETM rd, 4` | the whole received bit count (14 bits) and the whole 32-bit CRC register, for the owner; the status word has room for only 9 and 16 bits of them |
 
 The status word holds the last job (RECV, CRC, CONFIG, SEND), its cause (OK, stuffing
-violation, SE0, buffer full, no sync, monitor mismatch), a bit count and the CRC
+violation, SE0, buffer full, no sync, read-back mismatch), a bit count and the CRC
 register. A good USB DATA packet, for instance, ends with cause OK, 8 bits per byte and
-the CRC-16 residual 0x800D.
+the CRC-16 residual 0x800D. A long receive or a CRC-32 does not fit those fields, which
+is what the two GETM selects are for.
 
 A configuration is three tape words: pins (`d`, `n` for a differential pair, `r` for
 receive), NRZI, bit order, stuffing (N equal bits, then a 0 or their complement),
@@ -129,12 +129,11 @@ The certificate needed escert to learn one thing: the CRC job's length comes fro
 frame, so its operand is known only down to bits 31:16 (`MOVHI`). escert now takes that as
 a CRC job of 0 to 255 ticks that writes no tape word ([verification](04-VERIFICATION.md#timing-certificates)).
 
-## The extended configuration (v1.6)
+## Symbols and cells: the extended configuration
 
 A configuration whose W2 has `ext` carries two more words, W3 and W4
-([§6.6](11-SEMANTICS.md#66-line-unit-v14-one-global)); without it everything above is
-unchanged, digest included. One mechanism covers what would otherwise be separate
-blocks: each line bit becomes a **symbol** of up to eight **cells**, with one cell pattern
+([§6.6](11-SEMANTICS.md#66-line-unit-v14-one-global)); without it everything above holds
+as written. One mechanism covers what would otherwise be separate blocks: each line bit becomes a **symbol** of up to eight **cells**, with one cell pattern
 for a 0 and one for a 1, and the cell period is W1's period (2 ticks or more).
 
 | Profile | Cells, patterns | Other fields | Result |
@@ -146,15 +145,96 @@ for a 0 and one for a 1, and the cell period is W1's period (2 ticks or more).
 
 Streams can be up to 8191 bits (the SEND operand's bits 29:24 extend the length), with
 the next tape word fetched halfway through the current one, so 4-tick bits never wait
-for the tape. The CRC register is 32 bits; a 16-bit configuration uses its top half, as
-before. The receiver decodes one interval per bit, so a RECV with more than one cell ends
-at once (cause VIOL).
+for the tape. The CRC register is 32 bits; a 16-bit configuration uses its top half.
+Symbol coding is a transmit feature: the receiver takes one strobe per bit, so a RECV with
+more than one cell ends at once (cause VIOL), except for two cells with the cell decoder,
+which is how Manchester is received (next section).
 
 `firmware/eth_tx.asm` is a 10BASE-T transmitter: link pulses every 16 ms while idle, and
 each frame the host sends through the mailbox as one packet. It needs a 40 MHz clock
 (half-bits of exactly 2 ticks; an `.assert` stops the assembly at any other `CLK_KHZ`) and
-a transformer or an RJ45 jack with magnetics on two pins. Receive is not implemented: a
-10BASE-T receiver needs a line comparator, and Manchester at 4 samples per bit.
+a transformer or an RJ45 jack with magnetics on two pins.
+
+## Receiving: three strobes
+
+A receiver's hardest job is deciding when to sample each bit. Different protocols answer
+that question differently, so the unit offers three **strobe sources**, chosen by W4's
+`rxs` field. Everything after the strobe (decoding, destuffing, the sync hunt, the CRC and
+the tape writes) is shared.
+
+**A recovered clock** (`rxs` = 0, and the only source without `ext`). A bit timer runs at
+the configured bit period. Every transition on the line restarts it, optionally only
+falling ones (`fall`, which CAN needs), and the bit is sampled S ticks after each
+restart. This suits signals with frequent edges, where the timer never drifts far from
+the sender's clock: UART-like lines, USB with its bit stuffing, CAN with its stuff bits.
+
+**A cell decoder** (`rxs` = 1) for two-cell codes such as 802.3 Manchester, where every
+bit has a transition in its middle and may have one at its boundary too. The decoder
+accepts an edge only if at least S ticks have passed since the last accepted one, with S
+set to about three quarters of a bit. Boundary edges therefore fall inside the ignored
+window, and each accepted edge is the next bit's middle; the bit is the level after it.
+No phase-locked loop is needed, because every bit's own edge re-anchors the decoder.
+After the preamble, the decoder hunts for two 1s in a row, the end of the 802.3
+start-of-frame delimiter, and a packet ends after one and a half bit times with no
+accepted edge, which is how 10BASE-T's end-of-transmission idle looks on the line.
+
+**An external clock** (`rxs` = 2) for clocked buses. The second pin `n` is the clock, and
+each rising edge of it (or falling, with `rxpol`) samples the data pin. Data and clock
+pass through the same synchronisers, so the skew between them is preserved to the tick,
+and a bit can arrive as often as every 2 ticks. A clocked bus has
+no start bit, so the receiver starts at once when armed, and a frame ends after one and a
+half configured bit times with no clock edge.
+
+**Both-edge sampling.** At 50 MHz a 10BASE-T bit is 5 ticks, and its two halves are
+2.5 ticks each, so a cell boundary falls between two ticks. The 802.3 standard lets each
+edge wander by about ±13.5 ns. With one sample per 20 ns tick, a boundary edge can be seen
+as late as 83.5 ns into the bit, past a three-quarter mask point at 75 ns, and the bit is
+misread. With `both`, the decoder also reads the line from the chip's half-tick sample,
+taken on the falling clock edge ([01-ARCHITECTURE](01-ARCHITECTURE.md#seeing-the-inputs)),
+and counts its timer, period and sample point in half ticks. Each edge is then placed to
+within 10 ns, which brings the latest boundary edge to 73.5 ns and the earliest mid-bit
+edge to 76.5 ns: inside the mask with 1.5 ns to spare on each side. That margin is
+small, and it is why the 10BASE-T receiver uses both-edge sampling by default.
+
+**Long receive.** A RECV's limit normally counts in bytes, up to 256 bits. With `long` it
+counts in units of 32 bytes, up to 1,024 bytes, enough for an Ethernet frame carrying a
+ping or an ARP request. The tape holds 256 words, so a full-size 1,518-byte frame is cut
+at the limit and reported as such rather than overwriting other data.
+
+Each received word is handed over as soon as its 32nd bit arrives and written in the
+owner's next commit cycle, while the following bits already go into a fresh word. With
+the faster strobes a bit can arrive before that write, and the hand-over is what keeps it
+from disturbing the finished word.
+
+### 10BASE-T receive
+
+`firmware/eth_rx.asm` receives every frame on a 10BASE-T link, checks its frame check
+sequence and hands it to the host. The line reaches the chip through a transformer and a
+line comparator, biased so that an idle line reads 1. The firmware drives no pin, so
+`eth_tx.asm` in another context can share the jack's transmit pair. The firmware needs a
+clock that gives a whole number of ticks per bit, 40 or 50 MHz, and uses both-edge
+sampling by default. The line unit runs the CRC-32 over the frame and its FCS, so a good
+frame leaves the fixed residue 0xC704DD7B. Each reception reaches the host as a header word (FCS good, cause, bits
+received) followed by the received words; the receiver is armed again once the words are
+pushed, so a frame that arrives in that gap is missed, never corrupted.
+
+The simulator measures the margin directly ([`sw/tests/test_eth_rx.py`](../sw/tests/test_eth_rx.py),
+a transmitter 100 ppm off frequency): with both-edge sampling every frame decodes with
+each edge moved by up to 10 ns, and with one sample a tick only up to 5 ns, which is less
+than the standard allows. The co-simulation case for this firmware fails on purpose
+without the half-tick sample, so the RTL's falling-edge sampler is tested by it.
+
+### SPI sniffing
+
+`firmware/spi_sniff.asm` logs every frame a controller sends to a target on a shared SPI
+bus, without driving anything. The firmware arms the receiver when chip select falls; the
+line unit then takes one bit from MOSI per SCK edge of the mode's sampling polarity, at
+the controller's own rate, up to one bit every 2 ticks (a 25 MHz SCK at 50 MHz). A frame
+ends when SCK has been quiet for one and a half configured periods, and the firmware
+pushes the bit count and the bytes to the host. Two limits come from the design: the
+first SCK edge must come at least 16 ticks after chip select falls (the time to arm the
+receiver, 320 ns at 50 MHz, inside most targets' own setup time), and the controller's
+pauses inside a frame must be shorter than the quiet time.
 
 ## Reply timing, certified
 
@@ -200,18 +280,20 @@ boundary: one tick less and the simulator faults.
 | --- | ---: | --- |
 | `sw/tests/test_line.py` | 117 | Every rule of §6.6 on the simulator: configuration timing and faults, waveforms against an independent USB model written from the USB 2.0 text, packets of 0 to 8 bytes, stuffing including after the CRC, fractional bit periods, reception at ±5% clock and with jitter, truncated SYNC, dribble bits, stuffing errors, keep-alives, resets, CAN frames through the CAN bus model, late `SEND`s dropped |
 | `sw/tests/test_usb_hid.py` | 74 | The keyboard against a reactive USB host model that checks every device packet (EOP, stuffing, CRC, turnaround) and flags a device that drives the bus unasked: enumeration with exact descriptors, host clock ±1.5% and ±5%, random host gaps down to 2 bit times, keep-alives, `wLength` from 0 to 65535 around every packet boundary, standard and class requests, lost and corrupted handshakes, corrupted tokens and data, foreign addresses, bus reset at every stage, 10 ms resets with keep-alives every millisecond, long report sequences, glitches, hostile traffic |
-| `sw/tests/test_escert.py` | 19 more | The certificate above, checked against measured leads; exact boundaries for CONFIG, CRC and reception waits; a CRC job of input-dependent length; the path after a dropped `SEND`; ownership (v1.6: a `SEND` one tick before the first CONFIG completes, OFF, use before any CONFIG, no `tx_pins`); random programs on the line unit, with operands from the tape and from `MOVI`/`MOVHI` (wherever escert says CHECKED, the simulator never faults and measures no lead below the bound; every OWNER fault is flagged) |
+| `sw/tests/test_escert.py` | 19 more | The certificate above, checked against measured leads; exact boundaries for CONFIG, CRC and reception waits; a CRC job of input-dependent length; the path after a dropped `SEND`; ownership (a `SEND` one tick before the first CONFIG completes, OFF, use before any CONFIG, no `tx_pins`); random programs on the line unit, with operands from the tape and from `MOVI`/`MOVHI` (wherever escert says CHECKED, the simulator never faults and measures no lead below the bound; every OWNER fault is flagged) |
 | `sw/tests/test_usbip.py` | 4 | The USB/IP bridge, with the test playing the kernel's side |
-| `sw/tests/test_line_ext.py`, `test_eth.py` | 6 + 1 | v1.6: a 10BASE-T frame decoded as 802.3 Manchester with its FCS checked against zlib's CRC-32, the link pulse, SPI sampled at the clock's rising edges, WS2812 through the LED model, the CRC-32 job, RECV with cells; `eth_tx.asm` sending link pulses and a frame from the host |
-| `make line-test` (`test/line/`) | 8 seeds | The line unit RTL against the simulator's model, every output on every cycle: configurations from USB-like, CAN-like and random profiles, and since v1.6 10BASE-T, SPI-clock, pulse-code and random extended ones, packets at offset clocks with jitter and glitches, noise, the unit's own pins read back, owner faults, stop and start, tape writes from elsewhere. On the v1.6 RTL, 8 million edges across 40 seeds with no difference on each build, clock-gated and plain flip-flops (v1.4: 12 million cycles across 40 seeds) |
+| `sw/tests/test_line_ext.py`, `test_eth.py` | 6 + 1 | Symbol coding: a 10BASE-T frame decoded as 802.3 Manchester with its FCS checked against zlib's CRC-32, the link pulse, SPI sampled at the clock's rising edges, WS2812 through the LED model, the CRC-32 job, RECV with cells; `eth_tx.asm` sending link pulses and a frame from the host |
+| `sw/tests/test_eth_rx.py` | {{NUM:t_eth_rx}} | `eth_rx.asm` against an 802.3 waveform model with clock offset and jitter at half-tick resolution: frames at several ppm offsets with every edge moved, a frame longer than the buffer cut and flagged, one sample a tick shown to be not enough, and the co-simulation case shown to need the falling-edge sample |
+| `sw/tests/test_spi_sniff.py` | {{NUM:t_spi_sniff}} | `spi_sniff.asm` logging every frame in all four SPI modes, bits two ticks apart, pauses inside a frame, and a quiet time past the bit timer still ending the frame |
+| `make line-test` (`test/line/`) | {{NUM:line_test_seeds}} | The line unit RTL against the simulator's model, every output on every cycle: configurations from USB-like, CAN-like, 10BASE-T, SPI-clock, pulse-code and random profiles, forced receive profiles for the cell decoder (with and without both-edge sampling) and the external clock, packets at offset clocks with jitter and glitches, noise, the unit's own pins read back, owner faults, stop and start, tape writes from elsewhere. {{NUM:line_test_edges}} |
 | `sw/tests/test_firmware.py` | 6 | `can_rx` against a bus model: every frame type, 40 random frames back to back from nodes 0.5% slow or fast, bad CRCs, error flags, DLC over 8, 500 kbit/s |
 | `make cosim` | 4 jobs more | The whole chip, RTL against simulator, tick for tick and the final state of every debug register: `usb_hid.asm` enumerating and sending key reports to the USB host model, `can_rx.asm` receiving standard, extended and remote frames back to back, 40 firmware-shaped line unit programs (receives, packets at end-tick deadlines, CRC jobs, GETL timeouts, owner LDT/STT in the unit's tape cycles, another context's traffic), and random programs with line unit instructions from any context |
 
-Planted bugs check that these tests can fail. During v1.4's development, 18 bugs planted by
+Planted bugs check that these tests can fail. While the line unit was first built, 18 bugs planted by
 hand in the line unit model, 28 in the firmware and 9 in escert's line unit analysis were
 all caught; that campaign was not kept as a script. The planted bugs that can be rerun are
 the RTL mutants of `esc_line.v` in the mutation campaign (`make mutation`), and the timing
-bugs `make fw-mutants` plants in the seven line unit programs (54 of the 558; none
+bugs `make fw-mutants` plants in the line unit programs ({{NUM:fwmut_line}}; none
 certified and then faulting). The tests and the
 certificate found real problems that earlier tests had passed: the firmware missed a
 token sent two bit times after the host's ACK on a transfer's last packet, could send a

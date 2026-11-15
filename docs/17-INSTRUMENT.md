@@ -1,17 +1,20 @@
 # Escapement as an instrument
 
 The chip that speaks protocols can also watch and replay them. The capture unit
-timestamps every change of the watched pins to the 40 ns tick, the tape holds the
-records, and the host tools turn them into files that logic-analyser software opens.
-This page covers the three ways to capture, the files, replay, and the limits.
+timestamps every change of the watched pins to the tick (40 ns at 25 MHz, 20 ns at
+50 MHz), the tape holds the records, and the host tools turn them into files that
+logic-analyser software opens. This chapter covers the three ways to capture, the files,
+replay and the limits. Two other units also listen without driving anything: the line
+unit decodes whole packets from a bus between other devices, and the bus timing monitor
+checks that bus's timing against a datasheet (below).
 
 ## Three ways to capture
 
 | | How | Length | Needs |
 | --- | --- | --- | --- |
-| Stopped capture (v1.1) | Arm, run, STOP, read the tape | Up to 256 records | Any host |
-| Streaming capture (v1.3) | The host reads and acknowledges records during the run | As long as the host keeps up | Any host |
-| Live in PulseView (v1.3) | The demo board answers PulseView's Openbench Logic Sniffer driver | Up to 4 Mi samples per capture | The demo board |
+| Stopped capture | Arm, run, STOP, read the tape | Up to 256 records | Any host |
+| Streaming capture | The host reads and acknowledges records during the run | As long as the host keeps up | Any host |
+| Live in PulseView | The demo board answers PulseView's Openbench Logic Sniffer driver | Up to 4 Mi samples per capture | The demo board |
 
 All three run [`firmware/logic_analyzer.asm`](../firmware/logic_analyzer.asm): four
 instructions that arm the capture unit and halt, so the capture costs no instruction
@@ -78,6 +81,24 @@ The input may be a capture file, a VCD from any tool (pick its 1-bit signals wit
 [`firmware/replay.asm`](../firmware/replay.asm) with the trace in the tape. A trace the
 tape cannot hold is refused when it is built, and one too dense to replay on time is
 refused by the chip at admission: it faults instead of driving an edge late.
+
+## Listening at a higher level
+
+A capture records edges; two other units turn a watched bus into something more useful,
+and neither drives a pin.
+
+- **Packets.** The line unit's receiver decodes a bus between two other devices into
+  bytes on the tape, with its CRC checked: `spi_sniff.asm` logs every frame an SPI
+  controller sends, clocked by the controller's own SCK, and `eth_rx.asm` receives
+  10BASE-T frames and checks each frame check sequence
+  ([19-LINE-UNIT](19-LINE-UNIT.md#receiving-three-strobes)).
+- **Timing.** The bus timing monitor checks every edge of a bus against rules written
+  from a datasheet (setup, hold, pulse width, period, timeout) and reports each violation
+  with its tick and the interval it measured: `i2c_timing.asm` does this for I2C
+  ([22-BUS-MONITOR](22-BUS-MONITOR.md)).
+
+Either can run beside a capture, in another context, so the same bus can be recorded edge
+by edge, decoded and checked for timing at once.
 
 ## Limits
 
