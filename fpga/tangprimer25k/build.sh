@@ -23,6 +23,8 @@ case $target in
   bundles)
     cd "$R"
     PYTHONPATH=$R/sw PYTHONUTF8=1 ${PYTHON:-python3} sw/rp2350/make_bundle.py "$O" > "$W/bundles.log" 2>&1
+    # the Ethernet receive bench (eth_rx_bench.asm), which is not a library program
+    PYTHONUTF8=1 ${PYTHON:-python3} "$H/eth_bundles.py" "$O" >> "$W/bundles.log" 2>&1
     {
       echo "repo: $(git rev-parse HEAD) ($(git rev-parse --abbrev-ref HEAD))$(git diff --quiet HEAD -- sw firmware || echo ', sw/firmware modified')"
       echo "built: $(date -Is)"

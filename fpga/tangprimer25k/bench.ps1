@@ -7,9 +7,13 @@
 #   .\bench.ps1 pinid                 # wiring check (pinid.fs must be loaded)
 #   .\bench.ps1 bringup [-Opts "keep_going=True"]   # bring-up stages 0-5 (chip.fs loaded)
 #   .\bench.ps1 proof                 # copy the Pico's proof.json (stage 5 telemetry) into build\
+#   .\bench.ps1 eth [-Opts "count=30"]   # 10BASE-T frames from eth_tx at 40 MHz (README.md, Ethernet)
+#   .\bench.ps1 ethrx [-Opts "seconds=60"]   # 10BASE-T frames into eth_rx (the receive bench)
+#   .\bench.ps1 ethedges              # receive line check: high and low times on RXP
 #   .\bench.ps1 repl                  # MicroPython REPL (Ctrl-] to leave)
 #
-# Environment (all optional): MPREMOTE (default: mpremote on PATH), ESC_WSL_DISTRO (default: the
+# Environment (all optional): MPREMOTE (default: mpremote on PATH, else the one pip put in
+# Python's Scripts folder: python -m pip install mpremote), ESC_WSL_DISTRO (default: the
 # default distro), OSS_CAD_SUITE (an OSS CAD Suite folder inside WSL, else the tools on its PATH).
 # The Pico is found by its USB ID (2E8A:0005); -Port COMx overrides.
 param(
@@ -22,6 +26,13 @@ $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
 $Repo = (Resolve-Path (Join-Path $Here "..\..")).Path
 $Mp = if ($env:MPREMOTE) { $env:MPREMOTE } else { "mpremote" }
+if (-not $env:MPREMOTE -and -not (Get-Command $Mp -ErrorAction SilentlyContinue)) {
+    $py = Get-Command python -ErrorAction SilentlyContinue
+    if ($py) {
+        $s = Join-Path (& $py.Source -c "import sysconfig; print(sysconfig.get_path('scripts'))") "mpremote.exe"
+        if (Test-Path $s) { $Mp = $s }
+    }
+}
 $Build = Join-Path $Here "build"
 
 function Invoke-Wsl([string]$script) {
@@ -47,7 +58,8 @@ function Deploy-Files {
         @{ src = "$Repo\sw\rp2350\bringup.py"; dst = "bringup.py" },
         @{ src = "$Repo\sw\eschost\protocol.py"; dst = "protocol.py" },
         @{ src = "$Here\barepico.py"; dst = "barepico.py" },
-        @{ src = "$Here\pinid.py"; dst = "pinid.py" }
+        @{ src = "$Here\pinid.py"; dst = "pinid.py" },
+        @{ src = "$Here\ethbench.py"; dst = "ethbench.py" }
     )
     $bdir = Join-Path $Build "bundles"
     if (-not (Test-Path $bdir)) { throw "no ${bdir}: run .\bench.ps1 bundles first" }
@@ -82,9 +94,14 @@ switch ($Cmd) {
     "deploy" { Deploy-Files }
     "pinid" { Invoke-Mp @("exec", "import pinid; pinid.run()") }
     "bringup" {
-        $o = "io=barepico.open_io()"; if ($Opts) { $o += ", " + $Opts }
+        # the RP's default 125 MHz, which the PWM divides exactly to 25 MHz: an earlier eth
+        # run leaves the system clock at 160 MHz until the Pico resets
+        $o = "io=barepico.open_io(sys_hz=125000000)"; if ($Opts) { $o += ", " + $Opts }
         Invoke-Mp @("exec", "import barepico, bringup; bringup.run($o)")
     }
+    "eth" { Invoke-Mp @("exec", "import ethbench; ethbench.run($Opts)") }
+    "ethrx" { Invoke-Mp @("exec", "import ethbench; ethbench.listen($Opts)") }
+    "ethedges" { Invoke-Mp @("exec", "import ethbench; ethbench.edges($Opts)") }
     "proof" {
         New-Item -ItemType Directory -Force $Build | Out-Null
         $dst = Join-Path $Build ("proof-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".json")
@@ -97,5 +114,5 @@ switch ($Cmd) {
         if ($LASTEXITCODE) { throw "openFPGALoader failed: is the Dock attached to WSL (usbipd attach --wsl --busid <id>)?" }
     }
     "repl" { & $Mp connect (Find-Pico) repl }
-    default { Get-Content $PSCommandPath -TotalCount 15 | Select-Object -Skip 1 }
+    default { Get-Content $PSCommandPath -TotalCount 18 | Select-Object -Skip 1 }
 }

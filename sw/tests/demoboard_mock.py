@@ -11,7 +11,8 @@ access); the chip advances by the matching number of core clock cycles. Two chip
 backends implement the same small interface:
 
   SimChip      (here) the host interface of src/escapement_host.v modelled cycle by cycle
-               (2-flop synchronisers, SCK edge detection, the command decoder), the ISS
+               (2-flop synchronisers, SCK edge detection, the command decoder, the
+               mailboxes while the chip runs), the ISS
                (sw/esciss) as the core, and the two SRAMs, with injectable faults.
   RtlChip      (test/test_bringup_rtl.py) the RTL of the whole chip under cocotb.
 
@@ -222,7 +223,8 @@ class SimChip:
         m = self.m
         return (all(x.state != RUNNING and not x.fifo and not x.chk.active for x in m.ctx)
                 and not m.cap.stage and m._ld_dg is None and not self.uarts
-                and not self.sources and not (m.cap.en and self.pads.oe))
+                and not self.sources and not (m.cap.en and self.pads.oe)
+                and all(v is None for v in m._host_rx_push) and not any(m._host_tx_pop))
 
     def _core(self, n: int) -> None:
         if not self.running:
@@ -359,8 +361,12 @@ class SimChip:
                 return ((word >> 16) & 0xFF, (word >> 8) & 0xFF, word & 0xFF,
                         0 if cmd == C_DBG else src >> 24)[wcnt]
             return 0
-        if cmd == C_POP:
-            return 0
+        if cmd == C_POP:                        # ctx, then valid, then the word (MSB first)
+            if idx == 1:
+                v = self.m.host_tx_pop(rx & 3) if self.running else None
+                self.word = 0 if v is None else v
+                return int(v is not None)
+            return (self.word >> (8 * (5 - idx))) & 0xFF if 2 <= idx <= 5 else 0
         return 0
 
     def _byte(self, rx: int) -> None:
@@ -443,6 +449,16 @@ class SimChip:
                 self.word, self.wcnt = self._dbg(), 0
             elif self.wcnt != 3:
                 self.wcnt += 1
+        elif cmd == C_PUSH and 1 <= idx <= 5:      # ctx, then the word (MSB first)
+            if idx == 1:
+                self.mbx_ctx, self.word = rx & 3, 0
+                return
+            self.word = ((self.word << 8) | rx) & M32
+            if idx == 5 and self.running:           # a full mailbox drops it: host error
+                if len(self.m.ctx[self.mbx_ctx].rx) >= 2:
+                    self.host_err = 1
+                else:
+                    self.m.host_rx_push(self.mbx_ctx, self.word)
         elif cmd == C_PAGE and idx == 1:            # v2 (S-A)
             self.mem_page = rx & 3
         elif cmd == C_IRQC and idx == 1:
