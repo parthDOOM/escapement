@@ -5,13 +5,15 @@ PYTHON ?= python3
 # from data, so it is checked by the replay tests instead of by escert.
 FIRMWARE := $(filter-out firmware/replay.asm,$(wildcard firmware/*.asm))
 
-.PHONY: help env sw-test cert proof-table fw-mutants test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test mon-test lint formal formal-quick formal-bmc formal-props formal-pdr formal-v2 formal-teeth equiv mutation harden precheck clean
+.PHONY: help env sw-test cert proof-table fw-mutants pad-audit judges test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test mon-test lint formal formal-quick formal-bmc formal-props formal-pdr formal-v2 formal-teeth equiv mutation harden precheck clean
 
 help:
 	@echo "sw-test    assembler, ISS, certificate checker and bus-model tests (pytest)"
 	@echo "cert       static timing certificate for every firmware (escert)"
 	@echo "proof-table  every certified lead beside the lead the ISS measures (RTL=file adds the RTL's)"
 	@echo "fw-mutants timing bugs planted in the firmware: escert must reject every one that can fault"
+	@echo "pad-audit  every co-simulation case with its pins delayed 0 to 3 ticks each way (pads and board)"
+	@echo "judges     sigrok's protocol decoders read each case's pins, each with a control that must fail (needs sigrok-cli)"
 	@echo "test       chip-level tests on the RTL (test/, as in CI)"
 	@echo "gl-test    chip-level tests on a gate-level netlist (test/gate_level_netlist.v)"
 	@echo "pin-test   SWD, SPI target, NEC (25, 33, 50 MHz), two banks, a learned protocol and VGA Pong through the chip pins (gl-pin-test: on the netlist)"
@@ -29,7 +31,7 @@ help:
 	@echo "formal-props  cover, ahead, never-late, clock-gate, latch, configuration, live-write grant and line unit proofs"
 	@echo "formal-v2  the v2 proofs: tripwires (esc_core tw), the line unit bounded from reset, non-interference (esc_ni_ind kind + base)"
 	@echo "formal-teeth  known bugs planted one at a time (formal/teeth.sh): each proof they stand for must fail"
-	@echo "equiv      the gate-level netlist is sequentially equivalent to the RTL (yosys, ABC; ~4 min)"
+	@echo "equiv      the gate-level netlist is sequentially equivalent to the RTL (yosys, ABC; ~6 min)"
 	@echo "mutation   RTL mutation campaign against the co-simulation (JOBS in parallel)"
 	@echo "harden     local LibreLane harden with the pinned CI toolchain (TAG=name)"
 	@echo "precheck   Tiny Tapeout precheck on a local harden (RUN=runs/name)"
@@ -51,6 +53,12 @@ proof-table:
 
 fw-mutants:
 	$(PYTHON) test/mutation/fw_mutants.py --jobs $(JOBS)
+
+pad-audit:
+	$(PYTHON) test/cosim/pad_audit.py --jobs $(JOBS)
+
+judges:
+	$(PYTHON) test/cosim/judges.py --jobs $(JOBS)
 
 test:
 	cd test && $(MAKE) -B

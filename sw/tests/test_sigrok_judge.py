@@ -211,6 +211,7 @@ def test_max7219_display():
                  ["-A", "max7219"])
     assert ann[:5] == ["Display test: off", "Scan limit: 8", "Decode: 0b11111111", "Intensity: 8",
                        "Digit 1: 0F"], ann[:6]
+    assert ann[5:12] == [f"Digit {d}: 0F" for d in range(2, 9)], ann[5:12]   # every digit blank
     assert ann[12] == "Shutdown: off", ann                    # (sigrok: "off" = normal operation)
     assert ann[13:] == ["Digit 1: 00", "Digit 2: 06", "Digit 3: 09", "Digit 4: 00", "Digit 5: 04",
                         "Digit 6: 0F", "Digit 7: 0F", "Digit 8: 0F"], ann[13:]
@@ -257,3 +258,21 @@ def test_morse_message():
     assert words == ["cq", "cq", "de", "esc", "73"], words
     units = decode(trace, "morse:data=key:timeunit=0.002", ["-A", "morse=units"])
     assert set(units) == {"1.0*0.002", "3.0*0.002", "7.0*0.002"}, sorted(set(units))
+
+
+JUDGED = [test_usbpd_source_capabilities, test_lin_responder_frame, test_rc6_frame, test_em4100_tag,
+          test_dcf77_minutes, test_sd_card_session, test_onewire_device_read_and_search_rom,
+          test_avr_isp_session, test_qi_receiver_session, test_spi_flash_session,
+          test_max7219_display, test_stepper_speed_and_position, test_nrf24_session,
+          test_morse_message]
+
+
+@pytest.mark.parametrize("judged", JUDGED, ids=lambda f: f.__name__[5:])
+def test_control_fails(judged, monkeypatch):
+    """Each judge's negative control: the same run with the middle pulse of every line it
+    decodes inverted (sigrok_judge.FLIP) must fail the judge. A judge that passes whatever
+    the pins do proves nothing."""
+    import sigrok_judge
+    monkeypatch.setattr(sigrok_judge, "FLIP", True)
+    with pytest.raises(AssertionError):
+        judged()

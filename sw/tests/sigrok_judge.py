@@ -14,12 +14,26 @@ import tempfile
 from pathlib import Path
 
 SIGROK = shutil.which("sigrok-cli")
+# The negative control (test_sigrok_judge.test_control_fails): with FLIP set, vcd() inverts
+# the pulse between the middle two edges of every line, and each judge must then fail.
+FLIP = False
+
+
+def _flip_middle(levels: list[int]) -> list[int]:
+    edges = [t for t in range(1, len(levels)) if levels[t] != levels[t - 1]]
+    if len(edges) < 2:
+        return levels
+    i = min(len(edges) // 2, len(edges) - 2)
+    a, b = edges[i], edges[i + 1]
+    return levels[:a] + [1 - v for v in levels[a:b]] + levels[b:]
 
 
 def vcd(channels: dict[str, list[int]], tick_ns: float, tail_ticks: int = 0) -> str:
     """A VCD of per-tick levels. Times in 10 ns units (tick_ns must be a multiple of 10).
     `tail_ticks` of idle and a final marker edge pad the end, so a decoder that closes a
     packet on idle sees the last one end."""
+    if FLIP:
+        channels = {k: _flip_middle(list(v)) for k, v in channels.items()}
     step = round(tick_ns / 10)
     assert abs(step * 10 - tick_ns) < 1e-6, tick_ns
     ids = {name: chr(33 + k) for k, name in enumerate(channels)}

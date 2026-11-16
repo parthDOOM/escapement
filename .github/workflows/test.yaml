@@ -103,6 +103,19 @@ jobs:
           set -o pipefail
           make proof-table RTL=$PWD/results/proof_rtl.jsonl | tee results/proof.md
 
+      # sigrok's decoders, written by other people, read the pins of every case that has one;
+      # each judge has a control (one pulse inverted) that must fail it
+      - name: Outside judges
+        run: |
+          set -o pipefail
+          make judges JOBS=4 | tee results/judges.md
+
+      # every case again with its pins delayed 1 to 3 ticks each way (pads and board)
+      - name: Pad and board timing
+        run: |
+          set -o pipefail
+          make pad-audit JOBS=4 | tee results/pads.md
+
       - name: Firmware through the chip pins
         run: |
           make pin-test
