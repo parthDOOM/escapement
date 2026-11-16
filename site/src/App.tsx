@@ -254,12 +254,12 @@ export default function App() {
                   run into one word. After a run on silicon, one SPI read compares the chip with the model's
                   prediction.</p>
                 <p>To check the tests themselves, faults are planted in the RTL one at a time, across every module,
-                  the line unit included, and simulated on the PDK's standard-cell models. Version 1.6's campaign
-                  planted 626 at every site on the lines it changed: the tests caught 556, 22 are proved to change no
-                  output of the chip, and 48 are excluded with a written reason, such as logic a proof shows can never
-                  run. None survives. CI reruns 836 across the whole RTL on every change to it. Every fault that
-                  slipped through a run was read against the RTL, and each hole it showed was closed with a new
-                  test.</p>
+                  the line unit and the bus monitor included, and simulated on the PDK's standard-cell models. The
+                  final campaign planted 1,010: the tests caught 892, 57 are proved to change no output of the chip,
+                  and 61 are excluded with a written reason, most of them reset or start values that nothing reads
+                  before they are reloaded. None survives. CI reruns the whole campaign on every change to the RTL.
+                  Every fault that slipped through a run was read against the RTL, and each hole it showed was closed
+                  with a new test.</p>
               </div>
               <ProofTable />
             </div>

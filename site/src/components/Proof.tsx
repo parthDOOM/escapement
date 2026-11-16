@@ -17,9 +17,9 @@ const P: [string, string, string, string, string][] = [
   ["S1", "Configuration is frozen", "Enabled contexts, entry points, pin ownership and pin banks never change while the chip runs.", "unbounded, on the host interface", "pins"],
   ["C6", "Live reload is clean", "A program word the host writes during a run reaches the store intact and never meets a running context's fetch, and a free slot comes within four cycles.", "unbounded, induction and PDR", "memory"],
   ["NI", "Contexts cannot disturb each other", "Two chips that differ in every command and program word aimed at the other contexts give context j the same commits, state and pins, for a context that uses no shared unit.", "unbounded, k-induction with an invariant", "time"],
-  ["M1–M6", "The monitor keeps true counts", "The bus monitor's counts never wrap and move by at most one, a rule write that keeps the rules changes none, and its first-violation record holds until a start or a clear.", "unbounded, k-induction", "pins"],
+  ["M1–M7", "The monitor keeps true counts", "The bus monitor's counts never wrap and move by at most one, a rule write that keeps the rules changes none, its first-violation record holds until a start or a clear, and its latch banks hold what was written.", "unbounded, k-induction", "pins"],
   ["TW", "Tripwires never fire", "Twelve proved properties are also built into the chip as sticky flags; the bank of flags stays zero in every reachable state.", "unbounded, k-induction", "silicon"],
-  ["≡", "Netlist equals RTL", "The routed netlist is sequentially equivalent to the RTL for every input sequence after reset.", "ABC dprove, about 4 minutes", "silicon"],
+  ["≡", "Netlist equals RTL", "The routed netlist is sequentially equivalent to the RTL for every input sequence after reset.", "ABC dprove in two steps, about 6 minutes", "silicon"],
 ];
 const KINDS = ["all", "time", "pins", "memory", "power", "silicon"];
 
@@ -52,19 +52,18 @@ export function ProofTable() {
       <table>
         <thead><tr><th>Check</th><th className="num">Size</th><th>Result</th></tr></thead>
         <tbody>
-          <tr><td>Random programs against the model, four campaigns</td><td className="num">3,264</td><td>0 mismatches</td></tr>
-          <tr><td>Commits compared tick by tick in those campaigns</td><td className="num">268,582</td><td>0 mismatches</td></tr>
-          <tr><td>Random programs with the host reading the tape during the run</td><td className="num">60</td><td>7,598 words, 0 mismatches</td></tr>
-          <tr><td>Firmware cases with independent bus models, RTL against the model</td><td className="num">43</td><td>0 mismatches</td></tr>
-          <tr><td>Line unit against its model, every output every cycle, two builds</td><td className="num">8 million edges each</td><td>0 mismatches</td></tr>
-          <tr><td>Planted RTL faults (mutants), v1.4 campaign on the standard-cell models</td><td className="num">710</td><td>653 caught, 19 proved equivalent, 38 excluded, 0 surviving</td></tr>
-          <tr><td>Planted faults at every site of v1.5's new logic</td><td className="num">103</td><td>97 caught, 5 proved equivalent, 1 excluded, 0 surviving</td></tr>
-          <tr><td>Planted faults at every site of the lines v1.6 changed, standard-cell models</td><td className="num">626</td><td>556 caught, 22 proved equivalent, 48 excluded, 0 surviving</td></tr>
-          <tr><td>Timing certificates against measured leads (58 cases, 60 contexts)</td><td className="num">60</td><td>50 exact, 0 below</td></tr>
-          <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 to 50 MHz</td><td className="num">1,263</td><td>pass</td></tr>
-          <tr><td>Chip tests on the final gate-level netlist</td><td className="num">7</td><td>pass</td></tr>
-          <tr><td>Firmware through the pins on the final netlist, NEC at 33 and 50 MHz included</td><td className="num">9</td><td>pass</td></tr>
-          <tr><td>Netlist against RTL, sequential equivalence (two steps since v1.6)</td><td className="num">332 bits</td><td>proved</td></tr>
+          <tr><td>Proof tasks: unbounded core proofs, other proofs and covers, bounded from reset to depth 20</td><td className="num">100</td><td>pass; 15 planted bugs each make their proof fail</td></tr>
+          <tr><td>Random programs against the model, behavioural and standard-cell builds</td><td className="num">191 each</td><td>19,850 commits each, 0 mismatches</td></tr>
+          <tr><td>Firmware cases with independent bus models, RTL against the model</td><td className="num">65</td><td>0 mismatches</td></tr>
+          <tr><td>Line unit against its model, every output every cycle</td><td className="num">3.8 million edges</td><td>0 mismatches</td></tr>
+          <tr><td>Planted RTL faults (mutants) across every module, standard-cell models</td><td className="num">1,010</td><td>892 caught, 57 proved equivalent, 61 excluded, 0 surviving</td></tr>
+          <tr><td>Timing certificates against measured leads (65 cases, 63 contexts with a bound)</td><td className="num">63</td><td>50 exact, 0 below</td></tr>
+          <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 to 50 MHz</td><td className="num">1,401</td><td>pass</td></tr>
+          <tr><td>Outside judges: sigrok's protocol decoders read the pins, each with a control that must fail</td><td className="num">53 of 71 programs</td><td>agree; every control fails</td></tr>
+          <tr><td>Firmware cases with every pin a tick slower each way (pads and board)</td><td className="num">65</td><td>pass</td></tr>
+          <tr><td>Chip tests on the final gate-level netlist</td><td className="num">12</td><td>pass</td></tr>
+          <tr><td>Firmware through the pins on the final netlist; SDF-annotated chip tests at three corners</td><td className="num">9 · 11 × 3</td><td>pass</td></tr>
+          <tr><td>Netlist against RTL, sequential equivalence (two steps)</td><td className="num">336 bits</td><td>proved</td></tr>
         </tbody>
       </table>
     </div>
