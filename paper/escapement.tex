@@ -1,7 +1,6 @@
 % Escapement: the paper. Build: latexmk -pdf escapement.tex (figures: python paper/figures.py GDS).
-% Numbers that come from the final CI runs are \NUM{key} placeholders, printed as {{NUM:key}};
-% the keys are the ones docs/00-WRITEUP.md and README.md use. Before release:
-%   grep -n "\\NUM{" paper/escapement.tex   must print only the \newcommand line.
+% The numbers are those of the final CI runs, the same as docs/00-WRITEUP.md and README.md
+% give; \NUM (below) marks a number still to come, and none is left.
 \documentclass[conference,letterpaper]{IEEEtran}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
@@ -440,8 +439,8 @@ proofs say no flag can ever set; on real silicon, a manufacturing defect or a wr
 assumption about the environment would appear as a named, broken property rather than
 as a puzzling failure.
 
-Every proof runs in continuous integration on each change it depends on, and each has a
-planted fault that shows it can fail. \NUM{formal_writeup}
+Every proof runs in continuous integration on each change it depends on, and planted
+faults show that the proofs can fail. In the final run all 100 tasks pass: the 39 unbounded core proofs, six more proofs and four cover checks in one job, the bounded check from reset as 47 tasks covering 67 assertion lines to depth 20 in a second, and the tripwire, line unit and non-interference proofs in a third; 15 planted bugs each make their proof fail.
 
 \subsection{Two implementations of one specification}
 
@@ -452,7 +451,7 @@ authors who could not read each other's code, so that a misreading of the specif
 shows up as a disagreement rather than as two identical bugs. A co-simulation in
 cocotb \cite{cocotb} on Icarus Verilog \cite{iverilog} runs both side by side and
 compares every commit, every register, every pin, the queues and the memories on every
-tick. \NUM{cosim_writeup} The same simulator runs in the project's web page under Pyodide
+tick. In the final run it compared 191 random programs (19,850 commits; 9 more were too long for a program page) and 65 firmware cases, each against independent bus models, on both the behavioural RTL and the standard-cell build, and found no difference. The same simulator runs in the project's web page under Pyodide
 \cite{pyodide}, so what a reader runs in the browser is the model the RTL is held to.
 
 On every clock edge where something happens, the chip folds what happened into a 32-bit
@@ -468,7 +467,7 @@ it runs, the minimum lead of each context, so the certificate and the silicon ch
 other. In the VGA Pong firmware, for example, the certificate proves that every edge of
 the video signal is queued at least 1{,}597 ticks early in the sync context and 8 ticks
 early in the picture context, and the simulator, the RTL, the gate-level netlist and the
-FPGA all measure exactly 1{,}597 and 8. \NUM{cert_writeup}
+FPGA all measure exactly 1{,}597 and 8. All 71 programs are certified for every input. Across the 65 co-simulated firmware cases, 63 contexts have a finite bound, and the lead measured on the RTL equals the bound in 50 of them and exceeds it in the other 13; it is never below.
 
 \subsection{Checking the checks}
 
@@ -476,7 +475,7 @@ To check the tests themselves, faults are planted in the RTL one at a time acros
 module and simulated on the process kit's standard-cell models \cite{mutation}; a fault
 the tests do not notice is a hole in the tests. Each surviving fault is read against the
 RTL and either closed with a new test, proved to change no output, or excluded with a
-written argument. \NUM{mutation_writeup}
+written argument. The final campaign planted 1,010 faults: 892 were caught by a test, 57 were proved to change no output, and 61 are excluded with a written argument, most of them reset or start values that nothing reads before they are reloaded. None survives.
 
 Models written from datasheets can share a misreading with the firmware they test, so
 recordings of real hardware, many of them from the sigrok-dumps collection \cite{sigrok},
@@ -489,9 +488,15 @@ run with a late edge. A test that judged I2C timing from the waveform itself rat
 from the model found that the RTL and the simulator both measured monitor intervals one
 tick short, a bug that lockstep comparison cannot see because the two agreed.
 
+For every program whose protocol sigrok knows, its protocol decoders, written by other
+people, read the pins of the simulated run and must decode what the test asked for. They
+agree with 53 of the 71 programs, and each judge has a control: the same recording with one
+pulse inverted must fail it. The same runs are repeated with every pin delayed a tick each
+way, more than the pads and the board add, and every protocol still works.
+
 \begin{table}[t]
 \centering
-\caption{Verification methods and results. Placeholders are filled from the final
+\caption{Verification methods and results. Numbers are from the final
 continuous-integration runs.}
 \label{tab:verif}
 \footnotesize
@@ -499,12 +504,14 @@ continuous-integration runs.}
 \toprule
 Method & Result \\
 \midrule
-Formal properties & \NUM{formal_status} \\
-Netlist vs.\ RTL & Sequentially equivalent \\
-Lockstep co-simulation & \NUM{cosim_writeup} \\
-Timing certificates & \NUM{cert_writeup} \\
-Mutation testing & \NUM{mutation_writeup} \\
-Test suites & \NUM{test_status} \\
+Formal properties & 100 of 100 tasks pass, 47 of them bounded to depth 20; 15 planted bugs caught \\
+Netlist vs.\ RTL & Sequentially equivalent (336 output bits) \\
+Lockstep co-simulation & 191 random programs, 65 firmware cases, two builds: no difference \\
+Timing certificates & 71 of 71 certified; measured lead equals the bound in 50 of 63 contexts, never below \\
+Mutation testing & 1,010 faults: 892 caught, 57 proved harmless, 61 argued, 0 surviving \\
+Outside judges & sigrok decoders agree with 53 of 71 programs; every control fails \\
+Slower pins & every firmware case passes with a tick of delay each way \\
+Test suites & 1,401 software, 12 chip (RTL and netlist), 9 through the pins \\
 FPGA bench & 6 of 6 stages, 71 of 71 programs \\
 \bottomrule
 \end{tabular}
