@@ -210,9 +210,9 @@ proofs say no flag can ever set. Their value is on real silicon, where a manufac
 defect or a wrong assumption about the environment would appear as a named, broken
 property rather than as a puzzling failure.
 
-Every proof runs in continuous integration on each change it depends on, and each comes
-with a planted fault that shows it can fail: a proof that passes whatever the design does
-proves nothing. {{NUM:formal_writeup}}
+Every proof runs in continuous integration on each change it depends on, and planted
+faults show that the proofs can fail: a proof that passes whatever the design does
+proves nothing. In the final run all 100 tasks pass: the 39 unbounded core proofs, six more proofs and four cover checks in one job, the bounded check from reset as 47 tasks covering 67 assertion lines to depth 20 in a second, and the tripwire, line unit and non-interference proofs in a third; 15 planted bugs each make their proof fail.
 
 ## 6. Checking the checks
 
@@ -225,7 +225,7 @@ twice: in the RTL and in a Python instruction-set simulator that shares nothing 
 the instruction encodings. A shared decoder could make two models agree on the same bug,
 so execution, timing rules and faults are written separately. A co-simulation runs both
 side by side and compares every commit, every register, every pin, the queues and the
-memories on every tick. {{NUM:cosim_writeup}} The simulator is the one in the site's
+memories on every tick. In the final run it compared 191 random programs (19,850 commits; 9 more were too long for a program page) and 65 firmware cases, each against independent bus models, on both the behavioural RTL and the standard-cell build, and found no difference. The simulator is the one in the site's
 playground, so what runs in the browser is the model the RTL is held to.
 
 **The digest.** On every clock edge where something happens, the chip folds what happened
@@ -240,13 +240,13 @@ certificate and the silicon check each other. In the VGA Pong firmware, for exam
 certificate proves that every edge of the video signal is queued at least 1,597 ticks
 early in the sync context and 8 ticks early in the picture context, and the simulator, the
 RTL, the gate-level netlist and the FPGA all measure exactly 1,597 and 8.
-{{NUM:cert_writeup}}
+All 71 programs are certified for every input. Across the 65 co-simulated firmware cases, 63 contexts have a finite bound, and the lead measured on the RTL equals the bound in 50 of them and exceeds it in the other 13; it is never below.
 
 **Mutation testing.** To check the tests themselves, faults are planted in the RTL one at
 a time across every module and simulated on the PDK's standard-cell models; a fault the
 tests do not notice is a hole in the tests. Each surviving fault is read against the RTL
 and either closed with a new test, proved to change no output, or excluded with a written
-argument. {{NUM:mutation_writeup}}
+argument. The final campaign planted 1,010 faults: 892 were caught by a test, 57 were proved to change no output, and 61 are excluded with a written argument, most of them reset or start values that nothing reads before they are reloaded. None survives.
 
 **Real devices as oracles.** Models written from datasheets can share a misreading with the
 firmware they test. Recordings of real hardware, from a USB Power Delivery charger to a
@@ -258,6 +258,13 @@ job: the firmware was refused with a fault, not run with a late edge. A test tha
 timing from the waveform itself, rather than from the model, found that the RTL and the
 simulator both measured monitor intervals one tick short, a bug the lockstep comparison
 could never have seen because the two agreed.
+
+**Outside judges.** For every program whose protocol sigrok knows, sigrok's decoders,
+written by other people, read the pins of its simulated run and must decode what the test
+asked for. They agree with 53 of the 71 programs, and each judge has a control: the same
+recording with one pulse inverted must fail it. The same runs are repeated with every pin
+delayed a tick each way, more than a real chip's pads and board add, and every protocol still
+works.
 
 ## 7. The silicon
 

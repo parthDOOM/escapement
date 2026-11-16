@@ -49,7 +49,20 @@ The run also has limits, and they are recorded:
 OLED Pong was also played on this bitstream with an SSD1306 display on uio[2] and uio[3]
 ([23-OLED-PONG](../../docs/23-OLED-PONG.md)).
 
-## Result, 2026-11-08 (v1.6, commit d3b5dbc)
+## What a bench run does not show
+
+Three parts of the chip are not on the FPGA, so no bench run covers them:
+
+- **The hardened netlist.** It comes from a different synthesis tool and cell library.
+- **The clock gates and latch banks.** `ESC_NO_CG` makes them plain flip-flops.
+- **The IHP SRAM macros.** Block RAM with the same timing contract replaces them.
+
+Those stay covered by the gate-level suites, the RTL-to-netlist equivalence checks and timing
+signoff.
+
+## Earlier result, 2026-11-08 (version 1.6, commit d3b5dbc)
+
+The first run on this bench, with the released version 1.6 (6x4).
 
 | Step | Result | Evidence |
 | --- | --- | --- |
@@ -65,11 +78,6 @@ The bitstream (sha256 16e5da57...) and the firmware bundles were built from comm
 clean sources: `chip.MANIFEST` and `bundles.MANIFEST` record the commit and the sha256 of every
 input. `chip-pnr.log` is the place-and-route log of that bitstream.
 
-What this does not show: the hardened netlist (a different synthesis tool and cell library), the
-clock gates and latch banks (`ESC_NO_CG` makes them plain flip-flops), the IHP SRAM macro (replaced
-by block RAM with the same timing contract). Those stay covered by the gate-level suites, the
-RTL-to-netlist equivalence checks and timing signoff.
-
 ## Files
 
 | File | What |
@@ -83,7 +91,7 @@ RTL-to-netlist equivalence checks and timing signoff.
 | `bench.ps1` | Windows helper: build, deploy, load, run (the Dock's USB goes to WSL with usbipd-win) |
 | `hierarchy.sh`, `hierarchy.py` | block-level LUT, flip-flop and bus counts of the FPGA build |
 | `results/2026-11-15/` | the version 3 run above: the bring-up log, the bitstream's and bundles' MANIFESTs, the clock skew report |
-| `results/2026-11-08/` | the version 1.6 run above |
+| `results/2026-11-08/` | the earlier version 1.6 run |
 
 ## Running it
 

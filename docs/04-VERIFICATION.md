@@ -1,7 +1,18 @@
 # Verification
 
-Escapement's correctness rests on several independent kinds of evidence, each of which
-can catch a mistake the others miss:
+Escapement makes three promises, and this chapter shows how each is checked:
+
+- **The chip keeps time exactly.** Every event it admits is applied on its tick, and an
+  event that cannot be on time is refused with a fault, never emitted late.
+- **Certified firmware is never refused.** A program that the certificate checker accepts
+  cannot meet that fault, for any input.
+- **The chip that is fabricated is the chip that was proved.** The routed netlist behaves
+  exactly like the RTL that the proofs and tests are about.
+
+No single method can show all of this. A test sees only the inputs it tries, a proof
+covers only the properties someone wrote down, and both can be fooled by a model that
+shares a mistake with the design. So the evidence comes from several independent kinds of
+check, each able to catch what the others miss:
 
 | Layer | What it establishes | Where |
 | --- | --- | --- |
@@ -11,720 +22,752 @@ can catch a mistake the others miss:
 | Formal proofs | Safety properties hold in every reachable state, not just in tests | `formal/`, `ifdef FORMAL` blocks in `src/` |
 | Mutation testing | The tests notice a broken design | `test/mutation` |
 | Timing certificates | Firmware can never trigger an admission fault, for any input | `sw/escert` |
-| On-chip telemetry and digest | The silicon checks the certificates and the model | [architecture](01-ARCHITECTURE.md) |
+| On-chip telemetry, digest and tripwires | The silicon checks the certificates, the model and the proofs | [architecture](01-ARCHITECTURE.md) |
 | Gate-level simulation | The hardened netlist behaves like the RTL | `test/` with `GATES=yes` |
 | Equivalence checking | The hardened netlist equals the RTL for every input sequence | `formal/equiv.sh` |
 | Continuous integration | Every check above reruns on each change it depends on | `.github/workflows`, [results page](https://parthdoom.github.io/escapement/#results) |
 
+The numbers in this chapter come from the final continuous-integration runs on version 3
+unless a section says otherwise. The final runs at a glance:
+
+| Check | Result |
+| --- | --- |
+| Formal proofs | 100 of 100 tasks pass; 15 planted bugs each make their proof fail |
+| Netlist against RTL | Sequentially equivalent, 336 output bits compared |
+| Lockstep co-simulation | 191 random programs and 65 firmware cases, on two builds of the RTL: no difference |
+| Timing certificates | 71 of 71 programs certified; the measured lead equals the bound in 50 of 63 contexts and is never below it |
+| Mutation testing | 1,010 planted RTL faults: 892 caught, 57 proved harmless, 61 argued harmless, none surviving |
+| Outside judges | sigrok's decoders, written by other people, agree with 53 of the 71 programs; every control fails |
+| Pads and board | every firmware case still passes with its pins one tick slower each way |
+| Test suites | 1,401 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
+
+## How the checks grew
+
+The checks were added as the design grew, and several of them because of something an
+earlier check missed. The simulator and the lockstep comparison came first: by 11 October,
+before this repository's history begins at version 1.1, the two implementations agreed on
+every firmware program and on 1,000 random programs. The version 1.1 release netlist was
+already proved equivalent to its RTL. Mutation testing had found its first holes by version
+1.3 and moved into CI with version 1.4, where its first runs showed that a simulator could
+make every test fail for the wrong reason. Version 1.5 computed the deadline tests a cycle
+early for speed, which needed a new kind of proof; version 1.6 registered the line unit's
+outputs and split the equivalence proof in two; version 1.7 added live reload with the proof
+that contexts cannot disturb each other; version 2 built proof tripwires into the silicon;
+and version 3 added the bus monitor with its own proofs. Each of these is described in its
+section below, with what it found.
+
 ## Two implementations of one specification
 
-The simulator and the RTL are separate implementations of the specification. They share
-only the encoding tables in `isa/isa.yaml`; execution semantics, timing rules and the
-certificate checker are never generated from shared code, because a shared decoder can
-make two models agree on the same bug. Questions found while implementing each model are
-recorded with their resolution in `sw/esciss/SPEC_QUESTIONS.md` and
-`src/ESC_CORE_SPEC_QUESTIONS.md`.
+The simulator (`sw/esciss`) and the RTL (`src/`) are separate implementations of the
+specification. They share only the encoding tables in `isa/isa.yaml`. Execution semantics,
+timing rules and the certificate checker are never generated from shared code, because a
+shared decoder can make two models agree on the same bug. Questions that came up while
+implementing each model are recorded with their resolution in
+`sw/esciss/SPEC_QUESTIONS.md` and `src/ESC_CORE_SPEC_QUESTIONS.md`.
 
-The co-simulation harness runs both models side by side and compares, every tick: each
-commit (context, PC, instruction, outcome, post-commit registers and flags), the pin
-values and output enables, and at the end of the run all debug state, the execution
-digest, the capture state and all 256 tape words.
+The co-simulation harness runs both models side by side and compares them on every tick.
+It compares each commit (the context, its PC, the instruction, the outcome, and the
+registers and flags after the commit) and the pin values and output enables. At the end of
+the run it also compares all debug state, the execution digest, the capture state and all
+256 tape words. A single differing bit anywhere fails the run.
+
+Three kinds of program are run this way:
+
+- **Random programs** come from a constrained generator (`test/cosim/progen.py`). It mixes
+  the data, branch, timer, event, tape, capture and line unit instructions, subroutines and
+  mailboxes, and deliberate faults (every ADMIT subcode and illegal words). Programs put
+  contexts on either pin bank, point the capture unit at either bank, and collide tape
+  loads and stores with capture drains. Each later feature has a generator of its own that
+  adds it to a share of the seeds: a host that pushes mailbox words at random ticks and
+  drains the transmit mailboxes at a random rate; one context that configures the line unit
+  and issues receives, packets, CRC jobs, waits and OFF, while the other contexts try the
+  same and fault; and MON and GETM from every context. A program longer than the 256-word
+  program page is skipped and counted.
+- **Firmware cases** run the shipped programs, each against independent bus models written
+  from the protocol's specification, with host traffic where the program uses it.
+- **Directed cases** aim at edges a random mix rarely reaches, such as a SEND into a full
+  event queue or a mailbox push and pop at the edges the host uses.
+
+| Final run | Programs | Compared | Mismatches |
+| --- | ---: | ---: | ---: |
+| Random programs (`make cosim`, 200 seeds), behavioural and standard-cell builds | 191 (9 too long for a page) | 19,850 commits on each build | 0 |
+| Firmware cases with their bus models, behavioural and standard-cell builds | 65 | every commit and pin | 0 |
+| Line unit alone against its model, every output every cycle (`make line-test`) | 19 runs (8 seeds, 11 profiles) | 3.8 million edges | 0 |
+| Bus monitor alone against its model, every output every cycle (`make mon-test`) | random rules and pin traffic | 200,000 cycles | 0 |
+
+The standard-cell build simulates the RTL with the PDK's own clock-gate and latch cells
+(`CELLS=yes`), as it is hardened, so a fault in how a latch bank is written shows up in
+simulation and not only in silicon.
+
+Larger campaigns were run at earlier versions and still apply to the logic they exercised:
 
 | Campaign | Programs | Commits | Mismatches |
 | --- | ---: | ---: | ---: |
-| Random programs, version 1.0 machine (before this repository's history, which starts at v1.1) | 1,000 | 67,370 | 0 |
-| Random programs with tape traffic, version 1.1 (seeds 1 to 300) | 300 | 21,055 | 0 |
-| Random programs with pin bank B, version 1.2 (rerun at 683bc92, seeds 1 to 1,000) | 1,000 | 68,666 | 0 |
-| Random programs, version 1.6 generator, on the v1.6 RTL (seeds 1 to 1,000; 36 longer than the program memory are skipped; `run_parallel.py --seeds 1000`) | 964 | 111,491 | 0 |
-| Firmware programs with their bus models: 58 cases covering 60 of the 64 programs (the logic analyser runs in the streaming-capture case), on the v1.6 RTL, behavioural and standard-cell builds | 58 | — | 0 |
+| Random programs, version 1.0 | 1,000 | 67,370 | 0 |
+| Random programs with tape traffic, version 1.1 | 300 | 21,055 | 0 |
+| Random programs with pin bank B, version 1.2 | 1,000 | 68,666 | 0 |
 | Random programs with the host reading the tape during the run, version 1.3 | 60 | 7,598 words read | 0 |
-| Firmware-shaped line unit programs, version 1.4 (`test_v14_line_unit`) | 40 | 61,738 (240,000 cycles) | 0 |
-| The USB keyboard (`usb_hid.asm`) against the USB host model, version 1.4 | 1 | 70,000 cycles | 0 |
-| The line unit alone against the simulator's model, every output every cycle (`make line-test`), on the v1.6 RTL, clock-gated and plain flip-flop builds | 40 seeds | 8 million edges on each build | 0 |
-| Regression run (`make cosim`, 200 seeds plus the directed and firmware cases), behavioural and standard-cell builds | 8 tests | 19,720 in the random test (191 programs; 9 too long, skipped) | 0 |
+| Firmware-shaped line unit programs, version 1.4 | 40 | 61,738 | 0 |
+| Random programs with subroutines and mailboxes, version 1.6 | 964 | 111,491 | 0 |
+| Line unit alone, version 1.6, clock-gated and plain flip-flop builds | 40 seeds | 8 million edges on each build | 0 |
 
-Random programs come from a constrained generator (`test/cosim/progen.py`) that mixes
-the data, branch, timer, event, tape, capture and line unit instructions, deliberate
-faults (every ADMIT subcode and ILLEGAL words), and tape loads and stores that collide with
-capture drains. A program longer than the 256-word program memory is skipped (counted in
-the test's summary line). Since version 1.2 it also puts contexts on pin bank B, owns and
-drives bank B pins, and points the capture unit at either bank, each on a random board for
-both banks: in the version 1.2 campaign (seeds 1 to 1,000), 516 programs configure a bank B
-context and 183 change a bank B output. A program with no bank B context is the same
-program as in version 1.1, so the earlier campaigns still apply. Since version 1.4 a third
-of the seeds also use the line unit, from a generator of their own, so every other seed
-keeps its earlier program: one context configures the unit and issues receives, packets,
-CRC jobs, GETL waits and OFF, and the other contexts try the same and fault. Since version
-1.6 a third of the seeds, chosen independently by a generator of their own, also call
-subroutines and use the mailboxes (`CALL`, `RET`, `PUSH`, `POP`, `RXREADY`, `TXREADY`), with a host that pushes words
-at random ticks and drains the transmit mailboxes at a random rate (337 of the 964 programs
-of seeds 1 to 1,000); before that those six instructions were compared only in the firmware
-and directed cases.
+Each new feature got its own generator, so that every other seed kept the program it had
+before. A program with no bank B context, for example, is the same program as in version
+1.1, so the earlier campaigns still cover what they covered.
 
 The line unit has two more checks of its own. `make line-test` replays random stimulus
 that follows the core's rules into `src/esc_line.v` alone and compares every output with
-the simulator's model on every cycle: configurations from USB-like, CAN-like and random
-profiles, packets at offset clocks with jitter, glitches and stuffing errors, noise, the
-unit's own pins read back (the monitor), owner faults, stop, start and tape writes from
-elsewhere; every job type and every end cause occurs. The firmware-shaped programs
-(`progen.gen_lu_program`) run on the whole chip: receives of the unit's own packets and of
-noise, packets at fresh and end-tick deadlines, owner `LDT`/`STT` that meet the unit's tape
-cycles, and another context's traffic beside it.
+the simulator's model on every cycle. The stimulus covers configurations from USB-like,
+CAN-like and random profiles, packets at offset clocks with jitter, glitches and stuffing
+errors, noise, the unit's own pins read back, owner faults, stops, starts and tape writes
+from elsewhere. Every job type and every end cause occurs. In the final run that included
+555 cell-decoder receives, 489 external-clock receives and 77 with both-edge sampling. The
+firmware-shaped programs (`progen.gen_lu_program`) run on the whole chip: receives of the
+unit's own packets and of noise, packets at fresh and end-tick deadlines, owner tape loads
+and stores that meet the unit's own tape cycles, and another context's traffic beside it.
 
 ## Formal proofs
 
-SymbiYosys, with properties embedded in the RTL. The instruction memory is a free input,
-and the tick counter can start anywhere, so the 32-bit wrap is reachable.
+The properties are written in the RTL, inside `ifdef FORMAL` blocks, and proved with
+SymbiYosys. Two choices make the proofs cover every program rather than some. The
+instruction memory is a free input, so the proofs hold whatever the firmware is. The tick
+counter can start at any value, so the 32-bit wrap of the counter is reachable and covered.
+
+Most properties are proved **unbounded**: they hold in every reachable state, after any
+number of steps. Three methods are used. PDR (property-directed reachability) searches for
+an invariant that implies the property; k-induction shows that k good steps always lead to a
+good next step; and assume-guarantee splits a proof into parts that each rely only on what
+another part proves.
 
 | Property | Statement | Method |
 | --- | --- | --- |
-| P1 | An open-drain pin never drives high | Unbounded (PDR) |
-| **P2** | **Never late: no FIFO head is ever past its deadline** | Unbounded, assume-guarantee (below) |
-| P3 | An unowned pin is never driven, in either bank (a bank B pin stays at its released level) | Unbounded (PDR), in two parts: a pin away from its released level has its output enable set, and an unowned pin never has one set |
-| P4 | FIFO occupancy stays within bounds | Unbounded (PDR) |
-| P5 | A faulted context drives none of its pins, in either bank | Unbounded (PDR), in two parts: a pin away from its released level has its output enable set, and a faulted context never has one set |
-| P6 | An admitted event is strictly ahead of its commit tick and of the FIFO tail | Unbounded (PDR) |
-| P7 | Fixed slot timing: a commit belongs to the context that owns that slot | Unbounded (PDR) |
-| P8 | Every push meets the per-context assumptions; HALT completes only on an empty FIFO; faults happen only during a run; a commit comes only from a running context, never on a start or stop edge or one where it faults | Unbounded (PDR, with P2 for the lateness part of the last clause, below) |
-| L1 | The line unit (v1.4) claims only pins its owner owns; it is idle and unconfigured while stopped and once its owner has faulted; a CONFIG never completes at one of its owner's commit edges | Unbounded (PDR), as lemmas for P3, P5 and P8 |
-| L2 | (v1.6) The line unit's pin writes and transmit bit, registered in the cycle before a boundary, equal their definitions at the boundary; with the lemmas that make this inductive (a configuration in use is valid, the cell timer's range, a packet's state before its first boundary, when a stream word arrives) | Unbounded (k-induction, `esc_line.sby`), assume-guarantee: the core proves the unit's input rules (LI, PDR) |
-| H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, a queued DRIVE touches only owned pins | Unbounded (k-induction); H3 and H4 also by PDR in the core proof, as lemmas for P5 |
-| D1–D3 | Per context: the retire and late flags (v1.5), and the head entry's kind and payload (v1.6), registered in the cycle before, equal the deadline tests on the current head and the current tick, and the current head | Unbounded (k-induction), in the per-context proof |
-| B1–B9 | The values registered in the cycle before a commit equal their definitions on the commit cycle's state: the tests (v1.5: deadline ahead of the tick, timer reached, ahead of the FIFO tail, ahead of the open EXPECT window's end, and the lead saturated to 16 bits), and (v1.6) the decoded instruction and its legality (B6, B7) and the two operands (B8, B9) | Unbounded (k-induction, `esc_core.sby ahead`); assumed by the PDR tasks |
-| C1–C3 | Capture never writes outside its region, never stages more than 2 records, and generates only during a run | Unbounded (PDR) |
-| C4 | In stream mode a capture drain never writes over a record the host has not acknowledged (v1.3) | Unbounded (PDR) |
-| G1–G3 | A clock-gated bank equals an enable flip-flop at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | Unbounded (k-induction, unconstrained clock) |
-| G4–G5 | (v1.4) A latch bank equals an enable flip-flop at every instant whenever its input is the written value registered at the write edge (G4); every latch bank's input is that value (G5), and the host holds a mailbox word for a cycle after its push (M1) | Unbounded: G4 by k-induction with an unconstrained clock (`formal/esc_lreg_env.v`, its L1 and L2); G5 in the core proof (PDR; the D-40 contract assertions in `src/esc_ctx.v`); M1 on the host interface (PDR) |
-| S1 | The configuration the core runs with (enabled contexts, entry points, pin ownership, open-drain pins, pin banks) never changes during a run | Unbounded (PDR), on the host interface |
-| C6 | (v2) A program word written during a run (live reload) is written intact without touching a running context's fetch: the grant never meets a fetch the core uses and writes the host's word at the host's address (G1–G4, `formal/esc_top.sby`); until granted, the word stays pending with its page, address and data unchanged (P1–P2, host interface); while any context is not RUNNING, a free slot comes within 4 cycles (core) | Unbounded: G1–G4 by induction with every submodule cut free and the core's proved "a free slot reads nothing" as the one assumption; P1–P2 by PDR; the 4-cycle wait by PDR in the core proof |
+| **P2** | **Never late: no event queue head is ever past its deadline** | Unbounded, assume-guarantee (below) |
+| P6 | An admitted event is strictly ahead of its commit tick and of the event already at the queue's tail | PDR |
+| P7 | Fixed slots: a commit always belongs to the context that owns that slot | PDR |
+| P8 | Every push meets the per-context assumptions; HALT completes only on an empty queue; faults happen only during a run; a commit comes only from a running context, never on a start or stop edge or one where it faults | PDR, with P2 for the lateness part (below) |
+| B1–B9, D1–D3 | Values computed a cycle early equal their definitions on the cycle that uses them: the deadline tests, the decoded instruction and its operands, and each queue's next head | k-induction (below) |
+| P1 | An open-drain pin is never driven high | PDR |
+| P3 | A pin no context owns is never driven, in either bank | PDR, in two parts: a pin away from its released level has its output enable set, and an unowned pin never has one set |
+| P5 | A faulted context drives none of its pins, in either bank | PDR, in the same two parts |
+| P4 | Queue occupancy stays within bounds | PDR |
+| H1–H4 | Per context: queued deadlines are ahead of now and strictly increasing, only a running context has queued events, and a queued DRIVE touches only owned pins | k-induction; H3 and H4 also by PDR, as lemmas for P5 |
+| C1–C3 | The capture unit never writes outside its region, never stages more than two records, and records only during a run | PDR |
+| C4 | While the host streams a capture, a drain never writes over a record the host has not acknowledged | PDR |
+| L1 | The line unit claims only pins its owner owns; it is idle and unconfigured while stopped and once its owner has faulted; a CONFIG never completes at one of its owner's commit edges | PDR, as lemmas for P3, P5 and P8 |
+| L2 | The line unit's pin writes and transmit bit, registered in the cycle before a boundary, equal their definitions at the boundary | k-induction, assume-guarantee with the core (below) |
+| G1–G3 | A clock-gated register bank equals a flip-flop with an enable at every instant; the gated clock is never high while the clock is low, and rises only on a clock edge | k-induction, with an unconstrained clock |
+| G4–G5 | A latch bank equals a flip-flop with an enable at every instant, because its input is always the value registered at the write edge | k-induction and PDR (below) |
+| S1 | The configuration the core runs with (enabled contexts, entry points, pin ownership, open-drain pins, pin banks) never changes during a run | PDR, on the host interface |
+| C6 | A program word written during a run (live reload) reaches the store intact and never meets a running context's fetch, and a free slot comes within four cycles | induction and PDR (below) |
+| NI | Two chips that differ in every command and program word aimed at other contexts give context j the same commits, state and pins | k-induction with an invariant, and bounded from reset (below) |
+| M1–M7 | The bus monitor's counts never wrap, a rule write that keeps the rules changes none, its record holds until a start or a clear, a violation with no record yet is recorded, and its latch banks hold what was written | k-induction (`formal/esc_mon.sby`) |
+| TW | The twelve properties watched by the on-chip tripwires imply that the tripwires stay zero | induction (below) |
 
-**Assumptions.** The core proofs assume two things about their environment: reset at
-the first step, and S1. S1 is proved on the host interface (`formal/esc_host.sby`),
-with every SPI pin and core-side input free and the core's run flag modelled exactly as
-the core drives it; removing the host's "only while stopped" check makes it fail. Every
+Every assertion of the core is also checked **bounded from reset**: from a real reset,
+with every input free, no assertion fails in the first 20 steps. This catches a property
+that holds in theory but is stated about states the chip never starts from, and it gives a
+short counterexample when an edit breaks something.
+
+**Assumptions.** The core proofs assume two things about their environment: a reset at the
+first step, and S1. S1 is itself proved on the host interface (`formal/esc_host.sby`),
+with every SPI pin and core-side input free and the core's run flag modelled exactly as the
+core drives it. Removing the host's "only while stopped" check makes that proof fail. Every
 other input (instructions, pins, host strobes, mailboxes) is unconstrained.
 
-**Never late, for all time.** P2 is proved compositionally. The per-context proof
-(`formal/esc_ctx.sby`) shows by k-induction that a context fed only admitted pushes
-never has a FIFO head past its deadline; the core proof shows that every push the core
-makes satisfies those assumptions (P6, P8). Together they cover every reachable state,
-including counter wrap.
+### Never late, for all time
 
-The split is drawn so that neither side assumes what the other proves. A late FIFO head
-is itself a fault, so "no fault on a commit" contains P2. The core therefore proves that
-no other fault coincides with a commit, the per-context proof assumes only that, and P2
-completes the clause. The exception cannot hide a late head, because lateness depends on
-state alone, never on the inputs of the same cycle. Stated as one clause, P8 had not
-converged after seven hours of PDR; split this way, it proves in under a minute.
+P2 is the property the whole design rests on, and it is proved in two parts. The
+per-context proof (`formal/esc_ctx.sby`) shows by k-induction that a context fed only
+admitted pushes never has a queue head past its deadline. The core proof shows that every
+push the core makes satisfies those assumptions (P6, P8). Together they cover every
+reachable state, including the counter's wrap.
 
-**Run time.** `make formal` proves the core in parallel: `formal/split_core.py` makes
-one task per assertion source line from the elaborated design and runs `JOBS` of them at
-once. A task proves its assertions without the others as lemmas, so a property that
-needs a lemma can take far longer split than together. Assertions tagged with the same
-`lemma-group` are therefore proved in one task: the output-enable parts of P3 and P5
-both rest on H4, and together with H3 and H4 they prove in two minutes. Alone, P5's did
-not finish in two hours, and P3's ran past the three-hour limit on the CI runner. Since
-version 1.4 the line unit's L1 lemmas join that group (five minutes), and P8's commit
-clause is proved with the CONFIG phase lemma. For version 1.6, with 2 jobs, the 29 core
-tasks (20 minutes; the slowest 20 minutes alone) and the separate proofs (bounded check,
-covers, the `ahead` task, context, clock-gate and latch-bank banks, host interface, line
-unit: 61 minutes, 50 of them the bounded check) all pass in 81 minutes of wall time
-(v1.5 with 6 jobs: 28 tasks, 72 minutes; v1.4: 27 tasks, 58 minutes). The
-single task (`sby -f esc_core.sby pdr`, all assertions together) passed in 34 minutes on
-one core for version 1.3.
+The split is drawn so that neither side assumes what the other proves. A late queue head is
+itself a fault, so the statement "no fault on a commit" contains P2. The core therefore
+proves that no *other* fault coincides with a commit, the per-context proof assumes only
+that, and P2 completes the clause. The exception cannot hide a late head, because lateness
+depends on state alone, never on the inputs of the same cycle. Stated as one clause, P8 had
+not converged after seven hours of PDR; split this way, it proves in under a minute.
 
-**Tests decided a cycle early (v1.5, D-43).** Since version 1.5 the deadline tests are
-registers, computed in the cycle before they are used: the retire and late flags of each
-context's FIFO head (D1, D2), and the admission and timer tests of the context that
-commits next (B1–B5). Version 1.6 registers more the same way: each FIFO's next head entry
-(D3), so a retiring DRIVE reaches the pins from flip-flops, and, in the stage before the
-commit, the decoded instruction (B6, B7) and the operands of the context that commits next
-(B8, B9). Each is stated as an equality with its definition on the state of the cycle that
-uses it, so every other property reads exactly as before. B1–B9 are proved by k-induction
-in their own task (`sby -f esc_core.sby ahead`, in formal-quick), which keeps only those
-labelled assertions: a commit follows at least three edges of an uninterrupted run,
-because the pipeline's valid bits clear on start and stop, and over those edges the
-registers are a delayed copy of their definitions. The task passes in seconds, and it has
-teeth: measuring the lead from the current tick instead of the next one fails with a
-trace, and computing the tests for the context committing now instead of next fails the
-induction step. Every other task (the PDR tasks, the bounded check and the covers) assumes
-B1–B9 instead of proving them. Bit-level PDR cannot use them otherwise: its invariant is a
-set of clauses over the flip-flops, and "this register equals a 32-bit comparison of those
-registers" has no compact clause form, even when it holds one edge after any state. Proved
-as PDR tasks, alone or grouped with helper lemmas, they had not converged after an hour.
-The assumption is sound because the `ahead` task proves them under the same environment.
-Asserted at every step of the bounded check, they doubled its time by depth 15; assumed,
-it reaches depth 16 in 569 s locally against 351 s for version 1.4, the rest being v1.5's
-added state.
+### Values decided a cycle early
 
-**Faults from the line unit.** A CONFIG that turns out invalid faults its owner when it
-completes, an edge where another context may commit. P8's commit clause is therefore
-per context, which is all `formal/esc_ctx_env.v` assumes: the committing context does not
-fault at its own commit edge. L1's phase lemma shows a CONFIG never completes at one of
-its owner's commit edges.
+To meet timing, the chip computes several values in the cycle before they are used and
+keeps them in registers: the retire and late flags of each queue's head (D1, D2), each
+queue's next head entry (D3), so that a retiring DRIVE reaches the pins straight from
+flip-flops, and, for the context that commits next, the admission and timer tests (B1–B5),
+the decoded instruction and its legality (B6, B7) and its two operands (B8, B9). Each is
+stated as an equality with its definition on the state of the cycle that uses it, so every
+other property reads exactly as it would without the early registers.
 
-**Latch banks (v1.4, D-40).** The logic proofs see every bank as an enable flip-flop.
-The latch build is tied to that model in two steps: `formal/esc_lreg.sby` proves, with
-an unconstrained clock, that a latch bank equals the flip-flop at every instant provided
-its input is the written value registered at the write edge (G4). The core proof then
-shows that every bank's input is (G5). A bank's input is one of the shared write-data
-registers, or the host's mailbox word, which the host holds for the cycle after a push
-(M1). G4 has teeth: a latch fed straight from the write data, the design rejected in
-v1.1, fails at the first step.
+B1–B9 are proved by k-induction in a task of their own (`sby -f esc_core.sby ahead`). The
+argument is short: a commit follows at least three edges of an uninterrupted run, because
+the pipeline's valid bits clear on start and stop, and over those edges the registers are a
+delayed copy of their definitions. Every other task assumes B1–B9 instead of proving them
+again. Bit-level PDR could not use them otherwise: its invariant is a set of clauses over
+the flip-flops, and "this register equals a 32-bit comparison of those registers" has no
+compact clause form, even when it holds one edge after any state. Proved as PDR tasks they
+had not converged after an hour. The assumption is sound because the `ahead` task proves
+them under the same environment.
 
-**The line unit's registered values (v1.6, D-44).** To fit in 20 ns the line unit decides
-a boundary's pin writes and transmit bit in the cycle before it. L2 says the registered
-values equal what the unit would compute at the boundary itself. Inside the core proof,
-PDR did not converge on it (one task ran out of memory after an hour), so it is proved
-like P2, in two parts. `formal/esc_line.sby` proves L2 for the unit alone by k-induction,
-in seconds, assuming only the rules the core follows when it drives the unit's inputs:
-one operation at an edge, from a running context in its own commit cycle, from the
-owner (or a CONFIG taking a free unit), never while the unit is busy, SEND only with
-claimed pins, and no fault kills the unit at an operation's edge. The core proves those
-rules (LI, two PDR tasks, under 20 s together), with no line unit assertion assumed, so
-the argument is not circular. Induction needed the lemmas listed with L2: without them it
-starts from states the unit never reaches, such as a cell timer far beyond its period.
-L2 has teeth: the boundary flag registered a cycle late fails at step 16, the pin value
-built from the current cell instead of the next at step 25, and the first bit taken from
-the wrong end of the prefix at step 15.
+The task has teeth. Measuring the lead from the current tick instead of the next fails it
+with a trace, and computing the tests for the context committing now instead of next fails
+the induction step.
 
-**Vacuity guards.** A cover task reaches the precondition of every property, including
-capture overflow, region full, ring wrap, a drain and a push with two records staged,
-and (v1.4) the line unit driving its pins, receiving, and a CONFIG faulting its owner. The clock-gate proof has teeth: a naive `clk & en` gate fails G3 at the first
-step.
+### The line unit
 
-### Proof tripwires (v2)
+The line unit does a packet's bit-level work on its own, so it needs its own guarantees.
+L1 says it stays in its lane: it touches only pins its owner owns, and it is idle once its
+owner stops or faults. A CONFIG that turns out invalid faults its owner when it completes,
+at an edge where another context may commit, so P8's commit clause is stated per context,
+and L1's phase lemma shows that a CONFIG never completes at one of its owner's own commit
+edges.
+
+L2 covers the registered outputs. To fit in the clock period, the unit decides a
+boundary's pin writes and transmit bit in the cycle before it, and L2 says those
+registered values equal what the unit would compute at the boundary itself. Inside the
+core proof, PDR did not converge on L2 (one task ran out of memory after an hour), so it is
+proved in two parts, like P2. `formal/esc_line.sby` proves L2 for the unit alone by
+k-induction, in seconds, assuming only the rules the core follows when it drives the unit's
+inputs: one operation at an edge, from a running context in its own commit cycle, from the
+owner (or a CONFIG taking a free unit), never while the unit is busy, SEND only with claimed
+pins, and no fault that kills the unit at an operation's edge. The core proves those rules
+(LI, two PDR tasks) with no line unit assertion assumed, so the argument is not circular.
+The induction needs a few lemmas (a configuration in use is valid, the cell timer stays in
+range, a packet's state before its first boundary, when a stream word arrives); without
+them it starts from states the unit never reaches, such as a cell timer far beyond its
+period. The unit is also checked bounded from reset to depth 40.
+
+### Latch banks
+
+Register banks that are rarely written are built from latches instead of flip-flops, which
+saves area ([architecture](01-ARCHITECTURE.md)). The logic proofs see every
+bank as a flip-flop with an enable, and two proofs tie the latch build to that model.
+`formal/esc_lreg.sby` proves, with an unconstrained clock, that a latch bank equals the
+flip-flop at every instant provided its input is the written value registered at the write
+edge (G4). The core proof then shows that every bank's input is such a value (G5): one of
+the shared write-data registers, or the host's mailbox word, which the host holds for the
+cycle after a push (M1 on the host interface). G4 has teeth: a latch fed straight from the
+write data, the design rejected in version 1.1, fails at the first step.
+
+### Live reload and non-interference
+
+The host can replace one context's program while the others keep running ([architecture](01-ARCHITECTURE.md)).
+Two things must then be true. The new program words must arrive intact without ever
+disturbing a running fetch, and the running contexts must not be able to tell that it
+happened.
+
+C6 covers the first. With every submodule cut free and the core's proved "a free slot
+reads nothing" as the one assumption, `formal/esc_top.sby` proves by induction that the
+grant never meets a fetch the core uses and writes the host's word at the host's address.
+The host interface keeps a waiting word, its page and its address unchanged until the
+grant (PDR), and the core proves that while any context is not running, a free slot comes
+within four cycles.
+
+NI covers the second. `formal/esc_ni_env.v` builds two complete cores that receive the same
+inputs on everything a context j can see, but differ freely in every command aimed at the
+other contexts and in the program words only those contexts fetch. The proof shows that j's
+commits, state and pins are identical in both. It is proved by k-induction with an
+invariant (`esc_ni_ind.sby kind`) and checked bounded from reset (`base`). The claim has a
+stated scope: j itself uses none of the shared units (the capture unit, the line unit and
+the bus monitor), since another context may own or configure those, and the global digest
+and first-fault record are not compared. This proof shaped version 3 directly: with a bus
+monitor that any context could read, the induction failed, and the monitor was given an
+owner ([bus monitor](22-BUS-MONITOR.md)).
+
+### Proof tripwires
 
 Twelve of the proved invariants are also watched in silicon. A 12-bit register `tw`
 (`esc_core.v`, debug select 27) has one bit per invariant. Bit i sets one clock edge after
 the first edge at which its invariant is seen broken, and holds until reset. The proofs say
-every bit stays 0, so a set bit on a real chip is a broken invariant, named. The monitors
-are registered first (`tw_q`): they read the ends of the core's longest paths, and at 8x4
-their OR into the bank's clock gate missed timing by 1.42 ns. The bank is a clock-gated
-`esc_greg` enabled only when a registered monitor fires, so in a correct chip it is never
-clocked. Nothing but select 27 reads `tw`, so behaviour, non-interference and the digest
-are untouched. The switch `TRIPWIRES = 0` in `project.v` removes it.
+every bit stays 0, so a set bit on a real chip names a broken invariant. The monitors are
+registered first (`tw_q`), because they read the ends of the core's longest paths, and the
+bank is a clock-gated `esc_greg` enabled only when a registered monitor fires, so in a
+correct chip it is never clocked. Nothing but select 27 reads `tw`, so behaviour,
+non-interference and the digest are untouched. The switch `TRIPWIRES = 0` in `project.v`
+removes it.
 
 | Bit | Fires when | Property |
 | --- | --- | --- |
-| 0 | a FIFO head is past its deadline | P2 never late |
+| 0 | a queue head is past its deadline | P2 never late |
 | 1 | an open-drain pin drives high | P1 |
-| 2 | a FIFO holds more than 4 entries | P4 |
+| 2 | a queue holds more than 4 entries | P4 |
 | 3 | an unowned pin is driven | P3 |
-| 4 | a FAULTED context drives one of its pins | P5 |
+| 4 | a faulted context drives one of its pins | P5 |
 | 5 | a pin is driven while stopped | the P3/P5 strengthening |
 | 6 | the line unit claims a pin its owner does not own | L1 |
 | 7 | an unowned line unit claims, drives or releases a pin | `lu_bank` group |
-| 8 | a commit on a restart edge | S3 |
-| 9 | a fetch in a cycle given to a host program write | S3 |
-| 10 | with no context paired, the fetch is not v1.6's | v1.7 fetch |
+| 8 | a commit on a restart edge | S3 (live reload) |
+| 9 | a fetch in a cycle given to a host program write | S3 (live reload) |
+| 10 | with no context paired, the fetch differs from the unpaired fetch | pair mode |
 | 11 | the slot counter disagrees with the tick | B0 (`ahead`) |
 
 Each monitor is its property's negation, written on the same nets. Three checks tie each
 bit to its proof:
 
 - The `tw` task of `esc_core.sby` proves, by induction, that the twelve properties as
-  written imply `tw == 0`. So a monitor that could fire while its property holds fails it.
+  written imply `tw == 0`. A monitor that could fire while its property holds fails it.
 - A unit test (`test_tripwires_teeth`) forces each monitor's source nets into the
   forbidden state. Its bit, and no other, must set, hold for 1,000 cycles and clear on
   reset. This is what kills a mutant of a monitor.
-- The cosim reads select 27 at the end of every case against the ISS's 0. So a monitor
-  that fires in normal operation fails every case.
+- The co-simulation reads select 27 at the end of every case against the simulator's 0, so
+  a monitor that fires in normal operation fails every case.
 
-`sw/rp2350/bringup.py` reads the tripwires after every stage and names any bit that is
-set.
+`sw/rp2350/bringup.py` reads the tripwires after every bring-up stage and names any bit that
+is set.
+
+### Proofs that can fail
+
+A proof that passes whatever the design does proves nothing. Two kinds of check guard
+against that.
+
+**Covers.** A cover task reaches the precondition of every property: capture overflow, a
+full region, a ring wrap, a drain and a push with two records staged, the line unit driving
+its pins and receiving, a CONFIG faulting its owner, a late violation recorded by the bus
+monitor and a saturated count. A property whose precondition can never be reached would
+hold vacuously, and its cover would fail.
+
+**Planted bugs.** `formal/teeth.sh` (`make formal-teeth`) plants known bugs, one at a time,
+in a copy of `src/`, and runs the proof that must catch each. A planted bug counts only if
+its edit applied exactly once and the proof fails. In the final run all fifteen were caught:
+
+| Planted bug | Proof | Caught |
+| --- | --- | --- |
+| L2: the boundary flag registered a cycle late | `esc_line.sby` | step 14 |
+| L2: the pin value from the current cell instead of the next | `esc_line.sby` | step 23 |
+| L2: the first bit from the wrong end of the prefix | `esc_line.sby` | step 13 |
+| The line unit's one-hot owner register stuck at context 0 | `esc_line.sby` | step 3 |
+| The CONFIG fault terms sampled at step 0 only | `esc_line.sby` | step 5 |
+| NI: any context's stop holds every context's commit | `esc_ni_ind.sby` | step 6 |
+| Live reload: two restart bugs found during version 1.7 put back | bounded core check | steps 4 and 5 |
+| C6: a live write takes the store port at once | `esc_top.sby` | step 0 |
+| C6: a page change moves the page under a waiting word | `esc_host.sby` | step 179 |
+| C6: a free slot only ever in slot 0 (the four-cycle wait) | bounded core check | step 7 |
+| M3: the monitor's keep bit ignored, so a clear rewrites a rule | `esc_mon.sby` | step 3 |
+| M1: the interval counter starting at 0 (an off-by-one) | `esc_mon.sby` | step 3 |
+| M7: the monitor's shared write word dropping a bit | `esc_mon.sby` | step 3 |
+| The monitor's results readable by any context | `esc_ni_ind.sby` | induction fails |
+| A MON from a context other than the monitor's owner taking effect | bounded core check | step 6 |
+
+The clock-gate proof has its own: a naive `clk & en` gate fails G3 at the first step.
+
+### Run time
+
+`make formal` proves the core in parallel. `formal/split_core.py` makes one task per
+assertion source line from the elaborated design and runs `JOBS` of them at once. A task
+proves its assertions without the others as lemmas, so a property that needs a lemma can
+take far longer split than together. Assertions tagged with the same `lemma-group` are
+therefore proved in one task. The output-enable parts of P3 and P5 both rest on H4, for
+example, and together with H3 and H4 they prove in two minutes, while alone P5's part did
+not finish in two hours and P3's ran past the three-hour limit on a CI runner.
+
+In the final CI run, on 4-vCPU runners, the 39 core tasks and the ten other proofs and
+covers pass in one job of 72 minutes. The bounded check from reset, split into 47 tasks
+covering 67 assertion lines to depth 20 (`formal/split_bmc.py`, the boolector solver, three
+at a time), passes in 79 minutes in a second job; as one task it had not finished after
+16.8 hours. A third job runs the tripwire, line unit and non-interference proofs (four
+tasks) and then the planted bugs. The core proof has grown with the design, from 27 tasks
+in version 1.4 to 39 in version 3; as one task (`sby -f esc_core.sby pdr`) it took 34
+minutes on one core for version 1.3.
 
 ## RTL to netlist equivalence
 
-The proofs above are about the RTL; the chip is built from the netlist that synthesis,
-placement and routing produce. `make equiv` proves that the two are the same machine:
-the final netlist of the version 1.6 harden (`v16s`, sha256 `f5bcfa00…`) is sequentially
-equivalent to the RTL in `src/`, for every input sequence after reset.
+The proofs above are about the RTL, but the chip is built from the netlist that synthesis,
+placement and routing produce. `make equiv` proves that the two are the same machine: the
+signed-off netlist of version 3 (SHA-256 `fa1f6601eb894419…`, the same from the CI harden
+and the local one) is sequentially equivalent to the RTL in `src/` for every input sequence
+after reset.
 
-Both designs are flattened and placed side by side in a miter that feeds them the same
-pins, the same SRAM read data and the same clock, and compares all 24 chip outputs and
-every SRAM input (address, data, enables, 332 bits in all) on every step. ABC's `dprove`
-searches 19 steps for a difference, then matches the RTL's registers with the netlist's by
-signal correspondence and closes the proof by induction. Nothing is matched by name, so
-the netlist's renamed registers need no mapping, nor do the registers that reset to one
-in the RTL and that synthesis builds as reset-to-zero flip-flops with inverters. The latch
-banks are the standard-cell latches in both designs (the RTL is read with the standard-cell
-define, as it is hardened), so the proof covers them as logic too.
+Both designs are flattened and placed side by side in a **miter**, a circuit that feeds
+them the same pins, the same SRAM read data and the same clock, and compares every chip
+output and every input of the SRAM macros (address, data and enables, 336 bits in all) on
+every step. ABC's `dprove` searches 19 steps for a difference, then matches the RTL's
+registers with the netlist's by signal correspondence and closes the proof by induction.
+Nothing is matched by name, so the netlist's renamed registers need no mapping, nor do the
+registers that reset to one in the RTL and that synthesis builds as reset-to-zero
+flip-flops with inverters. The RTL is read with the standard-cell define, as it is
+hardened, so the latch banks are the same standard-cell latches in both designs and the
+proof covers them as logic.
 
-**Two steps since version 1.6.** Synthesis recodes three small state machines of the line
-unit (`sk`, `noted` and `es0_q` in `esc_line.v`) one-hot, so three of the netlist's registers
-have no single partner in the RTL. Up to version 1.5 signal correspondence closed that
-anyway (v1.5 already had `noted` recoded); with version 1.6's extra registers it no longer
-does, and the one-step proof of the v1.6 netlist ended undecided after 86 minutes, with no
-difference found. Applying only synthesis's FSM pass to the RTL reproduces this (undecided
-after 56 minutes), and the same flow without the FSM pass proves in 198 s, so the recoding
-is the whole cause. The proof therefore takes two steps:
+**Two steps.** Synthesis recodes three small state machines of the line unit (`sk`, `noted`
+and `es0_q` in `esc_line.v`) as one-hot, so three of the netlist's registers have no single
+partner in the RTL. Signal correspondence closed that gap on its own until version 1.6
+added registers to the line unit; after that, the one-step proof of the netlist ended
+undecided after 86 minutes, with no difference found. Applying only synthesis's FSM pass to
+the RTL reproduced this, and the same flow without the FSM pass proved in 198 s, so the
+recoding was the whole cause. The proof therefore takes two steps:
 
 1. `esc_line` alone is sequentially equivalent to `esc_line` after synthesis's FSM pass
-   (the same miter at module level: 20 outputs, 151 bits; 7 s);
+   (the same miter at module level: 22 outputs, 156 bits; 9 s);
 2. the netlist is sequentially equivalent to the RTL with that `esc_line` in place
-   (332 bits; 228 s).
+   (336 bits; 317 s).
 
-A module equivalent at every output from reset, for every input sequence, changes nothing
-around it (every flip-flop and latch bank resets asynchronously, so nothing it outputs
-during reset is kept), so together the netlist is equivalent to the RTL. `formal/equiv.sh`
-runs both steps (about 4 minutes); with a second RTL tree instead of a netlist (the
-mutation campaign) it runs the one direct proof, as before. Telling synthesis not to
-recode (`fsm_encoding "none"`) would have kept one step, but it changes the netlist, and
-the layout it gave (`v16t`) was cut short by an OpenROAD clock-tree bug that disconnects a
-clock gate (D-45). The version 1.4 netlist (sha256 `661e5608…`, 245 s), the version 1.3
-netlist (`54236b4f…`) and the version 1.1 release netlist (`1c9004ee…`) passed the one-step
-proof.
+A module that is equivalent at every output from reset, for every input sequence, changes
+nothing around it (every flip-flop and latch bank resets asynchronously, so nothing it
+outputs during reset is kept), so together the netlist is equivalent to the RTL.
+`formal/equiv.sh` runs both steps, about six minutes in all. With a second RTL tree instead
+of a netlist, as the mutation campaign uses it, it runs the one direct proof. Telling
+synthesis not to recode would have kept one step, but it changes the netlist, and the
+layout it gave was cut short by an OpenROAD clock-tree bug that disconnects a clock gate
+(D-45).
 
-**The check has teeth.** Faults injected into the v16s netlist are found by the proof
-itself: the output stage of `uio_oe[0]` with two of its gate's inputs swapped fails at the
-first compared step (37 s), and the MISO shift register's bit 6 wired to bit 5's input
-fails at step 17 (38 s). Step 1 has its own: `esc_line`'s CONFIG step counter made to skip a
-step on the recoded side fails at step 9.
+**The check has teeth.** When the two-step proof was built, faults injected into the
+version 1.6 netlist were found by the proof itself: the output stage of `uio_oe[0]` with two
+of its gate's inputs swapped failed at the first compared step, and the MISO shift
+register's bit 6 wired to bit 5's input failed at step 17. Step 1 has its own: the CONFIG
+step counter made to skip a step on the recoded side fails at step 9.
 
 Faults deep in the line unit need more than a search from reset can reach: the host must
 configure a context and start it, the program must configure the line unit, and the unit
 must send. In the whole-chip miter a bounded search did not reach the CONFIG step counter's
 bit 1 wired to bit 0's input, or the bit position's bit 3 wired to bit 2's, within 75 steps.
-So the same miter was also run as a simulation of one concrete session. Both SRAM macros are
+So the same miter was also run as a simulation of one concrete session. Both SRAM macros were
 modelled as memories holding a small program that configures the line unit from the tape and
-sends 64 bits in a loop, and the host resets the chip, writes the configuration and starts
-it. The CONFIG fault makes the two copies differ a few cycles after START, on the tape
-address; the bit-position fault does so eight bits into the first SEND. The unfaulted
-netlist shows no difference over the same 1,000 cycles, while its pins change 166 times.
+sends 64 bits in a loop, and the host reset the chip, wrote the configuration and started
+it. The CONFIG fault made the two copies differ a few cycles after START, on the tape
+address; the bit-position fault did so eight bits into the first SEND. The unfaulted
+netlist showed no difference over the same 1,000 cycles, while its pins changed 166 times.
 A difference in the miter is a counterexample, so the proof cannot pass with either fault.
 
-**Scope.** The SRAM macros are hard IP and are not compared, only everything around
-them. Cell behaviour comes from the functions in the PDK's liberty file, so this is a
-statement about logic; timing is the signoff's job. The clock is ideal, one edge per
-step, so the clock tree is checked as logic, not as delays. The clock-gate latches have
-no reset and start at zero in both designs. Reset is held for the first steps and free
-afterwards, as is every other input.
+**Scope.** The SRAM macros are hard IP and are not compared, only everything around them.
+Cell behaviour comes from the functions in the PDK's liberty file, so this is a statement
+about logic; timing is the job of the sign-off analysis
+([physical design](03-PHYSICAL-DESIGN.md)). The clock is ideal, one edge per step, so the
+clock tree is checked as logic, not as delays. The clock-gate latches have no reset and
+start at zero in both designs. Reset is held for the first steps and free afterwards, as is
+every other input.
 
 ## Mutation testing
 
-`test/mutation/run_mutants.py` plants one fault at a time in a copy of `src/` and runs
-the test suites that can see the mutated file, cheapest first, until one fails: the
-line unit lockstep (for `esc_line.v`), the lockstep co-simulation, the core unit tests, the
-host interface tests, the chip tests and the firmware-through-the-pins tests. A suite that
-hangs counts as a kill: one still running after three times its own time on the unmutated
-RTL, measured in the same run on the same machine (or after its fixed limit, if longer).
-The co-simulation runs the 43 bus-model cases the campaign had at v1.6 and the four of v3's receivers; the fw-g4 firmware
-runs on the RTL at every push, but in the campaign it would triple the
-suite's time for every mutant, past what CI's job limit allows.
-The suites simulate the RTL with the standard-cell clock gates and
-latch banks (`CELLS=yes`), as it is hardened, so that a mutant of a latch bank's input is
-visible. Before any mutant is scored, every suite it needs must pass on the unmutated
-RTL: a suite that cannot run (a tool or model problem) would otherwise fail for every
-mutant and read as kills.
+Proofs and tests are only as good as their power to notice a mistake. Mutation testing
+measures that power directly: it plants one fault at a time in a copy of the RTL (a
+**mutant**) and checks that some test fails. A mutant that no test kills is either harmless
+or a hole in the tests.
 
-The harness checks itself as well (v1.6). After the baseline, each suite must fail on a
-**canary**, a fault it is known to see, and the equivalence check must prove a rewrite that
-changes nothing and refute one that changes an output, so a suite or a proof that can only
-say yes is caught before any mutant is scored. Every kill stores its **evidence**, the failing
-tests and the first assertion or mismatch, and a **kill audit** reruns a sample of kills with
-the killing suite alone and reads that evidence. A final **reconcile** checks that every
-selected mutant has exactly one result, that every kill names a suite and every exclusion
-has its argument; in CI the summary job runs it over the merged shards and fails on any
-miss. The line unit lockstep counts its own replayed edges and the stray tape
-reads it makes, and fails a run that replays fewer edges than it generated or makes none.
-
-The campaign has 912 mutants across the whole RTL, the line unit and v2's program store
-included (836 in v1.6). Seventy are written by hand, each aimed at one feature (below). The
-other 842 are generated
-(`test/mutation/generate.py`):
-every synthesisable line outside the verification-only blocks (`ifdef FORMAL` and the
-other macros only `formal/*.sby` defines) is scanned for classic fault sites
-(a comparison or logic operator swapped, an inversion dropped, an arithmetic operator
-swapped, a constant changed, an `if` condition negated, a register that keeps its value
-instead of taking an assignment), and a site is chosen when a hash of its file, operator
-and line text falls under a fixed rate (30%), so editing one line changes only that line's
-mutants. A generate condition (an `if` that names its block) is not mutated: it chooses
-from parameters what is built, so its mutant only swaps one equivalent build for another or
-trips a build guard. `--rate 1` takes every site, 2,507 mutants in all; that run is too
-long for CI and is made locally, on lines that change.
-
-A run first checks that every selected mutant still applies (a hand-written one's text
-found exactly once, a generated one's line unchanged), and stops before any suite if one
-does not. Until v2 a mutant whose text had gone was reported as invalid only when its turn
-came, hours in; seven hand-written mutants had stopped applying that way after v1.7's pair
-mode and live reload rewrote their lines, so they had not run since. They now plant the same
-faults in today's code.
+`test/mutation/run_mutants.py` runs, for each mutant, the test suites that can see the
+mutated file, cheapest first, until one fails: the line unit lockstep (for `esc_line.v`),
+the lockstep co-simulation, the core unit tests, the host interface tests, the bus monitor
+tests, the chip tests and the firmware-through-the-pins tests. The co-simulation runs the
+firmware cases with bus models from the campaign's fixed list; running every firmware case
+for every mutant would triple the campaign's time, past what a CI job allows. The suites
+simulate the standard-cell build (`CELLS=yes`), so a mutant of a latch bank's input is
+visible.
 
 A mutant that every suite misses is then checked formally against the original RTL with
-`formal/equiv.sh`: if no input sequence ever makes any chip output differ, it is
-**equivalent**, and no test could kill it. Otherwise it is a test hole.
+`formal/equiv.sh`. If no input sequence ever makes any chip output differ, it is
+**equivalent**, and no test could kill it. If the proof finds a difference, the mutant is a
+hole in the tests and gets a new test. If the proof does not decide within 30 minutes, the
+mutant is read against the RTL: it is either a hole, or **excluded** with a written
+argument in `run_mutants.py` for why it cannot change behaviour.
 
-The hand-written mutants:
+**The harness checks itself.** A mutation campaign can report success for the wrong
+reasons, so the harness guards against each way that could happen:
 
-Eighteen target v1.5's tests decided a cycle early (D-43). Six the FIFO head's retire
-flag: measured against the current tick instead of the next, the entry behind a retiring
-head never tested, an entry pushed into an empty FIFO with lead 1 never retiring, a test
-that ignores a retirement emptying the FIFO, an empty FIFO tested against a lead nobody
-pushed, and a stop or fault that leaves the flag set. Twelve the core's registered tests:
-computed for the context committing now instead of next, the lead measured from the
-current tick, the FIFO tail or the window end taken from the wrong context, a timer exactly
-half the range ahead counted as reached, a deadline 2^31 − 1 ticks ahead refused, unsigned
-comparisons in place of the half-range ones (wrong only across the counter's wrap), the
-lead saturating at 17 bits or one below 0xFFFF, and a deadline equal to the FIFO tail or
-to the open window's end admitted.
+- *A suite that cannot run.* Before any mutant is scored, every suite must pass on the
+  unmutated RTL. A suite that fails for a tool or model problem would otherwise fail for
+  every mutant and read as a kill.
+- *A suite or proof that can only say yes.* Each suite must fail on a **canary**, a fault
+  it is known to see, and the equivalence check must prove a rewrite that changes nothing
+  and refute one that changes an output.
+- *A kill for the wrong reason.* Every kill stores its **evidence**: the failing tests and
+  the first assertion or mismatch. A **kill audit** reruns a sample of kills with the
+  killing suite alone and reads that evidence.
+- *A hang.* A suite still running after three times its own time on the unmutated RTL,
+  measured in the same run on the same machine, counts as a kill, so a slow runner cannot
+  turn a hang into a pass or a busy runner into a kill.
+- *A lost mutant.* A final **reconcile** checks that every selected mutant has exactly one
+  result, that every kill names a suite and that every exclusion has its argument. In CI
+  the summary job runs it over the merged shards and fails on any miss.
+- *A stale mutant.* A run first checks that every selected mutant still applies (a
+  hand-written one's text found exactly once, a generated one's line unchanged), and stops
+  before any suite if one does not.
 
-Eight mutants target pin bank B: a DRIVE landing one pin off, a released output going
-low, a context reading the other bank, ownership checked against the wrong bank, a fault
-that keeps its bank B pins, inputs that never reach the synchronisers, a digest blind to
-bank B, and capture ignoring the bank bit.
+The line unit lockstep also counts its own replayed edges and the stray tape reads it makes,
+and fails a run that replays fewer edges than it generated.
 
-Seven target streaming capture: a drain writing over unacknowledged records, the hold
-point one record late, TAPE_ACK ignored, arming that keeps the old read pointer, a
-stream that stops at the limit instead of wrapping, a drain that loses the port to the
-host, and debug select 20 not showing the read pointer.
+**Where the mutants come from.** The campaign has 1,010 mutants across the whole RTL,
+including the line unit, the bus monitor and the program store. 940 are generated
+(`test/mutation/generate.py`). Every synthesisable line outside the verification-only
+blocks is scanned for classic fault sites: a comparison or logic operator swapped, an
+inversion dropped, an arithmetic operator swapped, a constant changed, an `if` condition
+negated, or a register that keeps its value instead of taking an assignment. A site is
+chosen when a hash of its file, operator and line text falls under a fixed rate (30%), so
+editing one line changes only that line's mutants. A generate condition is not mutated,
+because it chooses at elaboration what is built, so its mutant only swaps one equivalent
+build for another or trips a build guard. `--rate 1` takes every site, 2,507 mutants in
+all; that run is too long for CI and is made locally, on the lines that change.
 
-Eighteen target v1.4: ten the latch banks (a bank latching another port's data, stale
-data at START, an entry one behind), three the two-slot mailboxes (a ring head that never
-moves, a push into the slot the host is popping), and five the shared debug read and its
-slot counter (a stale field, a wrong context, swapped fields, slots one context off).
+The other 70 are written by hand, each aimed at one feature:
 
-and the original nineteen: inverted comparisons, off-by-one deadlines and pointers, a
-dropped polynomial term in the digest, a missing GETI wait, broken tape forwarding,
-capture rule changes and clock-gate enable errors.
+- *Eighteen at the values decided a cycle early.* Six at the queue head's retire flag:
+  measured against the current tick instead of the next, the entry behind a retiring head
+  never tested, an entry pushed into an empty queue with lead 1 never retiring, a test that
+  ignores a retirement emptying the queue, an empty queue tested against a lead nobody
+  pushed, and a stop or fault that leaves the flag set. Twelve at the core's registered
+  tests: computed for the context committing now instead of next, the lead measured from
+  the current tick, the queue tail or the window end taken from the wrong context, a timer
+  exactly half the range ahead counted as reached, a deadline 2^31 − 1 ticks ahead refused,
+  unsigned comparisons in place of the half-range ones (wrong only across the counter's
+  wrap), the lead saturating at 17 bits or one below 0xFFFF, and a deadline equal to the
+  queue tail or to the open window's end admitted.
+- *Eight at pin bank B:* a DRIVE landing one pin off, a released output going low, a
+  context reading the other bank, ownership checked against the wrong bank, a fault that
+  keeps its bank B pins, inputs that never reach the synchronisers, a digest blind to bank
+  B, and capture ignoring the bank bit.
+- *Seven at streaming capture:* a drain writing over unacknowledged records, the hold point
+  one record late, TAPE_ACK ignored, arming that keeps the old read pointer, a stream that
+  stops at the limit instead of wrapping, a drain that loses the port to the host, and
+  debug select 20 not showing the read pointer.
+- *Eighteen at the latch banks, mailboxes and debug port:* ten at the latch banks (a bank
+  latching another port's data, stale data at START, an entry one behind), three at the
+  two-slot mailboxes (a ring head that never moves, a push into the slot the host is
+  popping), and five at the shared debug read and its slot counter (a stale field, a wrong
+  context, swapped fields, slots one context off).
+- *Nineteen original ones:* inverted comparisons, off-by-one deadlines and pointers, a
+  dropped polynomial term in the digest, a missing GETI wait, broken tape forwarding,
+  capture rule changes and clock-gate enable errors.
 
-**Result (v1.6, every site on the lines v1.6 changed): 626 mutants, none surviving.** The
-campaign took every generated site on the lines v1.6 changed in `esc_core.v`, `esc_ctx.v`
-and `esc_line.v`, 230 at the default rate and 479 more at `--rate 1`, less 85 in
-verification-only blocks that the generator no longer mutates, and the two hand-written
-mutants moved onto v1.6's code. It ran locally on the standard-cell models, as CI runs
-mutants.
-
-| Outcome | Mutants |
-| --- | ---: |
-| Killed by the line unit lockstep | 355 |
-| Killed by the lockstep co-simulation | 160 |
-| Killed by the core unit tests | 41 |
-| Proved equivalent (`formal/equiv.sh`) | 22 |
-| Excluded, each with its written argument in `run_mutants.py` | 48 |
-
-No kill is a timeout. The kill audit reran 46 kills alone, 15 per suite and two chosen for
-dying within five seconds: 44 failed with an assertion or a mismatch against the reference.
-The two fast ones fail every co-simulation test because their LDT write strobe fires in
-almost every cycle and fills the registers with the tape's undefined read data, so the
-testbench stops on a non-0/1 value rather than at a comparison. That is a real difference
-(silicon would load arbitrary words where the simulator keeps defined values), found by X
-propagation.
-
-*What the survivors found.* Seven mutants survived the campaign without being equivalent.
-Each changed a line unit pin, port or status output in a case the line unit lockstep reached
-too rarely: the mutation harness ran that suite with 4 seeds where `make line-test` runs 8,
-and three cases need a configuration the random mix almost never builds. The harness now
-runs the suite exactly as `make line-test` does, and the suite ends with three profiled runs
-in which every configuration comes from one profile: 10BASE-T (an end-of-packet symbol of two
-cells after a 0 bit), SPI-like (an empty packet in a differential configuration without
-end-of-packet symbols) and CAN with the abort monitor sampling in the cycle before a
-boundary (S = P − 1). Seeds 1–8 drive exactly the stimulus they drove before, so no earlier
-kill changes. With that, all seven are killed: four by seeds 6 and 7 (the prefetch of a
-last word of one bit, the end-of-packet level after a configuration without `ext`, the second
-pin's idle level after a CONFIG, and the drive enable of an empty packet) and three only by
-the profiled runs (the symbol kind of an end-of-packet cell, the first segment of an empty
-packet, and the abort monitor's prediction). Every excluded line unit mutant was then run
-through the strengthened suite as well; none is killed by it.
-
-*The 48 exclusions* did not decide within the proof's 30 minutes and change no behaviour by
-argument: 30 change a value that is always written again before anything reads it (reset,
-START, kill, end-of-packet and CONFIG values: the core's operand registers, line unit
-registers read only in the transmit or receive modes or by a later job, and the CRC's low
-half, which no output shows); 6 add a
-tape read whose data nothing takes; 4 change the FIFO's head or ring position before
-anything reads through it; 4 change a value that gives the same result in every reachable
-state (a segment past the last, the next symbol's kind, a mode that is already IDLE);
-3 load the next-word buffer with a word that is overwritten before it is read; and 1 acts
-only when a FIFO head is past its deadline, which P2 proves never happens.
-
-**Result (v1.4): 653 of 653 scored mutants killed, none surviving.**
+**Result: 1,010 mutants, none surviving.**
 
 | Outcome | Mutants |
 | --- | ---: |
-| Killed by the lockstep co-simulation | 342 |
-| Killed by the line unit lockstep | 185 |
-| Killed by the host interface tests | 81 |
-| Killed by the core unit tests | 42 |
-| Killed by the chip tests | 3 |
-| Proved equivalent (`formal/equiv.sh`): no chip output can differ | 19 |
-| Excluded, each with its written argument in `run_mutants.py` | 38 |
+| Killed by the lockstep co-simulation | 431 |
+| Killed by the line unit lockstep | 278 |
+| Killed by the host interface tests | 92 |
+| Killed by the core unit tests | 57 |
+| Killed by the bus monitor tests | 24 |
+| Killed by the chip tests | 10 |
+| Proved equivalent (`formal/equiv.sh`): no chip output can differ | 57 |
+| Excluded, each with its written argument in `run_mutants.py` | 61 |
 
-**v1.5's new logic, every site (local, behavioural build).** The 18 hand-written v1.5
-mutants, the original `admit_past_off_by_one` (moved to v1.5's registered test) and all 84
-generated sites (`--rate 1`) on the lines v1.5 changed in `esc_ctx.v` and `esc_core.v`, 103
-mutants: 97 killed, 5 proved equivalent, 1 excluded (`late_q` keeping its value, when it is
-never set because no head is ever late: argument P2), none surviving. Five survived a first
-run; the core unit tests `test_timer_range_edges`, `test_lead_saturates` and the no-fault
-check in `test_stop` kill four of them. The whole campaign (745 mutants then) on the standard-cell
-models runs in CI. Its first run on v1.5 killed 699, proved 16 equivalent and excluded 29;
-one survived: START setting the FIFO's head to 1 instead of 0, whose equivalence proof
-was undecided in 30 minutes. It is excluded with its argument: the FIFO is a ring
-addressed only relative to the head, START empties it, and every read of a slot is
-gated by the count. The rerun with that exclusion reported 705 killed, 15 proved
-equivalent and 25 excluded, none surviving. Compared mutant by mutant, 20 mutants changed
-category between the two runs, every one through the pins suite running out of time, and
-7 of them were proved equivalent in one run and scored as killed by the timeout in the
-other: the fixed limit (40 minutes) was only about 1.3 times what the suite took unmutated
-on a CI runner with four jobs, so a busy runner, not a test, decided those. 20 of the
-rerun's 705 kills were such timeouts. Since v1.6 each suite's limit is three times its
-baseline time (above); counts from v1.6 on come from runs with that limit.
+Most exclusions change a reset or start value that nothing reads before it is loaded again,
+such as the core's operand registers, line unit fields read only in a mode whose entry sets
+them, and the host engine's data and address registers. The rest change logic that acts only
+when a queue head is past its deadline, which P2 proves never happens, tape reads whose data
+nothing takes, and tie-offs of the SRAM macros' configuration pins that have no function in
+any model. The CI campaign runs in 40 shards, dealt by each mutant's time in earlier runs
+(`test/mutation/costs.json`) so that no shard reaches the job's time limit.
 
-**v1.4's holes, now closed.** The first v1.4 campaign, on the behavioural build, left 9
-survivors. Three showed holes, closed with directed co-simulation programs: a SEND into a
-full FIFO, a SEND before the FIFO's tail, and a mailbox push and pop at the edges the host
-uses. Four were excluded with an argument, and the rest were latch-bank mutants that only
-the standard-cell models can show, so the campaign moved to them. The next run scored 710
-of 711 killed, which was false: the CI simulator, Icarus Verilog 12, gives X on the PDK's
-cell models, so every co-simulation failed within seconds of starting. The baseline check
-above now catches that, and CI builds Icarus 13. The real campaign then left 19
-survivors. Two holes were closed with core unit tests that kill three of them: a line
-unit tape access at a stop edge (`test_line_unit_makes_no_access_at_a_stop_edge`, which
-watches the tape port in a cycle the unit had scheduled an access), and the debug port
-read after a stop within four cycles of a commit, which returned the value before that
-commit (`test_debug_port_after_stop_shows_final_registers`). The other 16 are excluded
-with an argument (below).
+### What earlier campaigns found
 
-**v1.3's holes, closed then.** With the tests as they were, 57
-mutants survived. Each was read against the RTL; the holes they showed were closed with
-nine new tests, which kill 29 of them:
+Each campaign that left survivors showed a hole, and the holes and their fixes shaped the
+harness and the tests as they are today.
 
-- *Nothing read the chip between reset and its first START.* A host can read every debug
-  select over SPI at any time, so a wrong reset value is a visible bug. `test_reset_state`
-  reads all of them after reset; the host test checks that a reset clears the
-  configuration, fires no strobe and writes no memory word, and that both memories keep
-  their contents.
-- *Edge cases random programs rarely reach:* the Z flag of OR and AND when the operands'
-  sum wraps to zero (`0x80000000 | 0x80000000`), a taken JC, JNC or DJNZ at PC 255 (not
-  sequential, so no PC_RANGE fault), GETI next to a retired SAMPLE that still sits one slot
-  past the FIFO tail, the stale-fetch error on the first word of a tape read, and the
-  digest after a STOP that releases driven pins.
-- *A power claim with no test:* a one-context program reads the program store one cycle
-  in four, and a stopped chip never (D-29b).
-- *The attention pin* `uo_out[1]`, IRQ or fault, for an IRQ alone and for a fault alone.
-
-Writing the reset test also showed that the unit testbench never gave reset a falling
-edge, so the behavioural model of a clock-gated register could stay unknown after reset
-in simulation; silicon flip-flops reset on the level. The testbench now does.
-
-**The 38 exclusions** are mutants that the equivalence check did not decide within its
-time limit (30 minutes each) and that change no behaviour by argument: three act only when
-a FIFO head is past its deadline, which P2 proves never happens; two change tie-offs of
-the SRAM macro's configuration pins that have no function in any model; four add a tape
-read whose data nothing takes (every consumer takes read data only in the cycle after a
-read of its own, and a write wins over a read); four change when the debug port's cached
-field reloads while the chip is stopped, so that it reloads the value it already holds;
-one changes a first-fault priority between two events that cannot meet (a line unit
-CONFIG fault is never at an owner commit edge); and 24 change the reset or idle value of
-state that is always loaded before anything reads it (the capture unit's snapshot flag
-and staging word, the host engine's data, address and context registers, and line unit
-fields read only in the transmit or receive mode, whose entry sets them).
+- **Version 1.3: nothing read the chip between reset and its first START.** With the tests
+  as they were, 57 mutants survived. A host can read every debug select over SPI at any
+  time, so a wrong reset value is a visible bug; `test_reset_state` now reads all of them
+  after reset. Other holes were edge cases random programs rarely reach (the Z flag of OR
+  and AND when the operands' sum wraps to zero, a taken branch at PC 255, the digest after
+  a STOP that releases driven pins), a power claim with no test (a one-context program
+  reads the program store one cycle in four, and a stopped chip never), and the attention
+  pin. Nine new tests killed 29 of the survivors. Writing the reset test also showed that
+  the unit testbench never gave reset a falling edge, so a clock-gated register's model
+  could stay unknown after reset in simulation.
+- **Version 1.4: a simulator can fail every test for the wrong reason.** The first run on
+  the standard-cell models scored 710 of 711 killed, which was false: the CI simulator,
+  Icarus Verilog 12, gives X on the PDK's cell models, so every co-simulation failed within
+  seconds. The baseline check now catches that, and CI builds Icarus 13. The real campaign
+  then found two holes, closed with core unit tests: a line unit tape access at a stop
+  edge, and a debug read within four cycles of a commit after a stop, which returned the
+  value from before that commit.
+- **Version 1.5: a timeout decided by the runner, not the test.** Compared mutant by
+  mutant, 20 mutants changed category between two runs, every one through the pins suite
+  running out of time: the fixed limit was only about 1.3 times what the suite took
+  unmutated on a busy runner. Since then each suite's limit is three times its own baseline
+  time.
+- **Version 1.6: random stimulus too thin for rare configurations.** Seven mutants survived
+  without being equivalent, each in a line unit case the lockstep reached too rarely. The
+  harness had run that suite with 4 seeds where `make line-test` runs 8, and three cases
+  need a configuration the random mix almost never builds. The harness now runs the suite
+  exactly as `make line-test` does, and the suite ends with profiled runs in which every
+  configuration comes from one profile, such as 10BASE-T's end-of-packet symbol or CAN's
+  abort monitor sampling just before a boundary. The earlier seeds drive exactly the
+  stimulus they drove before, so no earlier kill changed, and all seven were killed.
+- **Version 3: two start values the proof could not decide.** The first version 3 run left
+  two survivors whose equivalence proofs ran out of time: `s1` at reset and `cq` at a
+  start. Both are reloaded long before anything reads them, and both are argued in
+  `run_mutants.py`.
 
 ## Timing certificates
 
-`sw/escert` treats firmware as a timed automaton and runs a zone (difference-bound
-matrix) analysis over every path, covering all five admission subcodes. It returns
-CHECKED with a lower bound on scheduling lead, REFUTED with a witness that the simulator
-replays into the fault, or NOT_PROVEN.
+The chip refuses any event it cannot apply on time. The certificate checker, `sw/escert`,
+shows ahead of time that a program will never be refused. It treats the firmware as a
+timed automaton and runs a zone analysis (with difference-bound matrices) over every path,
+covering all five admission subcodes. For each context it returns one of three answers:
 
-| Firmware | Result | Certified minimum lead (ticks) |
-| --- | --- | ---: |
-| `uart_tx` | CHECKED | 9 |
-| `uart_rx` | CHECKED | 206 |
-| `spi_ctrl` | CHECKED | 7 |
-| `i2c_ctrl` | CHECKED | 2 |
-| `i2c_eeprom` | CHECKED | 2 |
-| `combo_uart_i2c` (three contexts) | CHECKED | 2 / 206 / 7 |
-| `combo_two_banks` (four contexts, both banks) | CHECKED | 5 / 4 / 7 / 6 |
-| `ws2812` | CHECKED | 5 |
-| `onewire` | CHECKED | 4 |
-| `can_tx` | CHECKED | 3 |
-| `ps2_device` | CHECKED | 4 |
-| `jtag_idcode` | CHECKED | 3 |
-| `spi_target` | CHECKED | 1 |
-| `nec_tx` | CHECKED | 9 |
-| `nec_rx` | CHECKED | no events |
-| `swd_idcode` | CHECKED | 3 |
-| `logic_analyzer` | CHECKED | no events |
-| `westminster` | CHECKED | 57 |
-| `usb_hid` (v1.4 line unit) | CHECKED | 1; replies 4 (below) |
-| `can_rx` (v1.4 line unit) | CHECKED | no events |
-| `dshot_tx` (two contexts) | CHECKED | 8 / no events |
-| `sent_tx` (two contexts; with or without the pause pulse) | CHECKED | 4 / no events |
-| `cec` | CHECKED | 4 |
-| `dali` | CHECKED | 13 |
-| `seven_seg` | CHECKED | 9 |
-| `vga_pong` (two contexts) | CHECKED | 1597 / 8 |
-| Generated from timing tables: `uart_tx_gen`, `midi_tx`, `dmx512_tx`, `nec_tx_gen` | CHECKED | 9 each |
-| Generated from a timing table: `ws2812_gen` | CHECKED | 5 |
+- **CHECKED**, with a lower bound on the scheduling **lead**, the number of ticks by which
+  every event is queued ahead of its deadline;
+- **REFUTED**, with a witness: inputs that the simulator replays into the fault;
+- **NOT_PROVEN**, when neither could be shown. Such firmware carries no certificate.
 
-Every certificate is CHECKED for all inputs, without assumptions about bus timing:
-re-anchoring the time base after every wait makes the input-dependent I2C paths provable
-unconditionally. For line unit firmware escert also reports when replies leave: every
-`usb_hid` reply has its deadline exactly 72 ticks after the end of the packet it
-answers, with a lead of at least 4 ticks on every path where the host keeps to USB
-timing; a late reply is dropped, never a fault ([line unit](19-LINE-UNIT.md)). The certified bounds are at or below the leads measured by the chip's
-telemetry in simulation, and most are equal to the tick. `replay.asm` computes its
-deadlines from captured data, so it is checked by the replay tests and by the hardware's
-admission rules instead.
+All 71 shipped programs are CHECKED, for every input and without assumptions about bus
+timing. The certified minimum leads, in ticks, per context:
 
-**At the rated maximum clock (D-5).** In version 1.5 the 14 programs whose timing derived
-from `CLK_KHZ` certified CHECKED rebuilt for 33 MHz and for 33.333 MHz, and each drove its
-bus model at 33 MHz with the model timing every edge in 30.3 ns ticks
-(`test_rated_clock.py`; the 14-second `westminster` tune is certified at that clock and
-played at a hundredth of real time in `test_firmware.py`). Since version 1.6, 39 programs
-derive their timing from `CLK_KHZ`: all certify at 33, 33.333, 40 and 50 MHz, and 36 drive
-their bus models at 33 and at 50 MHz (the other three: the two combined images, whose modules
-run on their own, and `westminster`). Converting them found two clocks rounded the fast
-way: JTAG's TCK and SWD's SWCLK half periods were rounded down, so at 33 MHz the clocks
-ran 2% and 0.6% above their stated rates; they now round up. At 25 MHz every converted
-program assembles to the same image as before except two, changed on purpose: `nec_tx`
-drains its queue before a 1's long space too (the same edges at 25 MHz), and `i2c_ctrl`
-waits for each scheduled SCL fall before re-anchoring its bit timeline and watches for
-SCL's rise only once its release is due, so every edge it schedules follows the previous
-one at any clock (the 25 MHz build had held by tick count alone). The second wait
-lengthens each bit: SCL runs at 347 kHz at 25 MHz instead of 368 kHz. Four programs are tied to one clock by
-their protocol (10BASE-T, USB low speed, VGA) and refuse any other with an `.assert`.
-In version 1.5, three needed changes, which leave their 25 MHz behaviour as it was. `nec_rx` measured in
-4-tick units, and its longest bound outgrew the 16-bit compare; its unit now doubles above
-25 MHz. `westminster`'s 0.65 s rest outgrew ADDT's 24 bits; it is added in two halves.
-`nec_tx`'s repeat code queued its stop burst more than 2^16 ticks after the leader's last
-edge, which escert could not bound (POSSIBLE): at 25 MHz the gap had been 56,214 ticks. It
-now drains the queue first, as the frame path always did, and certified from 2.5 to 38 MHz;
-since version 1.6 a 1's long space drains it too, and it certifies from 2.5 to 100 MHz.
-Both NEC programs rebuilt for 33 MHz and for 50 MHz also run a frame through the chip's
-pins, transmitter through an IR receiver model into the receiver, on the RTL and on the
-v16s netlist (`test_nec_loopback_at_33_mhz_on_chip`, `test_nec_loopback_at_50_mhz_on_chip`;
-47 and 71 minutes on the netlist). That simulation is functional; the 20 ns timing of the
-same netlist is the static analysis in
-[physical design](03-PHYSICAL-DESIGN.md#sign-off-results).
+| Lead | Contexts | Programs |
+| ---: | ---: | --- |
+| 1 | 7 | `can_tx_lu`, `eth_tx`, `spi_target`, `spi_tx`, `udp_tx`, `usb_hid` (context 0), `ws2812_lu` |
+| 2 | 5 | `combo_uart_i2c` (context 0), `i2c_burst`, `i2c_ctrl`, `i2c_eeprom`, `oled_disp` |
+| 3 | 3 | `can_tx`, `jtag_idcode`, `swd_idcode` |
+| 4 | 6 | `cec`, `combo_two_banks` (context 1), `onewire`, `onewire_dev`, `ps2_device`, `sent_tx` (context 0) |
+| 5 | 3 | `combo_two_banks` (context 0), `ws2812`, `ws2812_gen` |
+| 6 | 1 | `combo_two_banks` (context 3) |
+| 7 | 3 | `combo_two_banks` (context 2), `combo_uart_i2c` (context 2), `spi_ctrl` |
+| 8 | 2 | `dshot_tx` (context 0), `vga_pong` (context 1) |
+| 9 | 19 | `dcc_tx`, `dcf77_tx`, `dmx512_tx`, `em4100_tag`, `ev1527_tx`, `jvc_tx`, `lin_tx`, `midi_tx`, `modbus_rtu`, `nec_tx`, `nec_tx_gen`, `rc5_tx`, `rc6_tx`, `seven_seg`, `sirc_tx`, `uart_tx`, `uart_tx_gen`, `usbpd_tx`, `wiegand_tx` |
+| 13 | 3 | `dali`, `lin_resp`, `qi_rx` |
+| 21 | 2 | `avr_isp`, `sd_spi` |
+| 28 | 3 | `max7219`, `nrf24_tx`, `spi_flash` |
+| 40 | 1 | `stepper` |
+| 57 | 2 | `servo`, `westminster` |
+| 148 | 1 | `morse` |
+| 206 | 2 | `combo_uart_i2c` (context 1), `uart_rx` |
+| 347 | 1 | `sbus_rx` |
+| 1,597 | 1 | `vga_pong` (context 0) |
+| no queued events | 15 | `can_rx`, `dshot_tx` (context 1), `eth_rx`, `freq_meter`, `i2c_timing`, `logic_analyzer`, `nec_rx`, `oled_menu`, `oled_pong`, `oled_text`, `quadrature`, `sent_tx` (context 1), `spi_sniff`, `usb_hid` (context 1), `wiegand_rx` |
 
-**The checker found real bugs.** It refuted the I2C controller's stuck-bus timeout,
-which released the bus with a lead of −4, and a PS/2 frame that started under the
-previous frame's queued events when scancodes arrived back to back. No test had reached
-either. In both cases the chip would have refused the edge with an ADMIT fault rather
-than emitting it late. Both are fixed, and the old versions are regression tests.
+A lead of 1 is enough: the event is admitted and applied on its tick. The line unit's
+programs show 1 for a specific reason. A `SEND` that is late is dropped rather than faulted,
+and where escert cannot rule out such a drop, the lead it proves for an admitted `SEND` is
+only 1 tick. For line unit firmware escert also reports when replies leave: every `usb_hid`
+reply has its deadline exactly 72 ticks after the end of the packet it answers, with a lead
+of at least 4 ticks on every path where the host keeps to USB timing ([line unit](19-LINE-UNIT.md)).
+`replay.asm` computes its deadlines from captured data, so instead of a certificate it is
+checked by the replay tests and by the chip's admission rules.
 
-**Register intervals.** A `MOVHI` on a register whose value is unknown gives an interval
-with its high half known; a `LINE` whose operand is known down to bits 31:16 to be a CRC
-job is a job of 0 to 255 ticks that writes no tape word. `can_rx` needs this: its CRC job
-covers exactly the frame's length, which the frame's own DLC gives.
+**Certificates hold at other clocks.** Most programs take their timing from the clock
+frequency `CLK_KHZ` and rebuild for any clock. Of the 71, 59 rebuild and certify at 33,
+33.333, 40 and 50 MHz; four are tied to one clock by their protocol (10BASE-T transmit at
+40 MHz, USB low speed at 24 MHz, VGA at its 25 MHz pixel clock) and refuse any other with an
+`.assert`; `eth_rx` needs a whole number of ticks per 100 ns bit, so 40 or 50 MHz; and seven
+count in ticks or follow another device's clock. Converting programs to `CLK_KHZ` found two
+clocks rounded the fast way: JTAG's TCK and SWD's SWCLK half periods were rounded down, so at
+33 MHz they ran 2% and 0.6% above their stated rates; they now round up. It also found
+programs that held at 25 MHz by tick count alone. `i2c_ctrl` now waits for each scheduled
+SCL fall before re-anchoring its bit timeline, so every edge it schedules follows the
+previous one at any clock; `nec_tx` drains its queue before its repeat code's stop burst and
+before a 1's long space, gaps of more than 2^16 ticks that escert could not otherwise bound,
+and now certifies from 2.5 to 100 MHz; and `westminster`'s 0.65 s rest is added in two
+halves to fit ADDT's 24 bits. Both NEC programs rebuilt for 33 and 50 MHz also run a frame
+through the chip's pins, transmitter through an IR receiver model into the receiver, on the
+RTL and on the gate-level netlist.
+
+**The checker found real bugs.** It refuted the I2C controller's stuck-bus timeout, which
+released the bus with a lead of −4, and a PS/2 frame that started under the previous
+frame's queued events when scancodes arrived back to back. No test had reached either. In
+both cases the chip would have refused the edge with an ADMIT fault rather than emitting it
+late. Both are fixed, and the old versions are regression tests. Run at other clocks, it
+found a third, in `i2c_eeprom` below 20 MHz ([real devices](#real-devices)).
+
+**Register intervals.** escert tracks what it knows about each register as an interval. A
+`MOVHI` on a register whose value is unknown gives an interval with its high half known,
+and a `LINE` whose operand is known down to bits 31:16 to be a CRC job is a job of 0 to 255
+ticks that writes no tape word. `can_rx` needs this: its CRC job covers exactly the frame's
+length, which the frame's own DLC gives.
+
+**Shared units.** A context that uses the line unit or the bus monitor must be the unit's
+only user, because the first context to configure it owns it and the others fault. escert
+flags a combined image in which two contexts use the line unit, or two use the monitor, as
+OWNER. A context that reads the monitor without ever configuring it gets a note instead,
+since its reads always return 0.
 
 **The checker is tested, not trusted.** On random co-simulation programs, every CHECKED
-context runs on the simulator without an admission fault and with telemetry at or above
-the bound. That test found two checker bugs before release, and the chip's telemetry
-caught a third on the first run.
-
-The planted timing bugs (below) found a fourth in v1.6. escert let a `SEND` wait for a
-running CONFIG, but the chip checks ownership first (SEMANTICS §6.2, §7.7). A `SEND`,
-RECV or CRC before the context's first CONFIG completes, or after an OFF, faults
-ADMIT/OWNER instead. With the ADDT before `udp_tx`'s first `GETL` deleted, the `GETL` timed
-out at once, and the `SEND` committed one tick before the extended CONFIG completed. The
-random line-unit programs missed this because each loaded its operand with an `LDT`,
-which waits on the CONFIG's tape reads. escert now tracks whether the unit is configured,
-and an owner `LDT` or `STT` during the first CONFIG commits exactly in the slot after it.
-New tests cover the boundary tick, OFF, use before any CONFIG and a configuration without
-`tx_pins`, plus random line-unit programs with operands from `MOVI`/`MOVHI`.
+context runs on the simulator without an admission fault and with telemetry at or above the
+bound. That test found two checker bugs before the first release, and the chip's telemetry
+caught a third on its first run. The planted timing bugs (below) found a fourth: escert let
+a `SEND` wait for a running CONFIG, but the chip checks ownership first
+([semantics](11-SEMANTICS.md), §6.2 and §7.7), so a `SEND`, RECV or CRC before the context's
+first CONFIG completes faults instead. escert now tracks whether the unit is configured.
 
 ### Certificates against measurements
 
-`test/cosim/proof_table.py` (`make proof-table`) sets every certified bound beside the
-leads the implementations measure, so each certificate is tested on every run instead of
-trusted. A measured lead below its bound is a bug in escert or in whatever measured it,
-and fails the table.
+`test/cosim/proof_table.py` (`make proof-table`) sets every certified bound beside the leads
+the simulator and the RTL actually measure, so each certificate is tested on every run
+instead of trusted. A measured lead below its bound would be a bug in escert or in whatever
+measured it, and fails the table. The RTL's leads come from the co-simulation itself: with
+`COSIM_PROOF_OUT=file`, `test_cosim.py` records the RTL's telemetry and digest for each
+firmware case.
 
-Result on 2026-11-09: the 58 co-simulation cases with their bus models and host traffic
-(68 contexts). On 2026-11-02 (v1.6) there were 43 cases and 53 contexts; 46 measured a
-lead, 39 of them exactly the bound. In v1.5 there were 26 cases and 36 contexts; 31
-measured a lead, 28 of them exactly the bound.
+In the final run, the 65 co-simulation cases with their bus models and host traffic have 80
+contexts:
 
 | | Contexts |
 | --- | ---: |
-| Queued events, so a lead was measured | 60 |
+| Queued events, so a lead was measured | 63 |
 | Measured lead equal to the certified bound, to the tick | 50 |
-| Measured lead above the bound (`uart_rx` 209 against 206, alone and as `combo_uart_i2c`'s second context; `ws2812` 8 against 5, `ws2812_gen` 6 against 5, `usb_hid` 12 against 1, `morse` 908 against 148; on the line unit, `can_tx_lu` 17, `eth_tx` 13, `udp_tx` 13 and `ws2812_lu` 20, each against 1) | 10 |
+| Measured lead above the bound (`uart_rx` 210 against 206, alone and as `combo_uart_i2c`'s second context; `ws2812` 8 against 5, `ws2812_gen` 6 against 5, `morse` 908 against 148; `i2c_burst` 6 against 2, and `oled_disp` 6 against 2 in both OLED Pong cases; on the line unit, `usb_hid` 12, `can_tx_lu` 17, `eth_tx` 13, `udp_tx` 13 and `ws2812_lu` 20, each against 1) | 13 |
 | Measured lead below the bound | 0 |
-| RTL lead or digest different from the ISS's | 0 |
+| RTL lead or digest different from the simulator's | 0 |
 
-A `SEND` that is late is dropped rather than faulted. Where escert cannot rule out such a
-drop, the lead it proves for an admitted `SEND` is only 1 tick. Hence the four line-unit
-bounds of 1.
+Most bounds are exact, which makes the check sharp: a chip that queued one event a tick
+closer to its deadline than escert's worst case would fail it.
 
-The RTL columns come from the co-simulation itself: with `COSIM_PROOF_OUT=file`,
-`test_cosim.py` records the RTL's telemetry and digest for each firmware, and `--rtl file`
-adds them. Most bounds are exact, which makes the check sharp: a chip that queued one
-event a tick closer to its deadline than escert's worst case would fail it.
+The table also runs every shipped program on the simulator in the demo board's environment,
+with nothing on the Pmods. That is the environment in which bring-up stage 5 checks the same
+bounds on the chip and writes `proof.json` ([bring-up](16-BRING-UP.md#stage-5-firmware-digests)).
+There, of 80 contexts in 71 programs, 59 queue events; 39 measure exactly their bound and
+none is below it. The other 20 are looser (`i2c_ctrl` 33 against 2, for example), because
+the inputs that produce the worst case, such as a device on the bus, are absent.
 
-The table also runs every shipped firmware on the ISS in the demo board's environment,
-with nothing on the Pmods: the environment in which bring-up stage 5 checks the same
-bounds on the chip and writes `proof.json` for `--board`
-([bring-up](16-BRING-UP.md#stage-5-firmware-digests)). There, of 72 contexts in 63
-programs, 57 queue events. Of those, 39 measure exactly their bound and none is below it;
-v1.6 had 43 and 32, v1.5 30 and 21. The other 18 are looser (`i2c_ctrl` 33 against 2, for
-example), because the inputs that produce the worst case, such as a device on the bus,
-are absent.
-
-Certificates compose. Each context issues in barrel slots fixed by the configuration (a
-paired context's two included, v1.7), so another context can
-reach it only through data: pins, tape and mailboxes, which escert already treats as
-unknown inputs. Firmware certified one context at a time therefore stays certified when
-the contexts run together, as long as they own disjoint pins, none writes tape words
-that another reads as constants, and at most one uses the line unit (there is one, and the
-first context to configure it owns it; escert flags a second user in a combined image). The two combined images in the table certify and
-measure context by context.
-
-Building the table found one imprecision in escert. Its completeness check sent a RET to
-the return address of every CALL in the image, so in `nec_ir_cosim.asm` (`nec_tx` and
-`nec_rx` together) the receiver's RET reached the transmitter's burst routine, and the
-receiver could not be certified. A RET now returns only to the CALLs its own context
-reaches (`test_a_ret_reaches_only_its_own_contexts_calls`).
+**Certificates compose.** Each context issues in barrel slots fixed by the configuration,
+so another context can reach it only through data: pins, tape and mailboxes, which escert
+already treats as unknown inputs. Firmware certified one context at a time therefore stays
+certified when the contexts run together, as long as they own disjoint pins, none writes tape
+words that another reads as constants, and each shared unit has one user. The two combined
+images in the table certify and measure context by context. Building the table found one
+imprecision here: a RET was sent to the return address of every CALL in the image, so in an
+image with `nec_tx` and `nec_rx` together the receiver's RET reached the transmitter's
+routine. A RET now returns only to the CALLs its own context reaches.
 
 ### Planted timing bugs
 
 `test/mutation/fw_mutants.py` (`make fw-mutants`) plants the timing bugs firmware authors
 make, one per mutant, in the source of each shipped program: a WAITT deleted, an ADDT
-deleted, an ADDT's delay cut to a quarter, or a conditional branch inverted. Each mutant
-is certified, and a certified mutant is then attacked with escert's randomised input
-search on the ISS: a fault there would mean escert certified a program that can fault.
+deleted, an ADDT's delay cut to a quarter, or a conditional branch inverted. Each mutant is
+certified, and a certified mutant is then attacked with escert's randomised input search on
+the simulator: a fault there would mean escert certified a program that can fault. Mutants
+are chosen by hashing each program's source lines and the searches are seeded, so the same
+firmware always gives the same table, and editing a program changes only its own mutants.
 
-Mutants are chosen by hashing each program's source lines and the searches are seeded,
-so `make fw-mutants` on the same firmware prints the same table exactly; editing a
-program changes its mutants. The first run on v1.6's 45 programs found one CHECKED mutant
-that faulted: `udp_tx` without the ADDT at its line 73, the escert bug described above.
-With escert fixed, that mutant is REFUTED. Result on 2026-11-09, on the 60 programs of the
-v1.7 library that have mutation sites (all but the logic analyser and the three templates
-and combinations), 558 mutants, 12 input searches each (2026-11-02, v1.6: 394 mutants in 45
-programs; v1.5 on 2026-10-31: 237 in 28; none CHECKED and faulting):
+On the final tree the campaign planted 616 mutants in the 68 programs that have mutation
+sites: every program but the logic analyser, which has none, and the two combined images,
+whose programs are mutated on their own. Each certified mutant got 12 input searches. The
+four OLED Pong programs are mutated inside their four-page image, beside the unmutated
+other three, so the search attacks the whole system; two of `oled_disp`'s mutants that
+escert could not prove alone are refuted there.
 
 | escert's answer | Mutants |
 | --- | ---: |
-| REFUTED: a fault, reproduced on the ISS with concrete inputs | 121 |
-| NOT_PROVEN: a fault not excluded, and none found by the search | 47 |
-| CHECKED: no admission fault for any input | 390 |
+| REFUTED: a fault, reproduced on the simulator with concrete inputs | 129 |
+| NOT_PROVEN: a fault not excluded, and none found by the search | 45 |
+| CHECKED: no admission fault for any input | 442 |
 | CHECKED, yet the search made it fault | **0** |
 
-A CHECKED mutant is a change that keeps every deadline admissible, which escert is right
-to accept: it proves timing, not protocol correctness. Of the 131 inverted branches, 128
-are of this kind: escert already follows both directions of a branch whose flag depends
-on inputs, so inverting one leaves the same timed paths. The remaining three, one in
-`servo` and two in `dcf77_tx`, are NOT_PROVEN. Of the 165 shortened delays, 135 are
-certified. In 21 of the 47 NOT_PROVEN mutants every state escert holds at the flagged
-instruction breaks a rule (a lead of 0 ticks or less, or a deadline not after the one
-queued before it), for example a lead of exactly −24 ticks in `cec` without one of its
-ADDTs: they fault if that instruction is reachable, and the random search did not reach
-it. NOT_PROVEN is never counted as safe; such firmware carries no certificate.
+A CHECKED mutant is a change that keeps every deadline admissible, which escert is right to
+accept: it proves timing, not protocol correctness. Most inverted branches are of this kind,
+because escert already follows both directions of a branch whose flag depends on inputs, so
+inverting one leaves the same timed paths. Many NOT_PROVEN mutants are faults escert has
+located exactly: every state it holds at the flagged instruction breaks a rule, so they
+fault if that instruction is reachable, and the random search did not reach it.
+NOT_PROVEN is never counted as safe.
+
+The first run, on version 1.6, found the one CHECKED mutant that faulted: `udp_tx` without
+the ADDT before its first `GETL`, the bug in escert described above. With escert fixed,
+that mutant is REFUTED.
 
 ## Protocol coverage
 
-Each firmware runs against an independent bus model in `sw/escmodels` on the simulator
-(`sw/tests/test_firmware.py`), and in lockstep on the RTL (`test/cosim`):
+Each program runs against an independent bus model in `sw/escmodels` on the simulator
+(`sw/tests/test_firmware.py`). All but two also run in lockstep on the RTL (`test/cosim`),
+in the 65 firmware cases: `vga_pong` runs through the chip's pins on the RTL and the final
+netlist instead, and the 14-second `westminster` tune only on the simulator.
 
 | Protocol | Firmware | Checked against |
 | --- | --- | --- |
 | UART 8N1 at 115,200 baud (the rate is one constant) | `uart_tx`, `uart_rx` | Receiver and transmitter models; all 256 byte values, back-to-back frames, ±2% peer baud error; `uart_rx` on a real STM32's output at 1,200 to 921,600 baud (`test_real_devices.py`) |
 | SPI controller, modes 0 to 3 | `spi_ctrl` | SPI target model (all four modes on the simulator, mode 3 on the RTL) |
 | I2C controller, Fast mode, clock stretching, address NACK | `i2c_ctrl` | I2C target model that flags Fast-mode timing violations |
+| I2C bulk writer, Fast mode, clock stretching | `i2c_burst` | SSD1306 display model written from the datasheet, with the UM10204 Fast-mode timing checks |
 | I2C 24C02 EEPROM target, Standard and Fast mode | `i2c_eeprom` | Scripted controller that checks the target's timing; page roll-over |
+| I2C bus timing checker on the bus monitor ([bus monitor](22-BUS-MONITOR.md)) | `i2c_timing` | A bus model that plants timing faults at chosen clock pulses: every report must be a violation by the waveform's own edges, with its rule, kind and interval, and pulses exactly at each limit pass |
 | WS2812 | `ws2812` | LED chain model |
 | 1-Wire, open-drain with timed sampling | `onewire` | 1-Wire device model (ROM read) |
 | CAN 2.0A transmitter, 250 kbit/s | `can_tx` | Receiver model that destuffs, checks CRC-15 and acknowledges |
@@ -736,58 +779,62 @@ Each firmware runs against an independent bus model in `sw/escmodels` on the sim
 | UART and I2C concurrently | `combo_uart_i2c` | Both models at once, on separate contexts |
 | PS/2 and JTAG on bank A, SPI and UART on bank B, concurrently | `combo_two_banks` | All four models at once; the bank B ones see only the split pins |
 | Westminster Quarters, the hour chime of Big Ben, on a buzzer on bank B | `westminster` | Note decoder at a hundredth of real time: all 17 notes in order, each at its pitch (within 0.2%) and length, and every silence to the tick |
-| Logic analyser and replay | `logic_analyzer`, `replay` | Tick-exact replay of a captured UART trace; a too-dense trace is refused; streaming capture past the tape's size (v1.3) on the simulator, the RTL (with a host reading during the run) and through the chip's pins |
+| Logic analyser and replay | `logic_analyzer`, `replay` | Tick-exact replay of a captured UART trace; a too-dense trace is refused; streaming capture past the tape's size on the simulator, the RTL (with a host reading during the run) and through the chip's pins |
 | UART and MIDI OUT from timing tables | `uart_tx_gen`, `midi_tx` | UART receiver model at 115,200 and 31,250 baud |
 | DMX512 from a timing table | `dmx512_tx` | DMX receiver model with the ANSI E1.11 receiver limits: start code and 511 slots, break and mark-after-break times |
 | WS2812 from a timing table, colours in the tape | `ws2812_gen` | LED chain model with datasheet timing windows |
 | NEC infrared from a timing table | `nec_tx_gen` | NEC receiver model: carrier, pulse counts, every burst position |
 | Seven-segment animation on the demo board's display | `seven_seg` | Every frame on bank B, in order, to the tick |
 | VGA Pong, 640x480 at 60 Hz, on bank B ([VGA Pong](21-VGA-PONG.md)) | `vga_pong` | A monitor's view of the pins: VESA sync timing, every pixel of two frames against a model of the game, black blanking, 14 game steps against the model and stated outcomes; the first frame through the chip's pins on the RTL and the final netlist, with the telemetry equal to the certificate |
-| CAN 2.0A and 2.0B receiver on the line unit (v1.4): standard, extended and remote frames, CRC-15 checked by the line unit's CRC engine | `can_rx` | Bus model playing frames back to back from nodes 0.5% slow or fast; bad CRCs, frames cut by an error flag, DLC over 8, 500 kbit/s |
+| Pong on a 128x64 SSD1306 OLED over I2C, four contexts with one program page each: display engine, game, text and menu | `oled_disp`, `oled_pong`, `oled_text`, `oled_menu` | SSD1306 model with the Fast-mode timing checks; every picture, the whole display RAM, against a model that draws the screens from the firmware's rules and plays the game |
+| CAN 2.0A and 2.0B receiver on the line unit: standard, extended and remote frames, CRC-15 checked by the line unit's CRC engine | `can_rx` | Bus model playing frames back to back from nodes 0.5% slow or fast; bad CRCs, frames cut by an error flag, DLC over 8, 500 kbit/s |
 | DShot600 for four ESCs from one context, 600 kbit/s exactly (42, 42, 41 ticks per bit), and bidirectional DShot | `dshot_tx` | ESC models that check every pulse width, bit period and CRC; frame period to the tick through host updates; at 24 MHz |
 | SENT (SAE J2716) sensor, with or without a pause pulse | `sent_tx` | Receiver model that calibrates from the sync pulse and checks the recommended CRC-4 (and the CRC against polynomial division); frames back to back to the tick, values changing mid-run never mixing frames |
 | HDMI-CEC adapter: follower and initiator | `cec` | CEC device model with the Linux cec-pin timing windows: acknowledgement of its own address only, broadcast never driven, sending with arbitration (lost to a simultaneous start, then retried), retries after a refusal, a host-set logical address |
 | DALI control gear (IEC 62386-102 commands and queries) | `dali` | Controller model at nominal and ±10% bit timing: levels, OFF, RECALL, queries answered 7.5 ms after the forward frame on the half-bit grid; other addresses, groups, broadcast |
-| USB 1.1 low-speed HID keyboard on the line unit (v1.4) | `usb_hid` | Reactive USB host model from the USB 2.0 text that checks every device packet and its turnaround: enumeration, lost and corrupted handshakes, corrupt tokens and data, bus resets at every stage, host clock ±5%, hostile traffic (74 tests); and the Linux kernel itself, which enumerates the simulated chip over USB/IP and receives typed text |
-| CAN 2.0A at 1 Mbit/s on the line unit (v1.6) | `can_tx_lu` | CAN bus model (destuffs, checks the CRC-15, acknowledges) at 40 MHz |
-| 10BASE-T Ethernet transmitter (v1.6): link pulses, preamble, SFD, the CRC-32 frame check sequence | `eth_tx` | The pins decoded as 802.3 Manchester, the frame check sequence against zlib, link pulses 16 ms apart while idle |
-| UDP over IPv4 over 10BASE-T (v1.6) | `udp_tx` | What a receiving stack checks: the frame check sequence (zlib), the IPv4 header and its checksum, the UDP header, the payload |
-| LIN commander frames at 19,200 baud (v1.6) | `lin_tx` | Responder-side model: break and delimiter lengths, sync, identifier parity, enhanced and classic checksums, every bit |
-| Modbus RTU server (v1.6): functions 03, 06 and 16, exceptions 01 to 03 | `modbus_rtu` | Client bus model: reads and writes, broadcast, the longest frames, bad frames dropped, gaps between characters, parity modes, a slow baud rate and clock error |
-| S.BUS receiver (v1.6): 16 channels, two digital channels, frame-lost and failsafe, decoded into the tape | `sbus_rx` | S.BUS sender model: the flags and the S.BUS2 footer, bad frames dropped, not inverted, back to back |
-| Eight RC servo pulses per 22 ms frame (v1.6), widths from the host in microseconds | `servo` | Every width and the frame period, at 8 and 25 MHz |
-| Write-only SPI at line rate on the line unit (v1.6), every mode, 10 Mbit/s at 40 MHz | `spi_tx` | SPI target model: SCK's idle level at CS_n edges, MOSI set up before each sampling edge, no SCK edge outside a frame |
-| WS2812 from one line-unit SEND (v1.6) | `ws2812_lu` | LED chain model: every pulse against the datasheet |
-| Frequency, period and duty by reciprocal counting on the capture unit (v1.6) | `freq_meter` | Exact to one tick per gate; resolution below one tick, a gate across an epoch boundary, a signal too fast for it flagged |
-| Quadrature encoder, x4, from capture records (v1.6) | `quadrature` | Forward and back, bursts and the sustained rate, an illegal step and an overrun flagged |
+| USB 1.1 low-speed HID keyboard on the line unit | `usb_hid` | Reactive USB host model from the USB 2.0 text that checks every device packet and its turnaround: enumeration, lost and corrupted handshakes, corrupt tokens and data, bus resets at every stage, host clock ±5%, hostile traffic (74 tests); and the Linux kernel itself, which enumerates the simulated chip over USB/IP and receives typed text |
+| CAN 2.0A at 1 Mbit/s on the line unit | `can_tx_lu` | CAN bus model (destuffs, checks the CRC-15, acknowledges) at 40 MHz |
+| 10BASE-T Ethernet transmitter: link pulses, preamble, SFD, the CRC-32 frame check sequence | `eth_tx` | The pins decoded as 802.3 Manchester, the frame check sequence against zlib, link pulses 16 ms apart while idle |
+| 10BASE-T Ethernet receiver on the line unit's cell decoder, with both-edge sampling | `eth_rx` | 802.3 frames from a source model whose clock is 100 ppm off either way, with every edge moved by up to 10 ns; each frame received byte for byte, its frame check sequence judged as zlib judges it; at 50 MHz |
+| UDP over IPv4 over 10BASE-T | `udp_tx` | What a receiving stack checks: the frame check sequence (zlib), the IPv4 header and its checksum, the UDP header, the payload |
+| LIN commander frames at 19,200 baud | `lin_tx` | Responder-side model: break and delimiter lengths, sync, identifier parity, enhanced and classic checksums, every bit |
+| Modbus RTU server: functions 03, 06 and 16, exceptions 01 to 03 | `modbus_rtu` | Client bus model: reads and writes, broadcast, the longest frames, bad frames dropped, gaps between characters, parity modes, a slow baud rate and clock error |
+| S.BUS receiver: 16 channels, two digital channels, frame-lost and failsafe, decoded into the tape | `sbus_rx` | S.BUS sender model: the flags and the S.BUS2 footer, bad frames dropped, not inverted, back to back |
+| Eight RC servo pulses per 22 ms frame, widths from the host in microseconds | `servo` | Every width and the frame period, at 8 and 25 MHz |
+| Write-only SPI at line rate on the line unit, every mode, 10 Mbit/s at 40 MHz | `spi_tx` | SPI target model: SCK's idle level at CS_n edges, MOSI set up before each sampling edge, no SCK edge outside a frame |
+| SPI sniffer on the line unit's external-clock receiver, the chip only listening | `spi_sniff` | SPI controller model writing to a target, in every mode: each frame bit for bit from MOSI, frames that open with a 1, a clock of 2 ticks a bit, pauses inside a frame, a long quiet |
+| WS2812 from one line-unit SEND | `ws2812_lu` | LED chain model: every pulse against the datasheet |
+| Frequency, period and duty by reciprocal counting on the capture unit | `freq_meter` | Exact to one tick per gate; resolution below one tick, a gate across an epoch boundary, a signal too fast for it flagged |
+| Quadrature encoder, x4, from capture records | `quadrature` | Forward and back, bursts and the sustained rate, an illegal step and an overrun flagged |
 | Sony SIRC, RC5, JVC and EV1527 remotes, NMRA DCC and Wiegand 26 output, from timing tables ([Protocols as data](18-PROTOCOLS-AS-DATA.md)) | `sirc_tx`, `rc5_tx`, `jvc_tx`, `ev1527_tx`, `dcc_tx`, `wiegand_tx` | A receiver model for each; lockstep |
 | Philips RC-6 mode 0 infrared from a timing table | `rc6_tx` | RC-6 receiver model and sigrok's `ir_rc6` decoder; lockstep at 8 MHz |
 | LIN 2.x responder: break and sync, identifier parity, published IDs answered with the enhanced or classic checksum computed on the chip | `lin_resp` | Commander and frame receiver models (LIN 2.x worked values, a 10-bit break and a bad parity not answered, a commander 2% fast or slow, the response space) and sigrok's `lin` decoder |
 | EM4100 RFID tag: Manchester at RF/64, header, row and column parity | `em4100_tag` | Reader model and a frame worked by hand from the datasheet; every edge on the half-bit grid; sigrok's `em4100` decoder |
-| Wiegand panel receiver, up to 64 bits | `wiegand_rx` | Reader model at the interface's limits (20 and 100 Âµs pulses, 200 Âµs and 20 ms intervals), a stuck line flagged, and the chip's own `wiegand_tx` on another context |
+| Wiegand panel receiver, up to 64 bits | `wiegand_rx` | Reader model at the interface's limits (20 and 100 µs pulses, 200 µs and 20 ms intervals), a stuck line flagged, and the chip's own `wiegand_tx` on another context |
 | USB Power Delivery transmitter: BMC, 4b5b, the CRC-32 computed on the chip | `usbpd_tx` | CC receiver model (CRC-32 checked with zlib), bit rate and the end of the line; sigrok's `usb_power_delivery` decoder |
 | DCF77 time code: minute frames with the parities computed on the chip | `dcf77_tx` | Receiver model; every second a whole second apart; a missing frame repeated with an IRQ; sigrok's `dcf77` decoder |
 | SD card host in SPI mode: CMD0, CMD8, ACMD41, CMD58, CMD17, CRC7 and CRC-16 on the chip | `sd_spi` | Card model (start-up, OCR, blocks, a CRC-16 error, a card that stays idle) and sigrok's `sdcard_spi` decoder |
 | 1-Wire device in the DS18B20 role: presence, Read, Match, Skip and Search ROM, scratchpad, both CRC-8s on the chip | `onewire_dev` | Bus master model at AN126 timing and at the device's limits, with AN187's search; sigrok's `onewire_link` and `onewire_network` decoders |
 | AVR in-system programmer (ATmega328P serial downloading) | `avr_isp` | ATmega328P model written from the datasheet (Programming Enable echo, a target out of step, page load, write, BUSY poll) and sigrok's `avr_isp` decoder |
-| Qi power receiver communications (v1.3, Baseline Protocol): differential bi-phase, SIG, ID, CFG, CE, RP8, EPT | `qi_rx` | Power Transmitter model written from the specification: every bit, parity and checksum, tWake, tStart, CE interval, the spacing after a CE, loss of the Power Signal; sigrok's `qi` decoder |
+| Qi power receiver communications (Baseline Protocol): differential bi-phase, SIG, ID, CFG, CE, RP8, EPT | `qi_rx` | Power Transmitter model written from the specification: every bit, parity and checksum, tWake, tStart, CE interval, the spacing after a CE, loss of the Power Signal; sigrok's `qi` decoder |
 | SPI NOR flash programmer: JEDEC ID, Read Data, Page Program, Sector Erase, Write Enable checked, BUSY polled | `spi_flash` | W25Q80DV model written from its datasheet (WEL, page wrap, /CS on a byte boundary, nothing while BUSY), checked against a real flash under flashrom, and sigrok's `spiflash` decoder |
 | MAX7219 LED display driver, chains of up to 8, numbers divided into decimal on the chip | `max7219` | MAX7219 chain model written from the datasheet (packet alignment, tCH, tCL, tCP, tDS, tCSW, tLDCK, code B) and sigrok's `max7219` decoder |
-| Stepper motion: STEP and DIR with a linear speed ramp (AVR446) computed on the chip | `stepper` | Step/direction model with the A4988's logic timing; the ramp checked against physics (the acceleration from vÂ² = 2As, to 2%); sigrok's `stepper_motor` decoder |
+| Stepper motion: STEP and DIR with a linear speed ramp (AVR446) computed on the chip | `stepper` | Step/direction model with the A4988's logic timing; the ramp checked against physics (the acceleration from v² = 2As, to 2%); sigrok's `stepper_motor` decoder |
 | nRF24L01+ transmitter (Enhanced ShockBurst: auto-acknowledge, retransmits, MAX_RT) | `nrf24_tx` | Radio model written from the Product Specification (SPI commands, registers, Thce, Tpd2stby, Tpece2csn, time on air, ARD and ARC) and sigrok's `nrf24l01` decoder |
 | Morse code keyer (ITU-R M.1677-1) | `morse` | Listener written from the Recommendation: every key-down and gap in dots, to 1%; sigrok's `morse` decoder |
 
 ## Real devices
 
 The bus models and the firmware are written from specifications, and so is everything
-that checks them. `sw/tests/test_real_devices.py` meets them with devices we did not
-design: logic-analyser recordings from [sigrok-dumps](https://github.com/sigrokproject/sigrok-dumps)
-(each file and its source are listed in `sw/tests/data/sigrok/README.md`), played onto
-the pins at the chip's tick. Recordings start mid-session and carry real lines: noise,
-edges moved by demodulators and by sampling, devices outside their specifications. The
-models that judge our firmware's own output are strict; each has an opt-in mode for a
-real line (`hunt` for Qi, `real_line` for USB PD, EM4100 and DCF77, `inhibits` for
-a PS/2 host's own CLK holds), and the strict defaults are unchanged.
+that checks them. A shared misreading of a specification would pass every test above.
+`sw/tests/test_real_devices.py` therefore meets them with devices we did not design:
+logic-analyser recordings from [sigrok-dumps](https://github.com/sigrokproject/sigrok-dumps)
+(each file and its source are listed in `sw/tests/data/sigrok/README.md`), played onto the
+pins at the chip's tick. Recordings start mid-session and carry real lines: noise, edges
+moved by demodulators and by sampling, devices outside their specifications. The models that
+judge our firmware's own output are strict; each has an opt-in mode for a real line (`hunt`
+for Qi, `real_line` for USB PD, EM4100 and DCF77, `inhibits` for a PS/2 host's own CLK
+holds), and the strict defaults are unchanged.
 
 | Device | Chip side | Compared |
 | --- | --- | --- |
@@ -824,9 +871,9 @@ would fail on the old code:
   bit (460,800 baud at 25 MHz, 921,600 at 50 MHz), and every gap but 2 to 2.8 idle bits
   from its floor of 28 (`test_uart_rx_every_gap_from_54_ticks_per_bit`).
 - **`i2c_eeprom` faulted below 20 MHz.** Its 320 ns SDA setup, converted to ticks, fell
-  under the 7 ticks its two EMITs need, and escert, run at those clocks, said so (PAST).
-  The setup now has a 7-tick floor and certifies at every clock from 500 kHz; the
-  25 MHz image is unchanged.
+  under the 7 ticks its two EMITs need, and escert, run at those clocks, said so. The setup
+  now has a 7-tick floor and certifies at every clock from 500 kHz; the 25 MHz image is
+  unchanged.
 - **`ps2_device` began a frame 2 µs after a PC stopped inhibiting.** The PC in the
   capture holds CLK low after every frame, for 250 µs after a break prefix (F0h) and
   525 µs after other bytes, and a device must see CLK high for 50 µs before it begins
@@ -838,15 +885,15 @@ would fail on the old code:
   status 03h while busy. `spi_flash` polls BUSY alone, so its results do not change;
   the model now reads as the data sheet and the real part do.
 
-One more bug, in three receivers, came from measuring the sampling point on the
-simulator rather than from a device. **`uart_rx`, `sbus_rx` and `modbus_rtu` sampled 3.5
-ticks late on average, 5 at worst.**
+One more bug, in three receivers, came from measuring the sampling point on the simulator
+rather than from a device. **`uart_rx`, `sbus_rx` and `modbus_rtu` sampled 3.5 ticks late on
+average, 5 at worst.**
 
 - Each takes the start edge's time from an RDTIME after the WAITP that sees the edge.
   `uart_rx` assumed that RDTIME commits one slot later, but a JNZ sits between the two,
   so it is two slots later. `sbus_rx` and `modbus_rtu` copied its constant.
-- With the lag counted, the error is only the slot's quantisation: -1.5 to +1.5 ticks for
-  an odd number of ticks per bit, -2 to +1 for an even one.
+- With the lag counted, the error is only the slot's quantisation: −1.5 to +1.5 ticks for
+  an odd number of ticks per bit, −2 to +1 for an even one.
 - In `uart_rx`, the earlier deadline left the back-to-back path too slow at the 28-tick
   floor: the floor's sweep had passed only because the samples came late. That path now
   queues data bit 0's sample straight after setting the time, 12 ticks after the RDTIME
@@ -855,7 +902,7 @@ ticks late on average, 5 at worst.**
   the first byte and one back to back, at each program's default rate and its floor. Its
   negative control puts the old constant back and must see +5.
 - The other receivers were checked too. `lin_resp` counts its three instructions
-  correctly (-0.5 on average). The rest sample in windows of microseconds or more, or
+  correctly (−0.5 on average). The rest sample in windows of microseconds or more, or
   relative to edges they drive themselves.
 
 Where a real device and the chip legitimately differ, the test says so: the FX2's first
@@ -864,33 +911,115 @@ at power-up (the real one sent 0x00, the firmware starts at word 0); the GPS cap
 starts inside a burst, so the firmware, like the receiver model, finds the framing a
 sentence later; the Wiegand reader's notes say 36 bits, and it sends 34.
 
+## Outside judges
+
+The bus models that check the firmware were written here, from the same specifications as
+the firmware, so a misreading shared by both would pass every test above. The recordings in
+[Real devices](#real-devices) guard against that for the devices someone recorded. The
+outside judges guard against it for every program: libsigrokdecode's protocol decoders,
+written by other people (sigrok-cli 0.7.2, the version CI installs), read the pins and must
+decode what the test asked for.
+
+`test/cosim/judges.py` (`make judges`) runs each co-simulation case on the simulator,
+records every pin's level in every tick as the bus models saw it, writes the levels as a
+VCD and runs a decoder stack on it: `uart` (with `midi`, `lin` and `modbus` on top), `i2c`
+(with `eeprom24xx`), `spi`, `can`, `ps2`, `jtag`, `swd`, `ir_nec`, `ir_rc5`,
+`rgb_led_ws281x`, `wiegand`, `cec`, `dali`, `onewire_link` with `onewire_network`, and
+`usb_signalling` with `usb_packet`. The decoded payload must equal what the case's host
+or bus model asked for, written into the judge; the judge never reads a bus model's own
+decoding. For the OLED Pong cases the decoded I2C writes are replayed into the SSD1306's
+addressing, and the picture they leave must be the title, or the court the game model draws.
+For a receiver, such as `uart_rx`, `can_rx` or `spi_sniff`, the decoder reads the line the
+firmware read, and the case checks that the firmware reported the same frames.
+`sw/tests/test_sigrok_judge.py` holds 14 more judges written earlier, for programs whose
+tests live in `sw/tests` (USB Power Delivery, LIN responder, RC-6, EM4100, DCF77, SD card,
+1-Wire device, AVR programmer, Qi, SPI flash, MAX7219, stepper, nRF24L01+ and Morse).
+
+**Every judge has a negative control.** The same recording with one pulse of a line
+inverted, in the middle of the traffic, must fail the judge's comparison: a judge that passes
+whatever the pins do proves nothing. The controls caught two judges that compared too
+little, and both now compare more: the 1-Wire judge read only the network layer's command,
+so it now also compares every bit the master read, and the MAX7219 judge skipped the seven
+blanked digits of the set-up.
+
+In the final run all 39 judges in `judges.py` and all 14 in `test_sigrok_judge.py` agree,
+and all 53 controls fail. Together they judge 53 of the 71 programs. The other 18 speak a
+protocol that sigrok 0.7.2 has no decoder for (DShot, SENT, S.BUS, 10BASE-T and UDP, SIRC,
+JVC, EV1527, DCC, VGA and the chime; RC servo pulses it measures only as generic PWM), drive
+a display that is not a sigrok protocol (`seven_seg`), or only listen to a line the test
+itself drives (`freq_meter`, `quadrature`, `i2c_timing`, `logic_analyzer`, `eth_rx`).
+
+Three of the decoders have limits that the judges work around, each written in the judge:
+
+- `ps2` emits a frame only at the next frame's first falling clock edge, and loses that
+  edge, so frames sent back to back never all decode. The judge decodes each frame on its
+  own, followed by one more clock pulse.
+- `dmx512` misreads slots sent back to back, so the DMX judge reads the same line with the
+  `uart` decoder as 8N2 frames at 250 kbit/s.
+- `can` shows a remote frame's CRC bits as data bytes, so after a remote frame's length the
+  judge compares nothing more. The CAN cases send identifier 0x7FF, which ISO 11898-1
+  forbids for standard frames (the seven high bits all recessive); the decoder warns about
+  it, rightly, and the judge allows that one warning.
+
+## Pads and board
+
+The simulations give every pin zero delay: an output reaches the bus model in the tick it is
+driven, and a model's answer reaches the input synchroniser in the tick it changes. A real
+chip adds its pads and the board on the way out and on the way back, about 10 ns each way.
+A protocol that drives a pin and then samples the answer it causes, such as SPI's MISO after
+an SCK edge, I2C's acknowledge, a 1-Wire read slot or a USB turnaround, loses that round trip
+from its margin. One with no margin left would pass in simulation and fail on a board.
+
+`test/cosim/pad_audit.py` (`make pad-audit`) runs every co-simulation case on the simulator
+with each pin delayed by k ticks in each direction, for k from 0 to 3, so a round trip costs
+2k ticks more than in simulation. A tick is 20 ns at the rated 50 MHz and longer at every
+lower clock, so one tick each way already covers 10 ns at any clock the chip runs at. A case
+passes at k when its protocol check passes, its board reports no error and no context
+faults. A check that measures an exact time allows for the delay: `usb_hid`'s replies must
+start exactly 75 ticks after the host's end of packet, plus the round trip.
+
+All 65 cases pass with one tick each way, and all but one with three. The exception is
+`spi_target` in SPI mode 3 at its rated 416 kHz, which passes one tick each way (80 ns of
+round trip at 25 MHz) and fails at two, where its MISO change comes too close to the
+controller's sampling edge. No program needs a slower setting for real pads. The audit also
+reports each case's fastest pin: the 10BASE-T transmitters change a pin every 50 ns, the line
+unit's SPI every 80 ns, and most programs every microsecond or slower. `vga_pong`, which has
+no co-simulation case, changes its colour pins at most once per 40 ns pixel, and the only
+inputs it samples are its buttons.
+
 ## Test suites
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, VGA Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,263 | Pass (34 need `sigrok-cli`, which CI installs) |
-| Chip level on the RTL (`make test`) | 7 | Pass |
-| Chip level on the final gate-level netlist (`make gl-test`) | 7 | Pass |
-| Chip level and co-simulation on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make test cosim-parallel`, v1.4) | 7 + all | Pass |
-| Co-simulation (`make cosim`) | 8 | Pass |
-| Host interface (`make host-test`) | 16 | Pass |
-| Core unit tests (`make unit-test`) | 35 | Pass |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,401 | Pass (the sigrok tests need `sigrok-cli`, which CI installs) |
+| Chip level on the RTL (`make test`) | 12 | Pass |
+| Chip level on the final gate-level netlist (`make gl-test`) | 12 | Pass; with SDF timing at the three corners, 11 each |
+| Co-simulation and line unit lockstep on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make cosim-parallel line-test`) | all | Pass |
+| Co-simulation (`make cosim`): 200 random programs (191 fit a page), 65 firmware cases with bus models, directed tests | all | Pass |
+| Host interface (`make host-test`) | 25 | Pass |
+| Core unit tests (`make unit-test`) | 40 | Pass |
+| Bus monitor (`make mon-test`) | 1 | Pass |
+| Line unit lockstep (`make line-test`) | 19 runs, 3.8 million edges | Pass |
 | Newer firmware (SWD, SPI target, NEC, NEC rebuilt for 33 and for 50 MHz, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 9 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
+| Outside judges: sigrok's decoders on the co-simulation cases (`make judges`), each with its control | 39 | Pass; every control fails |
+| Pads and board: every co-simulation case with its pins delayed 0 to 3 ticks each way (`make pad-audit`) | 65 × 4 | Pass at one tick each way |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 
-The chip-level tests drive the real pins: they load firmware over SPI, run it, decode
-the protocol on the pins, and compare the execution digest with the simulator's
-prediction. On the gate-level netlist, an equal digest means the gates executed exactly
-the commits, register values and pin changes of the model. Gate-level simulation is
+The chip-level tests drive the real pins: they load firmware over SPI, run it, decode the
+protocol on the pins, and compare the execution digest with the simulator's prediction. On
+the gate-level netlist, an equal digest means the gates executed exactly the commits,
+register values and pin changes of the model. Gate-level simulation without SDF is
 zero-delay: it shows that the gates compute what the RTL computes, not how fast. Timing,
 at the rated 20 ns and at the default 40 ns, comes from static analysis of the routed
-netlist with extracted parasitics at three corners ([physical design](03-PHYSICAL-DESIGN.md)).
+netlist with extracted parasitics at three corners ([physical design](03-PHYSICAL-DESIGN.md)),
+and the SDF-annotated runs replay the chip tests with those delays.
 
 ## Limits
 
 - **Pad timing.** CMOS5L pads are not characterised, so timing claims are made at the
-  internal tick, not at the package pins.
+  internal tick, not at the package pins. The pad audit above shows the margin each
+  protocol has for them, in ticks, not their delay itself.
 - **Metastability** is not modelled probabilistically: inputs pass through a two-flop
   synchroniser, and simulation models it as a two-tick delay.
 - **The EEPROM** stretches the clock before each acknowledge, which a real 24C02 does
@@ -898,9 +1027,10 @@ netlist with extracted parasitics at three corners ([physical design](03-PHYSICA
   bus) the stretch never outlasted the controller's own low time; its Fast-mode margin is
   measured against our controller model only.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
-- **No hardware yet.** Every result on this page comes from simulation, formal proof or
-  static analysis. The FPGA build (`fpga/`) passes the chip tests and the firmware through
-  the pins in simulation; a board run is planned before submission.
+- **FPGA, not silicon.** No chip exists yet. The design runs on an FPGA bench (six of six
+  bring-up stages and 71 of 71 programs, [the bench](../fpga/tangprimer25k/README.md)), with
+  plain flip-flops for the clock gates and latch banks and block RAM for the SRAM macros;
+  those stay covered by the gate-level suites and the equivalence proof.
 
 ## In CI
 
@@ -910,8 +1040,8 @@ on master, with its commit and log, failures included.
 
 | Workflow | Runs on | Checks |
 | --- | --- | --- |
-| `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, the certificates against the RTL's measured leads (`proof_table.py`), firmware through the pins; the co-simulation and the line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
-| `formal` | a change to `src/` or `formal/` | `make formal`: formal-quick, then the unbounded core proof as one PDR task per assertion |
+| `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, the certificates against the RTL's measured leads (`proof_table.py`), the outside judges and the pad audit, firmware through the pins; the co-simulation and the line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
+| `formal` | a change to `src/` or `formal/` | three jobs: the properties and covers with the unbounded core proof as one PDR task per assertion group; the bounded check from reset, one task per assertion group (`make formal-bmc`); the tripwire, line unit and non-interference proofs, then the planted bugs that must make each fail (`make formal-v2 formal-teeth`) |
 | `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in 40 shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors; the shards are dealt by each mutant's time in earlier runs (`test/mutation/costs.json`), the canaries run once beside them, and the summary requires the canaries and exactly one result per mutant |
 | `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
 | `equivalence` | each successful `gds` run on master | that run's netlist against the RTL of its commit (`formal/equiv.sh`) |
@@ -926,21 +1056,22 @@ these workflows. The formal and equivalence jobs use the OSS CAD Suite release p
 ```sh
 make sw-test cert test cosim-parallel host-test unit-test lint   # simulation and certificates
 make proof-table fw-mutants                                      # certificates against measurements; planted timing bugs
+make judges pad-audit                                            # sigrok's decoders as judges (needs sigrok-cli); pins delayed
 make pin-test bringup-test                                       # newer firmware through the pins; bring-up script
 make gl-test gl-pin-test                                         # the same chip-level checks on the gate-level netlist
 CELLS=yes make test cosim-parallel                               # the RTL with the real clock-gate and latch cells
-make formal-quick                                                # bounded core proof, cover, ahead, never-late, clock gate, latch bank, host
-make formal JOBS=8                                               # adds the unbounded core proof (81 min for v1.6 at 2 jobs)
+make formal-quick                                                # bounded core check, covers, ahead, never-late, clock gate, latch bank, host, monitor
+make formal JOBS=8                                               # adds the unbounded core proof (72 min on CI's 4-vCPU runners)
 make formal-v2 formal-teeth                                      # tripwires, line unit from reset, non-interference; planted bugs
 make formal SKIP=1                                               # while iterating: skip proofs whose inputs match their last PASS (never for a release)
-make equiv                                                       # final netlist equals the RTL (~4 min)
+make equiv                                                       # final netlist equals the RTL (~6 min)
 CELLS=yes make mutation JOBS=8                                   # mutation campaign, 8 mutants at a time (hours; CI: 40 shards dealt by cost)
 ```
 
 The suites run in parallel where they can: `sw-test` uses every core when pytest-xdist is
-installed, `cosim-parallel` splits the random programs and the firmware runs across
-`JOBS` simulators from one build, `formal` proves the core's assertions as parallel
-tasks, and the mutation campaign runs `JOBS` mutants at once.
+installed, `cosim-parallel` splits the random programs and the firmware runs across `JOBS`
+simulators from one build, `formal` proves the core's assertions as parallel tasks, and the
+mutation campaign runs `JOBS` mutants at once.
 
 Every simulation target also runs on Verilator with `SIM=verilator` (5.036 or later).
 Icarus stays the default and the reference; CI uses it (version 13: the distribution's
@@ -954,7 +1085,3 @@ simulators passing every suite:
 | `cosim-parallel JOBS=8` | 63 s | 30 s |
 | `pin-test` | 149 s | 40 s |
 | `test`, `host-test`, `unit-test` | 3–24 s | 12–19 s (mostly compilation) |
-
-GitHub Actions runs the chip-level tests, `sw-test`, `cert`, `cosim-parallel` and
-`pin-test` on every push, and the harden with the gate-level tests whenever the design
-changes.

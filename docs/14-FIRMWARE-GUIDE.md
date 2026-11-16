@@ -24,7 +24,7 @@ four queued events.
 
 The chip is rated up to 50 MHz (D-5). Programs that take their timing from `CLK_KHZ`
 rebuild for another clock by defining it before the include, for example
-`.equ nec_tx.CLK_KHZ, 50000` then `.include "nec_tx.asm"`. {{NUM:fw_clocks}} Rerun
+`.equ nec_tx.CLK_KHZ, 50000` then `.include "nec_tx.asm"`. Of the 71 programs, 59 rebuild and certify at 33, 33.333, 40 and 50 MHz; four are tied to one clock by their protocol (10BASE-T transmit at 40 MHz, USB low speed at 24 MHz, VGA at its 25 MHz pixel clock); `eth_rx` needs a whole number of ticks per 100 ns bit, so 40 or 50 MHz; and seven count in ticks or follow another device's clock. Rerun
 `python -m escert` after any rebuild: a delay that fits at one clock can outgrow a
 16-bit compare, ADDT's 24 bits or the 2^16-tick gap escert can bound at a faster one.
 
