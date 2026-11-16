@@ -306,7 +306,11 @@ class _Done(Exception):
 
 class Machine:
     def __init__(self, image: Image, board: Optional[Board] = None,
-                 board_b: Optional[BoardB] = None, half: Optional[Half] = None):
+                 board_b: Optional[BoardB] = None, half: Optional[Half] = None,
+                 record: bool = True):
+        # record=False keeps no per-cycle pin record and no commit record (write_trace then
+        # writes only the final state). A run of 20 M ticks otherwise holds several GB.
+        self.record = record
         if len(image.words) not in (256, 1024):
             raise ValueError("image must have 256 words (one page) or 1024 (four pages)")
         self.image = image
@@ -615,7 +619,8 @@ class Machine:
         tm = t & M32
         out, oe = self._pin_outputs()                          # §5 outputs during t
         ob = self._ob()
-        self.pins.append({"t": t, "uio_out": out, "uio_oe": oe, "ob": ob})
+        if self.record:
+            self.pins.append({"t": t, "uio_out": out, "uio_oe": oe, "ob": ob})
         pins_in = self._inputs(t, out, oe, ob)                 # inputs during t
         psync = self.s2                                        # §5 psync during t
         idle = self._is_idle()
@@ -1067,6 +1072,8 @@ class Machine:
         # cm.rx_pop / cm.tx_push are applied with the host ports (_apply_mailboxes)
 
     def _record_commit(self, cm: Commit, t: int) -> None:
+        if not self.record:
+            return
         x = self.ctx[cm.k]
         self.commits.append({
             "t": t, "ctx": cm.k, "pc": cm.pc, "insn": cm.insn, "outcome": cm.outcome,

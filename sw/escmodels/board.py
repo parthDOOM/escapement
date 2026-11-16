@@ -27,12 +27,13 @@ class Device:
 
 
 class Board:
-    def __init__(self, *devices: Device, pullups: int = 0xFF):
+    def __init__(self, *devices: Device, pullups: int = 0xFF, record: bool = True):
         self.devices = list(devices)
         self.pullups = pullups
         self.bus = pullups
         self.contention: list[tuple[int, int]] = []
         self.history: list[int] = []   # bus level per cycle (for checks and plots)
+        self.record = record           # False: no history (long runs)
 
     def __call__(self, t: int, uio_out: int, uio_oe: int) -> int:
         if t < 0:
@@ -49,7 +50,8 @@ class Board:
         ext = (self.pullups | high) & ~low & 0xFF
         level = (chip_hi | (ext & ~uio_oe)) & ~chip_lo & 0xFF
         self.bus = level
-        self.history.append(level)
+        if self.record:
+            self.history.append(level)
         return level
 
     def errors(self) -> list[str]:
@@ -71,8 +73,8 @@ class SplitBoard(Board):
     are the same models as on bank A and see one level per pin, as on a shared wire.
     """
 
-    def __init__(self, *devices: Device, outputs: int, pullups: int = 0x1F):
-        super().__init__(*devices, pullups=pullups & 0x1F)
+    def __init__(self, *devices: Device, outputs: int, pullups: int = 0x1F, record: bool = True):
+        super().__init__(*devices, pullups=pullups & 0x1F, record=record)
         self.outputs = outputs & 0x1F
 
     def __call__(self, t: int, ob: int) -> int:
@@ -88,5 +90,6 @@ class SplitBoard(Board):
         ext = (self.pullups | high) & ~low & 0x1F
         level = ((ob & self.outputs) | (ext & ~self.outputs)) & 0x1F
         self.bus = level
-        self.history.append(level)
+        if self.record:
+            self.history.append(level)
         return level

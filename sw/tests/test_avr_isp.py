@@ -15,12 +15,12 @@ KHZ = 25000
 MS = KHZ
 
 
-def run(pushes, ms, **target):
+def run(pushes, ms, record=True, **target):
     im = assemble(f'.equ avr_isp.CLK_KHZ, {KHZ}\n.include "avr_isp.asm"\n', base_dir=FW)
     avr = AvrIspTarget(4, 5, 6, 7, 1e6 / KHZ, **target)
     host = HostScript(pushes, drain=[0], poll=2500)
-    board = Board(avr, host)
-    m = Machine(im, board=board)
+    board = Board(avr, host, record=record)
+    m = Machine(im, board=board, record=record)
     host.machine = m
     m.run(ms * MS, stop_when_idle=False)
     return m, avr, host, board
@@ -59,9 +59,11 @@ def test_out_of_sync_target_gets_a_reset_pulse():
 
 
 def test_busy_target_is_reported():
+    """2000 polls of a target that stays busy, then status 2: 800 ms of chip time (20 M
+    ticks), run without the per-cycle records, which would hold about 7 GB."""
     pushes = [(100, 0, 1 << 28), (60 * MS, 0, 3 << 28 | 0x0040)]
     pushes += [(60 * MS + MS * (k + 1), 0, w) for k, w in enumerate(PAGE)]
-    m, avr, host, board = run(pushes, 800, busy_ms=10_000)
+    m, avr, host, board = run(pushes, 800, record=False, busy_ms=10_000)
     assert host.received[0][2] == 2, host.received[0]
 
 
