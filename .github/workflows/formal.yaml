@@ -66,6 +66,17 @@ jobs:
       - name: Bounded check
         run: make formal-bmc BMC_JOBS=3 PYTHON=python3 BMC_JSON=results/formal-bmc.json
 
+      - name: Summary
+        if: always()
+        run: python3 scripts/ci_summary.py results/summary.json bmc results/formal-bmc.json
+
+      - name: Upload summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-summary-formal-bmc
+          path: results/summary.json
+
       - name: Upload proof logs
         if: always()
         uses: actions/upload-artifact@v7

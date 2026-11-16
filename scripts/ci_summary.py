@@ -2,6 +2,7 @@
 """Add one check's result to a CI summary file (JSON), for the results page on the site.
 
     ci_summary.py SUMMARY formal FORMAL_DIR [SPLIT_JSON]
+    ci_summary.py SUMMARY bmc    BMC_JSON
     ci_summary.py SUMMARY junit  NAME FILE.xml...
     ci_summary.py SUMMARY cert   LOG
     ci_summary.py SUMMARY equiv  LOG
@@ -20,9 +21,9 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
 
-# formal-quick's SymbiYosys tasks, by output directory
+# formal-props' SymbiYosys tasks, by output directory (the bounded core check is formal-bmc's,
+# split per assertion group in a job of its own: mode bmc)
 QUICK = [
-    ("esc_core_bmc", "Core properties, bounded to 20 steps"),
     ("esc_core_cover", "Core cover: each property's precondition is reachable"),
     ("esc_core_ahead", "B1-B9 values registered a cycle early (k-induction)"),
     ("esc_ctx_kind", "P2 never late, per context (k-induction)"),
@@ -66,6 +67,21 @@ def formal(args):
     detail = f"{ok} of {len(items)} tasks pass; {n_core} unbounded core proof tasks"
     return {"name": "Formal proofs", "status": "pass" if ok == len(items) else "fail", "detail": detail,
             "items": items}
+
+
+def bmc(args):
+    """formal/split_bmc.py --json: one task per assertion group, bounded from reset."""
+    res = json.loads(Path(args[0]).read_text())
+    tasks = res["tasks"]
+    items = [{"name": f"Core, bounded: {t['where'][0]}" + (f" and {len(t['where']) - 1} more"
+                                                         if len(t["where"]) > 1 else ""),
+              "status": t["status"], "secs": t.get("secs"), "text": t.get("text")} for t in tasks]
+    ok = sum(t["status"] in ("PASS", "SKIP") for t in tasks)
+    lines = sum(len(t["where"]) for t in tasks)
+    detail = (f"{ok} of {len(tasks)} tasks pass to depth {res['depth']} from reset "
+              f"({lines} assertion lines, {res['engine']})")
+    return {"name": f"Core properties, bounded to {res['depth']} steps",
+            "status": "pass" if tasks and ok == len(tasks) else "fail", "detail": detail, "items": items}
 
 
 def junit(args):
@@ -114,7 +130,7 @@ def mutation(args):
     if eq:
         detail += f"; {eq} more proved to change no output"
     if c.get("EXCLUDED"):
-        detail += f"; {c['EXCLUDED']} excluded with a written argument (dead under P2, or SRAM ties)"
+        detail += f"; {c['EXCLUDED']} excluded with a written argument (unread reset and start values, logic dead under P2, SRAM ties)"
     if invalid:
         detail += f"; {invalid} did not apply or build"
     by_suite = Counter((r.get("killed_by") or "").split(" ")[0] for r in res.get("results", [])
@@ -123,7 +139,7 @@ def mutation(args):
             "detail": detail, "counts": c, "killed_by": dict(by_suite)}
 
 
-MODES = {"formal": formal, "junit": junit, "cert": cert, "equiv": equiv, "mutation": mutation}
+MODES = {"formal": formal, "bmc": bmc, "junit": junit, "cert": cert, "equiv": equiv, "mutation": mutation}
 
 
 def main():
