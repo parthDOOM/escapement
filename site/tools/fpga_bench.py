@@ -149,7 +149,8 @@ def manifest(path):
 
 
 def main():
-    runs = sorted(p for p in (BENCH / "results").iterdir() if p.is_dir())
+    # bring-up runs only: a results folder may hold other bench evidence (2026-11-16: Ethernet)
+    runs = sorted(p for p in (BENCH / "results").iterdir() if (p / "bringup.log").exists())
     run = runs[-1]
     stages, fw, verdict = bringup((run / "bringup.log").read_text())
     # the wiring check runs when the wiring changes: the newest one up to this run

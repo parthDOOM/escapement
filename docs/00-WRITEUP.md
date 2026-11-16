@@ -306,6 +306,15 @@ that matters for timing: the half-tick sampler's falling-edge register is clocke
 an inverter that leaves the FPGA's global clock network, so that bitstream fails two of its
 own build checks and was packed by hand for the run ([the bench](https://parthdoom.github.io/escapement/fpga/)).
 
+The same bitstream also talks 10BASE-T Ethernet with a laptop. Only resistors, capacitors and
+a patch cable cut open at one end connect the Dock to the laptop's Ethernet port. `eth_tx`
+sent 20 of 20 test frames, and the laptop received all of them intact. `eth_rx` received 20
+of 20 frames of the laptop's own traffic (DHCP, ARP and multicast), each with a good frame
+check sequence. On the receive side an FPGA pin's input threshold stands in for the line
+receiver, so the bias network had to be tuned to it. The capture unit made that possible: it
+recorded the line's edges at the pin
+([the Ethernet bench](../fpga/tangprimer25k/README.md#ethernet-10base-t-2026-11-16)).
+
 ## 9. What it does
 
 The same small set of mechanisms covers a wide range of work, and three examples show its

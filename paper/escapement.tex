@@ -656,6 +656,14 @@ this bitstream fails two of the build's own clock checks and was packed by hand 
 run. The same RTL builds for an ECP5 without that limit, where the falling-edge register
 keeps the global clock and the design routes to 41.6\,MHz on a ULX3S 25F.
 
+The same bitstream, clocked at 40\,MHz, talks 10BASE-T Ethernet with a laptop. Only
+resistors, capacitors and a patch cable cut open at one end connect the Dock to the
+laptop's port. \texttt{eth\_tx} sent 20 of 20 test frames, which the laptop received intact.
+\texttt{eth\_rx} received 20 of 20 frames of the laptop's own traffic, each with a good
+frame check sequence. On the receive side an FPGA pin's input threshold stands in for the
+line receiver, and the capture unit, recording the line's edges at that pin, showed how to
+bias it.
+
 % =====================================================================================
 \section{What it does}
 \label{sec:apps}

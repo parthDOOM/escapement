@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Header from "../components/Header";
 import Ruler from "../components/Ruler";
+import EthCircuit from "./EthCircuit";
 import Pinout from "../components/Pinout";
 import { useJson } from "../lib/util";
 import WiringDiagram, { ROLE } from "./WiringDiagram";
@@ -282,7 +283,93 @@ function Page({ d }: { d: Fpga }) {
 
       <Ruler n={16} />
 
-      <section id="limits" className="band">
+      <section id="ethernet" className="band">
+        <div className="wrap">
+          <div className="sec-head">
+            <p className="eyebrow">Ethernet · 2026-11-16</p>
+            <h2>10BASE-T with a laptop</h2>
+            <p className="lede">The same bitstream at 40 MHz, with only resistors, capacitors and a patch cable cut
+              open at one end between the Dock and a laptop's Ethernet port. Each direction is its own program
+              load.</p>
+          </div>
+          <div className="facts" style={{ marginBottom: "2rem" }}>
+            <div><b>20 of 20</b><span>test frames from <code>eth_tx</code> arrived intact</span></div>
+            <div><b>20 of 20</b><span>of the laptop's own frames into <code>eth_rx</code>, each with a good FCS</span></div>
+            <div><b>0.9 ms</b><span>to push a frame over the bit-banged link</span></div>
+          </div>
+          <figure className="panel">
+            <div className="scroll-x"><EthCircuit /></div>
+            <figcaption>Both circuits as built on the breadboard. The wires on the left come from the Dock's Pmod
+              sockets, and the conductors on the right are a patch cable cut open at this end, with its plug in the
+              laptop. Transmit drives the pair a laptop receives on; receive takes the pair it sends on. On the
+              receive bench both are wired, because the chip's link pulses keep the laptop's link up.</figcaption>
+          </figure>
+          <div className="cols" style={{ marginTop: "2rem" }}>
+            <figure className="panel photo">
+              <img src="../img/eth-tx-bench.jpg" width={1400} height={883} loading="lazy"
+                alt="The transmit bench: the Pico W and the Tang Primer 25K Dock, with two jumpers from the Dock's J6 socket to a breadboard, where resistors and capacitors join them to the green pair of a cut-open Ethernet cable." />
+              <figcaption>The transmit bench.</figcaption>
+            </figure>
+            <figure className="panel photo">
+              <img src="../img/eth-rx-bench.jpg" width={1400} height={847} loading="lazy"
+                alt="The receive bench: the same two boards, with the breadboard now also holding the orange pair's coupling capacitors, termination and bias resistors, wired to the Dock's receive pin, 3V3 and ground." />
+              <figcaption>The receive bench: the transmit circuit stays for the link pulses.</figcaption>
+            </figure>
+          </div>
+          <div className="cols" style={{ marginTop: "2rem" }}>
+            <div className="prose">
+              <p><strong>Transmit.</strong> <code>eth_tx</code> keeps the laptop's link up with a pulse every 16 ms
+                and sends each frame the Pico pushes into its mailbox, 0.9 ms of register writes a frame. Windows'
+                own packet capture showed all 20 test frames, <code>escapement eth_tx 1</code> to <code>20</code>,
+                and the port counted no error. With the cable unplugged the same run counts none. The line unit's
+                report that a frame was sent says only that it left the pins, so the laptop's counters are the
+                end-to-end check.</p>
+              <p><strong>Two programs in one load.</strong> <code>eth_rx</code> needs the chip's one line unit, so
+                the receive bench makes its link pulses in a second context from timed pin events. While the laptop
+                sends, that context's timer keeps exact time, so the pulses never stop.</p>
+            </div>
+            <div className="prose">
+              <p><strong>Receive.</strong> <code>eth_rx</code> was written for a line receiver behind a
+                transformer. Here an FPGA pin's input threshold stands in for one, so the bias network had to be
+                found by experiment (below). The capture unit recorded the line's edges at the pin after each change,
+                and with the last one the chip received the laptop's DHCP, ARP and multicast traffic, every frame
+                with a good FCS.</p>
+              <p><strong>Not explained yet.</strong> On the receive bench the laptop's link comes and goes, about
+                0.6 s up and 2.3 s down. Each up interval is long enough for several frames.</p>
+              <p><strong>Frames, not yet a network.</strong> The chip does the link layer: whole frames in and out,
+                checked or sealed with their CRC-32, and the laptop's IP packets arrived byte for byte. Answering a ping
+                needs a protocol stack on the host and one program that switches the line unit between receiving and
+                sending, which is allowed because 10BASE-T is half duplex. It needs no chip change.</p>
+            </div>
+          </div>
+          <div className="sub-head">
+            <h3>How the receive circuit got there</h3>
+            <p>Four versions, each changed for the reason given and judged by the line check: the capture unit's
+              record of the high and low times at the pin. A clean 10BASE-T line at 40 MHz shows only 50 and 100 ns
+              runs, as many low as high.</p>
+          </div>
+          <div className="table-box panel">
+            <table>
+              <thead><tr><th>Circuit</th><th>Why</th><th>What the pin showed</th></tr></thead>
+              <tbody>
+                {ETH_STEPS.map(([c, why, got, ok], i) => (
+                  <tr key={i}>
+                    <td className="mono" style={{ whiteSpace: "nowrap" }}>{c}</td>
+                    <td>{why}</td>
+                    <td><span className={"pill " + (ok ? "ok" : "bad")}>{ok ? "clean" : "no"}</span> {got}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="note" style={{ marginTop: "1.5rem" }}>The circuits, the logs, the captures and the commands
+            are in <a href={`${REPO}/tree/master/fpga/tangprimer25k#ethernet-10base-t-2026-11-16`}>fpga/tangprimer25k</a>.</p>
+        </div>
+      </section>
+
+      <Ruler n={17} />
+
+      <section id="limits">
         <div className="wrap">
           <div className="sec-head">
             <p className="eyebrow">Limits</p>
@@ -310,6 +397,22 @@ function Page({ d }: { d: Fpga }) {
     </>
   );
 }
+
+/** The receive circuit's versions (fpga/tangprimer25k/README.md, Ethernet): circuit, reason, result. */
+const ETH_STEPS: [string, string, string, boolean][] = [
+  ["1 kΩ series · bias 2.0 V",
+    "A swing of about ±0.9 V around 2 V stays inside the pin's supply and idles high, as eth_rx expects, assuming the pin switches near half its supply.",
+    "Never low in 25 s while the laptop sent about 40 frames: the swing did not reach the real switching point.", false],
+  ["100 Ω series · bias 2.0 V",
+    "0.86 of the laptop's swing reaches the pin instead of 0.375, to cross the switching point wherever it is; the pin's input diodes clip the excess.",
+    "Frames arrived and eth_rx locked on (the first bytes were the broadcast address), then lost sync. Lows 25 ns against 75 ns highs: the bias sits far above the switching point.", false],
+  ["bias 1.32 V (1.5 kΩ up, 1 kΩ down)",
+    "Move the idle level toward the switching point. The divider's resistance stays 600 Ω, so the swing does not change.",
+    "Lows 25 to 50 ns, and some missed altogether (175 ns highs): every frame check sequence bad.", false],
+  ["bias 0.94 V (1 kΩ || 1.5 kΩ down)",
+    "One step further down, with the swing about the same (430 Ω).",
+    "Only 50 and 100 ns runs, as many low as high; 20 of 20 frames with a good FCS. The pin switches near 1 V.", true],
+];
 
 const Key = ({ c, t }: { c: string; t: string }) => (
   <span className="key"><i className="sw" style={{ background: cssColour(c) }} />{t}</span>
