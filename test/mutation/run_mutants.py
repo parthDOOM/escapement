@@ -286,6 +286,18 @@ EXCLUDED = {
     # reset and idle values of state that is always loaded before anything reads it
     "esc_core_const_ed962f97": "s2 reloads from s1 at every edge, so its reset value lives one cycle; nothing "
                                "reads the synchronised pins before a START, which takes a whole SPI frame",
+    # v3 campaign (run 43726637327, 11-15): undecided by the 30-minute proof
+    "esc_core_const_74694991": "s1 reloads from the pins at every edge, so its reset value lives one cycle and "
+                               "reaches only s2 (whose own reset value is argued above); nothing reads the "
+                               "synchronised pins before a START, which takes a whole SPI frame",
+    "esc_core_arith_01ac8a0f": "cq at a start lives one cycle (the next edge loads own(sq + 1)); in that cycle "
+                               "every reader of cctx acts only with a commit (commit_valid needs p3v, 0 for "
+                               "three edges after a start; ld_ctx is used only with ld_v; the line unit's "
+                               "op_ctx only with its op strobes), except the debug cache dcs: it loads the "
+                               "selected context's own field when cctx = sk, so the mutant can only move one "
+                               "load, and while running it reloads at sk's next slot within four cycles, "
+                               "long before a READ_DBG (a new SPI frame, at least 16 SCK periods of 8 "
+                               "clocks) can read it",
     "esc_ctx_const_90bb8e65": "the checker's active flag is recomputed at every edge from eval_en, which is 0 "
                               "while not running: it clears at the first edge after reset",
     "esc_cap_const_9f9b6767": "snap acts only while en is set, and every CAPT that sets en also sets snap",

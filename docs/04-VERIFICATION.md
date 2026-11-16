@@ -912,7 +912,7 @@ on master, with its commit and log, failures included.
 | --- | --- | --- |
 | `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, the certificates against the RTL's measured leads (`proof_table.py`), firmware through the pins; the co-simulation and the line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
 | `formal` | a change to `src/` or `formal/` | `make formal`: formal-quick, then the unbounded core proof as one PDR task per assertion |
-| `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in 32 shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors; the shards are dealt by each mutant's time in earlier runs (`test/mutation/costs.json`), the canaries run once beside them, and the summary requires the canaries and exactly one result per mutant |
+| `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in 40 shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors; the shards are dealt by each mutant's time in earlier runs (`test/mutation/costs.json`), the canaries run once beside them, and the summary requires the canaries and exactly one result per mutant |
 | `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
 | `equivalence` | each successful `gds` run on master | that run's netlist against the RTL of its commit (`formal/equiv.sh`) |
 
@@ -934,7 +934,7 @@ make formal JOBS=8                                               # adds the unbo
 make formal-v2 formal-teeth                                      # tripwires, line unit from reset, non-interference; planted bugs
 make formal SKIP=1                                               # while iterating: skip proofs whose inputs match their last PASS (never for a release)
 make equiv                                                       # final netlist equals the RTL (~4 min)
-CELLS=yes make mutation JOBS=8                                   # mutation campaign, 8 mutants at a time (hours; CI: 32 shards dealt by cost)
+CELLS=yes make mutation JOBS=8                                   # mutation campaign, 8 mutants at a time (hours; CI: 40 shards dealt by cost)
 ```
 
 The suites run in parallel where they can: `sw-test` uses every core when pytest-xdist is
