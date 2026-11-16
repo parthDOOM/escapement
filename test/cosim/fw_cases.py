@@ -328,7 +328,10 @@ def case_usb_hid():
         elif o["reports"] != [("DATA0", "0000040000000000"), ("DATA1", "0000050000000000"),
                               ("NAK", ""), ("NAK", "")]:
             errs.append(f"usb reports {o['reports']}")
-        if any(r.turnaround != 75 for r in b.usb.replies):
+        # every reply exactly at its certified tick (the host model checks USB's 2 to 6.5
+        # bit times separately); pad_audit.py's pins add 2 ticks a round trip per tick of delay
+        want = 75 + 2 * getattr(b, "pad_delay", 0)
+        if any(r.turnaround != want for r in b.usb.replies):
             errs.append(f"turnarounds {sorted({r.turnaround for r in b.usb.replies})}")
         return errs
     return board, board.host, check
@@ -1064,6 +1067,138 @@ def case_servo():
     return Board(pins, host, pullups=0), host, check
 
 
+def case_i2c_burst():
+    """The I2C bulk writer at 25 MHz against the SSD1306 model (UM10204 Fast-mode checks):
+    a 12-column window on page 2 set up by command words, then tape words 10 to 12 in one
+    burst; exactly those 12 bytes land, and the host gets every ACK count."""
+    from escmodels.ssd1306 import Ssd1306
+    oled = Ssd1306(2, 3, 0x3C)
+
+    def cmd(*b):
+        return len(b) << 24 | sum(x << (16 - 8 * i) for i, x in enumerate(b))
+    pushes = [(100, 0, cmd(0x00, 0x20, 0x00)), (3100, 0, cmd(0x00, 0x21, 40)), (6100, 0, cmd(0x00, 51)),
+              (9100, 0, cmd(0x00, 0x22, 2)), (12100, 0, cmd(0x00, 2)), (15100, 0, 1 << 31 | 0x40 << 16 | 12 << 8 | 10)]
+    host = HostScript(pushes, drain=[0], poll=1000)
+
+    def check(board, h):
+        ram = oled.state()[0]
+        want = [(burst_word(a) >> s) & 0xFF for a in range(10, 13) for s in (24, 16, 8, 0)]
+        ok = (h.received[0] == [3, 3, 2, 3, 2, 13] and ram[2][40:52] == want
+              and sum(1 for p in ram for b in p if b) == sum(1 for b in want if b))
+        return ([] if ok else [f"i2c_burst {h.received[0]} {ram[2][40:52]}"]) + board.errors()
+    return Board(oled, host), host, check
+
+
+def burst_word(a):
+    """Tape word a of the burst case: every byte different from its neighbours."""
+    return ((a * 0x9E3779B1) ^ (a << 7)) & 0xFFFFFFFF
+
+
+def burst_tape(image):
+    for a in range(256):
+        image.tape[a] = burst_word(a)
+
+
+# OLED Pong: four programs, one program page each (firmware/oled_pong.asm's header), with the
+# step and screen times of sw/tests/test_oled_pong.py so a run is short.
+OLED = {0: "oled_disp.asm", 1: "oled_pong.asm", 2: "oled_text.asm", 3: "oled_menu.asm"}
+OLED_GAME = {p: OLED[p] for p in (0, 1, 2)}
+OLED_FAST = {"TICK_US": 3000, "COUNT": 2, "SHOW": 4}
+OLED_PRESS = 0b00010                    # bank B: the left player's up button, held
+
+
+def _oled_models():
+    """The picture model and the game model (sw/tests): written from the firmware headers'
+    rules, never from the firmware."""
+    import sys
+    tests = str(Path(__file__).resolve().parents[2] / "sw" / "tests")
+    if tests not in sys.path:
+        sys.path.insert(0, tests)
+    import oled_pong_model
+    from pong_model import Pong
+    return oled_pong_model, Pong
+
+
+def _oled_symbols():
+    from escasm import assemble
+    fw = Path(__file__).resolve().parents[2] / "firmware"
+    sym = {}
+    for f in OLED.values():
+        sym.update(assemble((fw / f).read_text(), base_dir=fw, name=f).symbols)
+    return sym
+
+
+def _oled_start():
+    """A game in progress: the ball heading right, the right side about to miss."""
+    _, Pong = _oled_models()
+    g = Pong()
+    g.bx, g.by, g.dx, g.dy, g.p, g.s, g.frame = 61, 40, 1, 2, [40, 2], [3, 5], 1
+    return g
+
+
+def _oled_display(picture=None):
+    """An SSD1306 set up as the menu leaves it (vertical addressing), holding `picture`."""
+    from escmodels.ssd1306 import Ssd1306
+    oled = Ssd1306(2, 3, 0x3C)
+    a = ("addr", 0x3C << 1, True)
+    oled.transactions.append(["S", a] + [("w", b) for b in (0x00, 0x20, 0x01, 0x21, 0, 127, 0x22, 0, 7)] + ["P"])
+    if picture is not None:
+        data = [picture.ram[p][x] for x in range(128) for p in range(8)]
+        oled.transactions.append(["S", a, ("w", 0x40)] + [("w", b) for b in data] + ["P"])
+    return oled
+
+
+def oled_game_tape(image):
+    S, g = _oled_symbols(), _oled_start()
+    image.tape[S["PHASE"]] = 1
+    image.tape[S["S_SL"]], image.tape[S["S_SR"]] = 0xFF00 | g.s[0], 0xFF00 | g.s[1]
+    t = [0] * 256
+    g.load(t)
+    for a in g.tape():
+        image.tape[a] = t[a]
+
+
+def case_oled_pong():
+    """OLED Pong from reset, all four contexts on their own pages: the display engine sets up
+    the panel and clears it, the menu draws the title through the text layer, and the game
+    waits for its turn. Every byte on the display is the title's, and Fast-mode timing holds
+    on every byte (the title takes about 2 M ticks in all; this run covers its first part)."""
+    om, _ = _oled_models()
+    title = om.title().ram
+    oled = _oled_display()
+    oled.transactions.clear()                         # from reset: the firmware sets it up
+    host = HostScript([], drain=[0], poll=5000)
+
+    def check(board, h):
+        ram = oled.state()[0]
+        drawn = sum(1 for p in range(8) for x in range(128) if title[p][x] and ram[p][x] == title[p][x])
+        wrong = sum(1 for p in range(8) for x in range(128) if ram[p][x] != title[p][x] and ram[p][x])
+        ok = drawn >= 40 and wrong == 0
+        return ([] if ok else [f"oled_pong title bytes {drawn}, wrong {wrong}"]) + board.errors()
+    return Board(oled, host), host, check, lambda t, ob: 0
+
+
+def case_oled_game():
+    """OLED Pong in play (engine, game and text): from a set position, the left paddle's up
+    button held, the right paddle the chip's; after six steps or more the whole display RAM
+    equals the court the game model draws for the same step."""
+    om, _ = _oled_models()
+    start = _oled_start()
+    oled = _oled_display(om.court(start))
+    host = HostScript([], drain=[0], poll=5000)
+
+    def check(board, h):
+        import copy
+        ram = oled.state()[0]
+        model, steps = copy.deepcopy(start), None
+        for _ in range(20):
+            model.step(OLED_PRESS)
+            if model.frame >= start.frame + 5 and om.court(model).ram == ram:
+                steps = model.frame - start.frame
+        return ([] if steps else ["oled_game: the display is no court the model draws"]) + board.errors()
+    return Board(oled, host), host, check, lambda t, ob: OLED_PRESS
+
+
 FIRMWARE_CASES = {
     "uart_rx": ("uart_rx.asm", 13500, case_uart_rx),
     "i2c_ctrl": ("i2c_ctrl.asm", 9000, case_i2c),
@@ -1138,9 +1273,12 @@ FIRMWARE_CASES = {
     "morse": ("morse.asm", 760_000, case_morse),
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
+    "i2c_burst": ("i2c_burst.asm", 80_000, case_i2c_burst),
+    "oled_pong": (OLED, 900_000, case_oled_pong),       # a page per context (escasm.paged)
+    "oled_game": (OLED_GAME, 450_000, case_oled_game),
 }
 TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_tape,
-             "modbus": modbus_tape}
+             "modbus": modbus_tape, "i2c_burst": burst_tape, "oled_game": oled_game_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 # parameters a case sets on its firmware's .defaults (a short gate for the meter)
 FW_EQU = {"freq_meter": {"N": 8, "PIN": 3}, "i2c_timing": {"TOUT_US": 100},
@@ -1148,13 +1286,20 @@ FW_EQU = {"freq_meter": {"N": 8, "PIN": 3}, "i2c_timing": {"TOUT_US": 100},
           "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
           "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000}, "wiegand_rx": {"CLK_KHZ": 4000}, "dcf77_tx": {"CLK_KHZ": 10}, "qi_rx": {"CLK_KHZ": 2000},
-          "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500}}
+          "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500},
+          "oled_pong": OLED_FAST, "oled_game": OLED_FAST}
 
 
 def fw_image(name, fw, firmware_dir):
-    """The image a case runs: its firmware, with FW_EQU parameters and TAPE_PREP applied."""
-    from escasm import assemble, assemble_file
-    if name in FW_EQU:
+    """The image a case runs: its firmware, with FW_EQU parameters and TAPE_PREP applied.
+    `fw` a dict {page: file} is a paged image (one program page per file); its FW_EQU
+    names are the files' shared names, set in every file."""
+    from escasm import assemble, assemble_file, paged
+    if isinstance(fw, dict):
+        equ = "".join(f".equ {k}, {v}\n" for k, v in FW_EQU.get(name, {}).items())
+        d = Path(firmware_dir)
+        image = paged({p: assemble(equ + (d / f).read_text(), base_dir=d, name=f) for p, f in fw.items()})
+    elif name in FW_EQU:
         mod = fw.rsplit(".", 1)[0]
         equ = "".join(f".equ {mod}.{k}, {v}\n" for k, v in FW_EQU[name].items())
         image = assemble(equ + f'.include "{fw}"\n', base_dir=firmware_dir, name=fw)

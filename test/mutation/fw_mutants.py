@@ -11,7 +11,8 @@ bugs firmware authors make, one per mutant, in the source of each shipped progra
     short   an ADDT's delay cut to a quarter (at least 1)
     branch  a conditional branch inverted (JZ/JNZ, JC/JNC): the wrong path is taken
 
-Each mutant is assembled and certified. escert answers CHECKED (no admission fault for
+Each mutant is assembled and certified, alone or, for programs that run as one paged
+image (OLED Pong's four), inside that image. escert answers CHECKED (no admission fault for
 any input), REFUTED (a fault, reproduced on the ISS with concrete inputs) or NOT_PROVEN
 (a fault could not be excluded and the search found none). A CHECKED mutant is then
 attacked with the same randomised input search on the ISS: a fault there would mean
@@ -37,12 +38,24 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "sw"))
 
-from escasm import AsmError, assemble  # noqa: E402
+from escasm import AsmError, assemble, paged  # noqa: E402
 from escert import certify, witness  # noqa: E402
 
 FW = REPO / "firmware"
 SKIP = {"replay.asm",                       # a template
         "combo_two_banks.asm", "combo_uart_i2c.asm"}   # includes of the programs below
+# programs that run together as one paged image, one program page each: a mutant of one of
+# them is certified and attacked inside that image, beside the unmutated others
+PAGED = [{0: "oled_disp.asm", 1: "oled_pong.asm", 2: "oled_text.asm", 3: "oled_menu.asm"}]
+
+
+def build(fw: str, src: str):
+    """The image a mutant of `fw` runs in: alone, or in its paged image."""
+    for pages in PAGED:
+        if fw in pages.values():
+            return paged({p: assemble(src if f == fw else (FW / f).read_text(), base_dir=FW, name=f)
+                          for p, f in pages.items()})
+    return assemble(src, base_dir=FW, name=fw)
 SALT = "escapement-fw-mutation-1"
 BRANCH = {"JZ": "JNZ", "JNZ": "JZ", "JC": "JNC", "JNC": "JC"}
 
@@ -79,7 +92,7 @@ def run_one(job):
     src = (FW / fw).read_text().split("\n")
     src[line - 1] = new_line
     try:
-        image = assemble("\n".join(src), base_dir=FW, name=fw)
+        image = build(fw, "\n".join(src))
     except AsmError as e:
         return {"fw": fw, "op": op, "line": line, "result": "INVALID", "detail": str(e)[:120]}
     certs = certify(image, witness_trials=trials)
