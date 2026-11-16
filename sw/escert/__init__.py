@@ -282,6 +282,7 @@ class Cert:
     events: int = 0
     states: int = 0
     findings: list = field(default_factory=list)
+    notes: list = field(default_factory=list)   # warnings that do not affect the status
     witness: Optional[dict] = None
     sends: dict = field(default_factory=dict)   # pc -> SendSite
     getls: dict = field(default_factory=dict)   # pc -> W (arm to wait, quiet line), ticks
@@ -313,10 +314,11 @@ class Cert:
         if self.status == "CHECKED":
             ml = int(self.min_lead) if self.min_lead < INF else "inf"
             text = f"{head}, min_lead >= {ml} ({self.events} event sites, {self.states} states)"
-            return "\n".join([text] + self.line_report())
+            return "\n".join([text] + self.line_report() + [f"  note: {n}" for n in self.notes])
         f = self.findings[0] if self.findings else None
         w = f" witness {self.witness}" if self.witness else ""
-        return head + (f" at pc {f.pc}: {f.kind} {f.note}" if f else "") + w
+        return "\n".join([head + (f" at pc {f.pc}: {f.kind} {f.note}" if f else "") + w]
+                         + [f"  note: {n}" for n in self.notes])
 
 
 def _fmt(v: float) -> str:
@@ -558,6 +560,20 @@ def _uses_line(image: Image, ctx: int) -> bool:
     return any(_decode(image.words[pc])[0] in LINE_OPS for pc in _reach(image, ctx))
 
 
+def _mon_sites(image: Image, ctx: int) -> tuple[list, list]:
+    """The context's reachable MONs, and its reachable GETMs that read the bus monitor
+    (sel 0 to 2; 3 and 4 read the line unit)."""
+    image = page_view(image, ctx)
+    mons, getms = [], []
+    for pc in sorted(_reach(image, ctx)):
+        name, f = _decode(image.words[pc])
+        if name == "MON":
+            mons.append(pc)
+        elif name == "GETM" and f["imm"] <= 2:
+            getms.append(pc)
+    return mons, getms
+
+
 def _fixed_regs(image: Image, ctx: int) -> set:
     """Registers no reachable instruction of the context writes: they hold 0 (sec. 9)."""
     image = page_view(image, ctx)
@@ -719,6 +735,16 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     cert = Cert(ctx, "CHECKED")
     if lu_ctx and len(lu_users) > 1:
         cert.findings.append(Finding(-1, "OWNER", f"contexts {lu_users} all use the line unit"))
+    # The bus monitor's owner is the first context whose MON commits in a run (22-BUS-MONITOR):
+    # another context's MON faults ADMIT/OWNER, and its GETM 0-2 read 0.
+    mons, getms = _mon_sites(full, ctx)
+    mon_users = [k for k, en in enumerate(image.ctx_enable) if en and _mon_sites(full, k)[0]]
+    if mons and len(mon_users) > 1:
+        cert.findings.append(Finding(mons[0], "OWNER", f"contexts {mon_users} all use the bus "
+                                     "monitor: the first MON to commit owns it, the others fault"))
+    if not mons:
+        cert.notes += [f"GETM pc {pc} reads the bus monitor, which this context never owns "
+                       "(it has no MON): it always reads 0" for pc in getms]
     seen: dict = {}
     visits: dict = {}
     keys_at: dict = {}

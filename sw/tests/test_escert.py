@@ -579,6 +579,37 @@ def test_line_unit_use_before_config_and_send_without_tx_pins_fault_owner():
     assert lu_owner_case(body) == (False, False)
 
 
+MON_HEAD = ".entry 0, a\n.entry 1, b\na:\n MOVI r0, 0\n MOVI r1, 0\n"
+
+
+def test_two_monitor_users_are_flagged_owner_as_the_iss_faults():
+    """The bus monitor belongs to the first context whose MON commits (22-BUS-MONITOR): a
+    second context's MON faults ADMIT/OWNER. escert flags every context that has a MON
+    when more than one has, before the image is ever run."""
+    src = MON_HEAD + " MON r0, r1\n HALT\nb:\n MOVI r0, 0\n MOVI r1, 0\n MON r0, r1\n HALT\n"
+    certs = certify(assemble(src))
+    assert all(any(f.kind == "OWNER" and "bus monitor" in f.note for f in c.findings)
+               for c in certs), [str(c) for c in certs]
+    assert [c.status for c in certs] == ["POSSIBLE", "POSSIBLE"]
+    m = Machine(assemble(src))
+    m.run(200, stop_when_idle=False)
+    assert m.ff.valid and m.ff.subcode == 2 and m.ff.ctx == 1     # ctx 0's MON commits first
+
+
+def test_getm_of_a_context_that_never_owns_the_monitor_is_a_note():
+    """A context with no MON never owns the monitor, so its GETM 0 to 2 always read 0: a
+    note on its certificate, not a finding (the status stays CHECKED). GETM 3 and 4 read
+    the line unit and get no note; the owner's own GETM gets none either."""
+    src = MON_HEAD + " MON r0, r1\n GETM r2, 0\n HALT\nb:\n GETM r0, 1\n GETM r1, 3\n HALT\n"
+    owner, reader = certify(assemble(src))
+    assert (owner.status, owner.notes) == ("CHECKED", [])
+    assert reader.status == "CHECKED"
+    assert len(reader.notes) == 1 and reader.notes[0].startswith("GETM pc ")
+    assert "always reads 0" in str(reader)
+    m = Machine(assemble(src))
+    m.run(200, stop_when_idle=False)
+    assert not m.ff.valid
+
 
 def test_pop_after_rxready_saw_a_word_does_not_wait():
     """v1.6: only the context pops its RX mailbox, so a POP on the path where RXREADY saw a

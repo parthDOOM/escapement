@@ -119,7 +119,13 @@ checks that such a context's GETM always reads zero whatever the owner does
 ([04-VERIFICATION](04-VERIFICATION.md)).
 
 The rules keep running after their owner halts or faults, so a monitor set up by a short
-configuration program keeps watching for the rest of the run.
+configuration program keeps watching for the rest of the run. That same program must also
+be the one that reads the results.
+
+`escert` checks the rule before an image runs. When more than one context can reach a MON,
+each of them gets an OWNER finding, because only the first MON to commit takes the monitor.
+A context that reads the monitor with GETM 0 to 2 but has no MON of its own gets a note:
+it never owns the monitor, so those reads always return 0.
 
 ## The hardware
 
