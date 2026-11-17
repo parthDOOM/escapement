@@ -13,7 +13,10 @@ packet after its deadline) or unknown. Ownership is tracked too: a LINE, GETL or
 before the context's first CONFIG commits faults OWNER, and RECV, CRC and SEND do until
 that CONFIG completes, or after an OFF until the next CONFIG does (the check comes before
 the wait for the running job); SEND needs a
-configuration with tx_pins (in a block not read as constant, its image value). GETL
+configuration with tx_pins (in a block not read as constant, its image value), and an
+EMIT may not drive a pin the configuration claims. Both are checked against the
+configuration in force at the commit: a CONFIG's takes over at its completion, so until
+the zone proves that, the old and the new are both possible. GETL
 completes in the first slot after the job's end, or at its timeout. SEND is an event that is dropped (Z = 0) instead of faulting
 when late, so a late reply is never a fault; escert reports reply timing separately:
 
@@ -210,18 +213,23 @@ class St:
     rxne: bool = False               # the RX mailbox holds a word (POP will not wait)
     cf: int = 0                      # line unit: 0 not the owner, 1 the first CONFIG ends
                                      # at lue, 2 configured, 3 unconfigured by an OFF
+    cl: tuple = (0, True)            # the configuration in force (sec. 6.6): (pins it may
+                                     # claim, whether it may lack tx_pins)
+    cp: Optional[tuple] = None       # a CONFIG's, in force from its completion at lue
 
     def copy(self) -> "St":
         return St(self.z.copy(), list(self.reg), list(self.fifo), self.lc, self.zf,
-                  self.lr, self.lee, self.lu, self.stale, self.zrx, self.rxne, self.cf)
+                  self.lr, self.lee, self.lu, self.stale, self.zrx, self.rxne, self.cf,
+                  self.cl, self.cp)
 
     def key(self, pc: int):
         consts = tuple(r if (r[0] == "const" and r[1] == r[2]) else (r[0],) for r in self.reg)
         return (pc, self.lc, self.zf, tuple(k for _, k in self.fifo), consts, self.lee,
-                self.lu, self.stale, self.zrx, self.rxne, self.cf)
+                self.lu, self.stale, self.zrx, self.rxne, self.cf, self.cl, self.cp)
 
     def coarse_key(self, pc: int):
-        return (pc, tuple(k for _, k in self.fifo), self.lee, self.lu, self.stale, self.cf)
+        return (pc, tuple(k for _, k in self.fifo), self.lee, self.lu, self.stale, self.cf,
+                self.cl, self.cp)
 
     def free_slot(self) -> int:
         used = {s for s, _ in self.fifo}
@@ -251,7 +259,25 @@ def join_st(a: St, b: St, widen: bool) -> St:
     return St(z, reg, list(a.fifo), a.lc if a.lc == b.lc else None,
               a.zf if a.zf == b.zf else None, a.lr | b.lr, a.lee or b.lee,
               a.lu if a.lu == b.lu else "top", a.stale or b.stale,
-              a.zrx and b.zrx, a.rxne and b.rxne, a.cf)        # (cf is in both keys)
+              a.zrx and b.zrx, a.rxne and b.rxne, a.cf,        # (cf, cl, cp are in both keys)
+              _cl_join(a.cl, b.cl),
+              None if a.cp is None and b.cp is None else
+              _cl_join(a.cl if a.cp is None else a.cp, b.cl if b.cp is None else b.cp))
+
+
+def _cl_join(a: tuple, b: tuple) -> tuple:
+    return (a[0] | b[0], a[1] or b[1])
+
+
+def _cl_settle(s: St, done: bool = False) -> tuple:
+    """The line unit's configuration possibly in force at s's commit. A CONFIG's takes
+    over at its completion E_lue (sec. 6.6: claimed during cycle t is the old one when it
+    completes at E_t); `done` when the commit is known to follow it (a LINE or SEND waits
+    while the unit is engaged, and a GETL with Z = 1 saw the job end). Settles s.cp into
+    s.cl when the completion is proved, else returns both."""
+    if s.cp is not None and (done or s.z.diff(LUE, NOW)[1] <= -1):
+        s.cl, s.cp = s.cp, None
+    return s.cl if s.cp is None else _cl_join(s.cl, s.cp)
 
 
 def rename_fifo(s: St, slots: list) -> Zone:
@@ -725,9 +751,6 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
     consts = const_tape(full) if lu_ctx else {}
     early, early_pcs = const_tape_before_stores(full, ctx) if lu_ctx else ({}, set())
     lu_users = [k for k, en in enumerate(image.ctx_enable) if en and _uses_line(full, k)]
-    claimed = [0, False, False]                  # pins a CONFIG claims; unknown config seen;
-                                                 # a CONFIG without tx_pins seen
-    emit_masks: set = set()
     init = St(z0, [("const", 0, 0) if i in tracked else ("top",) for i in range(4)], [], 0, 0,
               frozenset({0}), False)
     for i in range(4):
@@ -1056,9 +1079,11 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             if op == 0:                                  # OFF: no wait; the unit is left
                 s.lu = "idle"                            # unconfigured (sec. 6.6)
                 s.cf = 3
+                s.cl, s.cp = (0, True), None             # (a running CONFIG is aborted)
                 go(s, nxt)
                 continue
             for t in _lu_wait(s):
+                _cl_settle(t, True)                      # (it waited for a running CONFIG)
                 if op == 1:                              # RECV
                     t.lu = "armed"
                     t.z.assign(LUA, NOW, 0)
@@ -1078,16 +1103,14 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                     a = v & 0xFF
                     src = consts if consts else (early if pc in early_pcs else {})
                     blk = [src.get((a + i) & 0xFF) for i in range(3)]
-                    if None in blk:
-                        claimed[1] = True                # (tx_pins: the image's W0)
-                        claimed[2] = claimed[2] or not (image.tape[a] >> 20) & 1
+                    if None in blk:                      # any pin; tx_pins: the image's W0
+                        t.cp = (0xFFFF, not (image.tape[a] >> 20) & 1)
                         t.z.free(LUE)                    # ext unknown: c+9 .. c+17
                         t.z.constrain(LUE, NOW, 17)
                         t.z.constrain(NOW, LUE, -9)
                     else:
                         from esciss.line import Cfg
-                        claimed[0] |= Cfg(*blk).claimed()
-                        claimed[2] = claimed[2] or not Cfg(*blk).tx_pins
+                        t.cp = (Cfg(*blk).claimed(), not Cfg(*blk).tx_pins)
                         t.z.assign(LUE, NOW, 17 if (blk[2] >> 25) & 1 else 9)
                 else:
                     t.lu = "top"
@@ -1150,6 +1173,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                 t.zf = zv
                 if zv:
                     t.lu = "idle"
+                    _cl_settle(t, True)                  # (the job, a CONFIG too, ended)
                 go(t, nxt)
             continue
         elif name == "SEND":
@@ -1170,6 +1194,8 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                 if s1 is None:
                     continue
                 for t in _lu_wait(s1):
+                    if _cl_settle(t, True)[1]:           # sec. 6.2 step 3: tx_pins
+                        flag(pc, "OWNER", "the line unit may be configured without tx_pins")
                     lo, hi = t.z.diff(TMR, NOW)
                     late = lo < 1 or hi >= HALF
                     if not t.stale:
@@ -1210,9 +1236,8 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             if name != "SAMPLE" and f["mask"] == 0:
                 flag(pc, "MASK", "event with an empty mask")
                 continue
-            if name in ("EMIT", "EMITR", "EMITX"):
-                emit_masks.add((pc, f["mask"]))
-            if name in ("EMIT", "EMITR", "EMITX") and f["mask"] & ~owned:
+            drive = name in ("EMIT", "EMITR", "EMITX")
+            if drive and f["mask"] & ~owned:
                 flag(pc, "OWNER", f"drives pins 0x{f['mask'] & ~owned & 0xFF:02x} not owned by ctx {ctx}")
                 continue
             # FIFO full: 4 entries in Q -> complete 0..3 ticks after the head's deadline
@@ -1227,6 +1252,9 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             else:
                 splits = [s]
             for t in splits:
+                # sec. 6.2 step 3: a pin claimed by the configuration in force at the commit
+                if drive and lu_ctx and f["mask"] & _cl_settle(t)[0]:
+                    flag(pc, "OWNER", "may drive a pin the line unit claims")
                 lead_lo, lead_hi = t.z.diff(TMR, NOW)
                 cert.min_lead = min(cert.min_lead, lead_lo)
                 if lead_lo < 1 or lead_hi >= HALF:
@@ -1260,13 +1288,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
 
     # Guard against vacuous proofs: every event site the control-flow graph can reach must
     # have been analysed, otherwise the analysis lost paths (a bug or a precision limit).
-    for epc, mask in sorted(emit_masks):           # sec. 6.2 step 3: claimed pins
-        if lu_ctx and (claimed[1] or mask & claimed[0]):
-            flag(epc, "OWNER", "may drive a pin the line unit claims")
-    for spc in sorted(cert.sends):                 # sec. 6.2 step 3: SEND needs tx_pins
-        if claimed[2]:
-            flag(spc, "OWNER", "the line unit may be configured without tx_pins")
-    missed = sorted(_cfg_events(image, ctx) - visited_events)
+    missed =sorted(_cfg_events(image, ctx) - visited_events)
     if missed:
         flag(missed[0], "INCOMPLETE", f"event sites never analysed: {missed[:8]}")
     if cert.findings:

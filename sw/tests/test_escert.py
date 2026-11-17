@@ -579,6 +579,52 @@ def test_line_unit_use_before_config_and_send_without_tx_pins_fault_owner():
     assert lu_owner_case(body) == (False, False)
 
 
+def lu_switch_case(body):
+    """lu_owner_case with a second configuration at 0xF8, the same but without tx_pins
+    (it claims no pin; CONFIG word at 0xE4). Returns (escert's OWNER findings' pcs, the
+    ISS faults OWNER)."""
+    src = (LU_PRE.format(w0=NRZ_W0, w1=NRZ_W1, w2=CRC16_W2, send=0x0800)
+           .replace(".tape 0xE0", f".tape 0xF8, {NRZ_W0 & ~(1 << 20):#x}, {NRZ_W1:#x}, "
+                    f"{CRC16_W2:#x}\n.tape 0xE4, 0x300000F8\n.tape 0xE0") + body)
+    c = certify(assemble(src))[0]
+    m = Machine(assemble(src))
+    m.run(600, stop_when_idle=False)
+    f = m.ff
+    return (sorted(x.pc for x in c.findings if x.kind == "OWNER"),
+            bool(f.valid and f.cause == ADMIT and f.subcode == 2))
+
+
+DONE = " ADDT 0xFFFFFF\n GETL r1\n"                  # the running CONFIG has completed
+
+
+@pytest.mark.parametrize("pad,faults", [(0, True), (1, True), (2, False)])
+def test_claimed_pins_follow_the_configuration_in_force(pad, faults):
+    """A CONFIG's claim takes over at its completion (E_(c+9)), not its commit: an EMIT on
+    pin 0, which the transmit configuration claims, faults while the switch to the
+    receive one (no tx_pins, no claim) is still running, and is admitted after it, as
+    escert proves from the zone (it once flagged every EMIT on a pin that any CONFIG of
+    the context claims)."""
+    body = (DONE + " ADDT 100\n LDT r0, r3, 0xE4\n LINE r0\n" + " NOP\n" * pad
+            + " EMIT 1, 1, 1\n HALT\n")
+    owner, iss = lu_switch_case(body)
+    assert (bool(owner), iss) == (faults, faults)
+    after = DONE + " LDT r0, r3, 0xE4\n LINE r0\n" + DONE + " ADDT 100\n EMIT 1, 1, 1\n HALT\n"
+    assert lu_switch_case(after) == ([], False)
+
+
+def test_send_needs_tx_pins_in_the_configuration_in_force():
+    """SEND checks the configuration in force at its commit (it waits for a running
+    CONFIG first): after switching to the receive configuration it faults; after
+    switching back, it is admitted."""
+    rx = DONE + " LDT r0, r3, 0xE4\n LINE r0\n" + DONE
+    tx = " LDT r0, r3, 0xE0\n LINE r0\n" + DONE
+    send = " ADDT 300\n LDT r0, r3, 0xE2\n SEND r0\n HALT\n"
+    owner, iss = lu_switch_case(rx + send)
+    assert owner and iss
+    assert lu_switch_case(rx + tx + send) == ([], False)
+    assert lu_switch_case(rx + " LDT r0, r3, 0xE0\n LINE r0\n" + send) == ([], False)
+
+
 MON_HEAD = ".entry 0, a\n.entry 1, b\na:\n MOVI r0, 0\n MOVI r1, 0\n"
 
 

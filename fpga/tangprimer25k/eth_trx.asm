@@ -43,6 +43,7 @@
 .equ TB, 0x80                               ;   the transmit buffer, 112 words
 .equ CFGF, 0xF0                             ;   the transmit configuration (5 words)
 .equ CFGR, 0xF5                             ;   the receive configuration (5 words)
+.equ TBMAX, (CFGF - TB) * 4                 ; bytes: the longest frame send stores (448)
 
 ; transmit (firmware/eth_tx.asm): two 2-tick cells a bit, seven 0x55 and the SFD, CRC-32
 .equ W0F, TDP | (TDN << 3) | (1 << 9) | (1 << 11) | (3 << 16) | (1 << 20) | (0x55 << 24)
@@ -162,7 +163,10 @@ anchor:
     RET
 
 ; ---- send the frame the host is pushing: r2 = its command word. Returns with the line unit
-; configured to receive (not armed) and tmr = the end of that CONFIG.
+; configured to receive (not armed) and tmr = the end of that CONFIG. Every word the host
+; pushes is popped, so the mailbox stays in step whatever the length; only the words that
+; fit before CFGF are stored and sent, so a length over TBMAX can never overwrite the
+; configurations (the host keeps to TBMAX; this is the firmware's own guard).
 send:
     MOV   r1, r2
     SHL   r1, 16
@@ -170,14 +174,23 @@ send:
     MOV   r3, r1
     ADDI  r3, 3
     SHR   r3, 2
-    ADDI  r3, TB             ; r3 = the buffer's end
+    ADDI  r3, TB             ; r3 = TB + the words the host pushes
     MOVI  r0, TB
 store:
-    POP   r2
-    STT   r2, r0, 0
-    ADDI  r0, 1
     CMP   r0, r3
-    JNZ   store
+    JZ    stored             ; (a length of 0 pushes nothing)
+    POP   r2
+    CMPI  r0, CFGF
+    JNC   skip               ; C: borrow, r0 < CFGF
+    STT   r2, r0, 0
+skip:
+    ADDI  r0, 1
+    JMP   store
+stored:
+    CMPI  r1, TBMAX + 1
+    JC    fits
+    MOVI  r1, TBMAX          ; send what was stored
+fits:
     MOVI  r0, CFGF
     MOVHI r0, 0x3000
     LINE  r0                 ; CONFIG: transmit (cancels an armed receiver)

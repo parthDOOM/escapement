@@ -387,6 +387,40 @@ def test_trx_receives_answers_and_keeps_the_link():
     assert pulses[0] < 17 * TICKS_MS
 
 
+def test_trx_send_keeps_to_its_buffer():
+    """A length of 0, then one over TBMAX (448 bytes), then a normal frame: eth_trx pops every
+    word the host pushes but stores only what fits before its configurations, sends the
+    first 448 bytes with their own CRC-32, and stays in step for the next frame."""
+    big = bytes((7 * i + 1) & 0xFF for i in range(500))
+    small = bytes(range(60))
+    pushes, t = [], 100_000
+    for f in (b"", big, small):
+        words = [ethbench.CMD_SEND | len(f)] + ethbench.frame_words(f)[1:] if f else \
+            [ethbench.CMD_SEND]
+        for w in words:
+            pushes.append((t, 0, w))
+            t += 1800
+        t += 40_000
+    host = HostScript(pushes, drain=[0], poll=400)
+    board = PinLog(EthSource(2, [], RX_BIT_HT), host)
+    im = trx_image()
+    cfg = {a: im.tape[a] for a in range(0xF0, 0xFA)}
+    m = Machine(im, board=board, record=False)
+    host.machine = m
+    m.run(t + 100_000, stop_when_idle=False)
+    assert not m.ff.valid
+    assert {a: m.tape[a] for a in cfg} == cfg
+    sent = host.received[0]
+    assert len(sent) == 3 and all((w >> 24) & 3 == 2 for w in sent), [hex(w) for w in sent]
+    frames = [r for r in driven(board.changes) if r[1] - r[0] > 64]
+    datas = [to_bytes(frame_bits(window(board.changes, a, b + 1), 0)[0]) for a, b in frames]
+    cut = big[:448]
+    assert any(d[8:8 + 448] == cut and
+               int.from_bytes(d[456:460], "little") == zlib.crc32(cut) for d in datas)
+    d = datas[-1]
+    assert d[8:68] == small and int.from_bytes(d[68:72], "little") == zlib.crc32(small)
+
+
 class TrxChip(RxChip):
     """RxChip that also keeps every change of TD+ and TD-."""
 
