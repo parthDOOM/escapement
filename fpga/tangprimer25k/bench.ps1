@@ -10,12 +10,14 @@
 #   .\bench.ps1 eth [-Opts "count=30"]   # 10BASE-T frames from eth_tx at 40 MHz (README.md, Ethernet)
 #   .\bench.ps1 ethrx [-Opts "seconds=60"]   # 10BASE-T frames into eth_rx (the receive bench)
 #   .\bench.ps1 ethedges              # receive line check: high and low times on RXP
+#   .\bench.ps1 swd                   # swd_idcode debugs a second Pico (README.md, SWD)
 #   .\bench.ps1 repl                  # MicroPython REPL (Ctrl-] to leave)
 #
 # Environment (all optional): MPREMOTE (default: mpremote on PATH, else the one pip put in
 # Python's Scripts folder: python -m pip install mpremote), ESC_WSL_DISTRO (default: the
 # default distro), OSS_CAD_SUITE (an OSS CAD Suite folder inside WSL, else the tools on its PATH).
-# The Pico is found by its USB ID (2E8A:0005); -Port COMx overrides.
+# The Pico is found by its USB ID (2E8A:0005); -Port COMx overrides, and is needed when a
+# second MicroPython Pico is plugged in.
 param(
     [Parameter(Position = 0)][string]$Cmd = "help",
     [Parameter(Position = 1)][string]$Arg = "",
@@ -46,9 +48,12 @@ function To-Wsl([string]$p) { (& wsl.exe wslpath -a ($p -replace '\\', '/')).Tri
 function Find-Pico {
     if ($Port) { return $Port }
     $devs = & $Mp devs
-    $hit = $devs | Where-Object { $_ -match "2e8a:0005" } | Select-Object -First 1
-    if (-not $hit) { throw "no MicroPython Pico (USB 2E8A:0005) found; mpremote devs:`n$($devs -join "`n")" }
-    return ($hit -split "\s+")[0]
+    $hits = @($devs | Where-Object { $_ -match "2e8a:0005" })
+    if (-not $hits) { throw "no MicroPython Pico (USB 2E8A:0005) found; mpremote devs:`n$($devs -join "`n")" }
+    # a second MicroPython Pico (an SWD target, a logic analyser) must never be taken for
+    # the bench host by its place in the list
+    if ($hits.Count -gt 1) { throw "$($hits.Count) MicroPython Picos ($(($hits | ForEach-Object { ($_ -split '\s+')[0] }) -join ', ')): name the bench host with -Port COMx" }
+    return ($hits[0] -split "\s+")[0]
 }
 
 function Invoke-Mp { param([string[]]$A) & $Mp connect (Find-Pico) @A; if ($LASTEXITCODE) { throw "mpremote $A failed ($LASTEXITCODE)" } }
@@ -59,7 +64,8 @@ function Deploy-Files {
         @{ src = "$Repo\sw\eschost\protocol.py"; dst = "protocol.py" },
         @{ src = "$Here\barepico.py"; dst = "barepico.py" },
         @{ src = "$Here\pinid.py"; dst = "pinid.py" },
-        @{ src = "$Here\ethbench.py"; dst = "ethbench.py" }
+        @{ src = "$Here\ethbench.py"; dst = "ethbench.py" },
+        @{ src = "$Here\swdbench.py"; dst = "swdbench.py" }
     )
     $bdir = Join-Path $Build "bundles"
     if (-not (Test-Path $bdir)) { throw "no ${bdir}: run .\bench.ps1 bundles first" }
@@ -107,6 +113,7 @@ switch ($Cmd) {
     "ethrx" { Invoke-Mp @("exec", "import ethbench; ethbench.listen($Opts)") }
     "ethedges" { Invoke-Mp @("exec", "import ethbench; ethbench.edges($Opts)") }
     "ethping" { Invoke-Mp @("exec", "import ethbench; ethbench.ping($Opts)") }
+    "swd" { Invoke-Mp @("exec", "import swdbench; swdbench.run($Opts)") }
     "proof" {
         New-Item -ItemType Directory -Force $Build | Out-Null
         $dst = Join-Path $Build ("proof-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".json")
@@ -119,5 +126,5 @@ switch ($Cmd) {
         if ($LASTEXITCODE) { throw "openFPGALoader failed: is the Dock attached to WSL (usbipd attach --wsl --busid <id>)?" }
     }
     "repl" { & $Mp connect (Find-Pico) repl }
-    default { Get-Content $PSCommandPath -TotalCount 19 | Select-Object -Skip 1 }
+    default { Get-Content $PSCommandPath -TotalCount 20 | Select-Object -Skip 1 }
 }

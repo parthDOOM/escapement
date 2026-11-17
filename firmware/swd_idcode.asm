@@ -9,10 +9,17 @@
 ; Host protocol: POP a command word, PUSH a status word and then a data word.
 ;   command [31]  connect first: 56 cycles high, 0xE79E, 57 cycles high, 8 idle cycles
 ;                 (the access after a connect must be a DPIDR read, 0x80000004; B4.3.3)
+;           [30]  wake first (SWD protocol version 2, ADIv5.2 B5.3): 56 cycles high and
+;                 0xE3BC (SWD to dormant), 56 high, the 128-bit selection alert, 4 low,
+;                 the activation code 0x1A, then a line reset as for [31]. A multi-drop
+;                 target (RP2040) then needs a TARGETSEL write before the DPIDR read:
+;                 0x40000018, write data TARGETID | instance << 28 (B4.3.4)
 ;           [4:1] APnDP, RnW, A[2], A[3], as they go on the wire (bits 1-4 of the request
 ;                 byte); start, parity, stop and park are added here. DPIDR read = 0x04.
 ;           If RnW = 0, POP a second word: the write data.
 ;   status  [2:0] ACK as received: 1 OK, 2 WAIT (after WAIT_MAX retries), 4 FAULT,
+;                 0 for a TARGETSEL write (DP write to 0xC), which no target answers: its
+;                 ACK cycles are left to the pull-up and the data follows regardless,
 ;                 anything else = no valid response (protocol error or no target)
 ;           [3]   read data parity error   [4] line reset done after a missing ACK
 ;           [15:8] WAIT responses received
@@ -38,8 +45,9 @@
 ; stretch SWCLK the same way. So no segment's timing depends on the code before it
 ; (escert proves each one alone), and the ACK is decoded while SWCLK is high after its
 ; third rising edge, which every response needs anyway.
-; Limits: one turnaround cycle (DLCR default), SWD protocol version 1 (no TARGETSEL or
-; dormant state), overrun detection (CTRL/STAT.ORUNDETECT) must stay off.
+; Limits: one turnaround cycle (DLCR default), overrun detection (CTRL/STAT.ORUNDETECT)
+; must stay off. SWD protocol versions 1 and 2: dormant wake-up and TARGETSEL as above,
+; the sequences OpenOCD sends (src/jtag/swd.h).
 
 .default CTX, 2
 .default CLK_PIN, 4
@@ -70,9 +78,16 @@ build:
     MOVI  r0, 0x1E
     AND   r0, r3
     CALL  fold                  ; r0[0] = parity of APnDP, RnW, A[2:3]
-    MOVI  r2, 0xFE1E
-    MOVHI r2, 0xFFFF
-    AND   r3, r2                ; keep the connect bit and APnDP, RnW, A[2:3]
+    MOVI  r2, 0x1E
+    MOVHI r2, 0xC000
+    AND   r3, r2                ; keep the connect and wake bits and APnDP, RnW, A[2:3]
+    MOVI  r2, 0x1E
+    AND   r2, r3
+    CMPI  r2, 0x18
+    JNZ   not_sel
+    MOVI  r2, 0x200
+    OR    r3, r2                ; r3[9]: TARGETSEL (a DP write to 0xC), never answered
+not_sel:
     MOVI  r2, 0x81              ; start 1, stop 0, park 1
     TSTI  r0, 1
     JZ    req_even
@@ -88,14 +103,50 @@ req_even:
 wd_even:
     MOVI  r2, 0                 ; status
     MOV   r0, r3
-    SHR   r0, 31
+    SHR   r0, 30                ; [1] connect, [0] wake
     JZ    xfer
+    TSTI  r0, 1
+    JNZ   wake
     ; ---- connect (B5.2.2): >= 50 cycles high, JTAG-to-SWD select, then a line reset
     CALL  ones
     MOVI  r0, 0xE79E
     LDSH  r0
     LDLC  16
     CALL  wbits                 ; 0xE79E, LSB first
+    JMP   lreset
+    ; ---- wake (ADIv5.2 B5.3): SWD to dormant (ignored by a dormant target), then
+    ; dormant to SWD, then a line reset
+wake:
+    CALL  ones                  ; >= 50 cycles high
+    MOVI  r0, 0xE3BC
+    LDSH  r0
+    LDLC  16
+    CALL  wbits                 ; SWD-to-dormant select
+    CALL  ones                  ; >= 8 cycles high
+    MOVI  r0, 0xF392
+    MOVHI r0, 0x6209
+    LDSH  r0
+    LDLC  32
+    CALL  wbits                 ; the selection alert, bits 0-31
+    MOVI  r0, 0x2D95
+    MOVHI r0, 0x8685
+    LDSH  r0
+    LDLC  32
+    CALL  wbits                 ; bits 32-63
+    MOVI  r0, 0xAFE9
+    MOVHI r0, 0xE3DD
+    LDSH  r0
+    LDLC  32
+    CALL  wbits                 ; bits 64-95
+    MOVI  r0, 0x0EA2
+    MOVHI r0, 0x19BC
+    LDSH  r0
+    LDLC  32
+    CALL  wbits                 ; bits 96-127
+    MOVI  r0, 0x1A0
+    LDSH  r0
+    LDLC  12
+    CALL  wbits                 ; 4 cycles low, the SWD activation code 0x1A
 lreset:
     CALL  ones                  ; line reset (B4.3.3): >= 50 cycles high,
     CALL  tail                  ; one more, then 8 idle cycles low (>= 2)
@@ -112,6 +163,8 @@ xfer:
     LDLC  4
     CALL  rbits                 ; turnaround (SWDIO released), ACK[0], ACK[1], ACK[2]
     GETI  r0
+    TSTI  r3, 0x200
+    JNZ   wr_ok                 ; TARGETSEL: no ACK comes (B4.3.4); the data follows
     SHR   r0, 29                ; ACK[2:0]
     CMPI  r0, 1
     JZ    ack_ok
@@ -182,7 +235,10 @@ wr_ok:
     LDSH  r0
     LDLC  8
     CALL  wbits                 ; idle
+    TSTI  r3, 0x200
+    JNZ   sel_done              ; TARGETSEL: status 0
     ADDI  r2, 1
+sel_done:
     MOVI  r1, 0
 finish:
     WAITT                       ; the last segment has ended

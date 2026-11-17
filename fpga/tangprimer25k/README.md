@@ -95,10 +95,12 @@ input. `chip-pnr.log` is the place-and-route log of that bitstream.
 | `ethdemo.ps1` | the transmit demo, end to end: the laptop's counters and a pktmon capture, PASS or FAIL |
 | `test_pinid.py`, `test_barepico.py` | software tests: pinid.v simulated through pinid.py; bring-up through barepico's wiring on the simulated chip |
 | `test_ethbench.py` | software test: `ethbench.py` on the simulated chip, every frame decoded from TD+ and TD- and checked with its CRC; the receive bench and the line check against a simulated link partner |
+| `swdbench.py`, `test_swdbench.py` | the SWD bench (`swd_idcode` debugging a second Pico) and its test through the bare Pico against the RP2040 model |
+| `swdjudge.py` | the SWD bench judged by an outside analyser and sigrok's `swd` decoder (runs on Windows; sigrok-cli in WSL) |
 | `bench.ps1` | Windows helper: build, deploy, load, run (the Dock's USB goes to WSL with usbipd-win) |
 | `hierarchy.sh`, `hierarchy.py` | block-level LUT, flip-flop and bus counts of the FPGA build |
 | `results/2026-11-15/` | the version 3 run above: the bring-up log, the bitstream's and bundles' MANIFESTs, the clock skew report |
-| `results/2026-11-17/` | the Ethernet transmit demo (`ethdemo.ps1 -SaveTo`): its log, and the laptop's capture of the 20 frames (`eth-tx.pcapng`, EtherType 0x88B5 only; the capture header's machine fields removed) |
+| `results/2026-11-17/` | the Ethernet transmit demo (`ethdemo.ps1 -SaveTo`): its log, and the laptop's capture of the 20 frames (`eth-tx.pcapng`, EtherType 0x88B5 only; the capture header's machine fields removed); the SWD session against an RP2040 (`swd.log`), and the same session judged by an outside analyser and sigrok (`swd-judge/`) |
 | `results/2026-11-16/` | the Ethernet receive bench: the receive log (the laptop's MAC address masked) and the line captures |
 | `results/2026-11-08/` | the earlier version 1.6 run |
 
@@ -312,7 +314,9 @@ ARP, IGMP, IPv6), and they arrived byte for byte. But taking part in a network n
   On this bench that would be the host's job (the Pico), as the chip hands it each frame.
 - **Both directions in one load.** `eth_tx` and `eth_rx` each take the chip's one line unit for
   as long as they run. A program that sends and receives must reconfigure the unit between
-  frames. 10BASE-T is half duplex, so that is allowed, but the program is not written yet.
+  frames. 10BASE-T is half duplex, so that is allowed: `eth_trx.asm` does it, and with
+  `ethbench.ping()` answers ARP and ping in simulation. On the bench it waits for the receive
+  line to be rebuilt.
 - **A faster host link.** The bit-banged SPI drains a large frame in about 0.7 s. That is fine
   for a ping, but not for real traffic.
 
@@ -345,6 +349,69 @@ For transmit, Wireshark (display filter `eth.type == 0x88b5`) shows each frame. 
 broadcast, from 02:00:00:00:00:01, with EtherType 0x88B5 (IEEE local experimental) and the text
 `escapement eth_tx <n>`. For receive, the laptop needs no setup. Once the link is up it sends
 its own traffic: DHCP, ARP, multicast.
+
+## SWD: the chip debugs an RP2040, 2026-11-17
+
+`swd_idcode.asm` is an Arm Serial Wire Debug host in firmware. Here it talks to a second
+Raspberry Pi Pico through that Pico's 3-pin debug header, as a debug probe would. The bench
+Pico W only pushes host commands to the chip's mailbox and reads the replies; every SWCLK and
+SWDIO edge comes from the chip, at 25 MHz with SWCLK at 781 kHz.
+
+The RP2040's debug port is multi-drop (SWD protocol version 2): core 0, core 1 and a rescue
+port share the two wires, they start dormant, and a probe must wake them and select one
+before any of them answers. `swd_idcode` gained that for this bench. Command bit 30 sends the
+SWD-to-dormant and dormant-to-SWD sequences and a line reset, and a DP write to 0xC is sent
+as TARGETSEL, which no target acknowledges. The sequences are the ones OpenOCD sends.
+
+| Run | What the chip read | Result |
+| --- | --- | --- |
+| Core 0 (TARGETSEL 0x01002927) | DPIDR 0x0BC12477; DLPIDR 0x00000001 (protocol version 2, instance 0); AHB-AP IDR 0x04770031; the boot ROM word at 0x10, 0x0301754D (`Mu`, 0x01, ROM version 3: RP2040-B2) | PASS |
+| Core 1 (TARGETSEL 0x11002927) | The same, with DLPIDR 0x10000001: instance 1, so the chip selects between the ports | PASS |
+| Control: TARGETSEL naming instance 2, which does not exist | No port answers the DPIDR read (ACK 111, the pull-up) | fails, as it must |
+
+Log: `results/2026-11-17/swd.log`. Nothing is written to the target and no core is halted:
+the session reads the debug port, powers up the debug domain, and reads one ROM word through
+the AP.
+
+**Judged from outside.** `swdjudge.py` runs the same session one step at a time while a
+second recorder takes down SWCLK and SWDIO: the target Pico itself, running gusmanb's
+LogicAnalyzer firmware (v6.0, 25 MS/s) beside its debug port, driven by that project's
+command-line client. sigrok's `swd` decoder then reads each step from the recording. In every
+step after the wake-up (15 of 16), the decoder took off the wire exactly the data the chip
+reported to its host (DPIDR 0x0BC12477 through the ROM word) or the data the host asked it to
+write, each with ACK OK. Every SWCLK high and low phase measured 640 ns, which is H = 16 ticks
+at 25 MHz, to within the 40 ns sample. The control fails as it must: the DPIDR recording with
+one SWDIO pulse inverted no longer decodes to the chip's value. The wake-up step is judged on
+its clock only, because sigrok's decoder (0.7.2) has no dormant state or TARGETSEL; the next
+step shows its effect. Log and recordings (VCD): `results/2026-11-17/swd-judge/`.
+
+    python fpga\tangprimer25k\swdjudge.py --la COM12 --host COM8 --tc <TerminalCapture.exe> --out <dir>
+
+For it, the analyser's GP2 (pin 4) shares a breadboard row with SWCLK and GP3 (pin 5) one
+with SWDIO; it is grounded already through the target's debug GND.
+
+In simulation the same host routine runs against a model of the RP2040's three ports on one
+bus (`sw/escmodels/swd.py`, `test_swdbench.py`), and `sw/tests/test_firmware.py` checks the
+firmware alone: each port selected in turn, and no answer without the wake or with a
+TARGETSEL that names none.
+
+**Wiring.** Unplug the Pico W's wires 26 (GP21) and 27 (GP22) at the Dock, then:
+
+| Target Pico debug pin | To |
+| --- | --- |
+| SWCLK | J6 bottom row, col 6 (uio[4]) |
+| SWDIO | J6 bottom row, col 5 (uio[5]) |
+| GND | the Pico W's pin 38 (GND) |
+
+The target is powered from its own USB. If it runs MicroPython too, two Picos answer to
+`mpremote`, and `bench.ps1` then needs `-Port` for the bench host:
+
+    .\bench.ps1 load chip
+    .\bench.ps1 swd -Port COM8
+    .\bench.ps1 swd -Port COM8 -Opts "targetsel=0x11002927"     # core 1
+
+Afterwards plug wires 26 and 27 back in; `.\bench.ps1 pinid` (with `pinid.fs` loaded) then
+finds all 26 wires again.
 
 ## Why the clock is on L3
 

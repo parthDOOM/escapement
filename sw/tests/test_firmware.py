@@ -421,10 +421,11 @@ SWD_AP_RD_C = 0x1E                         # AP read, A = 0xC (IDR with APBANKSE
 def swd_session(target, commands, source=None, per_cmd=60_000):
     """Run swd_idcode.asm against `target`, one command at a time: each command is a
     tuple of host words (the command, and the write data for a write). Returns the
-    (status, data) replies, the board and the machine."""
+    (status, data) replies, the board and the machine. `target` may be a list of targets
+    on the same pins (a multi-drop bus)."""
     from escasm import assemble
     from esciss import Machine
-    board = Board(target)
+    board = Board(*target) if isinstance(target, list) else Board(target)
     image = assemble(source, base_dir=FW) if source else assemble_file(FW / "swd_idcode.asm")
     m = Machine(image, board=board)
     replies = []
@@ -560,6 +561,61 @@ def test_swd_fastest_clock_h14():
     replies, board, m = swd_session(tgt, [(SWD_CONNECT_DPIDR,)], source=src)
     assert replies == [(1, 0x0BC12477)] and not board.errors()
     assert swclk_phases(board) == (14, 14)
+
+
+SWD_WAKE_TARGETSEL = 0x40000018            # wake from dormant, then a TARGETSEL write
+SWD_CONNECT_TARGETSEL = 0x80000018         # JTAG-to-SWD and line reset, then TARGETSEL
+RP2040 = {"core 0": 0x01002927, "core 1": 0x11002927, "rescue": 0xF1002927}
+
+
+def rp2040_bus():
+    """RP2040's three SW-DPs (multi-drop, SWD protocol version 2) on the same two wires, all
+    dormant at the start and all with DPIDR 0x0BC12477. Each has its own AP IDR value (AP
+    0, IDR at 0xFC), so an AP read shows which one answered."""
+    from escmodels import SwdTarget
+    return {name: SwdTarget(4, 5, dpidr=0x0BC12477, swj=False, dormant=True, targetsel=ts,
+                            ap_regs={(0, 0xFC): 0x04770031 + (k << 24)})
+            for k, (name, ts) in enumerate(RP2040.items())}
+
+
+def ap_idr(tgts):
+    """Commands: SELECT APBANKSEL 0xF, AP read of IDR (posted), RDBUFF."""
+    return [(SWD_SELECT, 0xF0), (SWD_AP_RD_C,), (SWD_RDBUFF,)]
+
+
+def test_swd_wakes_and_selects_each_rp2040_dp():
+    """SWD protocol version 2 (ADIv5.2 B5.3, B4.3.4): the wake from dormant, a line reset and
+    a TARGETSEL write select one DP of the three; only it answers the DPIDR read and the AP
+    read. Then a line reset and another TARGETSEL move to the next DP."""
+    tgts = rp2040_bus()
+    cmds = [(SWD_WAKE_TARGETSEL, RP2040["core 0"]), (SWD_DPIDR,)] + ap_idr(tgts)
+    for name in ("core 1", "rescue"):
+        cmds += [(SWD_CONNECT_TARGETSEL, RP2040[name]), (SWD_DPIDR,)] + ap_idr(tgts)
+    replies, board, m = swd_session(list(tgts.values()), cmds)
+    assert not board.errors(), board.errors()
+    assert not m.ff.valid
+    for k, name in enumerate(RP2040):
+        sel, dpidr, _, _, idr = replies[5 * k:5 * k + 5]
+        assert sel == (0, 0) and dpidr == (1, 0x0BC12477), (name, replies)
+        assert idr == (1, 0x04770031 + (k << 24)), (name, [tuple(map(hex, r)) for r in replies])
+    assert all(t.wakes == 1 for t in tgts.values())
+    for name, t in tgts.items():               # every DP saw all three TARGETSELs
+        assert [(v, s) for _, v, s in t.targetsels] == [(ts, ts == RP2040[name])
+                                                       for ts in RP2040.values()]
+
+
+def test_swd_rp2040_controls():
+    """Without the wake the dormant DPs ignore the line: no ACK. A TARGETSEL that names no
+    DP leaves all three off the line: no ACK either."""
+    replies, board, _ = swd_session(list(rp2040_bus().values()), [(SWD_CONNECT_DPIDR,)])
+    assert replies[0][0] & 7 == 7 and replies[0][1] == 0, replies
+    tgts = rp2040_bus()
+    replies, board, _ = swd_session(list(tgts.values()),
+                                    [(SWD_WAKE_TARGETSEL, 0x21002927), (SWD_DPIDR,)])
+    assert replies[0] == (0, 0) and replies[1][0] & 7 == 7, replies
+    assert replies[1][0] & 0x10                # the firmware's line reset after no ACK
+    assert all([(v, s) for _, v, s in t.targetsels] == [(0x21002927, False)]
+               for t in tgts.values())
 
 
 def test_swd_target_model_flags_contention():

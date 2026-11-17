@@ -1,0 +1,19 @@
+swdjudge: analyser COM12 at 25 MS/s, bench COM8, TARGETSEL 0x01002927; decoder: sigrok swd (swd=read:write:ack:data:parity)
+step  0 wake, TARGETSEL 0x01002927         chip: ACK 0 0x00000000 | decoder: (not judged: the decoder has no dormant state or TARGETSEL) | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step  1 DP DPIDR                           chip: ACK 1 0x0bc12477 | decoder: IDCODE OK 0x0bc12477 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step  2 DP SELECT DPBANKSEL 3              chip: ACK 1 0x00000000 | decoder: W SELECT OK 0x00000003 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step  3 DP DLPIDR                          chip: ACK 1 0x00000001 | decoder: R CTRL/STAT OK 0x00000001 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step  4 DP SELECT 0                        chip: ACK 1 0x00000000 | decoder: W SELECT OK 0x00000000 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step  5 DP ABORT (clear sticky flags)      chip: ACK 1 0x00000000 | decoder: W ABORT OK 0x0000001e | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step  6 DP CTRL/STAT power-up request      chip: ACK 1 0x00000000 | decoder: W CTRL/STAT OK 0x50000000 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step  7 DP CTRL/STAT                       chip: ACK 1 0xf0000040 | decoder: R CTRL/STAT OK 0xf0000040 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step  8 DP SELECT AP 0 bank 0xF            chip: ACK 1 0x00000000 | decoder: W SELECT OK 0x000000f0 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step  9 AP IDR (posted)                    chip: ACK 1 0x00000000 | decoder: R APc OK 0x00000000 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step 10 DP RDBUFF: AP IDR                  chip: ACK 1 0x04770031 | decoder: RDBUFF OK 0x04770031 | SWCLK high >= 640 ns, low >= 600 ns | PASS
+step 11 DP SELECT AP 0 bank 0              chip: ACK 1 0x00000000 | decoder: W SELECT OK 0x00000000 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step 12 AP CSW 32-bit                      chip: ACK 1 0x00000000 | decoder: W AP0 OK 0xa2000002 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step 13 AP TAR 0x00000010                  chip: ACK 1 0x00000000 | decoder: W AP4 OK 0x00000010 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step 14 AP DRW (posted)                    chip: ACK 1 0x00000000 | decoder: R APc OK 0x00000000 | SWCLK high >= 640 ns, low >= 640 ns | PASS
+step 15 DP RDBUFF: ROM word at 0x10        chip: ACK 1 0x0301754d | decoder: RDBUFF OK 0x0301754d | SWCLK high >= 640 ns, low >= 640 ns | PASS
+control: the DPIDR capture with one SWDIO pulse inverted decodes to 'IDCODE OK 0x0bc13c77': fails, as it must
+swdjudge: PASS: sigrok's swd decoder read every access after the wake-up off the wire as the chip and its host had it, every SWCLK phase >= 640 ns less a sample, and the control fails

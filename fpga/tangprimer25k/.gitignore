@@ -4,3 +4,4 @@ __pycache__/
 /proof.json
 # the evidence of each run is kept
 !results/**/*.log
+!results/**/*.vcd

@@ -39,7 +39,7 @@ unless a section says otherwise. The final runs at a glance:
 | Mutation testing | 1,010 planted RTL faults: 892 caught, 57 proved harmless, 61 argued harmless, none surviving |
 | Outside judges | sigrok's decoders, written by other people, agree with 53 of the 71 programs; every control fails |
 | Pads and board | every firmware case still passes with its pins one tick slower each way |
-| Test suites | 1,407 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
+| Test suites | 1,409 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
 
 ## How the checks grew
 
@@ -727,7 +727,7 @@ the simulator: a fault there would mean escert certified a program that can faul
 are chosen by hashing each program's source lines and the searches are seeded, so the same
 firmware always gives the same table, and editing a program changes only its own mutants.
 
-On the final tree the campaign planted 616 mutants in the 68 programs that have mutation
+On the final tree the campaign planted 624 mutants in the 68 programs that have mutation
 sites: every program but the logic analyser, which has none, and the two combined images,
 whose programs are mutated on their own. Each certified mutant got 12 input searches. The
 four OLED Pong programs are mutated inside their four-page image, beside the unmutated
@@ -736,9 +736,9 @@ escert could not prove alone are refuted there.
 
 | escert's answer | Mutants |
 | --- | ---: |
-| REFUTED: a fault, reproduced on the simulator with concrete inputs | 129 |
+| REFUTED: a fault, reproduced on the simulator with concrete inputs | 131 |
 | NOT_PROVEN: a fault not excluded, and none found by the search | 45 |
-| CHECKED: no admission fault for any input | 442 |
+| CHECKED: no admission fault for any input | 448 |
 | CHECKED, yet the search made it fault | **0** |
 
 A CHECKED mutant is a change that keeps every deadline admissible, which escert is right to
@@ -775,7 +775,7 @@ netlist instead, and the 14-second `westminster` tune only on the simulator.
 | JTAG IDCODE read | `jtag_idcode` | JTAG TAP model, back-to-back requests |
 | SPI target: a 256-byte 25xx-style memory (READ, WRITE) in the tape, modes 0 and 3, up to 416 kHz | `spi_target` | SPI controller model that checks MISO setup and hold at every sampling edge; every edge alignment at the rated period, CS_n rising after every bit, back-to-back frames |
 | NEC infrared transmitter with 38 kHz carrier (repeat codes, extended address) and receiver | `nec_tx`, `nec_rx` | Receiver model that demodulates the carrier and checks frequency, duty and the Linux decoder's timing windows; remote-control model with ±10% clock error; transmitter → IR receiver module model → receiver loopback |
-| ARM Serial Wire Debug host: JTAG-to-SWD switch, DPIDR read, DP and AP reads and writes | `swd_idcode` | SW-DP target model from ADIv5.2 (IHI 0031G): WAIT retries, FAULT and ABORT, read parity errors, no-response back-off, turnaround contention |
+| ARM Serial Wire Debug host: JTAG-to-SWD switch, wake from dormant and TARGETSEL (SWD protocol version 2, multi-drop), DPIDR read, DP and AP reads and writes | `swd_idcode` | SW-DP target model from ADIv5.2 (IHI 0031G): WAIT retries, FAULT and ABORT, read parity errors, no-response back-off, turnaround contention; dormant state and multi-drop selection, with RP2040's three DPs on one bus (each selected in turn, and no answer without the wake or with a TARGETSEL that names none) |
 | UART and I2C concurrently | `combo_uart_i2c` | Both models at once, on separate contexts |
 | PS/2 and JTAG on bank A, SPI and UART on bank B, concurrently | `combo_two_banks` | All four models at once; the bank B ones see only the split pins |
 | Westminster Quarters, the hour chime of Big Ben, on a buzzer on bank B | `westminster` | Note decoder at a hundredth of real time: all 17 notes in order, each at its pitch (within 0.2%) and length, and every silence to the tick |
@@ -949,6 +949,14 @@ JVC, EV1527, DCC, VGA and the chime; RC servo pulses it measures only as generic
 a display that is not a sigrok protocol (`seven_seg`), or only listen to a line the test
 itself drives (`freq_meter`, `quadrature`, `i2c_timing`, `logic_analyzer`, `eth_rx`).
 
+**On hardware too.** On the FPGA bench, `swd_idcode` debugged a real RP2040 while a logic
+analyser recorded the two wires (`fpga/tangprimer25k/swdjudge.py`): the target Pico itself,
+running gusmanb's LogicAnalyzer firmware beside its debug port, so neither the recorder nor
+the decoder is ours. sigrok's `swd` decoder read every access after the wake-up, 15 in all,
+off the real wire exactly as the chip reported it to its host, each SWCLK phase measured the
+640 ns the firmware is built for, and the control (one SWDIO pulse inverted) fails
+(fpga/tangprimer25k/README.md, SWD).
+
 Three of the decoders have limits that the judges work around, each written in the judge:
 
 - `ps2` emits a frame only at the next frame's first falling clock edge, and loses that
@@ -991,7 +999,7 @@ inputs it samples are its buttons.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,407 | Pass (the sigrok tests need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,409 | Pass (the sigrok tests need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 12 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 12 | Pass; with SDF timing at the three corners, 11 each |
 | Co-simulation and line unit lockstep on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make cosim-parallel line-test`) | all | Pass |

@@ -1,0 +1,57 @@
+# swd_idcode (SWD protocol version 2 extension, uncommitted on f229c01) on the FPGA bench at 25 MHz, debugging a
+# second Raspberry Pi Pico (RP2040-B2) through its debug header: README.md, SWD. 2026-11-17.
+
+## core 0
+swd: chip at 25.000 MHz, swd_idcode running in context 2
+swd: wake, TARGETSEL 0x01002927         ACK -     
+swd: DP DPIDR                           ACK OK    0x0bc12477
+swd: DP SELECT DPBANKSEL 3              ACK OK    
+swd: DP DLPIDR                          ACK OK    0x00000001
+swd: DP SELECT 0                        ACK OK    
+swd: DP ABORT (clear sticky flags)      ACK OK    
+swd: DP CTRL/STAT power-up request      ACK OK    
+swd: DP CTRL/STAT                       ACK OK    0xf0000040
+swd: DP SELECT AP 0 bank 0xF            ACK OK    
+swd: AP IDR (posted)                    ACK OK    0x00000000
+swd: DP RDBUFF: AP IDR                  ACK OK    0x04770031
+swd: DP SELECT AP 0 bank 0              ACK OK    
+swd: AP CSW 32-bit                      ACK OK    
+swd: AP TAR 0x00000010                  ACK OK    
+swd: AP DRW (posted)                    ACK OK    0x00000000
+swd: DP RDBUFF: ROM word at 0x10        ACK OK    0x0301754d
+swd: PASS  DPIDR                                    0x0bc12477
+swd: PASS  DLPIDR: protocol version 2, instance 0   0x00000001
+swd: PASS  AHB-AP IDR                               0x04770031
+swd: PASS  boot ROM 'Mu' 0x01 at 0x10               0x0301754d (ROM version 3)
+swd: PASS: the chip read the RP2040's debug port, its AHB-AP and its boot ROM
+
+## core 1
+swd: chip at 25.000 MHz, swd_idcode running in context 2
+swd: wake, TARGETSEL 0x11002927         ACK -     
+swd: DP DPIDR                           ACK OK    0x0bc12477
+swd: DP SELECT DPBANKSEL 3              ACK OK    
+swd: DP DLPIDR                          ACK OK    0x10000001
+swd: DP SELECT 0                        ACK OK    
+swd: DP ABORT (clear sticky flags)      ACK OK    
+swd: DP CTRL/STAT power-up request      ACK OK    
+swd: DP CTRL/STAT                       ACK OK    0xf0000040
+swd: DP SELECT AP 0 bank 0xF            ACK OK    
+swd: AP IDR (posted)                    ACK OK    0x00000000
+swd: DP RDBUFF: AP IDR                  ACK OK    0x04770031
+swd: DP SELECT AP 0 bank 0              ACK OK    
+swd: AP CSW 32-bit                      ACK OK    
+swd: AP TAR 0x00000010                  ACK OK    
+swd: AP DRW (posted)                    ACK OK    0x00000000
+swd: DP RDBUFF: ROM word at 0x10        ACK OK    0x0301754d
+swd: PASS  DPIDR                                    0x0bc12477
+swd: PASS  DLPIDR: protocol version 2, instance 1   0x10000001
+swd: PASS  AHB-AP IDR                               0x04770031
+swd: PASS  boot ROM 'Mu' 0x01 at 0x10               0x0301754d (ROM version 3)
+swd: PASS: the chip read the RP2040's debug port, its AHB-AP and its boot ROM
+
+## control: TARGETSEL naming no DP (instance 2)
+swd: chip at 25.000 MHz, swd_idcode running in context 2
+swd: wake, TARGETSEL 0x21002927         ACK -     
+swd: DP DPIDR                           ACK none (7) 0x00000000
+swd: FAIL  DP DPIDR: ACK 7, want 1 (status 0x17)
+
