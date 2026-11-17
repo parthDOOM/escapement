@@ -6,13 +6,17 @@
 #   .\ethdemo.ps1                  # 20 frames
 #   .\ethdemo.ps1 -Frames 50
 #   .\ethdemo.ps1 -ParsePcap file  # print the escapement frames in a pcapng file
+#   .\ethdemo.ps1 -SaveTo results6-11-17   # also keep the log and the capture there
+#   .\ethdemo.ps1 -SettleMs 15000  # a longer wait for the laptop's link before the first frame
 #
 # Every step prints what it checked; the last line says PASS or FAIL.
 param(
     [int]$Frames = 20,
     [string]$Nic = "Ethernet",
     [switch]$NoDeploy,
-    [string]$ParsePcap = ""
+    [string]$ParsePcap = "",
+    [string]$SaveTo = "",
+    [int]$SettleMs = 8000
 )
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
@@ -20,10 +24,17 @@ $Repo = (Resolve-Path (Join-Path $Here "..\..")).Path
 $Bench = Join-Path $Here "bench.ps1"
 if (-not $env:OSS_CAD_SUITE) { $env:OSS_CAD_SUITE = "/root/eda/oss-cad-suite" }
 
-function Step([string]$n, [string]$t) { Write-Host ""; Write-Host "=== $n. $t" -ForegroundColor Cyan }
-function Ok([string]$t) { Write-Host "    OK   $t" -ForegroundColor Green }
-function Info([string]$t) { Write-Host "    $t" }
-function Bad([string]$t) { Write-Host "    FAIL $t" -ForegroundColor Red; throw $t }
+# Every line goes to the console and, with -SaveTo, to ethdemo.log there (UTF-8, no header: a
+# PowerShell transcript would record the user and machine names)
+$script:Log = $null
+function Say([string]$t, [string]$c = "") {
+    if ($c) { Write-Host $t -ForegroundColor $c } else { Write-Host $t }
+    if ($script:Log) { [IO.File]::AppendAllText($script:Log, $t + "`n") }
+}
+function Step([string]$n, [string]$t) { Say ""; Say "=== $n. $t" Cyan }
+function Ok([string]$t) { Say "    OK   $t" Green }
+function Info([string]$t) { Say "    $t" }
+function Bad([string]$t) { Say "    FAIL $t" Red; throw $t }
 # pktmon through cmd, so its messages never count as PowerShell errors: the exit code decides
 function Pk([string]$a) {
     $o = cmd /c "pktmon $a 2>&1"
@@ -78,7 +89,12 @@ if (-not $mp) {
     if ($py) { $mp = Join-Path (& $py.Source -c "import sysconfig; print(sysconfig.get_path('scripts'))") "mpremote.exe" }
 } else { $mp = $mp.Source }
 
-Write-Host "Escapement: 10BASE-T from the chip to this laptop, $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Yellow
+if ($SaveTo) {
+    New-Item -ItemType Directory -Force $SaveTo | Out-Null
+    $script:Log = Join-Path (Resolve-Path $SaveTo).Path "ethdemo.log"
+    Remove-Item $script:Log -ErrorAction SilentlyContinue
+}
+Say "Escapement: 10BASE-T from the chip to this laptop, $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" Yellow
 
 Step 1 "The setup"
 $commit = (& git -C $Repo rev-parse --short HEAD).Trim()
@@ -93,7 +109,7 @@ $bun = Join-Path $Here "build\bundles\eth_tx.json"
 Info ("firmware     firmware\eth_tx.asm, bundle sha256 {0}" -f (Get-FileHash $bun -Algorithm SHA256).Hash.ToLower().Substring(0, 16))
 $na = Get-NetAdapter -Name $Nic
 Info ("receiver     this PC's port '{0}': {1}" -f $Nic, $na.InterfaceDescription)
-Write-Host @"
+Say @"
 
     Pico W  --SPI (CS_n, SCK, MOSI, MISO)-->  Tang Primer 25K Dock: the chip, eth_tx at 40 MHz
     Pico GP0 (PWM, 160 MHz / 4) --> clk 40 MHz
@@ -113,7 +129,7 @@ $busid = ($dock.ToString().Trim() -split "\s+")[0]
 if ($dock.ToString() -notmatch "Attached") {
     Start-Process wsl.exe -ArgumentList "-e", "sleep", "7200" -WindowStyle Hidden
     Start-Sleep -Seconds 4
-    usbipd attach --wsl --busid $busid | Out-Null
+    cmd /c "usbipd attach --wsl --busid $busid 2>&1" | Out-Null      # its info lines go to stderr
     Start-Sleep -Seconds 3
 }
 if (-not (usbipd list | Select-String $busid | Select-String "Attached")) { Bad "the Dock (bus $busid) is not attached to WSL" }
@@ -155,7 +171,7 @@ if ($admin) {
 }
 
 Step 7 "The chip sends $Frames frames, one a second"
-$job = Start-Job -ScriptBlock { param($b, $n) & $b eth -Opts "count=$n, settle_ms=8000" 2>&1 } -ArgumentList $Bench, $Frames
+$job = Start-Job -ScriptBlock { param($b, $n, $s) & $b eth -Opts "count=$n, settle_ms=$s" 2>&1 } -ArgumentList $Bench, $Frames, $SettleMs
 $sent = 0
 while ($true) {
     $done = $job.State -ne "Running"
@@ -190,5 +206,9 @@ Step 9 "Result"
 Info "chip: $sent frames sent, each reported sent with no error by its line unit"
 Info "laptop: $got test frames received by its own Ethernet port, $err receive errors (the port checks every frame's CRC-32)"
 $pass = ($sent -eq $Frames) -and ($got -eq $Frames) -and ($err -eq 0) -and ($seenN -lt 0 -or $seenN -eq $Frames)
-if ($pass) { Write-Host "    PASS: $Frames of $Frames frames from the chip arrived intact" -ForegroundColor Green }
-else { Write-Host "    FAIL: $got of $Frames frames arrived" -ForegroundColor Red; exit 1 }
+if ($SaveTo -and $etl) {
+    Copy-Item $pcap (Join-Path $SaveTo "eth-tx.pcapng")
+    Info "saved ethdemo.log and eth-tx.pcapng (EtherType 0x88B5 frames only) in $SaveTo"
+}
+if ($pass) { Say "    PASS: $Frames of $Frames frames from the chip arrived intact" Green }
+else { Say "    FAIL: $got of $Frames frames arrived" Red; exit 1 }

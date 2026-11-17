@@ -18,15 +18,33 @@ W=${WORK:-/tmp/esc-tp25k}/$target
 O=$H/build/$target
 if [ -n "${OSS_CAD_SUITE:-}" ]; then source "$OSS_CAD_SUITE/environment" >/dev/null 2>&1; fi
 rm -rf "$W"; mkdir -p "$W" "$O"
+# A MANIFEST's repository line. ESC_REPO when the caller has it (bench.ps1 on Windows: WSL's git
+# cannot follow a Windows worktree's .git link), else git. Arguments: a label, then the paths
+# whose changes it reports.
+repo_line() {
+  if [ -n "${ESC_REPO:-}" ]; then echo "repo: $ESC_REPO"; return; fi
+  local label=$1; shift
+  echo "repo: $(git -C "$R" rev-parse HEAD) ($(git -C "$R" rev-parse --abbrev-ref HEAD))$(git -C "$R" diff --quiet HEAD -- "$@" || echo ", $label modified")"
+}
 DEV="--device GW5A-LV25MG121NC1/I0 --vopt family=GW5A-25A"
 case $target in
   bundles)
     cd "$R"
-    PYTHONPATH=$R/sw PYTHONUTF8=1 ${PYTHON:-python3} sw/rp2350/make_bundle.py "$O" > "$W/bundles.log" 2>&1
-    # the Ethernet receive bench (eth_rx_bench.asm), which is not a library program
-    PYTHONUTF8=1 ${PYTHON:-python3} "$H/eth_bundles.py" "$O" >> "$W/bundles.log" 2>&1
+    # the assembler needs PyYAML: PYTHON, else the first of python3 and the virtual
+    # environments in $HOME that has it
+    if [ -z "${PYTHON:-}" ]; then
+      for p in python3 "$HOME"/*/bin/python3 "$HOME"/.*/bin/python3; do
+        if command -v "$p" >/dev/null 2>&1 && "$p" -c "import yaml" 2>/dev/null; then PYTHON=$p; break; fi
+      done
+      [ -n "${PYTHON:-}" ] || { echo "no Python with PyYAML: pip install pyyaml, or set PYTHON" >&2; exit 1; }
+    fi
+    echo "python: $PYTHON"
+    fail() { echo "bundle build failed; the end of $W/bundles.log:" >&2; tail -20 "$W/bundles.log" >&2; exit 1; }
+    PYTHONPATH=$R/sw PYTHONUTF8=1 "$PYTHON" sw/rp2350/make_bundle.py "$O" > "$W/bundles.log" 2>&1 || fail
+    # the Ethernet bench's programs, which are not library programs
+    PYTHONUTF8=1 "$PYTHON" "$H/eth_bundles.py" "$O" >> "$W/bundles.log" 2>&1 || fail
     {
-      echo "repo: $(git rev-parse HEAD) ($(git rev-parse --abbrev-ref HEAD))$(git diff --quiet HEAD -- sw firmware || echo ', sw/firmware modified')"
+      repo_line sw/firmware sw firmware
       echo "built: $(date -Is)"
     } > "$O/MANIFEST"
     echo "bundles: $(ls "$O"/*.json | wc -l) files -> $O"
@@ -84,7 +102,7 @@ esac
   echo "built: $(date -Is)"
   echo "tools: $(yosys -V | head -1); $(nextpnr-himbaechel --version 2>&1 | head -1)"
   if [ "$target" = chip ]; then
-    echo "repo: $(git -C "$R" rev-parse HEAD) ($(git -C "$R" rev-parse --abbrev-ref HEAD))$(git -C "$R" diff --quiet HEAD -- src fpga/escapement_board.v fpga/escapement_sram_fpga.v || echo ', sources modified')"
+    repo_line sources src fpga/escapement_board.v fpga/escapement_sram_fpga.v
     (cd "$R" && sha256sum $SRC)
   else
     sha256sum "$H/pinid.v"

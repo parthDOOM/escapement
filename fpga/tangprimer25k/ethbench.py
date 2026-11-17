@@ -295,8 +295,121 @@ class EthBench:
             recs += h.read_tape(a, 16)
         return line_check(recs)
 
+    # -- the ping bench (eth_trx.asm: receive and transmit on one line unit)
+    def push_words(self, words):
+        """Mailbox pushes to context 0 by the burst, then a check that none found it full."""
+        io, h = self.io, self.host
+        mem = io.platform.mem32
+        base = mem[SIO_GPIO_OUT] & ~UI_MASK & 0x3FFFFFFF
+        blast(mem, SIO_GPIO_OUT, burst_table(words, base, UI_SHIFT), self.delay)
+        if h.status()["host_err"]:
+            h.clear_err()
+            raise Fail("a push found eth_trx's mailbox full: a word was dropped")
+
+    def respond(self, ip, mac=SRC, seconds=60, count=0):
+        """Answer ARP requests for `ip` and ICMP echo requests to it, for `seconds` or until
+        `count` replies. Each received frame is read from the tape, its buffer released at
+        once, and its reply (if any) pushed for sending. Returns the counts."""
+        io, h = self.io, self.host
+        n = {"received": 0, "bad FCS": 0, "ARP replies": 0, "echo replies": 0, "sent": 0}
+        t0 = io.ticks_us()
+        try:
+            while (not count or n["ARP replies"] + n["echo replies"] < count) and \
+                    io.ticks_diff(io.ticks_us(), t0) < seconds * 1000000:
+                v = h.mbx_pop(CTX)
+                if v is None:
+                    continue
+                tag = (v >> 24) & 3
+                if tag == TAG_SENT:
+                    if (v >> 3) & 7 != JOB_SEND or v & 7:
+                        raise Fail("eth_trx's line unit status 0x%08x after a send" % v)
+                    n["sent"] += 1
+                    continue
+                if tag != TAG_RECEIVED:
+                    raise Fail("unexpected word 0x%08x from eth_trx" % v)
+                bits = v & 0x3FFF
+                ws, a, nw = [], 0, (bits + 31) // 32
+                while a < nw:
+                    k = min(16, nw - a)
+                    ws += h.read_tape(TRX_RB + a, k)
+                    a += k
+                self.push_words([CMD_RELEASE])           # the receiver arms again
+                data = b"".join(w.to_bytes(4, "little") for w in ws)[:bits // 8]
+                n["received"] += 1
+                if not v >> 31:
+                    n["bad FCS"] += 1
+                    self.say("rx %d: %d bytes, FCS BAD" % (n["received"], len(data)))
+                    continue
+                f = data[:-4]
+                r = reply_to(f, mac, ip)
+                kind = "" if r is None else ("  -> ARP reply" if r[12:14] == b"\x08\x06"
+                                             else "  -> echo reply")
+                self.say("rx %d: %s%s" % (n["received"], summary(f), kind))
+                if r is not None:
+                    w = frame_words(r)
+                    w[0] |= CMD_SEND
+                    self.push_words(w)
+                    n["ARP replies" if r[12:14] == b"\x08\x06" else "echo replies"] += 1
+        except KeyboardInterrupt:
+            pass
+        tw = h.tripwires()
+        if tw:
+            raise Fail("tripwires set (0x%03x): %s" % (tw, "; ".join(P.tripwire_names(tw))))
+        return n
+
 
 RX_CTX = 0                               # eth_rx's context in eth_rx_bench.asm
+TRX_RB = 0x00                            # eth_trx.asm: the receive buffer in the tape
+TAG_RECEIVED, TAG_SENT = 1, 2            # eth_trx.asm: [25:24] of each word it pushes
+CMD_RELEASE, CMD_SEND = 1 << 28, 2 << 28  # eth_trx.asm: the host's commands
+TRX_MAX = 448                            # eth_trx.asm: the transmit buffer, in bytes
+
+
+def _ip(s):
+    return bytes(int(x) for x in s.split("."))
+
+
+def _csum(b):
+    """The internet checksum (RFC 1071) of b."""
+    s = 0
+    for i in range(0, len(b) - 1, 2):
+        s += (b[i] << 8) | b[i + 1]
+    if len(b) & 1:
+        s += b[-1] << 8
+    while s >> 16:
+        s = (s & 0xFFFF) + (s >> 16)
+    return ~s & 0xFFFF
+
+
+def _pad(f):
+    return f + bytes(60 - len(f)) if len(f) < 60 else f
+
+
+def reply_to(f, mac, ip):
+    """The frame the chip answers frame f (without its FCS) with, or None: an ARP reply to a
+    request for `ip`, or an ICMP echo reply to an echo request to `ip` (IPv4 options and
+    the echo's data kept). mac, ip: bytes."""
+    if len(f) < 42:
+        return None
+    et = (f[12] << 8) | f[13]
+    if et == 0x0806 and f[14:22] == b"\x00\x01\x08\x00\x06\x04\x00\x01" and f[38:42] == ip:
+        return _pad(f[22:28] + mac + b"\x08\x06" + b"\x00\x01\x08\x00\x06\x04\x00\x02"
+                    + mac + ip + f[22:28] + f[28:32])
+    if et != 0x0800 or f[14] >> 4 != 4 or f[23] != 1 or f[30:34] != ip:
+        return None
+    ihl, tot = (f[14] & 15) * 4, (f[16] << 8) | f[17]
+    ic = bytearray(f[14 + ihl:14 + tot])
+    if len(ic) < 8 or ic[0] != 8 or 14 + tot > TRX_MAX:
+        return None
+    ic[0], ic[2], ic[3] = 0, 0, 0                # echo reply, checksum recomputed
+    c = _csum(ic)
+    ic[2], ic[3] = c >> 8, c & 0xFF
+    h = bytearray(f[14:14 + ihl])
+    h[8], h[10], h[11] = 64, 0, 0                # TTL, checksum recomputed
+    h[12:16], h[16:20] = f[30:34], f[26:30]      # from us, to the sender
+    c = _csum(h)
+    h[10], h[11] = c >> 8, c & 0xFF
+    return _pad(f[6:12] + mac + b"\x08\x00" + bytes(h) + bytes(ic))
 TICK_NS = 25                             # at 40 MHz
 LONG_RUN = 5                             # ticks: no Manchester run lasts longer (100 ns + a tick)
 GAP = 40                                 # ticks: a longer run is idle between frames
@@ -415,6 +528,29 @@ def edges(seconds=15, bundles="bundles", io=None, out=print, bundle="eth_edges")
     out("eth: RXP low runs  (ticks:count) %s, mean %.0f ns" % (fmt(r["low"]), r["mean_low"] * TICK_NS))
     out("eth: %d run(s) over %d ticks; %s" % (r["long"], LONG_RUN, r["verdict"]))
     return r
+
+
+def ping(seconds=60, ip="169.254.0.42", count=0, bundles="bundles", io=None, out=print,
+         bundle="eth_trx"):
+    """The ping bench: set up the chip at 40 MHz with eth_trx.asm, then answer ARP and ICMP
+    echo for `ip` (default a link-local address, beside the laptop's own) for `seconds`, or
+    until `count` replies. From the laptop: ping 169.254.0.42. Returns the counts, or None."""
+    if io is None:
+        io = barepico.open_io(sys_hz=SYS_HZ)
+    e = EthBench(io, bundles, out, bundle)
+    try:
+        e.setup()
+        out("eth: answering ARP and ping for %s as %s" % (ip, _mac(SRC)))
+        n = e.respond(_ip(ip), SRC, seconds, count)
+    except Fail as x:
+        out("eth: FAIL  %s" % x)
+        if e.host is not None:
+            e.host.stop()
+        return None
+    out("eth: %s; tripwires clear" % ", ".join("%s %d" % (k, n[k]) for k in
+                                               ("received", "bad FCS", "ARP replies",
+                                                "echo replies", "sent")))
+    return n
 
 
 def run(count=10, interval_ms=1000, bundles="bundles", io=None, out=print, bundle="eth_tx",

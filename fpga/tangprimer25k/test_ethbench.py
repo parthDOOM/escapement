@@ -309,3 +309,127 @@ def test_edges_through_the_bare_pico(tmp_path):
     assert set(r["high"]) <= {2, 4} and set(r["low"]) <= {2, 4}, log
     assert sum(r["high"].values()) + sum(r["low"].values()) > 200, log
     assert r["verdict"].startswith("clean") and "0 run(s) over 5 ticks" in log, log
+
+
+# ------------------------------------------------------------------ the ping bench
+
+LAPTOP = bytes.fromhex("0a0b0c0d0e0f")
+CHIP_IP, LAPTOP_IP = bytes((169, 254, 0, 42)), bytes((169, 254, 1, 2))
+
+
+def arp_request(target=CHIP_IP):
+    return (b"\xff" * 6 + LAPTOP + b"\x08\x06" + bytes.fromhex("0001080006040001") + LAPTOP
+            + LAPTOP_IP + bytes(6) + target + bytes(18))
+
+
+def echo_request(seq=1, data=b"abcdefghijklmnopqrstuvwabcdefghi"):
+    icmp = bytearray(bytes((8, 0, 0, 0, 0, 1, 0, seq)) + data)
+    c = ethbench._csum(icmp)
+    icmp[2:4] = bytes((c >> 8, c & 0xFF))
+    ip = bytearray(bytes.fromhex("4500") + (20 + len(icmp)).to_bytes(2, "big")
+                   + bytes.fromhex("1234 0000 80 01 0000") + LAPTOP_IP + CHIP_IP)
+    c = ethbench._csum(ip)
+    ip[10:12] = bytes((c >> 8, c & 0xFF))
+    return ethbench.SRC + LAPTOP + b"\x08\x00" + bytes(ip) + bytes(icmp)
+
+
+def test_reply_to():
+    r = ethbench.reply_to(arp_request(), ethbench.SRC, CHIP_IP)
+    assert len(r) == 60 and r[:6] == LAPTOP and r[6:12] == ethbench.SRC
+    assert r[20:22] == b"\x00\x02" and r[22:28] == ethbench.SRC and r[28:32] == CHIP_IP
+    assert r[32:38] == LAPTOP and r[38:42] == LAPTOP_IP
+    assert ethbench.reply_to(arp_request(bytes((169, 254, 0, 43))), ethbench.SRC, CHIP_IP) is None
+    q = echo_request(7)
+    r = ethbench.reply_to(q, ethbench.SRC, CHIP_IP)
+    assert r[:6] == LAPTOP and r[12:14] == b"\x08\x00"
+    assert r[26:30] == CHIP_IP and r[30:34] == LAPTOP_IP
+    assert ethbench._csum(r[14:34]) == 0 and ethbench._csum(r[34:len(q)]) == 0
+    assert r[34] == 0 and r[38:42] == q[38:42] and r[42:len(q)] == q[42:]
+    assert ethbench.reply_to(q[:-2], ethbench.SRC, bytes(4)) is None
+
+
+def trx_image():
+    return assemble_file(HERE / "eth_trx.asm")
+
+
+def test_trx_receives_answers_and_keeps_the_link():
+    """eth_trx.asm on the ISS: a frame arrives and waits in the tape; the host releases it and
+    pushes a reply, which leaves on TD+/TD- byte for byte with its CRC-32; the link pulses
+    stay 16 ms apart through it all (only a pulse restarts their count)."""
+    q = arp_request()
+    src = EthSource(2, [(40_000, wire_bits(q))], RX_BIT_HT, ppm=100.0)
+    reply = ethbench.reply_to(q, ethbench.SRC, CHIP_IP)
+    words = ethbench.frame_words(reply)
+    words[0] |= ethbench.CMD_SEND
+    pushes = [(200_000, 0, ethbench.CMD_RELEASE)] + [(210_000 + 1800 * i, 0, w)
+                                                     for i, w in enumerate(words)]
+    host = HostScript(pushes, drain=[0], poll=400)
+    board = PinLog(src, host)
+    m = Machine(trx_image(), board=board, half=src.half, record=False)
+    host.machine = m
+    m.run(34 * TICKS_MS, stop_when_idle=False)
+    assert not m.ff.valid
+    got, sent = host.received[0]
+    assert (got >> 24) & 3 == 1 and got >> 31 == 1 and got & 0x3FFF == 8 * (len(q) + 4)
+    data = b"".join(w.to_bytes(4, "little") for w in m.tape[:16])
+    assert data == q + zlib.crc32(q).to_bytes(4, "little")
+    assert (sent >> 24) & 3 == 2 and (sent >> 3) & 7 == ethbench.JOB_SEND and sent & 7 == 0
+    runs = driven(board.changes)
+    frames = [r for r in runs if r[1] - r[0] > 64]
+    assert len(frames) == 1
+    bits, _ = frame_bits(window(board.changes, frames[0][0], frames[0][1] + 1), 0)
+    data = to_bytes(bits)
+    assert data[8:8 + len(reply)] == reply
+    assert int.from_bytes(data[8 + len(reply):12 + len(reply)], "little") == zlib.crc32(reply)
+    pulses = [a for a, b in runs if b - a == 4]
+    gaps = [b - a for a, b in zip(pulses, pulses[1:])]
+    assert len(pulses) >= 2 and all(16 * TICKS_MS <= g < 17 * TICKS_MS for g in gaps), pulses
+    assert pulses[0] < 17 * TICKS_MS
+
+
+class TrxChip(RxChip):
+    """RxChip that also keeps every change of TD+ and TD-."""
+
+    def __init__(self, src, **kw):
+        super().__init__(src, **kw)
+        self.changes, self._last = [], None
+
+    def _board(self, t, out, oe):
+        k = (out & 3, oe & 3)
+        if k != self._last:
+            self.changes.append((t,) + k)
+            self._last = k
+        return super()._board(t, out, oe)
+
+
+def test_ping_through_the_bare_pico(tmp_path):
+    """ethbench.ping(): the laptop's ARP request and then its echo request arrive; the Pico
+    reads each from the tape and the chip sends the ARP reply and the echo reply."""
+    im = trx_image()
+    used = [i for i, w in enumerate(im.words) if w]
+    (tmp_path / "eth_trx.json").write_text(json.dumps(
+        {"words": im.words[: max(used) + 1], "tape": {str(a): im.tape[a] for a in im.tape_used},
+         "cfg": [im.ctx_enable_mask, im.entry_pcs_packed, im.pin_owned_mask,
+                 im.pin_owner_packed, im.pin_od_mask, im.ctx_bank_mask, im.ctx_pair_mask]}))
+    arp, echo = arp_request(), echo_request(3)
+    src = EthSource(2, [(30 * TICKS_MS, wire_bits(arp)), (45 * TICKS_MS, wire_bits(echo))],
+                    RX_BIT_HT, ppm=-100.0)
+    chip = TrxChip(src)
+    board = MockBoard(chip, op_ns=1000)
+    io = barepico.open_io(machine=GpioMachine(board), time_mod=board.time_mod,
+                          sys_hz=ethbench.SYS_HZ)
+    lines = []
+    n = ethbench.ping(seconds=1, ip="169.254.0.42", count=2, bundles=str(tmp_path), io=io,
+                      out=lines.append)
+    log = "\n".join(lines)
+    assert n is not None and n["ARP replies"] == 1 and n["echo replies"] == 1, log
+    assert chip.timing_violations == 0
+    frames = [r for r in driven(chip.changes) if r[1] - r[0] > 64]
+    sent = []
+    for s, e in frames:
+        bits, _ = frame_bits(window(chip.changes, s, e + 1), 0)
+        sent.append(to_bytes(bits)[8:])
+    want = [ethbench.reply_to(f, ethbench.SRC, CHIP_IP) for f in (arp, echo)]
+    assert [d[:-4] for d in sent] == want, log
+    assert all(int.from_bytes(d[-4:], "little") == zlib.crc32(d[:-4]) for d in sent)
+    assert "-> ARP reply" in log and "-> echo reply" in log

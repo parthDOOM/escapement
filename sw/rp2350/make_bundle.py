@@ -34,6 +34,7 @@ out, oe), to compare with a logic analyser capture of the chip.
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -266,7 +267,9 @@ def bundle(fw: Path, name: str | None = None, overrides: dict | None = None) -> 
                 image.pin_owner_packed, image.pin_od_mask, image.ctx_bank_mask,
                 image.ctx_pair_mask],
         "expect": predict(image) if fw.name not in NO_PREDICT else no_prediction(image),
-        "cert": [[c.ctx, c.status, None if c.min_lead == float("inf") else int(c.min_lead)]
+        # the certified lower bound on min_lead; None when escert gives no finite one (no
+        # event, or a status other than CHECKED, which bringup.py reports by itself)
+        "cert": [[c.ctx, c.status, int(c.min_lead) if math.isfinite(c.min_lead) else None]
                  for c in certify(image)],
     }
     e = out["expect"]

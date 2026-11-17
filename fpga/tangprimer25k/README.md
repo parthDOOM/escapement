@@ -104,8 +104,8 @@ input. `chip-pnr.log` is the place-and-route log of that bitstream.
 ## Running it
 
 Tools: OSS CAD Suite (yosys, nextpnr-himbaechel, gowin_pack, openFPGALoader) and `mpremote`.
-`build.sh bundles` needs a Python 3 with PyYAML (the assembler's); `PYTHON` names it if `python3`
-lacks it.
+`build.sh bundles` needs a Python 3 with PyYAML (the assembler's). It takes `PYTHON`, else the first
+of `python3` and the virtual environments in your home folder that has it.
 
     fpga/tangprimer25k/build.sh pinid && fpga/tangprimer25k/build.sh chip && fpga/tangprimer25k/build.sh bundles
 

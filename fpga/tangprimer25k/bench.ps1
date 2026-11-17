@@ -88,7 +88,11 @@ function Deploy-Files {
 
 switch ($Cmd) {
     "bundles" {
-        Invoke-Wsl ("bash '" + (To-Wsl "$Here\build.sh") + "' bundles")
+        # the MANIFEST's commit from Windows' git: WSL's git cannot follow a worktree made here
+        $c = git -C $Repo rev-parse HEAD; $br = git -C $Repo rev-parse --abbrev-ref HEAD
+        git -C $Repo diff --quiet HEAD -- sw firmware
+        $m = if ($LASTEXITCODE) { ", sw/firmware modified" } else { "" }
+        Invoke-Wsl ("ESC_REPO='$c ($br)$m' bash '" + (To-Wsl "$Here\build.sh") + "' bundles")
         if ($LASTEXITCODE) { throw "bundle build failed" }
     }
     "deploy" { Deploy-Files }
@@ -102,6 +106,7 @@ switch ($Cmd) {
     "eth" { Invoke-Mp @("exec", "import ethbench; ethbench.run($Opts)") }
     "ethrx" { Invoke-Mp @("exec", "import ethbench; ethbench.listen($Opts)") }
     "ethedges" { Invoke-Mp @("exec", "import ethbench; ethbench.edges($Opts)") }
+    "ethping" { Invoke-Mp @("exec", "import ethbench; ethbench.ping($Opts)") }
     "proof" {
         New-Item -ItemType Directory -Force $Build | Out-Null
         $dst = Join-Path $Build ("proof-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".json")
@@ -114,5 +119,5 @@ switch ($Cmd) {
         if ($LASTEXITCODE) { throw "openFPGALoader failed: is the Dock attached to WSL (usbipd attach --wsl --busid <id>)?" }
     }
     "repl" { & $Mp connect (Find-Pico) repl }
-    default { Get-Content $PSCommandPath -TotalCount 18 | Select-Object -Skip 1 }
+    default { Get-Content $PSCommandPath -TotalCount 19 | Select-Object -Skip 1 }
 }

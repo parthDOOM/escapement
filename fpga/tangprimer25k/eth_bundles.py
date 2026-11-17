@@ -3,6 +3,7 @@
     eth_rx_bench.json      eth_rx_bench.asm: eth_rx with both-edge sampling, link pulses
     eth_rx_bench_one.json  the same with one sample a tick (BOTH = 0)
     eth_edges.json         eth_edges.asm: the receive line check (the capture unit on RXP)
+    eth_trx.json           eth_trx.asm: receive and transmit on one line unit (the ping bench)
 
     python fpga/tangprimer25k/eth_bundles.py OUT_DIR      (build.sh bundles runs it)
 """
@@ -17,7 +18,8 @@ import make_bundle  # noqa: E402
 
 BUNDLES = {"eth_rx_bench": ("eth_rx_bench.asm", {"BOTH": 1}),
            "eth_rx_bench_one": ("eth_rx_bench.asm", {"BOTH": 0}),
-           "eth_edges": ("eth_edges.asm", None)}
+           "eth_edges": ("eth_edges.asm", None),
+           "eth_trx": ("eth_trx.asm", None)}
 
 
 def main(out: Path) -> None:
