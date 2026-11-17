@@ -1,0 +1,112 @@
+Escapement: 10BASE-T from the chip to this laptop, 2026-11-17 08:32:53
+
+=== 1. The setup
+    repository   9f4af7e (with uncommitted changes)
+    bitstream    build\chip\chip.fs  sha256 a495ad2ef7099bb8
+                 repo: fa0491ae8bf282f3ad32ab322fbe52277683d8cc (fa0491a, clean archive)
+    firmware     firmware\eth_tx.asm, bundle sha256 3a1dd068c92c56d5
+    receiver     this PC's port 'Ethernet': Realtek PCIe GbE Family Controller
+
+    Pico W  --SPI (CS_n, SCK, MOSI, MISO)-->  Tang Primer 25K Dock: the chip, eth_tx at 40 MHz
+    Pico GP0 (PWM, 160 MHz / 4) --> clk 40 MHz
+
+    Dock J6 top col 6 (uio[0], TD+) --[47 ohm]--[100 nF]-- green-white --> RJ45 pin 3 (laptop RX+)
+    Dock J6 top col 5 (uio[1], TD-) --[47 ohm]--[100 nF]-- green -------> RJ45 pin 6 (laptop RX-)
+    (a twisted pair; no ground wire; the capacitors block DC, the laptop's transformer isolates)
+
+=== 2. The two boards
+    OK   Pico W on COM8
+    OK   Tang Primer 25K Dock debugger on bus 2-7, attached to WSL
+
+=== 3. Files onto the Pico (each checked by sha256)
+    OK   deployed and verified 80 files on COM8
+
+=== 4. The chip's bitstream into the FPGA
+    OK   loaded
+
+=== 5. The chip answers the Pico (bring-up stages 0 to 3)
+    [0] PASS  RP2040, SDK bare-pico, shuttle fpga
+    [1] PASS  PWM 25000000 Hz (RP 125000000 Hz), uo = 11111000 in and after reset, uio released
+    [2] PASS  STATUS 0a 00 0f 00 x 201; one pin write 36250 ns; SCK half period about 67962 ns (fast) and 334991 ns (slow)
+    [3] PASS  data lines at 2 addresses, 4 patterns x 256 words, in the four program pages and the tape; spaces independent; tape reads during a run while the core uses the port
+    bring-up PASSED
+
+=== 6. The laptop's port before
+    link Disconnected; broadcast frames received so far 0; receive errors 0
+    OK   pktmon capturing EtherType 0x88B5 on the network ports
+
+=== 7. The chip sends 20 frames, one a second
+    laptop: link Disconnected 10 Mbps   test frames received 0
+    laptop: link Disconnected 10 Mbps   test frames received 0
+    laptop: link Disconnected 10 Mbps   test frames received 0
+    chip:   eth: chip at 40.000 MHz (RP system clock 160 MHz); eth_tx running, link pulses every 16 ms; burst delay 0
+    chip:   eth: link pulses only for 15000 ms, for the link partner
+    laptop: link Disconnected 10 Mbps   test frames received 0
+    laptop: link Up           10 Mbps   test frames received 0
+    laptop: link Up           10 Mbps   test frames received 0
+    laptop: link Up           10 Mbps   test frames received 0
+    laptop: link Up           10 Mbps   test frames received 0
+    laptop: link Up           10 Mbps   test frames received 0
+    laptop: link Up           10 Mbps   test frames received 0
+    chip:   frame 1: 60 bytes on the wire, status 0x40004b93 (SEND, OK), upload 0.9 ms
+    laptop: link Up           10 Mbps   test frames received 1
+    chip:   frame 2: 60 bytes on the wire, status 0x4000af73 (SEND, OK), upload 0.9 ms
+    chip:   frame 3: 60 bytes on the wire, status 0x400017cc (SEND, OK), upload 0.9 ms
+    laptop: link Up           10 Mbps   test frames received 3
+    chip:   frame 4: 60 bytes on the wire, status 0x4000dd03 (SEND, OK), upload 0.9 ms
+    chip:   frame 5: 60 bytes on the wire, status 0x400065bc (SEND, OK), upload 0.9 ms
+    laptop: link Up           10 Mbps   test frames received 5
+    chip:   frame 6: 60 bytes on the wire, status 0x4000815c (SEND, OK), upload 0.9 ms
+    laptop: link Up           10 Mbps   test frames received 7
+    chip:   frame 7: 60 bytes on the wire, status 0x400039e3 (SEND, OK), upload 0.9 ms
+    chip:   frame 8: 60 bytes on the wire, status 0x4000e43b (SEND, OK), upload 0.9 ms
+    laptop: link Up           10 Mbps   test frames received 9
+    chip:   frame 9: 60 bytes on the wire, status 0x40005c84 (SEND, OK), upload 0.9 ms
+    chip:   frame 10: 60 bytes on the wire, status 0x4000b42c (SEND, OK), upload 0.9 ms
+    laptop: link Up           10 Mbps   test frames received 11
+    chip:   frame 11: 60 bytes on the wire, status 0x400036f4 (SEND, OK), upload 0.9 ms
+    chip:   frame 12: 60 bytes on the wire, status 0x4000f540 (SEND, OK), upload 0.9 ms
+    laptop: link Up           10 Mbps   test frames received 13
+    chip:   frame 13: 60 bytes on the wire, status 0x40007798 (SEND, OK), upload 0.9 ms
+    chip:   frame 14: 60 bytes on the wire, status 0x400016fa (SEND, OK), upload 0.9 ms
+    laptop: link Up           10 Mbps   test frames received 15
+    chip:   frame 15: 60 bytes on the wire, status 0x40009422 (SEND, OK), upload 0.9 ms
+    chip:   frame 16: 60 bytes on the wire, status 0x40005796 (SEND, OK), upload 0.9 ms
+    laptop: link Up           10 Mbps   test frames received 17
+    chip:   frame 17: 60 bytes on the wire, status 0x4000d54e (SEND, OK), upload 0.9 ms
+    chip:   frame 18: 60 bytes on the wire, status 0x4000e547 (SEND, OK), upload 0.9 ms
+    laptop: link Up           10 Mbps   test frames received 18
+    chip:   frame 19: 60 bytes on the wire, status 0x4000679f (SEND, OK), upload 0.9 ms
+    chip:   frame 20: 60 bytes on the wire, status 0x400050cc (SEND, OK), upload 0.9 ms
+    laptop: link Up           10 Mbps   test frames received 20
+    chip:   eth: 20 frame(s) sent, tripwires clear. Wireshark: eth.type == 0x88b5. The chip keeps sending link pulses until the Pico resets it.
+    laptop: link Up           10 Mbps   test frames received 20
+
+=== 8. What the laptop captured (pktmon)
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 1"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 2"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 3"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 4"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 5"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 6"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 7"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 8"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 9"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 10"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 11"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 12"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 13"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 14"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 15"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 16"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 17"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 18"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 19"
+    02:00:00:00:00:01  ->  ff:ff:ff:ff:ff:ff   60 bytes   "escapement eth_tx 20"
+    20 distinct escapement frames in the capture (in a temporary folder)
+
+=== 9. Result
+    chip: 20 frames sent, each reported sent with no error by its line unit
+    laptop: 20 test frames received by its own Ethernet port, 0 receive errors (the port checks every frame's CRC-32)
+    saved ethdemo.log and eth-tx.pcapng (EtherType 0x88B5 frames only) in results\2026-11-17
+    PASS: 20 of 20 frames from the chip arrived intact

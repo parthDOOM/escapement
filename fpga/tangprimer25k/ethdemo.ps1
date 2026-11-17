@@ -98,7 +98,8 @@ Say "Escapement: 10BASE-T from the chip to this laptop, $(Get-Date -Format 'yyyy
 
 Step 1 "The setup"
 $commit = (& git -C $Repo rev-parse --short HEAD).Trim()
-$dirty = if (& git -C $Repo status --porcelain) { " (with uncommitted changes)" } else { "" }
+# tracked files only: -SaveTo's own new folder is untracked and would count otherwise
+$dirty = if (& git -C $Repo status --porcelain --untracked-files=no) { " (with uncommitted changes)" } else { "" }
 Info "repository   $commit$dirty"
 $fs = Join-Path $Here "build\chip\chip.fs"
 if (-not (Test-Path $fs)) { Bad "no bitstream at $fs" }
