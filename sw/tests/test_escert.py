@@ -98,8 +98,11 @@ def test_shipped_firmware_is_certified_and_telemetry_agrees(fw):
 # 40 MHz or 50 MHz (the rating), still assembles and certifies. Four programs are tied to one clock by their protocol
 # (an .assert): 10BASE-T at 40 MHz, USB low speed at 24 MHz, VGA at its pixel clock.
 FIXED_CLOCK = {"eth_tx": 40000, "udp_tx": 40000, "usb_hid": 24000, "vga_pong": 25000}
-# v3: 10BASE-T receive needs whole ticks per 100 ns bit: 40 or 50 MHz, never 33
-TEN_MHZ_STEPS = {"eth_rx": (40000, 50000)}
+# v3: 10BASE-T receive needs whole ticks per 100 ns bit: 40 or 50 MHz, never 33; XY2-100
+# needs four instructions in each 500 ns bit and whole ticks per bit: 40 to 50 MHz in 2 MHz steps;
+# FlexRay needs whole ticks per bit (2.5 Mbit/s: 25, 40 or 50 MHz)
+TEN_MHZ_STEPS = {"eth_rx": (40000, 50000), "xy2_100": (40000, 48000, 50000),
+                 "flexray_tx": (25000, 40000, 50000)}
 CLK_33 = sorted(p.stem for p in FW.glob("*.asm")
                 if ".default CLK_KHZ" in p.read_text()
                 and p.stem not in FIXED_CLOCK and p.stem not in TEN_MHZ_STEPS)
@@ -139,7 +142,7 @@ def test_clock_parameterised_firmware_certifies_at_33_to_50_mhz(fw, khz):
 FLOOR_ASSERTS = {"i2c_ctrl": 23000, "ws2812": 23791, "servo": 1346, "swd_idcode": 20313,
                  "sbus_rx": 3950, "ws2812_lu": 12000, "qi_rx": 205, "spi_flash": 17001,
                  "max7219": 15001, "stepper": 5000, "nrf24_tx": 17001,
-                 "morse": 1279, "uart_rx": 3168}
+                 "morse": 1279, "uart_rx": 3168, "swim_host": 33000}
 
 
 @pytest.mark.parametrize("fw, khz", sorted(FLOOR_ASSERTS.items()))
@@ -249,6 +252,41 @@ def test_accumulating_deadlines_after_unbounded_wait_are_refuted():
     """
     c = certify(assemble(src), witness_trials=10)[0]
     assert c.status in ("REFUTED", "NOT_PROVEN") and c.findings[0].kind == "PAST", str(c)
+
+
+def test_counted_bit_loop_inside_an_uncounted_frame_loop_is_exact():
+    # a frame counter compared with a tape word makes a state key per frame; when a pc has
+    # too many, escert must forget the counter's value before the bit loop's count, or a
+    # 20-bit frame may end after 1 bit, the queue drains, and the lead looks negative
+    src = """
+    .entry 1, x
+    .own 2, 1
+    x: ADDT 16
+       EMIT 4, 0, 4
+       MOVI r3, 0
+       LDT  r1, r3, 0
+       MOVI r2, 0
+       ADDT 1000
+    f: LDT  r0, r2, 65
+       LDSH r0
+       LDLC 20
+    b: EMITX 4, 1, 4
+       ADDT 20
+       DJNZ b
+       ADDI r2, 1
+       CMP  r2, r1
+       JNZ  f
+       MOVI r2, 0
+       JMP  f
+    """
+    im = assemble(src)
+    c = certify(im)[0]
+    assert c.status == "CHECKED" and c.min_lead == 8, str(c)
+    for frames in (0, 1, 3):                         # the bound is what the chip measures
+        m = Machine(im)
+        m.tape[0] = frames
+        m.run(30_000, stop_when_idle=False)
+        assert m.dbg_read(1, 9) >> 16 == 8
 
 
 SEEDS = int(os.environ.get("ESCERT_SEEDS", "300"))

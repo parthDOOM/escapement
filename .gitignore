@@ -41,3 +41,5 @@ test/results_*.xml
 fpga/build/
 formal/.fcache.json
 formal/esc_core_bmcsplit.sby
+# the outside judges' decoders, fetched by test/cosim/outside_decoders.sh
+build/outside-decoders/

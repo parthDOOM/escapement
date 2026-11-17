@@ -1,0 +1,95 @@
+name: fw-mutants
+
+# The firmware mutation campaign (test/mutation/fw_mutants.py, make fw-mutants): timing bugs
+# planted in every shipped program, one per mutant; escert must refute every one that can
+# fault, and a mutant it certifies is attacked on the ISS (random inputs, then the program's
+# own co-simulation benches): a fault there is UNSOUND and fails the run. On a laptop the
+# whole campaign takes over a day, so it runs here in 24 shards, every 24th mutant each;
+# the summary merges them into the table docs/04-VERIFICATION.md reports.
+
+on:
+  push:
+    branches: ['**']        # not on tags: a release tag reruns nothing
+    paths:
+      - 'firmware/**'
+      - 'sw/escert/**'
+      - 'sw/esciss/**'
+      - 'sw/escasm/**'
+      - 'sw/escmodels/**'
+      - 'test/mutation/fw_mutants.py'
+      - 'test/cosim/fw_cases.py'
+      - '.github/workflows/fw-mutants.yaml'
+  workflow_dispatch:
+
+jobs:
+  shard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355     # GitHub's limit is 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                20, 21, 22, 23]
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Setup python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install Python packages
+        run: pip install -r test/requirements.txt
+
+      - name: Mutants
+        run: |
+          mkdir -p results
+          python test/mutation/fw_mutants.py --jobs 4 --shard ${{ matrix.shard }}/24 \
+            --json results/fw-mutants-${{ matrix.shard }}.json
+
+      - name: Upload shard result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fw-mutants-shard-${{ matrix.shard }}
+          path: results/fw-mutants-${{ matrix.shard }}.json
+
+  summary:
+    needs: shard
+    if: ${{ !cancelled() }}  # failed shards still report; a cancelled run does not
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Setup python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install Python packages
+        run: pip install -r test/requirements.txt
+
+      - name: Shard results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: fw-mutants-shard-*
+          path: shards
+          merge-multiple: true
+
+      # the table, every NOT_PROVEN and UNSOUND mutant; fails on an UNSOUND one, or if a
+      # shard did not report
+      - name: Merge
+        run: |
+          set -o pipefail
+          test "$(ls shards/fw-mutants-*.json | wc -l)" = 24
+          python test/mutation/fw_mutants.py --merge shards/fw-mutants-*.json | tee fw-mutants.md
+          cat fw-mutants.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the table
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fw-mutants-results
+          path: fw-mutants.md

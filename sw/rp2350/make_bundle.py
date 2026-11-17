@@ -54,7 +54,8 @@ MAX_PERIOD = 8192           # longest repeating pattern searched for, in ticks
 CHUNK = 4096
 # Firmware with no periodic prediction. The seven-segment animation waits 160 ms between
 # frames, so a short repeating wait looks steady until the next frame; the tape-driven
-# generated transmitters re-anchor on RDTIME every packet, so the digest never repeats;
+# generated transmitters (WS2812, WS2801) re-anchor on RDTIME every packet, so the digest
+# never repeats;
 # DShot (frames every 3125 ticks beside a context polling its mailbox: 12,500) and SENT
 # (an all-zero frame is 11,775 ticks) repeat over more than MAX_PERIOD; CEC and DALI look
 # at the host every millisecond while the bus is idle (25,000 ticks). VGA Pong's lines
@@ -68,9 +69,9 @@ CHUNK = 4096
 # time): inside that wait the model sees a 4-tick pattern, and its self-check ends before the
 # millisecond is up.
 # Bundled with kind "none": loaded, run and checked for faults only.
-NO_PREDICT = {"seven_seg.asm", "ws2812_gen.asm", "dmx512_tx.asm", "dshot_tx.asm", "sent_tx.asm",
-              "cec.asm", "dali.asm", "vga_pong.asm", "eth_tx.asm", "udp_tx.asm", "sbus_rx.asm",
-              "modbus_rtu.asm", "servo.asm", "lin_resp.asm", "onewire_dev.asm"}
+NO_PREDICT = {"seven_seg.asm", "ws2812_gen.asm", "ws2801_tx.asm", "dmx512_tx.asm", "dshot_tx.asm",
+              "sent_tx.asm", "cec.asm", "dali.asm", "vga_pong.asm", "eth_tx.asm", "udp_tx.asm",
+              "sbus_rx.asm", "modbus_rtu.asm", "servo.asm", "lin_resp.asm", "onewire_dev.asm"}
 # Variants: name -> (firmware, .equ overrides): the logic analyser streaming a
 # 64-word ring to the host during the run (escapement_demo.stream).
 VARIANTS = {"logic_analyzer_stream": ("logic_analyzer.asm",
@@ -199,13 +200,20 @@ def predict(image) -> dict:
             parked = _parked_until(m, L)
             # The state after each fold of the next period: a program that polls in a loop
             # of several instructions (the capture-unit readers) stops at any point of it,
-            # and the orbit index says which. Kept only where it varies.
-            phases, n0 = [], len(m.xs)
+            # and the orbit index says which. Kept only where it varies. The bench reads the
+            # pins while the chip runs, some microseconds before its STOP lands (STOP releases
+            # them), so where they move inside the period (XY2-100's 2 MHz clock) they can be
+            # at any level of it: every level the period holds is listed, in order of first
+            # appearance.
+            phases, n0, levels = [], len(m.xs), [snap["uio"]]
             while m.now < t0 + L:
                 m.run(1, stop_when_idle=False)
                 while len(m.xs) > n0:
                     n0 += 1
                     phases.append(_phase(m))
+                u = _phase(m)[1]
+                if u not in levels:
+                    levels.append(u)
             # Self-check: run on and find the new digest on the predicted orbit. A pattern
             # that breaks (e.g. a FIFO-full wait inside a slow protocol) is not steady. A
             # pattern inside a long timed wait holds only until it ends: the check stays
@@ -222,6 +230,8 @@ def predict(image) -> dict:
                 extra = {} if parked is None else {"until": t0 + parked}
                 if len(phases) == len(folds) and any(ph != [snap["ctx"], snap["uio"]] for ph in phases):
                     extra["phases"] = phases
+                if len(levels) > 1:
+                    extra["uio_levels"] = levels
                 return dict(kind="steady", t0=t0, dg0=dg0, period=L, folds=folds, **snap, **extra)
             history = {}
     return dict(kind="none", ticks=m.now, **snapshot(m))

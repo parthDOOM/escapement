@@ -1,5 +1,5 @@
-"""Sony SIRC, Philips RC5 and RC-6 transmitters generated from protocols/sirc_tx.yaml,
-rc5_tx.yaml (v1.6) and rc6_tx.yaml, against the receiver models of escmodels/ir.py, which decode the
+"""Sony SIRC, Philips RC5, RC-6, Samsung32 and Sharp transmitters generated from
+protocols/sirc_tx.yaml, rc5_tx.yaml (v1.6), rc6_tx.yaml, samsung_tx.yaml and sharp_tx.yaml, against the receiver models of escmodels/ir.py, which decode the
 carrier bursts in microseconds. Most runs use a 4 MHz clock (the tables are written in
 CLK_KHZ, and the models time in microseconds), SIRC also at 25 MHz."""
 
@@ -55,6 +55,49 @@ def test_rc5_frames(khz):
     rx, acks = run("rc5_tx", Rc5Receiver, codes, khz, 115)
     got = [f["start"] << 12 | f["toggle"] << 11 | f["address"] << 6 | f["command"] for f in rx.frames()]
     assert got == codes and acks == [1] * len(codes)
+
+
+def samsung(custom, data):
+    return custom | data << 16 | (~data & 0xFF) << 24
+
+
+@pytest.mark.parametrize("khz", [4000, 25000])
+def test_samsung_frames(khz):
+    from escmodels import SamsungReceiver
+    codes = [samsung(0x0707, 0x02), samsung(0xE0E0, 0x40), samsung(0xFFFF, 0xFF), samsung(0x0000, 0x00)]
+    if khz == 25000:
+        codes = codes[:1]
+    rx, acks = run("samsung_tx", SamsungReceiver, codes, khz, 120)
+    fs = rx.frames()
+    assert [f["raw"] for f in fs] == codes and all(f["complement_ok"] for f in fs)
+    assert acks == [1] * len(codes)
+    assert all(abs(f["carrier_khz"] - 38) < 0.5 for f in fs)
+
+
+def sharp(address, command):
+    """The host word for one Sharp code: the frame (expansion 1, check 0), then its partner
+    with command, expansion and check inverted."""
+    a = address | command << 5 | 1 << 13
+    return a | (address | (~a & 0x7FE0)) << 15
+
+
+@pytest.mark.parametrize("khz", [4000, 25000])
+def test_sharp_frame_pairs(khz):
+    from escmodels import SharpReceiver
+    codes = [(0x01, 0x16), (0x1F, 0xFF), (0x00, 0x00), (0x12, 0xA5)]
+    if khz == 25000:
+        codes = codes[:1]
+    rx, acks = run("sharp_tx", SharpReceiver, [sharp(*c) for c in codes], khz, 130)
+    assert rx.pairs() == codes and acks == [1] * len(codes)
+    assert all(abs(f["carrier_khz"] - 38) < 0.5 for f in rx.frames())
+
+
+def test_sharp_model_refuses_a_bad_partner():
+    """The model's own control: a pair whose second frame is not the inverse is no code."""
+    from escmodels import SharpReceiver
+    word = sharp(0x01, 0x16) ^ (1 << 20)          # one command bit of the partner wrong
+    rx, _ = run("sharp_tx", SharpReceiver, [word], 4000, 130)
+    assert len(rx.frames()) == 2 and rx.pairs() == []
 
 
 @pytest.mark.parametrize("khz", [4000, 25000])

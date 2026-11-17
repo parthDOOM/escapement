@@ -989,7 +989,8 @@ class Bringup:
             for r in range(4):
                 if c[2 + r] != m[2 + r]:
                     diffs.append("ctx %d r%d 0x%08x, model 0x%08x" % (k, r, c[2 + r], m[2 + r]))
-        if sig["uio"] != e["uio"]:
+        # (pins that move inside the period were read at an unknown point of it: any of its levels)
+        if sig["uio"] != e["uio"] and sig["uio"] not in e.get("uio_levels", ()):
             diffs.append("uio levels %s, model %s (pins %s)" % (
                 bits(sig["uio"]), bits(e["uio"]), pins_of(sig["uio"] ^ e["uio"])))
         return diffs

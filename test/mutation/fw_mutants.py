@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Timing bugs planted in the shipped firmware: does escert catch them?
 
-    python test/mutation/fw_mutants.py [--per N] [--trials T] [--jobs J] [FIRMWARE ...]
+    python test/mutation/fw_mutants.py [--per N] [--trials T] [--jobs J] [--shard K/N]
+                                       [--json FILE] [FIRMWARE ...]
+    python test/mutation/fw_mutants.py --merge FILE ...      (the table of shards' results)
 
 The RTL campaign (run_mutants.py) plants faults in the chip; this one plants the timing
 bugs firmware authors make, one per mutant, in the source of each shipped program:
@@ -17,6 +19,12 @@ any input), REFUTED (a fault, reproduced on the ISS with concrete inputs) or NOT
 (a fault could not be excluded and the search found none). A CHECKED mutant is then
 attacked with the same randomised input search on the ISS: a fault there would mean
 escert certified a program that can fault (UNSOUND), and fails the run.
+
+Random pins and host words rarely drive a protocol far: a mutant in the reply to a
+command is reached only by that command. So both searches then also run the program's
+own co-simulation benches (test/cosim/fw_cases.py: its bus models and host script) on the
+ISS with the mutant in place, those whose image is the very one certified (a bench that
+sets .equ parameters or prepares the tape runs a different program, and is left out).
 
 A mutant may also be harmless to timing (a shorter delay that still leaves the next
 deadline in the future, a branch whose two paths have the same timing): escert then
@@ -39,7 +47,12 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "sw"))
 
 from escasm import AsmError, assemble, paged  # noqa: E402
-from escert import certify, witness  # noqa: E402
+from escert import ISA, certify, witness  # noqa: E402
+from esciss import Machine  # noqa: E402
+from esciss.machine import no_board_b  # noqa: E402
+
+sys.path.insert(0, str(REPO / "test" / "cosim"))
+from fw_cases import FIRMWARE_CASES, FW_EQU, TAPE_PREP  # noqa: E402
 
 FW = REPO / "firmware"
 SKIP = {"replay.asm",                       # a template
@@ -87,6 +100,32 @@ def chosen(key: str, per: int, n_sites: int) -> bool:
     return h < per / max(n_sites, per)
 
 
+def benches(fw: str) -> list:
+    """The co-simulation benches that run `fw`'s own image: (name, ticks, factory)."""
+    return [(n, t, fac) for n, (f, t, fac) in FIRMWARE_CASES.items()
+            if f == fw and n not in FW_EQU and n not in TAPE_PREP]
+
+
+def bench_witness(image, fw: str, ctxs: set):
+    """Run each bench of `fw` on the ISS with `image` (the mutant): an ADMIT fault in one
+    of `ctxs` is a reproducer."""
+    for name, ticks, factory in benches(fw):
+        board, host, check, *bb = factory()
+        m = Machine(image, board=board, board_b=bb[0] if bb else no_board_b,
+                    half=getattr(board, "half", None), record=False)
+        if host is not None:
+            host.machine = m
+        try:
+            m.run(ticks, stop_when_idle=False)
+        except RuntimeError:                  # e.g. a host script the mutant leaves unread
+            pass
+        ff = m.ff
+        if ff.valid and ff.ctx in ctxs and ff.cause == ISA.fault_causes["ADMIT"]:
+            return {"bench": name, "ctx": ff.ctx, "tick": ff.tick, "pc": ff.pc,
+                    "subcode": ff.subcode, "strategy": "bench"}
+    return None
+
+
 def run_one(job):
     fw, op, line, new_line, trials = job
     src = (FW / fw).read_text().split("\n")
@@ -99,13 +138,22 @@ def run_one(job):
     bad = [c for c in certs if c.status != "CHECKED"]
     if bad:
         c = bad[0]
-        return {"fw": fw, "op": op, "line": line, "result": c.status, "ctx": c.ctx,
-                "detail": str(c).split("\n")[0][:160]}
+        status, detail = c.status, str(c).split("\n")[0][:160]
+        if status == "NOT_PROVEN":            # the program's own benches may reach it
+            w = bench_witness(image, fw, {b.ctx for b in bad})
+            if w:
+                status, detail = "REFUTED", detail + " " + json.dumps(w)
+        return {"fw": fw, "op": op, "line": line, "result": status, "ctx": c.ctx,
+                "detail": detail}
     for c in certs:                       # certified: attack it on the ISS
         w = witness(image, c.ctx, trials)
         if w:
             return {"fw": fw, "op": op, "line": line, "result": "UNSOUND", "ctx": c.ctx,
                     "detail": json.dumps(w)}
+    w = bench_witness(image, fw, {c.ctx for c in certs})
+    if w:
+        return {"fw": fw, "op": op, "line": line, "result": "UNSOUND", "ctx": w["ctx"],
+                "detail": json.dumps(w)}
     return {"fw": fw, "op": op, "line": line, "result": "CHECKED"}
 
 
@@ -116,8 +164,14 @@ def main() -> int:
     ap.add_argument("--trials", type=int, default=12, help="ISS input searches per mutant")
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--json", help="write every result to this file")
+    ap.add_argument("--shard", help="K/N: run only every Nth mutant from the Kth (CI)")
+    ap.add_argument("--merge", nargs="+", metavar="FILE",
+                    help="run nothing: print the table of these --json files (the shards)")
     args = ap.parse_args()
     names = args.firmware or sorted(p.name for p in FW.glob("*.asm") if p.name not in SKIP)
+    if args.merge:
+        results = [r for f in args.merge for r in json.loads(Path(f).read_text())]
+        return report(names, results)
     jobs = []
     for fw in names:
         sites = list(mutants((FW / fw).read_text()))
@@ -126,11 +180,19 @@ def main() -> int:
             for _, line, new in mine:
                 if chosen(f"{fw}|{op}|{line}", args.per, len(mine)):
                     jobs.append((fw, op, line, new, args.trials))
+    if args.shard:
+        k, n = (int(x) for x in args.shard.split("/"))
+        jobs = jobs[k::n]
     with ProcessPoolExecutor(max_workers=args.jobs) as pool:
         results = list(pool.map(run_one, jobs))
     if args.json:
         Path(args.json).write_text(json.dumps(results, indent=1))
+    return report(names, results)
 
+
+def report(names: list, results: list) -> int:
+    """The table (per firmware, per operator), then every UNSOUND and NOT_PROVEN mutant;
+    1 if any is UNSOUND."""
     kinds = ["REFUTED", "NOT_PROVEN", "CHECKED", "UNSOUND", "INVALID"]
     print("| Firmware | Mutants | " + " | ".join(kinds) + " |")
     print("| --- | --- |" + " --- |" * len(kinds))

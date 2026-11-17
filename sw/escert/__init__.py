@@ -80,7 +80,8 @@ HALF = 1 << 31
 WIDEN_AFTER = 4
 WIDEN_AFTER_LINE = 32       # line unit contexts: reply bounds meet at loops entered from many
                             # sites, and joins there need more visits to settle exactly
-MAX_KEYS_PER_PC = 48
+MAX_KEYS_PER_PC = 48         # exact keys at one pc; past this, register constants are dropped
+MAX_KEYS_LC = 192            # keys with the loop counter kept; past this, it is dropped too
 THRESHOLDS = (-HALF, -65536, -1024, -256, -64, -16, 0, 16, 64, 256, 1024, 65536, HALF - 1)
 
 NOW, TMR = 0, 1
@@ -816,9 +817,14 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
             key = t.key(pc)
             ks = keys_at.setdefault(pc, set())
             if key not in ks and len(ks) >= MAX_KEYS_PER_PC:
-                key = t.coarse_key(pc)
-                t.lc, t.zf = None, None
+                # first forget register constants (a frame counter compared with a tape word
+                # would make a key per frame), keeping the loop counter: forgetting it lets a
+                # counted loop exit at any pass, and a frame of 20 bits becomes one of 1
                 t.reg = [r if r[0] == "time" else ("top",) for r in t.reg]
+                key = t.key(pc)
+                if key not in ks and len(ks) >= MAX_KEYS_LC:
+                    key = t.coarse_key(pc)
+                    t.lc, t.zf = None, None
             ks.add(key)
             old = seen.get(key)
             if old is not None:

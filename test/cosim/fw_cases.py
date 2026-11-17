@@ -726,6 +726,121 @@ def _ir_case(model, khz, code, want):
     return case
 
 
+SAMSUNG_CODE = 0x0707 | 0x02 << 16 | 0xFD << 24     # custom 0x0707, data 0x02 and its complement
+SHARP_A = 0x01 | 0x16 << 5 | 1 << 13                 # address 1, command 0x16, expansion 1, check 0
+SHARP_WORD = SHARP_A | (0x01 | (~SHARP_A & 0x7FE0)) << 15   # and its partner, inverted
+
+
+def case_sharp():
+    """v3: a Sharp code: the frame, then 40 ms later its partner with command, expansion and
+    check inverted, from one host word, at 2 MHz."""
+    from escmodels import SharpReceiver
+    rx = SharpReceiver(0, tick_ns=500)
+    host = HostScript([(100, 0, SHARP_WORD)], drain=[0], poll=500)
+
+    def check(board, h):
+        rx.finish()
+        return ([] if rx.pairs() == [(0x01, 0x16)] else [f"sharp {rx.frames()}"]) + board.errors()
+    return Board(rx, host, pullups=0), host, check
+
+
+def case_xy2():
+    """v3: XY2-100 at 40 MHz: the default square, six frames on each axis, every clock
+    period, edge and parity checked by the scanner model."""
+    from escmodels.xy2 import Xy2Scanner
+    sc = Xy2Scanner(0, 1, {"x": 2, "y": 3}, tick_ns=25)
+    q = 0x4000
+
+    def check(board, h):
+        xs, ys = [v for v, _ in sc.frames["x"]], [v for v, _ in sc.frames["y"]]
+        ok = (not sc.violations and xs[:6] == [-q, q, q, -q, -q, q] and ys[:6] == [-q, -q, q, q, -q, -q])
+        return ([] if ok else [f"xy2 {xs} {ys} {sc.violations[:2]}"]) + board.errors()
+    return Board(sc, pullups=0), None, check
+
+
+J1850_OBD = bytes([0x68, 0x6A, 0xF1, 0x01, 0x00])   # OBD-II mode 1, PID 0; CRC 0x17
+
+
+def case_j1850():
+    """v3: an SAE J1850 VPW frame (an OBD-II request) at 4 MHz: every symbol's length, the
+    SOF and the CRC-8 checked by the VPW receiver model."""
+    from escmodels.j1850 import VpwReceiver
+    rx = VpwReceiver(0, tick_ns=250)
+    host = HostScript([(100 + 100 * k, 0, b | (0x100 if k == 4 else 0)) for k, b in enumerate(J1850_OBD)],
+                      drain=[0], poll=500)
+
+    def check(board, h):
+        ok = (not rx.violations and [(d, c) for d, c, _ in rx.frames] == [(J1850_OBD, True)]
+              and h.received[0] == [1])
+        return ([] if ok else [f"j1850 {rx.frames} {rx.violations[:2]} {h.received}"]) + board.errors()
+    return Board(rx, host, pullups=0), host, check
+
+
+OREGON_WORD = 0x235 | 0x47 << 16             # 23.5 degC, 47 %: BCD, as a sensor's host gives it
+
+
+def case_oregon():
+    """v3: an Oregon Scientific v2.1 THGR122NX reading at 200 kHz: the message twice,
+    every RF interval, the doubled bits, sync and checksum checked by the station model."""
+    from escmodels.oregon import OregonV21Receiver
+    rx = OregonV21Receiver(0, tick_ns=5000)
+    host = HostScript([(100, 0, OREGON_WORD)], drain=[0], poll=500)
+
+    def check(board, h):
+        ok = not rx.violations and rx.readings() == [(1, 0xBB, False, 235, 47)] * 2 and h.received[0] == [1]
+        return ([] if ok else [f"oregon {rx.readings()} {rx.violations[:2]} {h.received}"]) + board.errors()
+    return Board(rx, host, pullups=0), host, check
+
+
+def case_flexray():
+    """v3: a FlexRay frame at 2.5 Mbit/s from 25 MHz: TSS, FSS, every BSS, FES, both CRCs
+    and the header checked by the channel A receiver model."""
+    from escmodels.flexray import FlexRayReceiver
+    rx = FlexRayReceiver(0, tick_ns=40, bit_ns=400)
+    host = HostScript([(100, 0, (0b00100 << 11 | 0x123) << 16 | 5), (1100, 0, 0x00010203),
+                       (2100, 0, 0x04050607)], drain=[0], poll=200)
+
+    def check(board, h):
+        got = [(f["id"], f["cycle"], f["payload"], f["header_crc_ok"], f["frame_crc_ok"]) for f in rx.frames]
+        ok = not rx.violations and got == [(0x123, 5, bytes(range(8)), True, True)] and h.received[0] == [1]
+        return ([] if ok else [f"flexray {got} {rx.violations[:2]} {h.received}"]) + board.errors()
+    return Board(rx, host, pullups=0xFF), host, check
+
+
+def ws2801_tape(image):
+    image.tape[0] = 2
+    image.tape[1], image.tape[2] = 0x102030, 0xA5C30F
+
+
+def case_ws2801():
+    """v3: a WS2801 chain of two LEDs from the tape at 25 MHz, latched twice."""
+    from escmodels.ws2801 import Ws2801Chain
+    chain = Ws2801Chain(0, 1, 2, tick_ns=40)
+
+    def check(board, h):
+        ok = chain.latches[:2] == [[0x102030, 0xA5C30F]] * 2 and not chain.violations
+        return ([] if ok else [f"ws2801 {chain.latches} {chain.violations[:2]}"]) + board.errors()
+    return Board(chain, pullups=0), None, check
+
+
+SWIM_UID = 0x4865
+SWIM_MEM = {SWIM_UID + k: v for k, v in enumerate([0x00, 0x5A, 0x00, 0x3C])}
+
+
+def case_swim():
+    """v3: an STM8 SWIM host at 50 MHz against the UM0470 target model: the entry
+    sequence, the synchronization frame, SWIM_CSR = 0xA0 by WOTF, then a 4-byte ROTF."""
+    from escmodels.swim import SWIM_CSR, SwimTarget
+    tgt = SwimTarget(0, tick_ns=20, mem=SWIM_MEM)
+    host = HostScript([(100, 0, 3 << 24 | SWIM_UID)], drain=[0], poll=300)
+
+    def check(board, h):
+        ok = (not tgt.violations and tgt.mem[SWIM_CSR] == 0xA0
+              and h.received[0] == [4, 0x00, 0x5A, 0x00, 0x3C])
+        return ([] if ok else [f"swim {h.received} {tgt.violations[:2]}"]) + board.errors()
+    return Board(tgt, host, pullups=0x01), host, check
+
+
 def case_ev1527():
     """v1.6: a 24-bit EV1527 code through the OOK receiver model, at 2 MHz."""
     from escmodels import Ev1527Receiver
@@ -1253,6 +1368,15 @@ FIRMWARE_CASES = {
                                                | f["address"] << 13 | f["command"] << 5)),
     "jvc_tx": ("jvc_tx.asm", 85000, _ir_case("JvcReceiver", 2000, 0x59 | 0x35 << 8,
                                               lambda f: f["address"] | f["command"] << 8)),
+    "samsung_tx": ("samsung_tx.asm", 140000, _ir_case("SamsungReceiver", 2000, SAMSUNG_CODE,
+                                                      lambda f: f["raw"] if f["complement_ok"] else None)),
+    "sharp_tx": ("sharp_tx.asm", 175000, case_sharp),
+    "xy2_100": ("xy2_100.asm", 19000, case_xy2),
+    "j1850_vpw": ("j1850_vpw.asm", 24000, case_j1850),
+    "oregon_tx": ("oregon_tx.asm", 85000, case_oregon),
+    "flexray_tx": ("flexray_tx.asm", 10000, case_flexray),
+    "ws2801_tx": ("ws2801_tx.asm", 36000, case_ws2801),
+    "swim_host": ("swim_host.asm", 350000, case_swim),
     "ev1527_tx": ("ev1527_tx.asm", 90000, case_ev1527),
     "dcc_tx": ("dcc_tx.asm", 40000, case_dcc),
     "wiegand_tx": ("wiegand_tx.asm", 60000, case_wiegand),
@@ -1280,10 +1404,13 @@ FIRMWARE_CASES = {
 TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_tape,
              "modbus": modbus_tape, "i2c_burst": burst_tape, "oled_game": oled_game_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
+TAPE_PREP["ws2801_tx"] = ws2801_tape
 # parameters a case sets on its firmware's .defaults (a short gate for the meter)
 FW_EQU = {"freq_meter": {"N": 8, "PIN": 3}, "i2c_timing": {"TOUT_US": 100},
           "spi_sniff_long": {"QUIET": 4000},
           "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
+          "samsung_tx": {"CLK_KHZ": 2000}, "sharp_tx": {"CLK_KHZ": 2000}, "j1850_vpw": {"CLK_KHZ": 4000},
+          "oregon_tx": {"CLK_KHZ": 200},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
           "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000}, "wiegand_rx": {"CLK_KHZ": 4000}, "dcf77_tx": {"CLK_KHZ": 10}, "qi_rx": {"CLK_KHZ": 2000},
           "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500},

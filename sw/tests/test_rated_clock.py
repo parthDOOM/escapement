@@ -441,6 +441,29 @@ def _rated_ir(model, code, want):
     return case
 
 
+def _rated_sharp(khz):
+    from escmodels import SharpReceiver
+    from test_ir import sharp
+    rx = SharpReceiver(0, tick_ns=1e6 / khz)
+
+    def check(board, h):
+        rx.finish()
+        return [] if rx.pairs() == [(0x01, 0x16)] else [f"sharp {rx.frames()}"]
+    return Board(rx, pullups=0), [(100, 0, sharp(0x01, 0x16))], check
+
+
+def _rated_j1850(khz):
+    from escmodels.j1850 import VpwReceiver
+    rx = VpwReceiver(0, tick_ns=1e6 / khz)
+    obd = bytes([0x68, 0x6A, 0xF1, 0x01, 0x00])
+    pushes = [(100 + 100 * k, 0, b | (0x100 if k == 4 else 0)) for k, b in enumerate(obd)]
+
+    def check(board, h):
+        got = [(d, c) for d, c, _ in rx.frames]
+        return [] if not rx.violations and got == [(obd, True)] else [f"j1850 {got} {rx.violations[:2]}"]
+    return Board(rx, pullups=0), pushes, check
+
+
 def _rated_ev1527(khz):
     from escmodels import Ev1527Receiver
     rx = Ev1527Receiver(0, tick_ns=1e6 / khz)
@@ -761,6 +784,10 @@ RATED_CASES = {
                27_000, None),
     "jvc_tx": (_rated_ir("JvcReceiver", 0x59 | 0x35 << 8, lambda f: f["address"] | f["command"] << 8),
                42_500, None),
+    "samsung_tx": (_rated_ir("SamsungReceiver", 0x0707 | 0x02 << 16 | 0xFD << 24,
+                             lambda f: f["raw"] if f["complement_ok"] else None), 70_000, None),
+    "sharp_tx": (_rated_sharp, 90_000, None),
+    "j1850_vpw": (_rated_j1850, 6_000, None),
     "ev1527_tx": (_rated_ev1527, 45_000, None),
     "dcc_tx": (_rated_dcc, 10_000, None),
     "wiegand_tx": (_rated_wiegand, 60_000, None),

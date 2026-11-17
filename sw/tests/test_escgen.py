@@ -85,6 +85,23 @@ def test_ws2812_frames():
     assert not m.ff.valid
 
 
+@pytest.mark.parametrize("khz", [25000, 33000, 50000])
+def test_ws2801_frames(khz):
+    """v3: a WS2801 chain against the chain model: three latches of the five colours, every
+    bit steady at its rising edge; a sixth LED on the chain gets nothing."""
+    from escmodels.ws2801 import Ws2801Chain
+    _, image = escgen.build(table("ws2801_tx"), CLK_KHZ=khz)
+    colours = [0x00FF00, 0xFF0000, 0x0000FF, 0x123456, 0xABCDEF]
+    image.tape[0] = len(colours)
+    for i, c in enumerate(colours):
+        image.tape[1 + i] = c
+    chain = Ws2801Chain(0, 1, 6, tick_ns=1e6 / khz)
+    m = Machine(image, board=Board(chain, pullups=0))
+    m.run(khz * 3, stop_when_idle=False)              # 3 ms: three frames and their latches
+    assert chain.latches[:3] == [colours] * 3 and not chain.violations, chain.violations
+    assert not m.ff.valid
+
+
 def test_carrier_on_an_idle_high_pin():
     """On an idle-high pin the carrier pulses go low and every burst ends high: the
     leader is 342 low pulses of C_HIGH ticks, and the pin is high between bursts."""

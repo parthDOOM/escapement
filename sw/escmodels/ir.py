@@ -1,5 +1,5 @@
-"""Remote-control and pulse-coded receivers: Sony SIRC, Philips RC5, RC-6 and JVC from the
-carrier on a pin, EV1527 433 MHz codes from an OOK data pin, NMRA DCC packets from a track signal.
+"""Remote-control and pulse-coded receivers: Sony SIRC, Philips RC5, RC-6, JVC, Samsung32 and
+Sharp from the carrier on a pin, EV1527 433 MHz codes from an OOK data pin, NMRA DCC packets from a track signal.
 
 SIRC and RC5:
 Written from the protocol descriptions (SB-Projects: www.sbprojects.net/knowledge/ir/
@@ -223,6 +223,84 @@ class JvcReceiver(_Bursts):
                 i += 18
             else:
                 i += 1
+        return out
+
+
+class SamsungReceiver(_Bursts):
+    """Samsung32 (Samsung's KS51840 remote encoder datasheet): about 38 kHz; a 4.5 ms burst
+    and a 4.5 ms space, then 32 bits LSB first, each a 0.56 ms burst whose distance to the
+    next burst is 1.12 ms (0) or 2.25 ms (1); a burst closes the last bit. The bits are the
+    16-bit custom code, a data byte and its complement (+/-25% here)."""
+
+    def frames(self):
+        out, b, i = [], self.bursts, 0
+        while i < len(b):
+            s, e, per = b[i]
+            if not (_near(self.us(e - s), 4500) and i + 33 < len(b)
+                    and _near(self.us(b[i + 1][0] - e), 4500)):
+                i += 1
+                continue
+            bits = []
+            for j in range(i + 1, i + 33):
+                if not _near(self.us(b[j][1] - b[j][0]), 560):
+                    break
+                d = self.us(b[j + 1][0] - b[j][0])
+                bits.append(0 if _near(d, 1120) else 1 if _near(d, 2250) else None)
+            if len(bits) == 32 and None not in bits and _near(self.us(b[i + 33][1] - b[i + 33][0]), 560):
+                v = sum(bit << k for k, bit in enumerate(bits))
+                out.append({"raw": v, "custom": v & 0xFFFF, "data": v >> 16 & 0xFF,
+                            "complement_ok": (v >> 24) == (~v >> 16 & 0xFF),
+                            "carrier_khz": 1e6 / (per * self.tick) if per else 0})
+                i += 34
+            else:
+                i += 1
+        return out
+
+
+class SharpReceiver(_Bursts):
+    """Sharp (SB-Projects sharp.php): 38 kHz; no leader; 15 bits LSB first, each a 320 us
+    burst whose distance to the next burst is 1 ms (0) or 2 ms (1), a burst closing the last
+    bit: 5 address bits, 8 command bits, the expansion bit (1) and the check bit (0). The
+    frame comes twice, 40 ms apart, the second with command, expansion and check inverted:
+    pairs() returns the pairs that agree (+/-25% here)."""
+
+    def frames(self):
+        out, b, i = [], self.bursts, 0
+        while i + 15 < len(b):
+            bits, ok = [], True
+            for j in range(i, i + 15):
+                if not _near(self.us(b[j][1] - b[j][0]), 320):
+                    ok = False
+                    break
+                d = self.us(b[j + 1][0] - b[j][0])
+                bits.append(0 if _near(d, 1000) else 1 if _near(d, 2000) else None)
+            last = b[i + 15]
+            if ok and None not in bits and _near(self.us(last[1] - last[0]), 320) and (
+                    i + 16 >= len(b) or self.us(b[i + 16][0] - last[1]) > 20000):
+                v = sum(bit << k for k, bit in enumerate(bits))
+                out.append({"raw": v, "address": v & 0x1F, "command": v >> 5 & 0xFF,
+                            "expansion": v >> 13 & 1, "check": v >> 14 & 1, "start": b[i][0],
+                            "end": last[1],
+                            "carrier_khz": 1e6 / (b[i][2] * self.tick) if b[i][2] else 0})
+                i += 16
+            else:
+                i += 1
+        return out
+
+    def pairs(self):
+        """(address, command) of each frame followed 40 ms later (+/-25%, from the end of the
+        first's closing burst to the start of the second) by its partner with command,
+        expansion and check inverted; the first frame's expansion bit 1 and check bit 0."""
+        fs, out, k = self.frames(), [], 0
+        while k + 1 < len(fs):
+            a, c = fs[k], fs[k + 1]
+            if (a["expansion"] == 1 and a["check"] == 0 and c["address"] == a["address"]
+                    and c["raw"] >> 5 == (~a["raw"] >> 5) & 0x3FF
+                    and _near(self.us(c["start"] - a["end"]), 40000)):
+                out.append((a["address"], a["command"]))
+                k += 2
+            else:
+                k += 1
         return out
 
 

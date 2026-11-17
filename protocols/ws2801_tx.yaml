@@ -1,0 +1,21 @@
+# WS2801 LED chain: a clock and a data line; each LED takes the first 24 bits (R, G, B, MSB
+# first, on the clock's rising edges) and passes the rest on; the clock held low for
+# 500 us latches them. The LED count in tape word 0, one RGB colour per following word;
+# the host changes colours (and the count) with WRITE_TAPE while it runs.
+name: ws2801_tx
+title: WS2801 LED chain (clock and data); tape word 0 = LED count n, words 1..n = RGB colours; latched, repeated for ever
+refs: ["Worldsemi WS2801 datasheet: data sampled on the rising edge of CKI, 24 bits per IC (R, G, B, MSB first), CKI up to 25 MHz, CKI low for 500 us latches the data (600 us here); a 500 kHz clock here: one bit is three events, six instructions"]
+context: 0
+pins:
+  CI: {pin: 0, idle: 0}
+  DI: {pin: 1, idle: 0}
+constants:
+  H: CLK_KHZ // 1000                         # half a 500 kHz clock period
+  Q: CLK_KHZ // 2000                         # the data set this long before the rising edge
+  TLATCH: CLK_KHZ * 600 // 1000              # 600 us low
+symbols:
+  bit:   [[{DI: data}, Q], [{CI: 1}, H], [{CI: 0}, H - Q]]
+  latch: [[{CI: 0}, TLATCH]]
+frame: [{bits: 24, order: msb, symbol: bit}]
+source: {kind: tape, base: 0, count: tape}
+packet: {after: [latch]}
