@@ -58,7 +58,7 @@ export function ProofTable() {
           <tr><td>Line unit against its model, every output every cycle</td><td className="num">3.8 million edges</td><td>0 mismatches</td></tr>
           <tr><td>Planted RTL faults (mutants) across every module, standard-cell models</td><td className="num">1,010</td><td>892 caught, 57 proved equivalent, 61 excluded, 0 surviving</td></tr>
           <tr><td>Timing certificates against measured leads (65 cases, 63 contexts with a bound)</td><td className="num">63</td><td>50 exact, 0 below</td></tr>
-          <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 to 50 MHz</td><td className="num">1,401</td><td>pass</td></tr>
+          <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 to 50 MHz</td><td className="num">1,407</td><td>pass</td></tr>
           <tr><td>Outside judges: sigrok's protocol decoders read the pins, each with a control that must fail</td><td className="num">53 of 71 programs</td><td>agree; every control fails</td></tr>
           <tr><td>Firmware cases with every pin a tick slower each way (pads and board)</td><td className="num">65</td><td>pass</td></tr>
           <tr><td>Chip tests on the final gate-level netlist</td><td className="num">12</td><td>pass</td></tr>

@@ -39,7 +39,7 @@ unless a section says otherwise. The final runs at a glance:
 | Mutation testing | 1,010 planted RTL faults: 892 caught, 57 proved harmless, 61 argued harmless, none surviving |
 | Outside judges | sigrok's decoders, written by other people, agree with 53 of the 71 programs; every control fails |
 | Pads and board | every firmware case still passes with its pins one tick slower each way |
-| Test suites | 1,401 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
+| Test suites | 1,407 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
 
 ## How the checks grew
 
@@ -991,7 +991,7 @@ inputs it samples are its buttons.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,401 | Pass (the sigrok tests need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,407 | Pass (the sigrok tests need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 12 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 12 | Pass; with SDF timing at the three corners, 11 each |
 | Co-simulation and line unit lockstep on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make cosim-parallel line-test`) | all | Pass |
