@@ -315,6 +315,17 @@ receiver, so the bias network had to be tuned to it. The capture unit made that 
 recorded the line's edges at the pin
 ([the Ethernet bench](../fpga/tangprimer25k/README.md#ethernet-10base-t-2026-11-16)).
 
+On the same bench the chip also debugged a real RP2040 over Serial Wire Debug, as a debug
+probe would. The RP2040's debug port is multi-drop: two cores and a rescue port share the
+wires, they start dormant, and a probe must wake them and select one. `swd_idcode` gained
+both, and the chip read the debug port's ID, the AHB-AP's ID and a word of the boot ROM, from
+core 0 and then from core 1. An outside judge watched: the target Pico, running a third-party
+logic analyser firmware beside its debug port, recorded the two wires, and sigrok's `swd`
+decoder read every access after the wake-up off the wire exactly as the chip reported it,
+with each SWCLK phase at the 640 ns the firmware is built for. The control, one SWDIO pulse
+inverted, fails the comparison
+([the SWD bench](../fpga/tangprimer25k/README.md#swd-the-chip-debugs-an-rp2040-2026-11-17)).
+
 ## 9. What it does
 
 The same small set of mechanisms covers a wide range of work, and three examples show its

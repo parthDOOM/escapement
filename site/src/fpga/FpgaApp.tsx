@@ -2,6 +2,7 @@ import { useState } from "react";
 import Header from "../components/Header";
 import Ruler from "../components/Ruler";
 import EthCircuit from "./EthCircuit";
+import SwdCircuit from "./SwdCircuit";
 import Pinout from "../components/Pinout";
 import { useJson } from "../lib/util";
 import WiringDiagram, { ROLE } from "./WiringDiagram";
@@ -17,6 +18,8 @@ const SECTIONS = [
   ["design", "On the FPGA"],
   ["results", "Results"],
   ["trace", "Traceability"],
+  ["ethernet", "Ethernet"],
+  ["swd", "SWD"],
   ["limits", "Limits"],
 ] as const;
 
@@ -369,7 +372,83 @@ function Page({ d }: { d: Fpga }) {
 
       <Ruler n={17} />
 
-      <section id="limits">
+      <section id="swd">
+        <div className="wrap">
+          <div className="sec-head">
+            <p className="eyebrow">SWD · 2026-11-17</p>
+            <h2>The chip debugs an RP2040</h2>
+            <p className="lede">The firmware <code>swd_idcode</code> is an Arm Serial Wire Debug host. Here it debugs a
+              second Raspberry Pi Pico through that Pico's 3-pin debug header, as a debug probe would, while a logic
+              analyser that is not ours records the two wires and sigrok's decoder reads them.</p>
+          </div>
+          <div className="facts" style={{ marginBottom: "2rem" }}>
+            <div><b>0x0BC12477</b><span>the RP2040's debug port ID, read by the chip</span></div>
+            <div><b>15 of 15</b><span>accesses after the wake-up decoded off the wire as the chip reported them</span></div>
+            <div><b>640 ns</b><span>every SWCLK phase as measured: 16 ticks at 25 MHz</span></div>
+            <div><b>2 of 2</b><span>cores selected by TARGETSEL; none answers a TARGETSEL that names no port</span></div>
+          </div>
+          <figure className="panel">
+            <div className="scroll-x"><SwdCircuit /></div>
+            <figcaption>The wiring. Each line from the Dock goes to a breadboard row, and from it to the spare Pico
+              twice: to its debug header, which is the target, and to a GPIO that the same board samples. The debug
+              port is separate hardware from the cores, so one Pico can be the target and run the analyser firmware
+              at once. The Pico W's own wires to those two Dock holes are unplugged for this run.</figcaption>
+          </figure>
+          <div className="cols" style={{ marginTop: "2rem" }}>
+            <div className="prose">
+              <p><strong>The host only asks.</strong> The bench Pico W pushes one command at a time into the
+                chip's mailbox and reads the reply. Every SWCLK and SWDIO edge comes from the chip, at 25 MHz with
+                SWCLK at 781 kHz. Nothing is written to the target's memory and no core is halted: the session reads
+                the debug port, powers up the debug domain, and reads one word of the boot ROM through the AP.</p>
+              <p><strong>A multi-drop port.</strong> The RP2040 puts core 0, core 1 and a rescue port on the same two
+                wires (SWD protocol version 2). They start dormant, and a probe must wake them and select one before
+                any of them answers. <code>swd_idcode</code> gained both for this bench: one command bit sends the
+                wake-up sequence and a line reset, and a debug-port write to address 0xC goes out as TARGETSEL, which
+                no target acknowledges. The sequences are the ones OpenOCD sends, and the program keeps its timing
+                certificate.</p>
+            </div>
+            <div className="prose">
+              <p><strong>Judged from outside.</strong> The spare Pico runs gusmanb's LogicAnalyzer firmware (v6.0)
+                and samples both lines at 25 MS/s during each step. sigrok's <code>swd</code> decoder reads each
+                recording. In every access after the wake-up, it took off the wire exactly the data the chip reported
+                to its host, or the data the host asked it to write, each with ACK OK.</p>
+              <p><strong>The control fails.</strong> The DPIDR recording with one SWDIO pulse inverted no longer
+                decodes to the chip's value. The wake-up step is judged on its clock only: sigrok's decoder (0.7.2)
+                has no dormant state or TARGETSEL, so it reads the selection alert as packets. The next step shows
+                that the wake-up worked, because the RP2040 answers only once it is woken and selected.</p>
+            </div>
+          </div>
+          <div className="sub-head">
+            <h3>The session, step by step</h3>
+            <p>Each row is one host command, recorded on its own. The chip column is what the firmware reported to the
+              host; the decoder column is what sigrok read from the analyser's recording of the wires.</p>
+          </div>
+          <div className="table-box panel">
+            <table>
+              <thead><tr><th>Step</th><th>Access</th><th>The chip reported</th><th>sigrok read off the wire</th></tr></thead>
+              <tbody>
+                {SWD_STEPS.map(([what, chip, dec], i) => (
+                  <tr key={i}>
+                    <td className="num mono">{i}</td>
+                    <td>{what}</td>
+                    <td className="mono">{chip}</td>
+                    <td className="mono">{dec}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="note" style={{ marginTop: "1.5rem" }}>The boot ROM word, 0x0301754D, is the ROM's
+            magic <code>Mu</code>, 0x01 and its version, 3: an RP2040-B2. Selecting core 1 instead reads the same values
+            with instance 1 in DLPIDR. sigrok names debug-port address 0x4 by its bank-0 register, CTRL/STAT, also
+            when bank 3 makes it DLPIDR (step 3). The log, the recordings and the commands are
+            in <a href={`${REPO}/tree/master/fpga/tangprimer25k#swd-the-chip-debugs-an-rp2040-2026-11-17`}>fpga/tangprimer25k</a>.</p>
+        </div>
+      </section>
+
+      <Ruler n={18} />
+
+      <section id="limits" className="band">
         <div className="wrap">
           <div className="sec-head">
             <p className="eyebrow">Limits</p>
@@ -412,6 +491,27 @@ const ETH_STEPS: [string, string, string, boolean][] = [
   ["bias 0.94 V (1 kΩ || 1.5 kΩ down)",
     "One step further down, with the swing about the same (430 Ω).",
     "Only 50 and 100 ns runs, as many low as high; 20 of 20 frames with a good FCS. The pin switches near 1 V.", true],
+];
+
+/** The judged SWD session (fpga/tangprimer25k/results/2026-11-17/swd-judge/swdjudge.log):
+ *  access, what the chip reported, what sigrok's swd decoder read from the recording. */
+const SWD_STEPS: [string, string, string][] = [
+  ["Wake from dormant, TARGETSEL core 0 (0x01002927)", "no ACK, as none comes", "not judged: no dormant state or TARGETSEL in the decoder"],
+  ["DP read: DPIDR", "OK 0x0BC12477", "IDCODE OK 0x0bc12477"],
+  ["DP write: SELECT, DP bank 3", "OK", "W SELECT OK 0x00000003"],
+  ["DP read: DLPIDR (version 2, instance 0)", "OK 0x00000001", "R CTRL/STAT OK 0x00000001"],
+  ["DP write: SELECT 0", "OK", "W SELECT OK 0x00000000"],
+  ["DP write: ABORT, clear the sticky flags", "OK", "W ABORT OK 0x0000001e"],
+  ["DP write: CTRL/STAT, power-up request", "OK", "W CTRL/STAT OK 0x50000000"],
+  ["DP read: CTRL/STAT, both power-up ACKs", "OK 0xF0000040", "R CTRL/STAT OK 0xf0000040"],
+  ["DP write: SELECT AP 0, bank 0xF", "OK", "W SELECT OK 0x000000f0"],
+  ["AP read: IDR (posted)", "OK", "R APc OK"],
+  ["DP read: RDBUFF, the AP's IDR", "OK 0x04770031", "RDBUFF OK 0x04770031"],
+  ["DP write: SELECT AP 0, bank 0", "OK", "W SELECT OK 0x00000000"],
+  ["AP write: CSW, 32-bit transfers", "OK", "W AP0 OK 0xa2000002"],
+  ["AP write: TAR, address 0x10", "OK", "W AP4 OK 0x00000010"],
+  ["AP read: DRW (posted)", "OK", "R APc OK"],
+  ["DP read: RDBUFF, the ROM word at 0x10", "OK 0x0301754D", "RDBUFF OK 0x0301754d"],
 ];
 
 const Key = ({ c, t }: { c: string; t: string }) => (

@@ -512,7 +512,7 @@ Mutation testing & 1,010 faults: 892 caught, 57 proved harmless, 61 argued, 0 su
 Outside judges & sigrok decoders agree with 53 of 71 programs; every control fails \\
 Slower pins & every firmware case passes with a tick of delay each way \\
 Test suites & 1,409 software, 12 chip (RTL and netlist), 9 through the pins \\
-FPGA bench & 6 of 6 stages, 71 of 71 programs \\
+FPGA bench & 6 of 6 stages, 71 of 71 programs; SWD on a real RP2040, judged by sigrok \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -663,6 +663,15 @@ laptop's port. \texttt{eth\_tx} sent 20 of 20 test frames, which the laptop rece
 frame check sequence. On the receive side an FPGA pin's input threshold stands in for the
 line receiver, and the capture unit, recording the line's edges at that pin, showed how to
 bias it.
+
+On the same bench the chip debugged a real RP2040 over Serial Wire Debug. Its debug port
+is multi-drop (SWD protocol version~2): two cores and a rescue port share the wires, start
+dormant, and answer only once woken and selected, which \texttt{swd\_idcode} now does. The
+chip read the port's ID, the AHB-AP's ID and a boot ROM word from either core. A
+third-party logic analyser firmware, running on the target Pico beside its debug port,
+recorded the wires, and sigrok's \texttt{swd} decoder read all 15 accesses after the
+wake-up exactly as the chip reported them, with every SWCLK phase at the 640\,ns the
+firmware is built for; the control, one SWDIO pulse inverted, fails.
 
 % =====================================================================================
 \section{What it does}

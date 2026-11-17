@@ -43,12 +43,12 @@ function Cap({ x, y, vertical = false, label, side = "above" }:
   );
 }
 
-const Dot = ({ x, y }: { x: number; y: number }) => <circle cx={x} cy={y} r={3.6} fill={STROKE} />;
-const W = ({ d, c = STROKE, dash }: { d: string; c?: string; dash?: string }) =>
+export const Dot = ({ x, y }: { x: number; y: number }) => <circle cx={x} cy={y} r={3.6} fill={STROKE} />;
+export const W = ({ d, c = STROKE, dash }: { d: string; c?: string; dash?: string }) =>
   <path d={d} fill="none" stroke={c} strokeWidth={1.8} strokeDasharray={dash} strokeLinejoin="round" />;
 
 /** An incoming wire's end on the Dock side: a pin ring and its two-line label. */
-function DockPin({ y, sig, where }: { y: number; sig: string; where: string }) {
+export function DockPin({ y, sig, where }: { y: number; sig: string; where: string }) {
   return (
     <g>
       <circle cx={232} cy={y} r={5} fill="var(--bg)" stroke={STROKE} strokeWidth={1.8} />
