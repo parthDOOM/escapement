@@ -722,7 +722,7 @@ def _port_waits(lu: str) -> list:
     return [(0, 2 * SLOT, False)]
 
 
-def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
+def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[int] = None) -> Cert:
     full = image                           # checks across contexts
     image = page_view(image, ctx)          # the 256 words ctx fetches
     words = image.words
@@ -822,7 +822,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000) -> Cert:
                 # counted loop exit at any pass, and a frame of 20 bits becomes one of 1
                 t.reg = [r if r[0] == "time" else ("top",) for r in t.reg]
                 key = t.key(pc)
-                if key not in ks and len(ks) >= MAX_KEYS_LC:
+                if key not in ks and len(ks) >= (MAX_KEYS_LC if keys_lc is None else keys_lc):
                     key = t.coarse_key(pc)
                     t.lc, t.zf = None, None
             ks.add(key)
@@ -1340,6 +1340,14 @@ def certify(image: Image, witness_trials: int = 0) -> list[Cert]:
         if not en:
             continue
         c = analyse(image, k)
+        # Keeping loop counts past MAX_KEYS_PER_PC (up to MAX_KEYS_LC keys a pc) is more
+        # precise for a counted loop inside an uncounted one, but in a program of many
+        # counted loops (eth_tx) it can multiply the states past the limit. Then the
+        # analysis runs again without that tier, as before it existed; each is sound.
+        if any(f.kind == "UNBOUNDED" for f in c.findings):
+            c2 = analyse(image, k, keys_lc=MAX_KEYS_PER_PC)
+            if not any(f.kind == "UNBOUNDED" for f in c2.findings):
+                c = c2
         if c.status == "POSSIBLE" and witness_trials:
             w = witness(image, k, witness_trials)
             c.status, c.witness = ("REFUTED", w) if w else ("NOT_PROVEN", None)

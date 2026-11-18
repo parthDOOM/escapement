@@ -308,6 +308,21 @@ def frame_loop_program(rng):
                       "    JNZ   f", "    MOVI  r2, 0", "    JMP   f", ""])
 
 
+def test_many_counted_loops_fall_back_to_coarse_keys_within_the_state_limit():
+    """Keeping loop counts past MAX_KEYS_PER_PC multiplies the states of a program with many
+    counted loops: eth_tx with its frame branch inverted (a firmware mutant) passed the
+    60,000-state limit that way, where coarse keys certify it in 3,233 states. certify()
+    then analyses again with coarse keys."""
+    import escert
+    src = (FW / "eth_tx.asm").read_text()
+    assert src.count("    JNZ   frame\n") == 1
+    image = assemble(src.replace("    JNZ   frame\n", "    JZ    frame\n"), base_dir=FW)
+    (first,) = [escert.analyse(image, k) for k, en in enumerate(image.ctx_enable) if en]
+    assert [f.kind for f in first.findings] == ["UNBOUNDED"]
+    (c,) = certify(image)
+    assert c.status == "CHECKED" and c.states == 3233, str(c)
+
+
 LOOP_SEEDS = int(os.environ.get("ESCERT_LOOP_SEEDS", "60"))
 
 
