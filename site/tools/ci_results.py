@@ -23,6 +23,7 @@ WORKFLOWS = [
     ("formal", "Every SymbiYosys proof, on each change to the RTL or the proofs"),
     ("equivalence", "The netlist of each layout build against the RTL of its commit"),
     ("mutation", "Each RTL fault against the tests, on each change to the RTL or the tests"),
+    ("fw-mutants", "Timing bugs planted in every firmware against escert, on each change to the firmware or escert"),
     ("test", "Software, certificates, chip tests and lockstep co-simulation, on every push"),
     ("gds", "LibreLane layout, precheck and gate-level tests, on each change to the RTL"),
 ]

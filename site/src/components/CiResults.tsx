@@ -11,6 +11,7 @@ type Ci = { repo: string; generated: string; workflows: Wf[] };
 const TITLE: Record<string, string> = {
   formal: "Formal proofs", equivalence: "Netlist equals RTL", mutation: "Planted faults",
   test: "Tests and co-simulation", gds: "Layout and sign-off",
+  "fw-mutants": "Planted firmware bugs",
 };
 
 const when = (iso?: string) =>

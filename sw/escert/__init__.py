@@ -1347,15 +1347,17 @@ def certify(image: Image, witness_trials: int = 0) -> list[Cert]:
     return out
 
 
-def witness(image: Image, ctx: int, trials: int = 50, ticks: int = 20_000) -> Optional[dict]:
+def witness(image: Image, ctx: int, trials: int = 50, ticks: int = 20_000,
+            first_seed: int = 0, burst_only: bool = False) -> Optional[dict]:
     """Search for inputs that make context `ctx` fault with ADMIT on the ISS. Two input
     strategies alternate: random pin waveforms with sparse host words, and host words in
     back-to-back bursts over a long run (a frame-at-a-time protocol must cope with a host
-    that never pauses). Returns a reproducer, or None."""
+    that never pauses). Seeds run from `first_seed`; `burst_only` keeps the second
+    strategy alone. Returns a reproducer, or None."""
     from esciss import Machine
-    for seed in range(trials):
+    for seed in range(first_seed, first_seed + trials):
         rng = random.Random(seed)
-        burst = seed % 2 == 1
+        burst = burst_only or seed % 2 == 1
         period = [rng.choice([1, 3, 7, 40, 300, 5000]) for _ in range(8)]
         phase = [rng.randrange(1000) for _ in range(8)]
         idle_high = burst and rng.random() < 0.7

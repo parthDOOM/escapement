@@ -85,11 +85,12 @@ def panasonic(address, command):
 
 @pytest.mark.parametrize("khz", [4000, 25000])
 def test_panasonic_frames(khz):
+    # 150 ms a code: the longest frame (0xFFF, 0xFF: 26 ones) is 69.6 ms, and 74 ms of gap follow
     from escmodels import KaseikyoReceiver
     codes = [(0x100, 0x3D), (0xFFF, 0xFF), (0x000, 0x00), (0xA5C, 0x81)]
     if khz == 25000:
         codes = codes[:1]
-    rx, acks = run("panasonic_tx", KaseikyoReceiver, [panasonic(*c) for c in codes], khz, 140)
+    rx, acks = run("panasonic_tx", KaseikyoReceiver, [panasonic(*c) for c in codes], khz, 150)
     fs = rx.frames()
     assert [(f["address"], f["command"]) for f in fs] == codes and acks == [1] * len(codes)
     assert all(f["vendor"] == 0x2002 and f["vendor_parity_ok"] and f["parity_ok"] for f in fs)
@@ -99,7 +100,7 @@ def test_panasonic_frames(khz):
 def test_panasonic_model_flags_a_bad_parity():
     """The model's own control: a host word with a wrong parity byte is reported as such."""
     from escmodels import KaseikyoReceiver
-    rx, _ = run("panasonic_tx", KaseikyoReceiver, [panasonic(0x100, 0x3D) ^ 1 << 27], 4000, 140)
+    rx, _ = run("panasonic_tx", KaseikyoReceiver, [panasonic(0x100, 0x3D) ^ 1 << 27], 4000, 150)
     (f,) = rx.frames()
     assert f["vendor_parity_ok"] and not f["parity_ok"]
 
@@ -115,7 +116,7 @@ def test_planted_wrong_vendor_bit_is_seen():
     rx = KaseikyoReceiver(0, tick_ns=1e6 / 4000)
     m = Machine(image, board=Board(rx, pullups=0))
     m.host_rx_push(0, panasonic(0x100, 0x3D))
-    m.run(140 * 4000, stop_when_idle=False)
+    m.run(150 * 4000, stop_when_idle=False)
     rx.finish()
     (f,) = rx.frames()
     assert f["vendor"] == 0x2000 and not f["vendor_parity_ok"]

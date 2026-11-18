@@ -289,6 +289,64 @@ def test_counted_bit_loop_inside_an_uncounted_frame_loop_is_exact():
         assert m.dbg_read(1, 9) >> 16 == 8
 
 
+def frame_loop_program(rng):
+    """A random bit loop inside a frame loop whose counter is compared with a tape word:
+    the shape that makes a state key per frame and reaches escert's key caps. Bit times
+    and the work between frames are drawn so that most programs are safe but tight (with
+    shorter bits nearly all fault, and escert refutes them all)."""
+    bit, n, two = rng.choice([12, 16, 20, 28, 40, 64]), rng.randint(2, 24), rng.random() < 0.4
+    body = ["    EMITX 1, %d, 1" % rng.randint(0, 1), "    ADDT  %d" % bit] * (2 if two else 1)
+    anchor = ["    RDTIME r3", "    ADDI  r3, %d" % rng.choice([8, 24, 64]), "    SETT  r3"] \
+        if rng.random() < 0.3 else []
+    between = [rng.choice(["    MOVI  r3, 7", "    ADDI  r0, 1", "    SHL   r0, 1", "    TSTI  r0, 1"])
+               for _ in range(rng.randint(0, 3))]
+    return "\n".join([".entry 0, s", ".own 0, 0", "s:", "    ADDT  16", "    EMIT  1, 0, 1",
+                      "    ADDT  %d" % rng.choice([16, 100, 1000]), "    MOVI  r3, 0", "    LDT   r1, r3, 0", "    MOVI  r2, 0",
+                      "f:", "    LDT   r0, r2, 65", "    LDSH  r0", *anchor, "    LDLC  %d" % n,
+                      "b:", *body, "    DJNZ  b", *between, "    ADDI  r2, 1", "    CMP   r2, r1",
+                      "    JNZ   f", "    MOVI  r2, 0", "    JMP   f", ""])
+
+
+LOOP_SEEDS = int(os.environ.get("ESCERT_LOOP_SEEDS", "60"))
+
+
+def test_random_frame_loops_checked_implies_no_admit_fault(monkeypatch):
+    """Soundness where escert drops what it knows: past MAX_KEYS_PER_PC states at one pc it
+    forgets register constants, past MAX_KEYS_LC also loop counts. Each program is certified
+    at the default caps and at small ones (6, 12), where both happen in every program, and
+    run once: every certificate must hold whatever the caps."""
+    import random
+
+    import escert
+    proved = {"default": 0, "small": 0}
+    for seed in range(LOOP_SEEDS):
+        rng = random.Random(seed)
+        image = assemble(frame_loop_program(rng))
+        certs = {}
+        for name, caps in (("default", (escert.MAX_KEYS_PER_PC, escert.MAX_KEYS_LC)), ("small", (6, 12))):
+            with monkeypatch.context() as mp:
+                mp.setattr(escert, "MAX_KEYS_PER_PC", caps[0])
+                mp.setattr(escert, "MAX_KEYS_LC", caps[1])
+                (c,) = certify(image)
+            if c.status == "CHECKED":
+                certs[name] = c
+                proved[name] += 1
+        if not certs:
+            continue
+        for frames in (0, 1, rng.randint(2, 9)):         # 0: the counter never matches
+            m = Machine(image)
+            for a in range(1, 256):
+                m.tape[a] = rng.getrandbits(32)
+            m.tape[0] = frames
+            m.run(12_000, stop_when_idle=False)
+            for name, c in certs.items():
+                assert not (m.ff.valid and m.ff.cause == ADMIT), (seed, name, frames, str(c))
+                if m.ctx[0].min_lead != 0xFFFF:
+                    assert m.ctx[0].min_lead >= c.min_lead, (seed, name, frames, str(c), m.ctx[0].min_lead)
+    # not vacuous (in 60 seeds: 25 certified at the default caps, 14 at the small ones)
+    assert proved["default"] > LOOP_SEEDS // 4 and proved["small"] > LOOP_SEEDS // 6, proved
+
+
 SEEDS = int(os.environ.get("ESCERT_SEEDS", "300"))
 
 

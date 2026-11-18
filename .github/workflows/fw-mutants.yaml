@@ -84,12 +84,26 @@ jobs:
         run: |
           set -o pipefail
           test "$(ls shards/fw-mutants-*.json | wc -l)" = 24
-          python test/mutation/fw_mutants.py --merge shards/fw-mutants-*.json | tee fw-mutants.md
+          python test/mutation/fw_mutants.py --merge shards/fw-mutants-*.json --json fw-mutants.json \
+            | tee fw-mutants.md
           cat fw-mutants.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Results page summary
+        if: always()
+        run: python3 scripts/ci_summary.py results/summary.json fw-mutants fw-mutants.json
+
+      - name: Upload results page summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-summary-fw-mutants
+          path: results/summary.json
 
       - name: Upload the table
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: fw-mutants-results
-          path: fw-mutants.md
+          path: |
+            fw-mutants.md
+            fw-mutants.json

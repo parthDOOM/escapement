@@ -7,6 +7,7 @@
     ci_summary.py SUMMARY cert   LOG
     ci_summary.py SUMMARY equiv  LOG
     ci_summary.py SUMMARY mutation RESULTS_JSON
+    ci_summary.py SUMMARY fw-mutants RESULTS_JSON     (fw_mutants.py --merge ... --json)
 
 Each call appends a check {name, status, detail, items} to SUMMARY, creating it with the
 commit and run from the GitHub Actions environment. The site's build collects the
@@ -139,7 +140,23 @@ def mutation(args):
             "detail": detail, "counts": c, "killed_by": dict(by_suite)}
 
 
-MODES = {"formal": formal, "bmc": bmc, "junit": junit, "cert": cert, "equiv": equiv, "mutation": mutation}
+def fw_mutants(args):
+    res = json.loads(Path(args[0]).read_text())
+    c = Counter(r["result"] for r in res)
+    benched = [r for r in res if r["result"] == "CHECKED" and "protocol" in r]
+    broken = sum(1 for r in benched if any(p for _, p in r["protocol"]))
+    detail = (f"{len(res)} mutants: {c['REFUTED']} refuted with a reproducer, {c['NOT_PROVEN']} not "
+              f"proved either way, {c['CHECKED']} certified, {c['UNSOUND']} certified yet faulted")
+    if benched:
+        detail += f"; of {len(benched)} certified with a bench, {broken} break the protocol there"
+    if c["ERROR"] or c["INVALID"]:
+        detail += f"; {c['ERROR']} crashed, {c['INVALID']} did not assemble"
+    return {"name": "Planted firmware timing bugs", "detail": detail, "counts": dict(c),
+            "status": "pass" if res and not c["UNSOUND"] and not c["ERROR"] else "fail"}
+
+
+MODES = {"formal": formal, "bmc": bmc, "junit": junit, "cert": cert, "equiv": equiv, "mutation": mutation,
+         "fw-mutants": fw_mutants}
 
 
 def main():

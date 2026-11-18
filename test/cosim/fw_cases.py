@@ -728,6 +728,7 @@ def _ir_case(model, khz, code, want):
 
 SAMSUNG_CODE = 0x0707 | 0x02 << 16 | 0xFD << 24     # custom 0x0707, data 0x02 and its complement
 PANASONIC_CODE = 0x100 | 0x3D << 12 | (0x10 ^ 0x3D) << 20   # address 0x100, command 0x3D, parity
+                                                     # (sw/tests/test_ir.py: panasonic(0x100, 0x3D))
 SHARP_A = 0x01 | 0x16 << 5 | 1 << 13                 # address 1, command 0x16, expansion 1, check 0
 SHARP_WORD = SHARP_A | (0x01 | (~SHARP_A & 0x7FE0)) << 15   # and its partner, inverted
 
@@ -1371,9 +1372,9 @@ FIRMWARE_CASES = {
                                               lambda f: f["address"] | f["command"] << 8)),
     "samsung_tx": ("samsung_tx.asm", 140000, _ir_case("SamsungReceiver", 2000, SAMSUNG_CODE,
                                                       lambda f: f["raw"] if f["complement_ok"] else None)),
+    # the host word is the frame's bits 20 to 47, behind Panasonic's vendor code and parity
     "panasonic_tx": ("panasonic_tx.asm", 200000, _ir_case("KaseikyoReceiver", 2000, PANASONIC_CODE,
-                                                          lambda f: f["address"] | f["command"] << 12
-                                                          | (f["raw"] >> 40) << 20 if f["vendor"] == 0x2002
+                                                          lambda f: f["raw"] >> 20 if f["vendor"] == 0x2002
                                                           and f["vendor_parity_ok"] and f["parity_ok"] else None)),
     "sharp_tx": ("sharp_tx.asm", 175000, case_sharp),
     "xy2_100": ("xy2_100.asm", 19000, case_xy2),
