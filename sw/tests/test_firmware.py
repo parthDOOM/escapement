@@ -1491,6 +1491,7 @@ def test_cec_host_sets_logical_address():
     m, board, out = cec_run([tv], [0x80000005], 200 * MS_T)
     assert not board.errors(), board.errors()
     assert [r for r, _ in tv.results] == ["ack", "nack"]
+    assert not m.ff.valid                   # (a faulted chip leaves 4's frame unacknowledged too)
 
 
 # --------------------------------------------------------------------------- DALI

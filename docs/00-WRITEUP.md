@@ -212,7 +212,10 @@ property rather than as a puzzling failure.
 
 Every proof runs in continuous integration on each change it depends on, and planted
 faults show that the proofs can fail: a proof that passes whatever the design does
-proves nothing. In the final run all 100 tasks pass: the 39 unbounded core proofs, six more proofs and four cover checks in one job, the bounded check from reset as 47 tasks covering 67 assertion lines to depth 20 in a second, and the tripwire, line unit and non-interference proofs in a third; 15 planted bugs each make their proof fail.
+proves nothing. In the final run all 100 tasks pass: the 39 unbounded core proofs, six
+more proofs and four cover checks in one job, the bounded check from reset as 47 tasks
+covering 67 assertion lines to depth 20 in a second, and the tripwire, line unit and
+non-interference proofs in a third; 15 planted bugs each make their proof fail.
 
 ## 6. Checking the checks
 
@@ -225,8 +228,11 @@ twice: in the RTL and in a Python instruction-set simulator that shares nothing 
 the instruction encodings. A shared decoder could make two models agree on the same bug,
 so execution, timing rules and faults are written separately. A co-simulation runs both
 side by side and compares every commit, every register, every pin, the queues and the
-memories on every tick. In the final run it compared 191 random programs (19,850 commits; 9 more were too long for a program page) and 74 firmware cases, each against independent bus models, on both the behavioural RTL and the standard-cell build, and found no difference. The simulator is the one in the site's
-playground, so what runs in the browser is the model the RTL is held to.
+memories on every tick. In the final run it compared 191 random programs (19,850 commits;
+9 more were too long for a program page) and 74 firmware cases, each against independent
+bus models, on both the behavioural RTL and the standard-cell build, and found no
+difference. The simulator is the one in the site's playground, so what runs in the
+browser is the model the RTL is held to.
 
 **The digest.** On every clock edge where something happens, the chip folds what happened
 into a 32-bit execution digest, and the simulator predicts it exactly. After a run on
@@ -239,14 +245,31 @@ measures the same quantity while it runs, the minimum lead of every context, so 
 certificate and the silicon check each other. In the VGA Pong firmware, for example, the
 certificate proves that every edge of the video signal is queued at least 1,597 ticks
 early in the sync context and 8 ticks early in the picture context, and the simulator, the
-RTL, the gate-level netlist and the FPGA all measure exactly 1,597 and 8.
-All 80 programs are certified for every input. Across the 74 co-simulated firmware cases, 74 contexts have a finite bound, and the lead measured on the RTL equals the bound in 59 of them and exceeds it in the other 15; it is never below.
+RTL, the gate-level netlist and the FPGA all measure exactly 1,597 and 8. All 80 programs
+are certified for every input. Across the 74 co-simulated firmware cases, 74 contexts have
+a finite bound, and the lead measured on the RTL equals the bound in 59 of them and exceeds
+it in the other 15; it is never below.
+
+**Planted timing bugs.** A certificate checker that accepts everything would also pass
+that test, so escert is attacked the way the RTL's tests are. A campaign plants the timing
+bugs firmware authors make, one at a time in each shipped program: a wait deleted, a
+delay cut to a quarter, a branch inverted. Each mutant is certified and then attacked on
+the simulator with random inputs, the program's own bus models and a host that never
+pauses. Of 719 mutants in 77 programs, escert certified 518 and none of them faulted under
+any search; it refuted 172, each with concrete inputs that reproduce the fault; and it
+could not decide 29, which are never counted as safe. A certificate is about timing, not
+function, so a certified mutant can still break its protocol: of the 248 that have a
+bench, the bus models see 118 fail. The campaign also found a real escert bug, a line
+unit command allowed before the unit's configuration had finished, which the chip faults
+on; escert now tracks it.
 
 **Mutation testing.** To check the tests themselves, faults are planted in the RTL one at
 a time across every module and simulated on the PDK's standard-cell models; a fault the
 tests do not notice is a hole in the tests. Each surviving fault is read against the RTL
 and either closed with a new test, proved to change no output, or excluded with a written
-argument. The final campaign planted 1,010 faults: 892 were caught by a test, 57 were proved to change no output, and 61 are excluded with a written argument, most of them reset or start values that nothing reads before they are reloaded. None survives.
+argument. The final campaign planted 1,010 faults: 892 were caught by a test, 57 were
+proved to change no output, and 61 are excluded with a written argument, most of them
+reset or start values that nothing reads before they are reloaded. None survives.
 
 **Real devices as oracles.** Models written from datasheets can share a misreading with the
 firmware they test. Recordings of real hardware, from a USB Power Delivery charger to a
@@ -263,9 +286,9 @@ could never have seen because the two agreed.
 that software reads the pins of its simulated run and must decode what the test asked for:
 sigrok's decoders, the IRMP infrared library, Wireshark's dissectors, the rtl_433 receiver
 and rc-switch's receiver code. They agree with 72 of the 80 programs, and each judge has a
-control: the same recording with one pulse inverted must fail it. The same runs are repeated with every pin
-delayed a tick each way, more than a real chip's pads and board add, and every protocol still
-works.
+control: the same recording with one pulse inverted must fail it. The same runs are
+repeated with every pin delayed a tick each way, more than a real chip's pads and board
+add, and every protocol still works.
 
 ## 7. The silicon
 

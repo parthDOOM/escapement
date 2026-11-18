@@ -1339,15 +1339,15 @@ FIRMWARE_CASES = {
     "midi_tx": ("midi_tx.asm", 30000, serial_case(31250, bytes((0x90, 0x3C, 0x7F)))),
     "ws2812_gen": ("ws2812_gen.asm", 9000, case_ws2812_gen),   # ends inside the latch
     "gen_slow": ("../test/cosim/gen_cosim.asm", 130000, case_gen_slow),
-    "nec_tx_gen": ("../test/cosim/nec_gen_cosim.asm", 300000, case_nec_gen),
+    "nec_tx_gen": ("nec_tx_gen.asm", 300000, case_nec_gen),
     # v1.4 line unit
     "usb_hid": ("usb_hid.asm", 70000, case_usb_hid),
     "can_rx": ("can_rx.asm", 36000, case_can_rx),
     # motor, sensor, consumer and lighting buses (firmware only)
     "dshot": ("dshot_tx.asm", 12500, case_dshot),
     "sent": ("sent_tx.asm", 36000, case_sent),
-    "cec": ("../test/cosim/cec_cosim.asm", 46000, case_cec),
-    "dali": ("../test/cosim/dali_cosim.asm", 33000, case_dali),
+    "cec": ("cec.asm", 46000, case_cec),
+    "dali": ("dali.asm", 33000, case_dali),
     # v1.6: the line unit's extended configuration
     "can_tx_lu": ("can_tx_lu.asm", 8000, case_can_tx_lu),
     "spi_tx": ("spi_tx.asm", 3000, case_spi_tx),
@@ -1359,8 +1359,8 @@ FIRMWARE_CASES = {
     "spi_sniff": ("spi_sniff.asm", 20000, case_spi_sniff),      # v3: external-clock receive
     "spi_sniff_long": ("spi_sniff.asm", 32000, lambda: case_spi_sniff(quiet=4000)),  # el's cap
     "quadrature": ("quadrature.asm", 7000, case_quadrature),
-    "modbus": ("../test/cosim/modbus_cosim.asm", 150000, case_modbus),
-    "sbus": ("../test/cosim/sbus_cosim.asm", 65000, case_sbus),
+    "modbus": ("modbus_rtu.asm", 150000, case_modbus),
+    "sbus": ("sbus_rx.asm", 65000, case_sbus),
     "sirc_tx": ("sirc_tx.asm", 60000, _ir_case("SircReceiver", 2000, 0x15 | 0x01 << 7,
                                                 lambda f: f["address"] << 7 | f["command"])),
     "rc5_tx": ("rc5_tx.asm", 60000, _ir_case("Rc5Receiver", 2000, 0b11 << 12 | 0x05 << 6 | 0x0C,
@@ -1422,6 +1422,10 @@ FW_EQU = {"freq_meter": {"N": 8, "PIN": 3}, "i2c_timing": {"TOUT_US": 100},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
           "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000}, "wiegand_rx": {"CLK_KHZ": 4000}, "dcf77_tx": {"CLK_KHZ": 10}, "qi_rx": {"CLK_KHZ": 2000},
           "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500},
+          # slow timebases, so a frame takes thousands of ticks instead of millions (a CEC
+          # frame of three bytes: about 19,000 at 250 kHz, 1.9 million at 25 MHz)
+          "nec_tx_gen": {"CLK_KHZ": 2500}, "cec": {"CLK_KHZ": 250}, "dali": {"CLK_KHZ": 250},
+          "modbus": {"CLK_KHZ": 3000}, "sbus": {"CLK_KHZ": 5000},
           "oled_pong": OLED_FAST, "oled_game": OLED_FAST}
 
 

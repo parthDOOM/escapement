@@ -38,7 +38,7 @@ unless a section says otherwise. The final runs at a glance:
 | Timing certificates | 80 of 80 programs certified; the measured lead equals the bound in 59 of 74 contexts and is never below it |
 | Mutation testing | 1,010 planted RTL faults: 892 caught, 57 proved harmless, 61 argued harmless, none surviving |
 | Outside judges | decoders written by other people agree with 72 of the 80 programs; every control fails |
-| Planted firmware bugs | 719 timing bugs in 77 programs: 167 refuted with a reproducer, 34 not proven, 518 certified, none certified that can fault |
+| Planted firmware bugs | 719 timing bugs in 77 programs: 172 refuted with a reproducer, 29 not proven, 518 certified, none certified that can fault |
 | Pads and board | every firmware case still passes with its pins one tick slower each way |
 | Test suites | 1,507 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
 
@@ -735,8 +735,11 @@ answer:
 
 - **A certified mutant** gets escert's randomised input search, 12 runs of random pins and
   host words, and then the program's own co-simulation benches: its bus models and host
-  script, which drive the protocol much further than random inputs do. A fault in either
-  would mean escert certified a program that can fault, and fails the run.
+  script, which drive the protocol much further than random inputs do. A few more benches
+  are aimed at paths the co-simulation leaves alone: an AVR that never echoes, a SWIM
+  byte refused for its parity, a CEC frame for another device, a DALI query answered. A
+  fault in any of these would mean escert certified a program that can fault, and fails
+  the run.
 - **A mutant escert could not prove** (POSSIBLE) gets the same random search. If that finds
   nothing, three more searches follow: the benches; a host that never pauses, over a run
   five times as long on fresh seeds (a deleted WAITT may fault only once frames follow
@@ -755,28 +758,39 @@ system.
 
 | escert's answer | Mutants |
 | --- | ---: |
-| REFUTED: a fault, reproduced on the simulator with concrete inputs | 167 |
-| NOT_PROVEN: a fault not excluded, and none found by the searches | 34 |
+| REFUTED: a fault, reproduced on the simulator with concrete inputs | 172 |
+| NOT_PROVEN: a fault not excluded, and none found by the searches | 29 |
 | CHECKED: no admission fault for any input | 518 |
 | CHECKED, yet a search or a bench made it fault | **0** |
 
-Of the 167 refuted, 148 fell to the random search, 14 to the long search whose host never
-pauses and 5 to a bench.
+Of the 172 refuted, 148 fell to the random search, 14 to the long search whose host never
+pauses and 10 to a bench, five of those to the aimed benches.
 
-**NOT_PROVEN is never counted as safe**, and half of these mutants are faults in fact. Of the
-34, 12 are located exactly: every state escert holds at the flagged instruction breaks a
-timing rule, so they fault if that instruction is reached, and no search reached it.
-Five more fault on their bench built at that bench's clock. The rest, 17, have a bound that
-straddles a rule and no fault found anywhere; they are escert being cautious or faults on a
-path no search drove, and the campaign does not tell which.
+**NOT_PROVEN is never counted as safe.** Of the 29, 8 are located exactly: escert holds a
+state at the flagged instruction in which every deadline breaks a rule (escert reports the
+first such state, not every state there). Seven of these fault on their bench built at its
+own clock or tape, another program than the one judged. The eighth is escert being
+cautious: `usbpd_tx` with the first half of a 1 bit cut to a quarter still queues its
+edges faster than the line sends them, so the queue never drains as in escert's state,
+and on the bench the flagged instruction always has a lead of 98 ticks or more. Five more fault
+on their bench built at that bench's clock. The other 16 have a bound that straddles a rule
+and no fault found anywhere; they are escert being cautious or faults on a path no search
+drove, and the campaign does not tell which.
+
+The aimed benches came from this list. In the earlier run, a mutant escert located exactly
+but no search reached marked a path no bench drove: an error, or an answer. A bench aimed
+at each refuted five of them at the default build. Running the same mutants through the
+unit tests found a test that passed with the firmware faulted: a CEC follower that stops
+leaves a frame unacknowledged just as a correct one does when the frame is not its own.
+The test now checks the fault register as well.
 
 **Timing is not function.** A CHECKED mutant is a change that keeps every deadline
 admissible, which escert is right to accept: it proves timing, not protocol correctness.
 Most inverted branches are of this kind, because escert already follows both directions of
 a branch whose flag depends on inputs, so inverting one leaves the same timed paths. For a
 certified mutant with a bench, the campaign therefore also records the bench's own
-protocol check. Of the 235 certified mutants with a bench, the bus models see the
-protocol fail in 110: a frame with a bad CRC, a USB device that never enumerates, a
+protocol check. Of the 248 certified mutants with a bench, the bus models see the
+protocol fail in 118: a frame with a bad CRC, a USB device that never enumerates, a
 frame never sent. Every unmutated program passes its benches, so each failure is the
 mutant's doing. escert and the bus models catch different bugs, and the campaign shows both.
 

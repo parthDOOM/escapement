@@ -25,7 +25,9 @@ Random pins and host words rarely drive a protocol far: a mutant in the reply to
 command is reached only by that command. So both searches then also run the program's
 own co-simulation benches (test/cosim/fw_cases.py: its bus models and host script) on the
 ISS with the mutant in place, those whose image is the very one certified (a bench that
-sets .equ parameters or prepares the tape runs a different program, and is left out).
+sets .equ parameters or prepares the tape runs a different program, and is left out),
+and a few benches aimed at the paths those leave alone (AIMED: a target that never
+answers, a byte NACKed for its parity, a frame for another device, a query answered).
 A NOT_PROVEN mutant gets two more searches. A host that never pauses, over a run five times
 as long (a deleted WAITT may fault only once frames follow each other back to back), can
 still refute it. And the benches that set parameters (most set the clock) build it their
@@ -63,7 +65,9 @@ from esciss import Machine  # noqa: E402
 from esciss.machine import no_board_b  # noqa: E402
 
 sys.path.insert(0, str(REPO / "test" / "cosim"))
-from fw_cases import FIRMWARE_CASES, FW_EQU, TAPE_PREP, fw_image  # noqa: E402
+from escmodels import Board, CecDevice, DaliController, HostScript  # noqa: E402
+from escmodels.swim import SwimTarget  # noqa: E402
+from fw_cases import FIRMWARE_CASES, FW_EQU, SWIM_MEM, SWIM_UID, TAPE_PREP, fw_image  # noqa: E402
 
 FW = REPO / "firmware"
 SKIP = {"replay.asm",                       # a template
@@ -111,10 +115,93 @@ def chosen(key: str, per: int, n_sites: int) -> bool:
     return h < per / max(n_sites, per)
 
 
+MS25 = 25_000                                 # ticks per ms at the default 25 MHz
+
+
+class _SwimBadParity(SwimTarget):
+    """A SWIM target whose first data packet has its parity bit inverted."""
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.corrupted = 0
+
+    def _packet(self, header, value, n):
+        p = super()._packet(header, value, n)
+        if header == 1 and not self.corrupted:
+            self.corrupted = 1
+            p[-1] ^= 1
+        return p
+
+
+def _aimed_avr_no_target():
+    """Programming Enable with no AVR on the bus: nothing echoes 0x53, so the programmer
+    pulses RESET and tries again, eight times in all, then reports 1 (no echo)."""
+    host = HostScript([(100, 0, 1 << 28)], drain=[0], poll=2500)
+    return Board(host), host, lambda b, h: [] if h.received[0][:1] == [1] else [f"avr_isp {h.received}"]
+
+
+def _aimed_swim_nack():
+    """The co-simulation bench's 4-byte ROTF, with the first byte's parity wrong: the host
+    NACKs it, the target sends it again, and the host still reads the four bytes."""
+    tgt = _SwimBadParity(0, tick_ns=20, mem=SWIM_MEM)
+    host = HostScript([(100, 0, 3 << 24 | SWIM_UID)], drain=[0], poll=300)
+
+    def check(board, h):
+        ok = h.received[0] == [4, 0x00, 0x5A, 0x00, 0x3C] and not tgt.violations
+        return ([] if ok else [f"swim {h.received} {tgt.violations[:2]}"]) + board.errors()
+    return Board(tgt, host, pullups=0x01), host, check
+
+
+def _aimed_cec_other():
+    """A TV sends a frame to logical address 5, which nobody holds: the chip (4) leaves its
+    header unacknowledged and reports the block."""
+    tv = CecDevice(0, 0, tick_ns=40.0, send=[(2 * MS25, [0x05, 0x8F])], retries=0)
+    host = HostScript([], drain=[0], poll=5000)
+
+    def check(board, h):
+        ok = [r for r, _ in tv.results] == ["nack"] and h.received[0] == [0x400 | 0x05 << 2 | 1]
+        return ([] if ok else [f"cec {tv.results} {h.received}"]) + board.errors()
+    return Board(tv, host), host, check
+
+
+def _aimed_dali_query():
+    """QUERY CONTROL GEAR PRESENT at the default clock: the gear answers with a backward
+    frame."""
+    ctl = DaliController(0, [(2 * MS25, 0x0191)], tick_ns=40.0)
+    host = HostScript([], drain=[0], poll=5000)
+
+    def check(board, h):
+        ok = [a and a[0] for a in ctl.answers] == [0xFF] and h.received[0] == [0x30191]
+        return ([] if ok else [f"dali {ctl.answers} {h.received}"]) + board.errors()
+    return Board(ctl, host), host, check
+
+
+def _aimed_westminster():
+    """The tune, every note of it, with nothing to answer: its notes are judged in
+    sw/tests."""
+    return Board(), None, lambda b, h: [], lambda t, ob: 0
+
+
+# Benches aimed at paths the co-simulation benches leave alone, for this campaign only: an
+# error or an answer, each found by a mutant that escert flags exactly and no search
+# reached. name: (firmware, ticks, factory, parameters). Without parameters a bench runs
+# the default build, as the co-simulation benches above do; with them (a slower clock: the
+# 14-second tune is 350 million ticks at 25 MHz) it is another program, searched as
+# config_benches searches the parameter benches.
+AIMED = {
+    "avr_isp_no_target": ("avr_isp.asm", 4_300_000, _aimed_avr_no_target, None),
+    "swim_host_nack": ("swim_host.asm", 400_000, _aimed_swim_nack, None),
+    "cec_other_address": ("cec.asm", 40 * MS25, _aimed_cec_other, None),
+    "dali_query": ("dali.asm", 40 * MS25, _aimed_dali_query, None),
+    "westminster_250k": ("westminster.asm", 1_000_000, _aimed_westminster, {"CLK_KHZ": 250}),
+}
+
+
 def benches(fw: str) -> list:
-    """The co-simulation benches that run `fw`'s own image: (name, ticks, factory)."""
-    return [(n, t, fac) for n, (f, t, fac) in FIRMWARE_CASES.items()
-            if f == fw and n not in FW_EQU and n not in TAPE_PREP]
+    """The benches that run `fw`'s own image, from the co-simulation and aimed: (name,
+    ticks, factory)."""
+    return ([(n, t, fac) for n, (f, t, fac) in FIRMWARE_CASES.items()
+             if f == fw and n not in FW_EQU and n not in TAPE_PREP]
+            + [(n, t, fac) for n, (f, t, fac, equ) in AIMED.items() if f == fw and not equ])
 
 
 def _from_tools(e: BaseException) -> bool:
@@ -197,11 +284,15 @@ def config_benches(fw: str, src: str):
     ("UNSOUND", detail). Else ("at", bench) or None. (As fw_cases.fw_image builds a case,
     with the mutant's source; the paged OLED images are left out: their mutants are
     certified and attacked inside the paged image already.)"""
-    for name, (f, ticks, factory) in FIRMWARE_CASES.items():
-        if f != fw or (name not in FW_EQU and name not in TAPE_PREP):
-            continue
+    builds = [(name, ticks, factory, lambda name=name: fw_image(name, fw, FW, src=src))
+              for name, (f, ticks, factory) in FIRMWARE_CASES.items()
+              if f == fw and (name in FW_EQU or name in TAPE_PREP)]
+    builds += [(name, ticks, factory, lambda equ=equ: assemble(
+                   "".join(f".equ {k}, {v}\n" for k, v in equ.items()) + src, base_dir=FW, name=fw))
+               for name, (f, ticks, factory, equ) in AIMED.items() if f == fw and equ]
+    for name, ticks, factory, make in builds:
         try:
-            image = fw_image(name, fw, FW, src=src)
+            image = make()
         except AsmError:
             continue
         certs = {c.ctx: c.status for c in certify(image)}
