@@ -18,7 +18,8 @@ image (OLED Pong's four), inside that image. escert answers CHECKED (no admissio
 any input), REFUTED (a fault, reproduced on the ISS with concrete inputs) or NOT_PROVEN
 (a fault could not be excluded and the search found none). A CHECKED mutant is then
 attacked with the same randomised input search on the ISS: a fault there would mean
-escert certified a program that can fault (UNSOUND), and fails the run.
+escert certified a program that can fault (UNSOUND), and fails the run. So does a crash in
+the checker or the ISS on a mutant (ERROR), reported beside the other results.
 
 Random pins and host words rarely drive a protocol far: a mutant in the reply to a
 command is reached only by that command. So both searches then also run the program's
@@ -115,9 +116,12 @@ def bench_witness(image, fw: str, ctxs: set):
                     half=getattr(board, "half", None), record=False)
         if host is not None:
             host.machine = m
+        # A mutant that breaks the protocol makes a bus model give up (escmodels.usb raises
+        # UsbError when a SETUP goes unacknowledged; a host script left unread raises
+        # RuntimeError): the bench ends there, and only the fault register is judged.
         try:
             m.run(ticks, stop_when_idle=False)
-        except RuntimeError:                  # e.g. a host script the mutant leaves unread
+        except Exception:                     # noqa: BLE001
             pass
         ff = m.ff
         if ff.valid and ff.ctx in ctxs and ff.cause == ISA.fault_causes["ADMIT"]:
@@ -127,6 +131,17 @@ def bench_witness(image, fw: str, ctxs: set):
 
 
 def run_one(job):
+    """One mutant's result; a crash in the checker or the ISS is ERROR (it fails the run),
+    so one mutant cannot take its shard's other results with it."""
+    try:
+        return _run_one(job)
+    except Exception as e:                    # noqa: BLE001
+        fw, op, line, _, _ = job
+        return {"fw": fw, "op": op, "line": line, "result": "ERROR",
+                "detail": f"{type(e).__name__}: {e}"[:160]}
+
+
+def _run_one(job):
     fw, op, line, new_line, trials = job
     src = (FW / fw).read_text().split("\n")
     src[line - 1] = new_line
@@ -193,7 +208,7 @@ def main() -> int:
 def report(names: list, results: list) -> int:
     """The table (per firmware, per operator), then every UNSOUND and NOT_PROVEN mutant;
     1 if any is UNSOUND."""
-    kinds = ["REFUTED", "NOT_PROVEN", "CHECKED", "UNSOUND", "INVALID"]
+    kinds = ["REFUTED", "NOT_PROVEN", "CHECKED", "UNSOUND", "INVALID", "ERROR"]
     print("| Firmware | Mutants | " + " | ".join(kinds) + " |")
     print("| --- | --- |" + " --- |" * len(kinds))
     for fw in names:
@@ -209,9 +224,9 @@ def report(names: list, results: list) -> int:
         f"{sum(r['result'] == 'NOT_PROVEN' for r in rs)} not proven, "
         f"{sum(r['result'] == 'CHECKED' for r in rs)} certified)" for op, rs in by_op.items()))
     for r in results:
-        if r["result"] in ("UNSOUND", "NOT_PROVEN"):
+        if r["result"] in ("UNSOUND", "ERROR", "NOT_PROVEN"):
             print(f"- {r['result']} {r['fw']}:{r['line']} {r['op']}: {r.get('detail', '')}")
-    return 1 if tot["UNSOUND"] else 0
+    return 1 if tot["UNSOUND"] or tot["ERROR"] else 0
 
 
 if __name__ == "__main__":

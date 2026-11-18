@@ -16,6 +16,13 @@ on:
     paths:
       - 'src/**'
       - 'test/**'
+      # the firmware mutants and the outside judges feed no RTL suite (fw-mutants.yaml and
+      # the test workflow run them)
+      - '!test/mutation/fw_mutants.py'
+      - '!test/cosim/judges.py'
+      - '!test/cosim/outside_decoders.sh'
+      - '!test/cosim/rcswitch_rx.cpp'
+      - '!test/cosim/wiringPi.h'
       - 'sw/esciss/**'
       - 'sw/escasm/**'
       - 'formal/equiv.sh'
