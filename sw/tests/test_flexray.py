@@ -102,7 +102,15 @@ def test_planted_frame_crc_channel_b_start_is_caught():
     assert [(f["header_crc_ok"], f["frame_crc_ok"]) for f in rx.frames] == [(True, False)]
 
 
-def test_planted_missing_bss_is_caught():
-    bad = _planted(".equ TSSU, 0b0000000001", ".equ TSSU, 0b0000000000")   # no FSS
+def test_planted_missing_fss_is_caught():
+    bad = _planted(".equ TSSU, 0b0000000001", ".equ TSSU, 0b0000000000")   # TSS runs on, no FSS
     rx, _ = run([(1, 0, bytes(range(8)))], src=bad)
-    assert rx.frames == [] or not rx.frames[0]["frame_crc_ok"] or rx.violations
+    assert rx.frames == [] and rx.violations == ["t=5297: no FES after 0 bytes"]
+
+
+def test_planted_missing_bss_is_caught():
+    # header byte 5 stored without its BSS (1 0): the receiver finds no BSS after byte 4
+    bad = _planted("    ADDI  r0, 0x200\n    MOVI  r3, 0\n    STT   r0, r3, UNITS + 5",
+                   "    MOVI  r3, 0\n    STT   r0, r3, UNITS + 5")
+    rx, _ = run([(1, 0, bytes(range(8)))], src=bad)
+    assert rx.frames == [] and rx.violations == ["t=5297: no FES after 4 bytes"]

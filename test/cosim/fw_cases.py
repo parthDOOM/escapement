@@ -783,13 +783,15 @@ OREGON_WORD = 0x235 | 0x47 << 16             # 23.5 degC, 47 %: BCD, as a sensor
 
 def case_oregon():
     """v3: an Oregon Scientific v2.1 THGR122NX reading at 200 kHz: the message twice,
-    every RF interval, the doubled bits, sync and checksum checked by the station model."""
+    every RF interval, the doubled bits, sync and checksum checked by the station model.
+    Rolling code 0x3A (FW_EQU), not the default 0xBB, so that a decoder that read its two
+    nibbles the other way round would report another sensor."""
     from escmodels.oregon import OregonV21Receiver
     rx = OregonV21Receiver(0, tick_ns=5000)
     host = HostScript([(100, 0, OREGON_WORD)], drain=[0], poll=500)
 
     def check(board, h):
-        ok = not rx.violations and rx.readings() == [(1, 0xBB, False, 235, 47)] * 2 and h.received[0] == [1]
+        ok = not rx.violations and rx.readings() == [(1, 0x3A, False, 235, 47)] * 2 and h.received[0] == [1]
         return ([] if ok else [f"oregon {rx.readings()} {rx.violations[:2]} {h.received}"]) + board.errors()
     return Board(rx, host, pullups=0), host, check
 
@@ -1416,22 +1418,27 @@ FW_EQU = {"freq_meter": {"N": 8, "PIN": 3}, "i2c_timing": {"TOUT_US": 100},
           "spi_sniff_long": {"QUIET": 4000},
           "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
           "samsung_tx": {"CLK_KHZ": 2000}, "panasonic_tx": {"CLK_KHZ": 2000}, "sharp_tx": {"CLK_KHZ": 2000}, "j1850_vpw": {"CLK_KHZ": 4000},
-          "oregon_tx": {"CLK_KHZ": 200},
+          "oregon_tx": {"CLK_KHZ": 200, "RC": 0x3A},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
           "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000}, "wiegand_rx": {"CLK_KHZ": 4000}, "dcf77_tx": {"CLK_KHZ": 10}, "qi_rx": {"CLK_KHZ": 2000},
           "ws2812_lu": {"CLK_KHZ": 12000}, "servo": {"CLK_KHZ": 1500},
           "oled_pong": OLED_FAST, "oled_game": OLED_FAST}
 
 
-def fw_image(name, fw, firmware_dir):
+def fw_image(name, fw, firmware_dir, src=None):
     """The image a case runs: its firmware, with FW_EQU parameters and TAPE_PREP applied.
     `fw` a dict {page: file} is a paged image (one program page per file); its FW_EQU
-    names are the files' shared names, set in every file."""
+    names are the files' shared names, set in every file. `src`, for a single file, is a
+    source to build in its place (test/mutation/fw_mutants.py: a mutant, built as the case
+    builds the program)."""
     from escasm import assemble, assemble_file, paged
     if isinstance(fw, dict):
         equ = "".join(f".equ {k}, {v}\n" for k, v in FW_EQU.get(name, {}).items())
         d = Path(firmware_dir)
         image = paged({p: assemble(equ + (d / f).read_text(), base_dir=d, name=f) for p, f in fw.items()})
+    elif src is not None:                   # the program's own .defaults are its own names
+        equ = "".join(f".equ {k}, {v}\n" for k, v in FW_EQU.get(name, {}).items())
+        image = assemble(equ + src, base_dir=firmware_dir, name=fw)
     elif name in FW_EQU:
         mod = fw.rsplit(".", 1)[0]
         equ = "".join(f".equ {mod}.{k}, {v}\n" for k, v in FW_EQU[name].items())

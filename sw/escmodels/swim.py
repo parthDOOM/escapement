@@ -49,7 +49,8 @@ class SwimTarget(Device):
         self._cmd = None
         self._args: list[int] = []
         self._out: list[int] = []                   # bytes still to send (ROTF)
-        self._waiting_ack_until = None
+        self._awaiting_ack = False                  # our data packet sent, the host's ack next
+        self.entered_at: float | None = None        # us: the end of the entry sequence
 
     # ---- time helpers
     def us(self, ticks: float) -> float:
@@ -75,10 +76,15 @@ class SwimTarget(Device):
         return [header] + bits + [sum(bits) & 1]
 
     # ---- the pin
+    def errors(self) -> list[str]:          # (Board.errors() collects them)
+        return [f"SWIM: {v}" for v in self.violations[:10]]
+
     def step(self, t, bus):
         if t < 0:
             return 0, 0
         lv = (bus >> self.pin) & 1
+        if self._drive and self._drive[0][1] <= t:   # drop the low intervals that are over
+            self._drive = [(a, b) for a, b in self._drive if b > t]
         ours = any(a <= t < b for a, b in self._drive)
         if lv != self._lv:
             if self._lv == 1 and lv == 0:
@@ -87,8 +93,7 @@ class SwimTarget(Device):
                 if not self._fall_ours:
                     self._low(t - self._fall, t)
             self._lv = lv
-        self._drive = [(a, b) for a, b in self._drive if b > t]
-        return ((1 << self.pin) if any(a <= t < b for a, b in self._drive) else 0), 0
+        return ((1 << self.pin) if ours else 0), 0
 
     def _low(self, ticks: int, t: int) -> None:
         """A low pulse from the host ended at tick t."""
@@ -98,8 +103,9 @@ class SwimTarget(Device):
             self._entry(t)
             return
         if us > 64 * CLK_NS / 1000:                 # a communication reset: 64 clocks or more
-            self._rx, self._cmd = [], None
-            self._send_bits(t + self.t_of(1000), [])
+            self._rx, self._cmd, self._args = [], None, []
+            self._out, self._awaiting_ack = [], False # (a read under way is abandoned)
+            self._drive = [(a, b) for a, b in self._drive if a <= t]
             self._drive.append((t + self.t_of(1000), t + self.t_of(1000 + 128 * CLK_NS)))
             return
         bit = 1 if us <= 8 * CLK_NS / 1000 + 1e-9 else 0
@@ -120,15 +126,14 @@ class SwimTarget(Device):
         per = [b - a for a, b in zip(starts, starts[1:])]
         slow, fast = per[:3], per[4:7]
         if all(800 <= p <= 1200 for p in slow) and all(400 <= p <= 600 for p in fast):
-            self.state = "sync"
             t0 = t + self.t_of(SYNC_DELAY_US * 1000) + self.t_of(500)    # after the last high half
             self._drive.append((t0, t0 + self.t_of(128 * CLK_NS)))
             self.state, self._rx = "idle", []
             self.entered_at = ends[-1]
 
     def _host_bit(self, bit: int, t: int) -> None:
-        if self._waiting_ack_until is not None:      # the host's ACK to our data packet
-            self._waiting_ack_until = None
+        if self._awaiting_ack:                       # the host's ACK to our data packet
+            self._awaiting_ack = False
             if bit and self._out:
                 self._out.pop(0)
             # the next packet follows the host's acknowledge bit, a whole bit after it fell
@@ -179,6 +184,8 @@ class SwimTarget(Device):
             k = len(self._args) - 5
             if self._allowed(self._addr + k, 1):
                 self.mem[self._addr + k] = val
+            else:
+                self._v(f"WOTF of 0x{self._addr + k:06X} without SWIM_DM")
             if k + 1 == self._n:
                 self._cmd = None
 
@@ -192,4 +199,4 @@ class SwimTarget(Device):
             return
         start = t + self.t_of(500)
         self._send_bits(start, self._packet(1, self._out[0], 8))
-        self._waiting_ack_until = True
+        self._awaiting_ack = True

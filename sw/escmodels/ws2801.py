@@ -23,6 +23,9 @@ class Ws2801Chain(Device):
         self._bits: list[int] = []
         self._low_since: int | None = None
 
+    def errors(self) -> list[str]:          # (Board.errors() collects them)
+        return [f"WS2801: {v}" for v in self.violations[:10]]
+
     def step(self, t, bus):
         if t < 0:
             return 0, 0

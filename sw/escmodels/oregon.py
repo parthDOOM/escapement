@@ -42,6 +42,9 @@ class OregonV21Receiver(Device):
         if len(self.violations) < 50:
             self.violations.append(msg)
 
+    def errors(self) -> list[str]:          # (Board.errors() collects them)
+        return [f"Oregon: {v}" for v in self.violations[:10]]
+
     def step(self, t, bus):
         if t < 0:
             return 0, 0

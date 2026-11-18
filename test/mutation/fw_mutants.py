@@ -63,7 +63,7 @@ from esciss import Machine  # noqa: E402
 from esciss.machine import no_board_b  # noqa: E402
 
 sys.path.insert(0, str(REPO / "test" / "cosim"))
-from fw_cases import FIRMWARE_CASES, FW_EQU, TAPE_PREP  # noqa: E402
+from fw_cases import FIRMWARE_CASES, FW_EQU, TAPE_PREP, fw_image  # noqa: E402
 
 FW = REPO / "firmware"
 SKIP = {"replay.asm",                       # a template
@@ -117,9 +117,20 @@ def benches(fw: str) -> list:
             if f == fw and n not in FW_EQU and n not in TAPE_PREP]
 
 
-def bench_witness_one(image, name: str, ticks: int, factory, ctxs: set):
-    """Run one bench on the ISS with `image`: (reproducer, None) for an ADMIT fault in one
-    of `ctxs`, else (None, problems), the bench's own check (its bus models' verdict)."""
+def _from_tools(e: BaseException) -> bool:
+    """Whether an exception was raised inside the ISS, the checker or the assembler (a crash:
+    ERROR), not inside a bus model (the protocol broke: the bench ends there)."""
+    tb, last = e.__traceback__, None
+    while tb is not None:
+        last, tb = tb, tb.tb_next
+    where = last.tb_frame.f_code.co_filename.replace("\\", "/") if last else ""
+    return any(f"/{d}/" in where for d in ("esciss", "escert", "escasm"))
+
+
+def bench_witness_one(image, name: str, ticks: int, factory):
+    """Run one bench on the ISS with `image`: (reproducer, None) for an ADMIT fault in any
+    context (the caller decides what it means), else (None, problems), the bench's own check
+    (its bus models' verdict)."""
     board, host, check, *bb = factory()
     m = Machine(image, board=board, board_b=bb[0] if bb else no_board_b,
                 half=getattr(board, "half", None), record=False)
@@ -127,14 +138,17 @@ def bench_witness_one(image, name: str, ticks: int, factory, ctxs: set):
         host.machine = m
     # A mutant that breaks the protocol makes a bus model give up (escmodels.usb raises
     # UsbError when a SETUP goes unacknowledged; a host script left unread raises
-    # RuntimeError): the bench ends there, and only the fault register is judged.
+    # RuntimeError): the bench ends there, and only the fault register is judged. A crash
+    # in the ISS itself is not the mutant's doing: it propagates, and run_one reports ERROR.
     problems = []
     try:
         m.run(ticks, stop_when_idle=False)
     except Exception as e:                    # noqa: BLE001
+        if _from_tools(e):
+            raise
         problems.append(f"{type(e).__name__}: {e}"[:120])
     ff = m.ff
-    if ff.valid and ff.ctx in ctxs and ff.cause == ISA.fault_causes["ADMIT"]:
+    if ff.valid and ff.cause == ISA.fault_causes["ADMIT"]:
         return {"bench": name, "ctx": ff.ctx, "tick": ff.tick, "pc": ff.pc,
                 "subcode": ff.subcode, "strategy": "bench"}, None
     if ff.valid:                              # another fault: the program stopped
@@ -143,18 +157,20 @@ def bench_witness_one(image, name: str, ticks: int, factory, ctxs: set):
         try:
             problems = [str(x)[:120] for x in check(board, host)]
         except Exception as e:                # noqa: BLE001
+            if _from_tools(e):
+                raise
             problems = [f"check: {type(e).__name__}: {e}"[:120]]
     return None, problems
 
 
-def bench_witness(image, fw: str, ctxs: set):
-    """Run each bench of `fw` on the ISS with `image` (the mutant): an ADMIT fault in one
-    of `ctxs` is a reproducer. Returns (reproducer or None, protocol): protocol is None
-    without a bench, else [[bench, problems]] from each bench's own check (escert proves
-    timing, not that the protocol still works)."""
+def bench_witness(image, fw: str):
+    """Run each bench of `fw` on the ISS with `image` (the mutant). Returns (an ADMIT fault
+    in any context, or None; protocol): protocol is None without a bench, else
+    [[bench, problems]] from each bench's own check (escert proves timing, not that the
+    protocol still works)."""
     protocol = []
     for name, ticks, factory in benches(fw):
-        w, problems = bench_witness_one(image, name, ticks, factory, ctxs)
+        w, problems = bench_witness_one(image, name, ticks, factory)
         if w:
             return w, None
         protocol.append([name, problems])
@@ -173,7 +189,7 @@ def long_witness(image, ctx: int):
     return w
 
 
-def config_benches(fw: str, src: str, ctxs: set):
+def config_benches(fw: str, src: str):
     """A NOT_PROVEN mutant built as each bench that sets parameters builds it (its clock,
     its tape) and run on that bench, then searched at that build with the long search: a
     fault there is reported beside NOT_PROVEN (it is another program, so the default build
@@ -184,20 +200,17 @@ def config_benches(fw: str, src: str, ctxs: set):
     for name, (f, ticks, factory) in FIRMWARE_CASES.items():
         if f != fw or (name not in FW_EQU and name not in TAPE_PREP):
             continue
-        equ = "".join(f".equ {k}, {v}\n" for k, v in FW_EQU.get(name, {}).items())
         try:
-            image = assemble(equ + src, base_dir=FW, name=fw)
+            image = fw_image(name, fw, FW, src=src)
         except AsmError:
             continue
-        if name in TAPE_PREP:
-            TAPE_PREP[name](image)
-        w, _ = bench_witness_one(image, name, ticks, factory, ctxs)
-        for k in ctxs if not w else []:       # and the host that never pauses, at that build
-            w = long_witness(image, k)
+        certs = {c.ctx: c.status for c in certify(image)}
+        w, _ = bench_witness_one(image, name, ticks, factory)
+        for k in [k for k, st in certs.items() if st != "CHECKED"] if not w else []:
+            w = long_witness(image, k)        # and the host that never pauses, at that build
             if w:
                 break
         if w:
-            certs = {c.ctx: c.status for c in certify(image)}
             if certs.get(w["ctx"]) == "CHECKED":
                 how = "its bench" if w["strategy"] == "bench" else f"the {w['strategy']} search"
                 return "UNSOUND", f"certified at {name}'s parameters, yet {how} faults it: {json.dumps(w)}"
@@ -231,7 +244,9 @@ def _run_one(job):
         status, detail = c.status, str(c).split("\n")[0][:160]
         r = {"fw": fw, "op": op, "line": line, "ctx": c.ctx}
         if status == "NOT_PROVEN":            # the program's own benches may reach it
-            w, _ = bench_witness(image, fw, {b.ctx for b in bad})
+            w, _ = bench_witness(image, fw)
+            if w and w["ctx"] not in {b.ctx for b in bad}:      # a certified context faulted
+                return {**r, "result": "UNSOUND", "ctx": w["ctx"], "detail": json.dumps(w)}
             for b in bad if not w else []:    # a host that never pauses, five times as long
                 w = long_witness(image, b.ctx)
                 if w:
@@ -240,7 +255,7 @@ def _run_one(job):
                 r["ctx"] = w["ctx"]
                 status, detail = "REFUTED", detail + " " + json.dumps(w)
             else:
-                at = config_benches(fw, "\n".join(src), {b.ctx for b in bad})
+                at = config_benches(fw, "\n".join(src))
                 if at and at[0] == "UNSOUND":
                     return {**r, "result": "UNSOUND", "detail": at[1]}
                 if at:
@@ -251,7 +266,7 @@ def _run_one(job):
         if w:
             return {"fw": fw, "op": op, "line": line, "result": "UNSOUND", "ctx": c.ctx,
                     "detail": json.dumps(w)}
-    w, protocol = bench_witness(image, fw, {c.ctx for c in certs})
+    w, protocol = bench_witness(image, fw)
     if w:
         return {"fw": fw, "op": op, "line": line, "result": "UNSOUND", "ctx": w["ctx"],
                 "detail": json.dumps(w)}

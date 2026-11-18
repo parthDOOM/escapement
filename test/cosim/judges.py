@@ -77,9 +77,9 @@ class Judge:
     # outside_decoders.sh pins, on sigrok-cli 0.7.2's runtime, with the community decoders beside
     tree: str = ""
     # instead of a sigrok stack: (channels, tick_ns) -> annotation lines, an outside program
-    # (tshark) or a published table (VESA) doing the reading
+    # (tshark, rtl_433, rc-switch) doing the reading; `by` names it in the table
     tool: Callable | None = None
-    ticks: int = 0                         # run the case this long instead (0 = its own length)
+    by: str = ""
     # decode from a sigrok session file made from the VCD: a decoder that reads the sample
     # rate in start() (swim) gets it only from a session file's header
     sr: bool = False
@@ -92,11 +92,9 @@ def clock_khz(name: str, image) -> int:
     return ks[0] if ks else 25000
 
 
-def run_case(name: str, run_ticks: int = 0) -> tuple[dict[int, list[int]], float]:
-    """The case on the ISS: every pin's level per tick (bank B as pins 8-12), and the tick.
-    `run_ticks` runs it longer than the co-simulation does (a judge that needs the next frame)."""
+def run_case(name: str) -> tuple[dict[int, list[int]], float]:
+    """The case on the ISS: every pin's level per tick (bank B as pins 8-12), and the tick."""
     fw, ticks, factory = FIRMWARE_CASES[name]
-    ticks = run_ticks or ticks
     image = fw_image(name, fw, REPO / "firmware")
     tick_ns = 1e6 / clock_khz(name, image)
     board, host, check, *bb = factory()
@@ -140,15 +138,17 @@ def decode(text: str, j: Judge) -> list[str]:
         cmd = [SIGROK, "-I", "vcd", "-i", str(p)]
         if j.sr:
             srf = Path(d) / "run.sr"
-            subprocess.run(cmd + ["-o", str(srf)], capture_output=True, text=True, timeout=600)
+            r = subprocess.run(cmd + ["-o", str(srf)], capture_output=True, text=True, timeout=600)
+            if r.returncode != 0:
+                return [f"ERROR sigrok-cli (VCD to session file): {r.stderr.strip()[:300]}"]
             cmd = [SIGROK, "-i", str(srf)]
         cmd += ["-P", ",".join(j.stack)]
         if j.ann:
             cmd += ["-A", j.ann]
         envv = None
         if j.tree == "upstream":
-            envv = dict(os.environ, SIGROKDECODE_DIR=str(OUTSIDE_PD / "decoders"),
-                        LD_LIBRARY_PATH=str(OUTSIDE_PD / "lib"))
+            lib = os.pathsep.join(x for x in (str(OUTSIDE_PD / "lib"), os.environ.get("LD_LIBRARY_PATH")) if x)
+            envv = dict(os.environ, SIGROKDECODE_DIR=str(OUTSIDE_PD / "decoders"), LD_LIBRARY_PATH=lib)
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, env=envv)
     if r.returncode != 0:
         return [f"ERROR sigrok-cli: {r.stderr.strip()[:300]}"]
@@ -169,7 +169,7 @@ def flipped(levels: list[int], at: float = 0.5) -> list[int]:
 def judge(i: int, show: bool = False):
     """JUDGES[i] (by index: a judge's lambdas do not cross to a worker process)."""
     j = JUDGES[i]
-    pins, tick_ns = run_case(j.case, j.ticks)
+    pins, tick_ns = run_case(j.case)
     chans = {n: pins[p] for n, p in j.channels.items()}
     for n, f in j.transform.items():
         chans[n] = f(chans[n])
@@ -699,15 +699,16 @@ JUDGES: list[Judge] = [
           transform={"ir": env(150)}),
     Judge("ev1527_tx", [], {"rf": 0}, eq([f"value={0xABCDE5} bits=24 protocol=1 delay=350"]), "rf", "",
           "rc-switch's receiver (its protocol 1 is the timing the table cites), off its microcontroller",
-          tool=rcswitch("rf")),
+          tool=rcswitch("rf"), by="rc-switch"),
     Judge("eth_tx", [], {"td": 0}, eq(_eth_lines([(bytes(range(60)), True)])), "td", "",
           "sigrok's ook decoder undoes the Manchester code, Wireshark's dissectors (tshark) read the "
-          "frame and check its FCS", tool=tshark_frames("td")),
+          "frame and check its FCS", tool=tshark_frames("td"), by="ook + tshark"),
     Judge("udp_tx", [], {"td": 0}, eq(["eth.dst=ff:ff:ff:ff:ff:ff eth.src=02:00:00:00:00:01 eth.type=0x0800 "
                                        "eth.fcs.status=1 ip.src=192.168.1.100 ip.dst=255.255.255.255 ip.len=46 "
                                        "ip.checksum.status=1 udp.srcport=5000 udp.dstport=5000 udp.length=26 "
                                        f"data.data={b'escapement says hi'.hex()}"]), "td", "",
-          "ook, then tshark: the FCS and the IPv4 header checksum the chip built", tool=tshark_frames("td")),
+          "ook, then tshark: the FCS and the IPv4 header checksum the chip built", tool=tshark_frames("td"),
+          by="ook + tshark"),
     Judge("sirc_tx", ["ir_sirc:ir=ir"], {"ir": 0}, eq(["Command: 0x15", "Address: 0x01"]), "ir",
           "ir_sirc=command:address", "the carrier through an IR receiver's envelope",
           transform={"ir": env(150)}, tree="upstream"),
@@ -753,16 +754,19 @@ JUDGES: list[Judge] = [
           "sae_j1850_vpw=sof:ifs:prio:dest:src:mode:data:csum:warn", "every symbol, at 4 MHz",
           tree="upstream"),
     # a THGR122NX reading, 23.5 degC and 47 %, sent twice: rtl_433's Oregon Scientific decoder,
-    # and sigrok's ook and ook_oregon, each of which checks the checksum
-    Judge("oregon_tx", [], {"rf": 0}, eq(["battery_ok=1 channel=1 humidity=47 id=187 "
+    # and sigrok's ook and ook_oregon, each of which checks the checksum. The rolling code is
+    # 0x3A (not a palindrome): rtl_433 makes it the sensor id as a station does, 58, so the
+    # nibble order is judged too; ook_oregon prints nibbles in the order sent, low first: a3
+    Judge("oregon_tx", [], {"rf": 0}, eq(["battery_ok=1 channel=1 humidity=47 id=58 "
                                           "model=Oregon-THGR122N protocol=12 temperature_C=23.5"] * 2),
           "rf", "", "rtl_433", tool=rtl433("rf", [12], ("battery_ok", "channel", "humidity", "id", "model",
-                                                      "protocol", "temperature_C")), flip_at=0.25),
+                                                      "protocol", "temperature_C")), flip_at=0.25,
+          by="rtl_433"),
     Judge("oregon_tx", ["ook:data=rf", "ook_oregon"], {"rf": 0},
-          eq(["Oregon v2.1 Preamble", "Sync", "SensorID: 1d20", "Ch: 1", "RollingCode: bb", "Flags1: 0",
-              "5", "3", "2", "0", "7", "4", "0", "c", "3", "0", "0",
+          eq(["Oregon v2.1 Preamble", "Sync", "SensorID: 1d20", "Ch: 1", "RollingCode: a3", "Flags1: 0",
+              "5", "3", "2", "0", "7", "4", "0", "3", "3", "0", "0",
               "THGN123N,THGR122NX,THGN123N,THGR228N - Temp_Hum", "Ch 1", "Batt OK", "+23.5℃",
-              "Hum 47%", "Checksum OK Calc 3C Rx 3C"] * 2), "rf", "ook_oregon", "sigrok, a second reading",
+              "Hum 47%", "Checksum OK Calc 33 Rx 33"] * 2), "rf", "ook_oregon", "sigrok, a second reading",
           flip_at=0.25),     # inside the first copy (the middle is the gap between the two)
     # frame 0x123, cycle 5, payload 00..07: the decoder checks the header CRC and the channel A
     # frame CRC itself
@@ -787,7 +791,7 @@ JUDGES: list[Judge] = [
     Judge("dcc_tx", ["dcc:data=data"], {"data": 0}, _dcc_ok, "data", "",
           "a community decoder (FrightRisk/sigrok-DCC-Protocoll): the packet and its bits", tree="upstream"),
     Judge("servo", [], {f"s{k}": k for k in range(8)}, _servo_ok, "s3", "",
-          "timing: each channel's pulses, one channel at a time", tool=_servo_tool),
+          "timing: each channel's pulses, one channel at a time", tool=_servo_tool, by="timing"),
     Judge("quadrature", ["graycode:d0=a:d1=b"], {"a": 0, "b": 1}, _quad_ok, "a", "graycode=count",
           "receiver: the count the decoder reads off A and B, against the 20 the chip reported"),
     Judge("freq_meter", ["pwm:data=f"], {"f": 3}, _freq_ok, "f", "",
@@ -861,6 +865,18 @@ def main() -> int:
         return 2
     idx = [i for i, j in enumerate(JUDGES) if not args.cases or j.case in args.cases]
     js = [JUDGES[i] for i in idx]
+    # the outside programs these judges call, each checked before any runs (a missing one
+    # would end the whole run with a traceback): test/cosim/outside_decoders.sh fetches the rest
+    need = {"rtl_433": RTL_433 if any(j.by == "rtl_433" for j in js) else "",
+            "tshark": TSHARK if any("tshark" in j.by for j in js) else "",
+            "rcswitch_rx (outside_decoders.sh)": (OUTSIDE_PD / "bin" / "rcswitch_rx").exists()
+            if any(j.by == "rc-switch" for j in js) else "",
+            "the upstream decoders (outside_decoders.sh)": (OUTSIDE_PD / "decoders").exists()
+            if any(j.tree == "upstream" for j in js) else ""}
+    missing = [n for n, ok in need.items() if ok is None or ok is False]
+    if missing:
+        print("judges: missing " + ", ".join(missing))
+        return 2
     with ProcessPoolExecutor(max_workers=args.jobs) as pool:
         res = list(pool.map(judge, idx, [args.show] * len(idx)))
     if args.show:
@@ -872,7 +888,7 @@ def main() -> int:
     print("| --- | --- | :---: | :---: |")
     bad = []
     for j, (case, lines, ok, caught) in zip(js, res):
-        stack = ", ".join(f"`{s.split(':')[0]}`" for s in j.stack)
+        stack = ", ".join([f"`{s.split(':')[0]}`" for s in j.stack] + ([f"`{j.by}`"] if j.by else []))
         print(f"| {case} | {stack} | {'pass' if ok else 'FAIL'} | {'fails' if caught else 'PASSES'} |")
         if not ok or not caught:
             bad.append((case, ok, caught, lines[:6]))

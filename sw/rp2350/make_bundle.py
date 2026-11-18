@@ -211,7 +211,7 @@ def predict(image) -> dict:
                 while len(m.xs) > n0:
                     n0 += 1
                     phases.append(_phase(m))
-                u = _phase(m)[1]
+                u = default_board(m.now, *m.outputs())   # (the pins only)
                 if u not in levels:
                     levels.append(u)
             # Self-check: run on and find the new digest on the predicted orbit. A pattern

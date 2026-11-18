@@ -29,13 +29,14 @@
 .default CTX, 0
 .default PIN, 0
 .default CLK_KHZ, 25000
-.default KBPS, 2500                         ; 2500, 5000 or 10000 kbit/s
+.default KBPS, 2500                         ; kbit/s: 2500, or 5000 at 50 MHz (10000 needs 100)
 .default PLEN, 4                            ; payload: 2-byte words (8 bytes)
 .equ TX, 1 << PIN
 .equ TB, CLK_KHZ // KBPS                    ; ticks a bit
 .assert CLK_KHZ % KBPS == 0, FlexRay needs a whole number of ticks a bit
 .assert TB >= 10, FlexRay needs at least 10 ticks a bit: one EMITX and one ADDT and room between words
 .assert PLEN % 2 == 0, PLEN is even: a host word holds two payload words
+.assert PLEN >= 2, PLEN is at least 2 (with 0 the payload loop would run 65536 times)
 .assert PLEN <= 16, PLEN is at most 16
 .equ NB, 8 + 2 * PLEN                       ; bytes: header 5, payload, frame CRC 3
 .equ NU, NB + 2                             ; units: TSS and FSS, bytes, FES

@@ -98,19 +98,20 @@ def test_shipped_firmware_is_certified_and_telemetry_agrees(fw):
 # 40 MHz or 50 MHz (the rating), still assembles and certifies. Four programs are tied to one clock by their protocol
 # (an .assert): 10BASE-T at 40 MHz, USB low speed at 24 MHz, VGA at its pixel clock.
 FIXED_CLOCK = {"eth_tx": 40000, "udp_tx": 40000, "usb_hid": 24000, "vga_pong": 25000}
-# v3: 10BASE-T receive needs whole ticks per 100 ns bit: 40 or 50 MHz, never 33; XY2-100
-# needs four instructions in each 500 ns bit and whole ticks per bit: 40 to 50 MHz in 2 MHz steps;
-# FlexRay needs whole ticks per bit (2.5 Mbit/s: 25, 40 or 50 MHz)
-TEN_MHZ_STEPS = {"eth_rx": (40000, 50000), "xy2_100": (40000, 48000, 50000),
-                 "flexray_tx": (25000, 40000, 50000)}
+# Programs that need whole ticks per bit run only at certain clocks, every one of which is
+# certified here (and none at 33 MHz): v3's 10BASE-T receive a 100 ns bit, 40 or 50 MHz;
+# XY2-100 four instructions in each 500 ns bit, 40 to 50 MHz in 2 MHz steps; FlexRay at
+# 2.5 Mbit/s, 25 to 50 MHz in 2.5 MHz steps.
+STEP_CLOCKS = {"eth_rx": (40000, 50000), "xy2_100": tuple(range(40000, 50001, 2000)),
+               "flexray_tx": tuple(range(25000, 50001, 2500))}
 CLK_33 = sorted(p.stem for p in FW.glob("*.asm")
                 if ".default CLK_KHZ" in p.read_text()
-                and p.stem not in FIXED_CLOCK and p.stem not in TEN_MHZ_STEPS)
+                and p.stem not in FIXED_CLOCK and p.stem not in STEP_CLOCKS)
 
 
-@pytest.mark.parametrize("fw", sorted(TEN_MHZ_STEPS))
-def test_ten_mhz_step_firmware_certifies_at_40_and_50_and_refuses_33(fw):
-    for khz in TEN_MHZ_STEPS[fw]:
+@pytest.mark.parametrize("fw", sorted(STEP_CLOCKS))
+def test_step_clock_firmware_certifies_at_each_of_its_clocks_and_refuses_33(fw):
+    for khz in STEP_CLOCKS[fw]:
         image = assemble(f'.equ {fw}.CLK_KHZ, {khz}\n.include "{fw}.asm"\n', base_dir=FW)
         certs = certify(image)
         assert certs and all(c.status == "CHECKED" for c in certs), [str(c) for c in certs]

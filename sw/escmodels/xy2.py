@@ -34,6 +34,9 @@ class Xy2Scanner(Device):
         if len(self.violations) < 50:
             self.violations.append(msg)
 
+    def errors(self) -> list[str]:          # (Board.errors() collects them)
+        return [f"XY2-100: {v}" for v in self.violations[:10]]
+
     def step(self, t, bus):
         prev, self._prev = self._prev, bus
         if prev is None or t < 0:

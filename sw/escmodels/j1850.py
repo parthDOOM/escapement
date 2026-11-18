@@ -47,6 +47,9 @@ class VpwReceiver(Device):
     def _near(self, us: float, nominal: float) -> bool:
         return abs(us - nominal) <= 0.05 * nominal
 
+    def errors(self) -> list[str]:          # (Board.errors() collects them)
+        return [f"J1850: {v}" for v in self.violations[:10]]
+
     def step(self, t, bus):
         lv = (bus >> self.pin) & 1
         if t < 0:
