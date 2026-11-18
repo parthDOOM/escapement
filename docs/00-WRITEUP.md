@@ -7,7 +7,7 @@ scheduled: if its deadline can still be met it happens on exactly that tick, and
 the program stops with a fault that names the reason. A late edge is not one of the
 possible outcomes. That property is proved formally for every program, for all time, and
 the gate-level netlist that goes to fabrication is proved equivalent to the RTL the proof
-is about. Around this one guarantee sit 71 firmware programs, from UART and I2C to a USB
+is about. Around this one guarantee sit 80 firmware programs, from UART and I2C to a USB
 keyboard and 10BASE-T Ethernet, a line unit that does the per-bit work of packet
 protocols, a capture unit that turns the chip into a logic analyser, and a bus timing
 monitor that checks other devices against their datasheets.
@@ -225,7 +225,7 @@ twice: in the RTL and in a Python instruction-set simulator that shares nothing 
 the instruction encodings. A shared decoder could make two models agree on the same bug,
 so execution, timing rules and faults are written separately. A co-simulation runs both
 side by side and compares every commit, every register, every pin, the queues and the
-memories on every tick. In the final run it compared 191 random programs (19,850 commits; 9 more were too long for a program page) and 65 firmware cases, each against independent bus models, on both the behavioural RTL and the standard-cell build, and found no difference. The simulator is the one in the site's
+memories on every tick. In the final run it compared 191 random programs (19,850 commits; 9 more were too long for a program page) and 74 firmware cases, each against independent bus models, on both the behavioural RTL and the standard-cell build, and found no difference. The simulator is the one in the site's
 playground, so what runs in the browser is the model the RTL is held to.
 
 **The digest.** On every clock edge where something happens, the chip folds what happened
@@ -240,7 +240,7 @@ certificate and the silicon check each other. In the VGA Pong firmware, for exam
 certificate proves that every edge of the video signal is queued at least 1,597 ticks
 early in the sync context and 8 ticks early in the picture context, and the simulator, the
 RTL, the gate-level netlist and the FPGA all measure exactly 1,597 and 8.
-All 71 programs are certified for every input. Across the 65 co-simulated firmware cases, 63 contexts have a finite bound, and the lead measured on the RTL equals the bound in 50 of them and exceeds it in the other 13; it is never below.
+All 80 programs are certified for every input. Across the 74 co-simulated firmware cases, 74 contexts have a finite bound, and the lead measured on the RTL equals the bound in 59 of them and exceeds it in the other 15; it is never below.
 
 **Mutation testing.** To check the tests themselves, faults are planted in the RTL one at
 a time across every module and simulated on the PDK's standard-cell models; a fault the
@@ -259,10 +259,11 @@ timing from the waveform itself, rather than from the model, found that the RTL 
 simulator both measured monitor intervals one tick short, a bug the lockstep comparison
 could never have seen because the two agreed.
 
-**Outside judges.** For every program whose protocol sigrok knows, sigrok's decoders,
-written by other people, read the pins of its simulated run and must decode what the test
-asked for. They agree with 53 of the 71 programs, and each judge has a control: the same
-recording with one pulse inverted must fail it. The same runs are repeated with every pin
+**Outside judges.** For every program whose protocol someone else's software can read,
+that software reads the pins of its simulated run and must decode what the test asked for:
+sigrok's decoders, the IRMP infrared library, Wireshark's dissectors, the rtl_433 receiver
+and rc-switch's receiver code. They agree with 72 of the 80 programs, and each judge has a
+control: the same recording with one pulse inverted must fail it. The same runs are repeated with every pin
 delayed a tick each way, more than a real chip's pads and board add, and every protocol still
 works.
 
@@ -301,7 +302,7 @@ digest, state and measured leads with the model's prediction and the certificate
 ![The bench: a Raspberry Pi Pico W wired to a Sipeed Tang Primer 25K Dock](img/bench-setup.jpg)
 
 Version 3's RTL, the same Verilog that was hardened for silicon, passes all six bring-up
-stages and 71 of 71 firmware runs. The FPGA build differs from the silicon in one place
+stages and 71 of 71 firmware runs (every program at the time, 15 November). The FPGA build differs from the silicon in one place
 that matters for timing: the half-tick sampler's falling-edge register is clocked through
 an inverter that leaves the FPGA's global clock network, so that bitstream fails two of its
 own build checks and was packed by hand for the run ([the bench](https://parthdoom.github.io/escapement/fpga/)).
@@ -328,7 +329,7 @@ inverted, fails the comparison
 
 ## 9. What it does
 
-The same small set of mechanisms covers a wide range of work, and three examples show its
+The same small set of mechanisms covers a wide range of work, and four examples show its
 reach.
 
 **Record it, speak it.** Point the chip at a transmitter it has never seen, such as an
@@ -354,6 +355,22 @@ pass on the players' key presses, while every I2C edge stays certified
 ([23-OLED-PONG](23-OLED-PONG.md)).
 
 ![The OLED on the bench, showing the PONG title screen](img/bench-oled.jpg)
+
+**Protocols after the silicon froze.** The design was frozen on 12 November. Nine protocols
+were added after it, none of them touching the hardware. Four are timing tables for
+`escgen`: Samsung, Sharp and Panasonic infrared, and WS2801 LEDs. Panasonic's table spells
+out the manufacturer's fixed bits itself, so the host sends only the rest of the frame.
+Five are hand-written:
+
+- an XY2-100 laser-scanner link, in four cooperating contexts;
+- SAE J1850 VPW, the GM diagnostic bus;
+- an Oregon Scientific weather sensor;
+- a FlexRay frame, with both of its CRCs computed on the chip;
+- a host for ST's single-wire debug port.
+
+Each got what the earlier programs have: a model written from the specification, planted
+bugs its tests must catch, a timing certificate, lockstep runs on the RTL, the pad audit,
+and a reader written by someone else, from IRMP to rtl_433.
 
 ## 10. Limits
 

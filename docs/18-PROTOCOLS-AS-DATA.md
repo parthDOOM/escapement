@@ -69,13 +69,26 @@ the instruction where the proof fails.
 | `dmx512_tx` | DMX512 (ANSI E1.11): 100 µs break, 12 µs mark after break, start code and 511 slots of 8N2 at 250 kbit/s | Tape words 0 to 127, four slots each, refreshed continuously | DMX receiver model with E1.11 receiver limits: every slot, break and mark-after-break times; lockstep at a 5 MHz timebase |
 | `ws2812_gen` | WS2812B: 0.4 / 0.8 µs high, 1.24 µs bit, 300 µs latch | LED count in tape word 0, colours after it | WS2812 decoder with datasheet windows; lockstep |
 | `nec_tx_gen` | NEC infrared: 38 kHz carrier at 1/3 duty, 9 ms leader, 4.5 ms space, 32 pulse-distance bits, stop burst, 40 ms quiet | One raw 32-bit frame per host word, acknowledged | NEC receiver model: carrier frequency and duty, pulse counts, every burst at its nominal distance; lockstep at a 2.5 MHz timebase |
-| `sirc_tx` | Sony SIRC 12-bit infrared: 40 kHz carrier, a start burst, pulse-width bits | One frame per host word | SIRC receiver model (`escmodels/ir.py`); lockstep |
+| `sirc_tx` | Sony SIRC 12-bit infrared: 40 kHz carrier, a start burst, pulse-width bits | One frame per host word | SIRC receiver model (`escmodels/ir.py`); sigrok's `ir_sirc` and IRMP; lockstep |
 | `rc5_tx` | Philips RC5 infrared: 36 kHz carrier, 14 Manchester bits (start, field, toggle, address, command) | One frame per host word | RC5 receiver model; lockstep |
 | `rc6_tx` | Philips RC-6 mode 0 infrared: 36 kHz carrier, 6t leader and 2t space, start and mode bits, the double-width trailer (toggle), 8 address and 8 command bits | One frame per host word | RC-6 receiver model and sigrok's `ir_rc6` decoder; certified from 8 MHz, lockstep at 8 MHz |
-| `jvc_tx` | JVC infrared: 38 kHz carrier, 8.4 ms burst, 4.2 ms space, 16 pulse-distance bits | One frame per host word | JVC receiver model; lockstep |
-| `ev1527_tx` | EV1527 433 MHz OOK remote (keys an RF module): sync, 24 bits of 1T and 3T levels | One code per host word | EV1527 receiver model; lockstep at 2 MHz |
-| `dcc_tx` | NMRA DCC packet for a booster: 58 / 100 µs half-periods, 14-one preamble, address, instruction and check byte | One packet per host word | DCC decoder model; lockstep at 4 MHz |
+| `jvc_tx` | JVC infrared: 38 kHz carrier, 8.4 ms burst, 4.2 ms space, 16 pulse-distance bits | One frame per host word | JVC receiver model; IRMP; lockstep |
+| `ev1527_tx` | EV1527 433 MHz OOK remote (keys an RF module): sync, 24 bits of 1T and 3T levels | One code per host word | EV1527 receiver model; rc-switch's receiver; lockstep at 2 MHz |
+| `dcc_tx` | NMRA DCC packet for a booster: 58 / 100 µs half-periods, 14-one preamble, address, instruction and check byte | One packet per host word | DCC decoder model; a community sigrok decoder; lockstep at 4 MHz |
 | `wiegand_tx` | Wiegand 26-bit reader output: 50 µs pulses 1 ms apart on DATA0 / DATA1 | One frame per host word (the host computes the parities) | Wiegand receiver model; lockstep |
+| `samsung_tx` | Samsung32 infrared: 38 kHz carrier at 1/3 duty, 4.5 ms leader and 4.5 ms space, 32 pulse-distance bits (the custom code, a data byte and its complement), stop burst, 40 ms quiet | One raw 32-bit frame per host word, acknowledged | Samsung receiver model; IRMP; lockstep at 2 MHz |
+| `sharp_tx` | Sharp infrared: 38 kHz carrier, 15 pulse-distance bits (5 address, 8 command, expansion, check), then the same frame 40 ms later with command, expansion and check inverted | One host word holds both frames, two units of 15 bits | Sharp receiver model, which pairs the frames; IRMP; lockstep at 2 MHz |
+| `panasonic_tx` | Panasonic infrared (Kaseikyo): 37 kHz carrier, a unit T of 432 µs, 8T leader and 4T space, 48 pulse-distance bits, stop burst, 74 ms quiet | One host word per frame (address, command, parity), acknowledged; Panasonic's vendor code and its parity nibble are in the table | Kaseikyo receiver model, both parities; IRMP; lockstep at 2 MHz |
+| `ws2801_tx` | WS2801 LED chain, clock and data: 24 bits an LED, sampled on the rising clock edge, at 500 kHz; 600 µs latch | LED count in tape word 0, colours after it, sent continuously | WS2801 chain model; sigrok's `spi` and `rgb_led_spi`; lockstep at 25 MHz |
+
+**What the table can say.** A frame is a list of symbols and fields, so bits that never
+change can be written as symbols rather than taken from the host. A Kaseikyo frame is 48
+bits, more than a host word holds, but its first 20 are the vendor's: Panasonic's 0x2002
+and its parity nibble. `panasonic_tx` spells those 20 bits out as `zero` and `one` symbols
+and takes the other 28 from the host, so one word is one frame and the table, not the
+host, holds what makes it a Panasonic frame. Changing the vendor is an edit to that line,
+and a test plants one wrong vendor bit and checks that the receiver model sees another
+vendor and a failed parity.
 
 Against the hand-written programs for the same protocols:
 
