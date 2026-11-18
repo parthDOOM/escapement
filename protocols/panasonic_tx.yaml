@@ -1,0 +1,37 @@
+# Panasonic infrared remote (Kaseikyo, Panasonic's vendor code): a 37 kHz carrier, a time
+# unit T of 16 carrier periods (432 us), an 8T leader burst and a 4T space, then 48
+# pulse-distance bits LSB first, each a 1T burst and a 1T (0) or 3T (1) space, and a
+# closing burst. The first 20 bits are Panasonic's: the vendor code 0x2002 and its parity
+# nibble (the XOR of its four nibbles, 0), spelled out below as symbols, so the table holds
+# what is fixed and the host word only the rest.
+name: panasonic_tx
+title: Panasonic infrared frame (Kaseikyo, vendor 0x2002) with a 37 kHz carrier; one host word per frame (address, command, parity), acknowledged
+refs: ["IRMP, irmpprotocols.h (KASEIKYO): a 3380 us start pulse and 1690 us pause, 423 us pulses, 1269 / 423 us pauses for 1 / 0, 48 bits LSB first, a stop bit; irmp.c checks the vendor parity nibble (XOR of the vendor's nibbles) and the last byte (XOR of bytes 2 to 4)",
+       "Arduino-IRremote, ir_Kaseikyo.hpp: KASEIKYO_UNIT 432 us (16 periods of 37 kHz), an 8-unit header mark and 4-unit space, 1-unit marks, 3 / 1-unit spaces, <VendorID:16><VendorID parity:4><Address:12><Command:8><Parity:8>, PANASONIC_VENDOR_ID_CODE 0x2002, a 74 ms repeat distance"]
+context: 0
+pins:
+  IR: {pin: 0, idle: 0}
+constants:
+  PERIOD: (CLK_KHZ * 10 + 185) // 370      # 676 ticks at 25 MHz: 36.98 kHz
+  NBIT: 16                                 # carrier pulses in a 1T bit or stop burst (432 us)
+  NLEAD: 128                               # carrier pulses in the 8T leader (3.46 ms)
+  HDR: 192 * PERIOD                        # 12T, leader start to the first bit
+  BIT0: 32 * PERIOD                        # 2T, burst to burst: 0
+  BIT1: 64 * PERIOD                        # 4T, burst to burst: 1
+  GAP: CLK_KHZ * 74                        # 74 ms of quiet after a frame
+carrier: {period: PERIOD, high: (PERIOD + 1) // 3}    # 1/3 duty
+symbols:
+  leader: [[{IR: carrier}, NLEAD * PERIOD], [{IR: 0}, HDR - NLEAD * PERIOD]]
+  zero:   [[{IR: carrier}, NBIT * PERIOD], [{IR: 0}, BIT0 - NBIT * PERIOD]]
+  one:    [[{IR: carrier}, NBIT * PERIOD], [{IR: 0}, BIT1 - NBIT * PERIOD]]
+  stop:   [[{IR: carrier}, NBIT * PERIOD]]
+  gap:    [[{IR: 0}, GAP]]
+# vendor 0x2002, LSB first: 0x02 then 0x20, then the parity nibble 0; then the host word's
+# 28 bits: address [11:0], command [19:12], parity [27:20] (bytes 2 to 4 XORed)
+frame: [leader,
+        zero, one, zero, zero, zero, zero, zero, zero,
+        zero, zero, zero, zero, zero, one, zero, zero,
+        zero, zero, zero, zero,
+        {bits: 28, order: lsb, choose: [zero, one]}, stop]
+source: {kind: mailbox}
+packet: {after: [gap], ack: true}

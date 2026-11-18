@@ -1,5 +1,6 @@
-"""Sony SIRC, Philips RC5, RC-6, Samsung32 and Sharp transmitters generated from
-protocols/sirc_tx.yaml, rc5_tx.yaml (v1.6), rc6_tx.yaml, samsung_tx.yaml and sharp_tx.yaml, against the receiver models of escmodels/ir.py, which decode the
+"""Sony SIRC, Philips RC5, RC-6, Samsung32, Panasonic (Kaseikyo) and Sharp transmitters
+generated from protocols/sirc_tx.yaml, rc5_tx.yaml (v1.6), rc6_tx.yaml, samsung_tx.yaml,
+panasonic_tx.yaml and sharp_tx.yaml, against the receiver models of escmodels/ir.py, which decode the
 carrier bursts in microseconds. Most runs use a 4 MHz clock (the tables are written in
 CLK_KHZ, and the models time in microseconds), SIRC also at 25 MHz."""
 
@@ -72,6 +73,52 @@ def test_samsung_frames(khz):
     assert [f["raw"] for f in fs] == codes and all(f["complement_ok"] for f in fs)
     assert acks == [1] * len(codes)
     assert all(abs(f["carrier_khz"] - 38) < 0.5 for f in fs)
+
+
+def panasonic(address, command):
+    """The host word for one Panasonic (Kaseikyo) code: address [11:0], command [19:12],
+    and the parity byte [27:20], the XOR of frame bytes 2 to 4 (byte 2 is the vendor
+    parity nibble, 0 for 0x2002, under the address's low nibble)."""
+    b2, b3, b4 = (address & 0xF) << 4, address >> 4, command
+    return address | command << 12 | (b2 ^ b3 ^ b4) << 20
+
+
+@pytest.mark.parametrize("khz", [4000, 25000])
+def test_panasonic_frames(khz):
+    from escmodels import KaseikyoReceiver
+    codes = [(0x100, 0x3D), (0xFFF, 0xFF), (0x000, 0x00), (0xA5C, 0x81)]
+    if khz == 25000:
+        codes = codes[:1]
+    rx, acks = run("panasonic_tx", KaseikyoReceiver, [panasonic(*c) for c in codes], khz, 140)
+    fs = rx.frames()
+    assert [(f["address"], f["command"]) for f in fs] == codes and acks == [1] * len(codes)
+    assert all(f["vendor"] == 0x2002 and f["vendor_parity_ok"] and f["parity_ok"] for f in fs)
+    assert all(abs(f["carrier_khz"] - 37) < 0.5 for f in fs)
+
+
+def test_panasonic_model_flags_a_bad_parity():
+    """The model's own control: a host word with a wrong parity byte is reported as such."""
+    from escmodels import KaseikyoReceiver
+    rx, _ = run("panasonic_tx", KaseikyoReceiver, [panasonic(0x100, 0x3D) ^ 1 << 27], 4000, 140)
+    (f,) = rx.frames()
+    assert f["vendor_parity_ok"] and not f["parity_ok"]
+
+
+def test_planted_wrong_vendor_bit_is_seen():
+    """A table with one of Panasonic's fixed vendor bits wrong sends another vendor code,
+    and its parity nibble no longer matches."""
+    from escmodels import KaseikyoReceiver
+    t = table("panasonic_tx")
+    assert t["frame"][2] == "one"
+    t["frame"][2] = "zero"                         # vendor bit 1: 0x2002 becomes 0x2000
+    _, image = escgen.build(t, CLK_KHZ=4000)
+    rx = KaseikyoReceiver(0, tick_ns=1e6 / 4000)
+    m = Machine(image, board=Board(rx, pullups=0))
+    m.host_rx_push(0, panasonic(0x100, 0x3D))
+    m.run(140 * 4000, stop_when_idle=False)
+    rx.finish()
+    (f,) = rx.frames()
+    assert f["vendor"] == 0x2000 and not f["vendor_parity_ok"]
 
 
 def sharp(address, command):

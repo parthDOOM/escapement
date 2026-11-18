@@ -1,5 +1,5 @@
-"""Remote-control and pulse-coded receivers: Sony SIRC, Philips RC5, RC-6, JVC, Samsung32 and
-Sharp from the carrier on a pin, EV1527 433 MHz codes from an OOK data pin, NMRA DCC packets from a track signal.
+"""Remote-control and pulse-coded receivers: Sony SIRC, Philips RC5, RC-6, JVC, Samsung32,
+Kaseikyo (Panasonic) and Sharp from the carrier on a pin, EV1527 433 MHz codes from an OOK data pin, NMRA DCC packets from a track signal.
 
 SIRC and RC5:
 Written from the protocol descriptions (SB-Projects: www.sbprojects.net/knowledge/ir/
@@ -252,6 +252,47 @@ class SamsungReceiver(_Bursts):
                             "complement_ok": (v >> 24) == (~v >> 16 & 0xFF),
                             "carrier_khz": 1e6 / (per * self.tick) if per else 0})
                 i += 34
+            else:
+                i += 1
+        return out
+
+
+class KaseikyoReceiver(_Bursts):
+    """Kaseikyo, as Panasonic and others use it (IRMP's irmpprotocols.h and irmp.c,
+    Arduino-IRremote's ir_Kaseikyo.hpp): about 37 kHz, a unit T of 432 us; an 8T burst and
+    a 4T space, then 48 bits LSB first, each a 1T burst whose distance to the next burst is
+    2T (0) or 4T (1); a burst closes the last bit (+/-25% here, which also takes IRMP's
+    3380 / 1690 / 423 us). The bits are a 16-bit vendor code, a nibble that is the XOR of
+    the vendor's four nibbles, 12 address bits, 8 command bits, and a byte that is the XOR
+    of bytes 2 to 4; both checks are reported, not enforced."""
+
+    T = 432
+
+    def frames(self):
+        out, b, i = [], self.bursts, 0
+        while i < len(b):
+            s, e, per = b[i]
+            if not (_near(self.us(e - s), 8 * self.T) and i + 49 < len(b)
+                    and _near(self.us(b[i + 1][0] - e), 4 * self.T)):
+                i += 1
+                continue
+            bits = []
+            for j in range(i + 1, i + 49):
+                if not _near(self.us(b[j][1] - b[j][0]), self.T):
+                    break
+                d = self.us(b[j + 1][0] - b[j][0])
+                bits.append(0 if _near(d, 2 * self.T) else 1 if _near(d, 4 * self.T) else None)
+            if len(bits) == 48 and None not in bits and _near(self.us(b[i + 49][1] - b[i + 49][0]), self.T):
+                v = sum(bit << k for k, bit in enumerate(bits))
+                by = [v >> (8 * k) & 0xFF for k in range(6)]
+                vendor = by[0] | by[1] << 8
+                nib = (vendor ^ vendor >> 4 ^ vendor >> 8 ^ vendor >> 12) & 0xF
+                out.append({"raw": v, "vendor": vendor,
+                            "vendor_parity_ok": (by[2] & 0xF) == nib,
+                            "address": v >> 20 & 0xFFF, "command": v >> 32 & 0xFF,
+                            "parity_ok": by[5] == by[2] ^ by[3] ^ by[4],
+                            "carrier_khz": 1e6 / (per * self.tick) if per else 0})
+                i += 50
             else:
                 i += 1
         return out

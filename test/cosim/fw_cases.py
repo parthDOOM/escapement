@@ -727,6 +727,7 @@ def _ir_case(model, khz, code, want):
 
 
 SAMSUNG_CODE = 0x0707 | 0x02 << 16 | 0xFD << 24     # custom 0x0707, data 0x02 and its complement
+PANASONIC_CODE = 0x100 | 0x3D << 12 | (0x10 ^ 0x3D) << 20   # address 0x100, command 0x3D, parity
 SHARP_A = 0x01 | 0x16 << 5 | 1 << 13                 # address 1, command 0x16, expansion 1, check 0
 SHARP_WORD = SHARP_A | (0x01 | (~SHARP_A & 0x7FE0)) << 15   # and its partner, inverted
 
@@ -1370,6 +1371,10 @@ FIRMWARE_CASES = {
                                               lambda f: f["address"] | f["command"] << 8)),
     "samsung_tx": ("samsung_tx.asm", 140000, _ir_case("SamsungReceiver", 2000, SAMSUNG_CODE,
                                                       lambda f: f["raw"] if f["complement_ok"] else None)),
+    "panasonic_tx": ("panasonic_tx.asm", 200000, _ir_case("KaseikyoReceiver", 2000, PANASONIC_CODE,
+                                                          lambda f: f["address"] | f["command"] << 12
+                                                          | (f["raw"] >> 40) << 20 if f["vendor"] == 0x2002
+                                                          and f["vendor_parity_ok"] and f["parity_ok"] else None)),
     "sharp_tx": ("sharp_tx.asm", 175000, case_sharp),
     "xy2_100": ("xy2_100.asm", 19000, case_xy2),
     "j1850_vpw": ("j1850_vpw.asm", 24000, case_j1850),
@@ -1409,7 +1414,7 @@ TAPE_PREP["ws2801_tx"] = ws2801_tape
 FW_EQU = {"freq_meter": {"N": 8, "PIN": 3}, "i2c_timing": {"TOUT_US": 100},
           "spi_sniff_long": {"QUIET": 4000},
           "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
-          "samsung_tx": {"CLK_KHZ": 2000}, "sharp_tx": {"CLK_KHZ": 2000}, "j1850_vpw": {"CLK_KHZ": 4000},
+          "samsung_tx": {"CLK_KHZ": 2000}, "panasonic_tx": {"CLK_KHZ": 2000}, "sharp_tx": {"CLK_KHZ": 2000}, "j1850_vpw": {"CLK_KHZ": 4000},
           "oregon_tx": {"CLK_KHZ": 200},
           "ev1527_tx": {"CLK_KHZ": 2000}, "dcc_tx": {"CLK_KHZ": 4000},
           "wiegand_tx": {"CLK_KHZ": 1000}, "lin_tx": {"CLK_KHZ": 1000}, "lin_resp": {"CLK_KHZ": 4000}, "em4100_tag": {"CLK_KHZ": 4000}, "wiegand_rx": {"CLK_KHZ": 4000}, "dcf77_tx": {"CLK_KHZ": 10}, "qi_rx": {"CLK_KHZ": 2000},

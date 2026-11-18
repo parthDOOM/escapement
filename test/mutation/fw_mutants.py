@@ -26,6 +26,10 @@ command is reached only by that command. So both searches then also run the prog
 own co-simulation benches (test/cosim/fw_cases.py: its bus models and host script) on the
 ISS with the mutant in place, those whose image is the very one certified (a bench that
 sets .equ parameters or prepares the tape runs a different program, and is left out).
+escert proves timing, not that the protocol still works: for a certified mutant the
+bench's own check (its bus models' verdict) is recorded too, and the report counts the
+certified mutants whose protocol the models see fail. Every unmutated program passes
+its benches, so that count is the mutants' doing.
 
 A mutant may also be harmless to timing (a shorter delay that still leaves the next
 deadline in the future, a branch whose two paths have the same timing): escert then
@@ -109,7 +113,10 @@ def benches(fw: str) -> list:
 
 def bench_witness(image, fw: str, ctxs: set):
     """Run each bench of `fw` on the ISS with `image` (the mutant): an ADMIT fault in one
-    of `ctxs` is a reproducer."""
+    of `ctxs` is a reproducer. Returns (reproducer or None, protocol): protocol is None
+    without a bench, else [[bench, problems]] from each bench's own check (the bus models'
+    verdict: escert proves timing, not that the protocol still works)."""
+    protocol = []
     for name, ticks, factory in benches(fw):
         board, host, check, *bb = factory()
         m = Machine(image, board=board, board_b=bb[0] if bb else no_board_b,
@@ -119,15 +126,22 @@ def bench_witness(image, fw: str, ctxs: set):
         # A mutant that breaks the protocol makes a bus model give up (escmodels.usb raises
         # UsbError when a SETUP goes unacknowledged; a host script left unread raises
         # RuntimeError): the bench ends there, and only the fault register is judged.
+        problems = []
         try:
             m.run(ticks, stop_when_idle=False)
-        except Exception:                     # noqa: BLE001
-            pass
+        except Exception as e:                # noqa: BLE001
+            problems.append(f"{type(e).__name__}: {e}"[:120])
         ff = m.ff
         if ff.valid and ff.ctx in ctxs and ff.cause == ISA.fault_causes["ADMIT"]:
             return {"bench": name, "ctx": ff.ctx, "tick": ff.tick, "pc": ff.pc,
-                    "subcode": ff.subcode, "strategy": "bench"}
-    return None
+                    "subcode": ff.subcode, "strategy": "bench"}, None
+        if not problems:
+            try:
+                problems = [str(x)[:120] for x in check(board, host)]
+            except Exception as e:            # noqa: BLE001
+                problems = [f"check: {type(e).__name__}: {e}"[:120]]
+        protocol.append([name, problems])
+    return None, (protocol or None)
 
 
 def run_one(job):
@@ -155,7 +169,7 @@ def _run_one(job):
         c = bad[0]
         status, detail = c.status, str(c).split("\n")[0][:160]
         if status == "NOT_PROVEN":            # the program's own benches may reach it
-            w = bench_witness(image, fw, {b.ctx for b in bad})
+            w, _ = bench_witness(image, fw, {b.ctx for b in bad})
             if w:
                 status, detail = "REFUTED", detail + " " + json.dumps(w)
         return {"fw": fw, "op": op, "line": line, "result": status, "ctx": c.ctx,
@@ -165,11 +179,14 @@ def _run_one(job):
         if w:
             return {"fw": fw, "op": op, "line": line, "result": "UNSOUND", "ctx": c.ctx,
                     "detail": json.dumps(w)}
-    w = bench_witness(image, fw, {c.ctx for c in certs})
+    w, protocol = bench_witness(image, fw, {c.ctx for c in certs})
     if w:
         return {"fw": fw, "op": op, "line": line, "result": "UNSOUND", "ctx": w["ctx"],
                 "detail": json.dumps(w)}
-    return {"fw": fw, "op": op, "line": line, "result": "CHECKED"}
+    r = {"fw": fw, "op": op, "line": line, "result": "CHECKED"}
+    if protocol is not None:                  # timing certified; does the protocol still work?
+        r["protocol"] = protocol
+    return r
 
 
 def main() -> int:
@@ -206,8 +223,9 @@ def main() -> int:
 
 
 def report(names: list, results: list) -> int:
-    """The table (per firmware, per operator), then every UNSOUND and NOT_PROVEN mutant;
-    1 if any is UNSOUND."""
+    """The table (per firmware, per operator), the certified mutants whose bench saw the
+    protocol fail, then every UNSOUND, ERROR and NOT_PROVEN mutant; 1 if any is UNSOUND
+    or ERROR."""
     kinds = ["REFUTED", "NOT_PROVEN", "CHECKED", "UNSOUND", "INVALID", "ERROR"]
     print("| Firmware | Mutants | " + " | ".join(kinds) + " |")
     print("| --- | --- |" + " --- |" * len(kinds))
@@ -223,9 +241,18 @@ def report(names: list, results: list) -> int:
         f"{op} {len(rs)} ({sum(r['result'] == 'REFUTED' for r in rs)} refuted, "
         f"{sum(r['result'] == 'NOT_PROVEN' for r in rs)} not proven, "
         f"{sum(r['result'] == 'CHECKED' for r in rs)} certified)" for op, rs in by_op.items()))
+    # escert proves timing only: of the certified mutants that have a bench, those whose
+    # bench's bus models then saw the protocol fail
+    benched = [r for r in results if r["result"] == "CHECKED" and "protocol" in r]
+    broken = [r for r in benched if any(p for _, p in r["protocol"])]
+    print(f"\nCertified mutants with a bench: {len(benched)}; the protocol still works in "
+          f"{len(benched) - len(broken)}, the bench's bus models see it fail in {len(broken)}.")
     for r in results:
         if r["result"] in ("UNSOUND", "ERROR", "NOT_PROVEN"):
             print(f"- {r['result']} {r['fw']}:{r['line']} {r['op']}: {r.get('detail', '')}")
+    for r in broken:
+        why = "; ".join(f"{b}: {p[0]}" for b, p in r["protocol"] if p)
+        print(f"- CHECKED, protocol broken {r['fw']}:{r['line']} {r['op']}: {why}")
     return 1 if tot["UNSOUND"] or tot["ERROR"] else 0
 
 

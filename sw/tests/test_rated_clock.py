@@ -786,6 +786,10 @@ RATED_CASES = {
                42_500, None),
     "samsung_tx": (_rated_ir("SamsungReceiver", 0x0707 | 0x02 << 16 | 0xFD << 24,
                              lambda f: f["raw"] if f["complement_ok"] else None), 70_000, None),
+    "panasonic_tx": (_rated_ir("KaseikyoReceiver", 0x100 | 0x3D << 12 | (0x10 ^ 0x3D) << 20,
+                               lambda f: f["address"] | f["command"] << 12 | (f["raw"] >> 40) << 20
+                               if f["vendor"] == 0x2002 and f["vendor_parity_ok"] and f["parity_ok"]
+                               else None), 70_000, None),
     "sharp_tx": (_rated_sharp, 90_000, None),
     "j1850_vpw": (_rated_j1850, 6_000, None),
     "ev1527_tx": (_rated_ev1527, 45_000, None),

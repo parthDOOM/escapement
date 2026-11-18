@@ -197,6 +197,8 @@ open at one end. Each direction runs as its own program load: `firmware/eth_tx.a
 | --- | --- |
 | ![The transmit bench: the Pico W, the Dock, and the breadboard with the green pair to the laptop](../../docs/img/eth-tx-bench.jpg) | ![The receive bench: the same, with the orange pair's bias network added on the breadboard](../../docs/img/eth-rx-bench.jpg) |
 
+![The breadboard close up: the transmit and receive networks, nothing but resistors and capacitors between the chip's pins and the cable](../../docs/img/eth-board.jpg)
+
 **The clock.** Each Manchester half-bit is exactly 2 ticks, so the chip runs at 40 MHz for
 Ethernet, not the bench's usual 25 MHz. The Pico's PWM divides its system clock by a whole
 number, so `ethbench` first sets the system clock to 160 MHz, which the RP2040's PLL makes
@@ -389,6 +391,8 @@ step shows its effect. Log and recordings (VCD): `results/2026-11-17/swd-judge/`
 
 For it, the analyser's GP2 (pin 4) shares a breadboard row with SWCLK and GP3 (pin 5) one
 with SWDIO; it is grounded already through the target's debug GND.
+
+![The SWD bench: the Dock and the bench Pico W (right), the target Pico (left), and the breadboard where SWCLK and SWDIO reach both its debug header and the GPIOs it samples them on](../../docs/img/swd-bench.jpg)
 
 In simulation the same host routine runs against a model of the RP2040's three ports on one
 bus (`sw/escmodels/swd.py`, `test_swdbench.py`), and `sw/tests/test_firmware.py` checks the

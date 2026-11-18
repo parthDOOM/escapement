@@ -725,6 +725,13 @@ JUDGES: list[Judge] = [
     Judge("samsung_tx", ["ir_irmp:ir=ir"], {"ir": 0},
           eq(["Protocol: SAMSG32 (10), Address 0x0707, Command: 0xfd02, Flags: -"]), "ir", "", "IRMP",
           transform={"ir": env_idle(150, 60000)}, tree="upstream"),
+    # Kaseikyo with Panasonic's vendor code: IRMP gives the vendor as the address and frame
+    # bits 28 to 39 as the command, here our address's top nibble 0x1 under command 0x3D;
+    # it reports a frame only when both parity checks hold
+    Judge("panasonic_tx", ["ir_irmp:ir=ir"], {"ir": 0},
+          eq(["Protocol: KASEIKYO (5), Address 0x2002, Command: 0x03d1, Flags: -"]), "ir", "",
+          "IRMP, which checks both parities", transform={"ir": env_idle(150, 60000)},
+          tree="upstream"),
     # Sharp, which IRMP files under DENON and reads MSB first: address 1 over 5 bits is 0x10;
     # command 0x16, expansion 1 and check 0 over 10 bits are 0x1A2. IRMP reports it only once
     # the partner frame, inverted, has followed.

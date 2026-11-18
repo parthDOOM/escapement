@@ -319,6 +319,12 @@ function Page({ d }: { d: Fpga }) {
               <figcaption>The receive bench: the transmit circuit stays for the link pulses.</figcaption>
             </figure>
           </div>
+          <figure className="panel photo" style={{ marginTop: "2rem" }}>
+            <img src="../img/eth-board.jpg" width={1400} height={654} loading="lazy"
+              alt="The breadboard close up: jumpers from the Dock and the cut-open cable's conductors, joined only by resistors and small ceramic capacitors, the transmit network and the receive network side by side." />
+            <figcaption>The breadboard close up: the transmit and receive networks, nothing but resistors and
+              capacitors between the chip's pins and the cable.</figcaption>
+          </figure>
           <div className="cols" style={{ marginTop: "2rem" }}>
             <div className="prose">
               <p><strong>Transmit.</strong> <code>eth_tx</code> keeps the laptop's link up with a pulse every 16 ms
@@ -393,6 +399,12 @@ function Page({ d }: { d: Fpga }) {
               twice: to its debug header, which is the target, and to a GPIO that the same board samples. The debug
               port is separate hardware from the cores, so one Pico can be the target and run the analyser firmware
               at once. The Pico W's own wires to those two Dock holes are unplugged for this run.</figcaption>
+          </figure>
+          <figure className="panel photo" style={{ marginTop: "2rem", maxWidth: "760px", marginInline: "auto" }}>
+            <img src="../img/swd-bench.jpg" width={1400} height={1404} loading="lazy"
+              alt="The SWD bench: the Tang Primer 25K Dock and the bench Pico W on the right, the target Pico on the left on its own USB cable, and a small breadboard where the debug lines meet the target's analyser inputs." />
+            <figcaption>The SWD bench: the Dock and the bench Pico W (right), the target Pico (left), and the
+              breadboard where SWCLK and SWDIO reach both its debug header and the GPIOs it samples them on.</figcaption>
           </figure>
           <div className="cols" style={{ marginTop: "2rem" }}>
             <div className="prose">
