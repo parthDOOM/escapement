@@ -1013,17 +1013,24 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
                     pass
                 go(t, nxt)
         elif name == "WAITP":
-            # a match at any time, or the timeout slot (tmr..tmr+3) if tmr is ahead
+            # sec. 7: a match sets Z = 1, at any time up to the timeout slot (tmr..tmr+3 if
+            # tmr is ahead); Z = 0 only once tmr is reached. Following the two apart lets a
+            # branch on Z know that the timeout path is at or past tmr.
             t = s.copy()
             if t.z.constrain(TMR, NOW, 0):
-                go(t, nxt)
+                go(t, nxt)                               # tmr reached already: at once
             t = s.copy()
             if t.z.constrain(NOW, TMR, -1):
                 # now' in [now, tmr + 3]
                 hi_lead = t.z.diff(TMR, NOW)[1]
                 _advance(t, 0, hi_lead + 3 if hi_lead < INF else INF)
                 t.z.constrain(NOW, TMR, 3)
+                u = t.copy()
+                t.zf = 1                                 # a match
                 go(t, nxt)
+                if u.z.constrain(TMR, NOW, 0):           # timed out: now' >= tmr
+                    u.zf = 0
+                    go(u, nxt)
         elif name in ("POP", "PUSH"):
             if name == "POP":
                 setreg(f["rd"], ("top",))

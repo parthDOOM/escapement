@@ -92,6 +92,10 @@ jobs:
             g++ libglib2.0-dev python3-dev
           bash test/cosim/outside_decoders.sh
 
+      # the README's first command, as a newcomer runs it (sigrok-cli is installed above)
+      - name: Quickstart
+        run: make quickstart
+
       - name: Software tests
         run: |
           mkdir -p results

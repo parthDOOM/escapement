@@ -37,7 +37,7 @@ unless a section says otherwise. The final runs at a glance:
 | Lockstep co-simulation | 191 random programs and 74 firmware cases, on two builds of the RTL: no difference |
 | Timing certificates | 80 of 80 programs certified; the measured lead equals the bound in 59 of 74 contexts and is never below it |
 | Mutation testing | 1,010 planted RTL faults: 892 caught, 57 proved harmless, 61 argued harmless, none surviving |
-| Outside judges | decoders written by other people agree with 72 of the 80 programs; every control fails |
+| Outside judges | decoders written by other people agree with 73 of the 80 programs; every control fails |
 | Planted firmware bugs | 719 timing bugs in 77 programs: 172 refuted with a reproducer, 29 not proven, 518 certified, none certified that can fault |
 | Pads and board | every firmware case still passes with its pins one tick slower each way |
 | Test suites | 1,507 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
@@ -842,7 +842,7 @@ netlist instead, and the 14-second `westminster` tune only on the simulator.
 | Pong on a 128x64 SSD1306 OLED over I2C, four contexts with one program page each: display engine, game, text and menu | `oled_disp`, `oled_pong`, `oled_text`, `oled_menu` | SSD1306 model with the Fast-mode timing checks; every picture, the whole display RAM, against a model that draws the screens from the firmware's rules and plays the game |
 | CAN 2.0A and 2.0B receiver on the line unit: standard, extended and remote frames, CRC-15 checked by the line unit's CRC engine | `can_rx` | Bus model playing frames back to back from nodes 0.5% slow or fast; bad CRCs, frames cut by an error flag, DLC over 8, 500 kbit/s |
 | DShot600 for four ESCs from one context, 600 kbit/s exactly (42, 42, 41 ticks per bit), and bidirectional DShot | `dshot_tx` | ESC models that check every pulse width, bit period and CRC; frame period to the tick through host updates; at 24 MHz |
-| SENT (SAE J2716) sensor, with or without a pause pulse | `sent_tx` | Receiver model that calibrates from the sync pulse and checks the recommended CRC-4 (and the CRC against polynomial division); frames back to back to the tick, values changing mid-run never mixing frames |
+| SENT (SAE J2716) sensor, with or without a pause pulse | `sent_tx` | Receiver model that calibrates from the sync pulse and checks the recommended CRC-4 (and the CRC against polynomial division); frames back to back to the tick, values changing mid-run never mixing frames; the community `sae_j2716_sent` decoder, with a pause pulse |
 | HDMI-CEC adapter: follower and initiator | `cec` | CEC device model with the Linux cec-pin timing windows: acknowledgement of its own address only, broadcast never driven, sending with arbitration (lost to a simultaneous start, then retried), retries after a refusal, a host-set logical address |
 | DALI control gear (IEC 62386-102 commands and queries) | `dali` | Controller model at nominal and ±10% bit timing: levels, OFF, RECALL, queries answered 7.5 ms after the forward frame on the half-bit grid; other addresses, groups, broadcast |
 | USB 1.1 low-speed HID keyboard on the line unit | `usb_hid` | Reactive USB host model from the USB 2.0 text that checks every device packet and its turnaround: enumeration, lost and corrupted handshakes, corrupt tokens and data, bus resets at every stage, host clock ±5%, hostile traffic (74 tests); and the Linux kernel itself, which enumerates the simulated chip over USB/IP and receives typed text |
@@ -1004,7 +1004,8 @@ use readers that are not sigrok-cli's own, each fetched at a pinned commit by
   JVC, Samsung, Sharp and Panasonic; `xy2-100`; `sae_j1850_vpw`; `flexray`; `rgb_led_spi`
   for WS2801; `swim`; `sbus_futaba`; `ook` with `ook_oregon`; `timing` for servo pulses;
   `graycode` for the quadrature encoder; and `pwm` for the frequency meter's test signal.
-- **A community decoder** for NMRA DCC (FrightRisk/sigrok-DCC-Protocoll).
+- **Two community decoders**, for NMRA DCC (FrightRisk/sigrok-DCC-Protocoll) and for SENT
+  (enp6s0/sent-decoder).
 - **Wireshark's dissectors** (`tshark`) for 10BASE-T and UDP: `ook` undoes the Manchester
   code, and Wireshark checks the frame's FCS and the IPv4 header checksum the chip built.
 - **rtl_433**, the receiver used for real 433 MHz sensors, for Oregon Scientific.
@@ -1026,10 +1027,10 @@ little, and both now compare more: the 1-Wire judge read only the network layer'
 so it now also compares every bit the master read, and the MAX7219 judge skipped the seven
 blanked digits of the set-up.
 
-In the final run all 60 judges in `judges.py` and all 14 in `test_sigrok_judge.py` agree,
-and all 74 controls fail. Together they judge 72 of the 80 programs. The other eight:
+In the final run all 61 judges in `judges.py` and all 14 in `test_sigrok_judge.py` agree,
+and all 75 controls fail. Together they judge 73 of the 80 programs. The other seven:
 
-- DShot and SENT have no decoder anywhere, as far as we could find.
+- DShot: the only decoder we found carries no licence, so we do not run it.
 - VGA Pong and the chime (`westminster`) have no co-simulation case to record, and the
   seven-segment display's multiplexed digits are not a protocol any decoder reads.
 - `i2c_timing` and `logic_analyzer` only measure or record a line the test itself drives.
@@ -1053,6 +1054,11 @@ Some of the readers have limits that the judges work around, each written in the
   own, followed by one more clock pulse.
 - `dmx512` misreads slots sent back to back, so the DMX judge reads the same line with the
   `uart` decoder as 8N2 frames at 250 kbit/s.
+- `sae_j2716_sent` ends a frame only at a pulse longer than 100 ticks, so frames sent back
+  to back never end; the judge builds `sent_tx` with a pause pulse (`FRAME_UT` = 400, every
+  pause at least 128 ticks). The decoder also works out that 100-tick limit as if its
+  samples were 1 µs apart, so the judge reads the recording at 1 MS/s. Every SENT edge falls
+  on the 3 µs tick grid, so the coarser rate moves no nibble.
 - `can` shows a remote frame's CRC bits as data bytes, so after a remote frame's length the
   judge compares nothing more. The CAN cases send identifier 0x7FF, which ISO 11898-1
   forbids for standard frames (the seven high bits all recessive); the decoder warns about
@@ -1134,8 +1140,8 @@ and the SDF-annotated runs replay the chip tests with those delays.
   bus) the stretch never outlasted the controller's own low time; its Fast-mode margin is
   measured against our controller model only.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
-- **FPGA, not silicon.** No chip exists yet. The design runs on an FPGA bench (six of six
-  bring-up stages and 71 of 71 programs, [the bench](../fpga/tangprimer25k/README.md)), with
+- **FPGA, not silicon.** No chip exists yet. The design runs on an FPGA bench (all 79
+  programs matching the model and their certificates, [the bench](../fpga/tangprimer25k/README.md)), with
   plain flip-flops for the clock gates and latch banks and block RAM for the SRAM macros;
   those stay covered by the gate-level suites and the equivalence proof.
 

@@ -61,6 +61,7 @@ export default function FpgaApp() {
 
 function Page({ d }: { d: Fpga }) {
   const ok = d.firmware.filter((f) => f.ok).length;
+  const unc = d.firmware.filter((f) => f.uncertified);
   const withDigest = d.firmware.filter((f) => f.digest).length;
   const passed = d.stages.filter((s) => s.pass).length;
   const lut = d.pnr.util.LUT4, ff = d.pnr.util.DFF, bram = d.pnr.util.BSRAM;
@@ -76,7 +77,10 @@ function Page({ d }: { d: Fpga }) {
             <p className="eyebrow">Hardware bench · v3 · {d.date}</p>
             <h1>On the <em>bench</em></h1>
             <p className="claim">The chip's RTL on an FPGA, driven pin for pin by the bring-up script it was written
-              for. {d.verdict === "PASSED" ? "Every stage passes." : "See the results below."}</p>
+              for. {d.verdict === "PASSED" ? "Every stage passes." : unc.length && ok + unc.length === d.firmware.length
+                ? `Every program matches the model; ${unc.map((f) => f.name.replace(/\.(asm|json)$/, "")).join(", ")}, ` +
+                  "an unfinished bench program with no timing certificate, is the one stage 5 refuses to pass."
+                : "See the results below."}</p>
             <p className="lede">A Raspberry Pi Pico W plays the Tiny Tapeout demo board and a Sipeed Tang Primer 25K
               plays the chip. Version 3 of the RTL, the same Verilog that was hardened for silicon, runs through
               six bring-up stages and all {d.firmware.length} firmware runs, each compared with the reference
@@ -84,7 +88,7 @@ function Page({ d }: { d: Fpga }) {
             <div className="facts">
               <div><b>{d.pinid.map.length}</b><span>signals wired, {d.pinid.pass ? "all identified" : "see wiring"}</span></div>
               <div><b>{passed} of {d.stages.length}</b><span>bring-up stages pass</span></div>
-              <div><b>{ok} of {d.firmware.length}</b><span>firmware match the model</span></div>
+              <div><b>{ok} of {d.firmware.length}</b><span>firmware match the model and their certificates</span></div>
               <div><b>{d.clock_mhz?.toFixed(4)}</b><span>MHz, the clock the chip measured</span></div>
               <div><b>{d.pnr.fmax_mhz?.toFixed(1)}</b><span>MHz limit of this FPGA build</span></div>
               {packed
@@ -606,7 +610,8 @@ function FirmwareTable({ fw }: { fw: Firmware[] }) {
                 <td className="mono">{f.model ?? "no fault"}</td>
                 <td className="num mono">{f.tick ? n(f.tick) : ""}</td>
                 <td className="mono">{f.leads.map(([c, l, k]) => (l === null ? `ctx ${c}: — (cert ${k})` : `ctx ${c}: ${l} ≥ ${k}`)).join(" · ")}</td>
-                <td><span className={"pill " + (f.ok ? "ok" : "bad")}>{f.ok ? "match" : "differs"}</span></td>
+                <td><span className={"pill " + (f.ok ? "ok" : f.uncertified ? "warn" : "bad")} title={f.note}>
+                  {f.ok ? "match" : f.uncertified ? "no certificate" : "differs"}</span></td>
               </tr>
             ))}
           </tbody>

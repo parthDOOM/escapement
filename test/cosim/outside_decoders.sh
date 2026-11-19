@@ -10,9 +10,10 @@
 set -euo pipefail
 UPSTREAM_URL=https://github.com/sigrokproject/libsigrokdecode
 UPSTREAM=71f451443029322d57376214c330b518efd84f88      # 2024-10-01
-# name repository commit folder
+# name (the decoder's id) repository commit folder (. = the repository is the decoder)
 COMMUNITY=(
   "dcc https://github.com/FrightRisk/sigrok-DCC-Protocoll 315fedd1d3c5a3588fe92091557623ffafcc00a2 dcc"
+  "sae_j2716_sent https://github.com/enp6s0/sent-decoder 620dd1fa794dce75e35781e350bea18e2424ca17 ."
 )
 RCSWITCH_URL=https://github.com/sui77/rc-switch
 RCSWITCH=436a74b03f3dc17a29ee327af29d5a05d77f94b9      # 2022-05-17, v2.6.4

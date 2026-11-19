@@ -85,9 +85,9 @@ MOSI, and reads MISO, IRQ and RUN. Every pin is 3.3 V; connect the grounds.
 
 [`tangprimer25k/`](tangprimer25k/README.md) is a working bench: a Raspberry Pi Pico W runs
 the repository's bring-up script against the chip on a Sipeed Tang Primer 25K Dock (Gowin
-GW5A-25). On 2026-11-15 the version 3 RTL, commit `fa0491a`, whose Verilog is the one
-hardened for silicon, passed all six bring-up stages and 71 of 71 firmware runs against the
-model. That bitstream failed two of the build's own clock checks: the half-tick sampler's
+GW5A-25). On 2026-11-19 the version 3 RTL, commit `fa0491a`, whose Verilog is the one
+hardened for silicon, ran all 79 programs through the bring-up script, each matching the model
+and its timing certificate. That bitstream failed two of the build's own clock checks: the half-tick sampler's
 falling-edge register is clocked through an inverter that leaves the FPGA's global clock
 network, so it was packed by hand for the run. The scripts, the wiring, the results and
 that limit are in the bench's README, and the [bench page](https://parthdoom.github.io/escapement/fpga/)

@@ -27,7 +27,8 @@ own co-simulation benches (test/cosim/fw_cases.py: its bus models and host scrip
 ISS with the mutant in place, those whose image is the very one certified (a bench that
 sets .equ parameters or prepares the tape runs a different program, and is left out),
 and a few benches aimed at the paths those leave alone (AIMED: a target that never
-answers, a byte NACKed for its parity, a frame for another device, a query answered).
+answers, a byte NACKed for its parity, a frame for another device, a query answered, a
+keyer kept busy with its longest spaces).
 A NOT_PROVEN mutant gets two more searches. A host that never pauses, over a run five times
 as long (a deleted WAITT may fault only once frames follow each other back to back), can
 still refute it. And the benches that set parameters (most set the clock) build it their
@@ -181,9 +182,30 @@ def _aimed_westminster():
     return Board(), None, lambda b, h: [], lambda t, ob: 0
 
 
+class _FeedHost(HostScript):
+    """A host that keeps one context's RX mailbox full: each word goes in as soon as there
+    is room, so the program never finds the mailbox empty and never pauses."""
+    def __init__(self, ctx, words):
+        super().__init__([], drain=())
+        self.ctx, self.words = ctx, list(words)
+
+    def step(self, t, bus):
+        if self.machine is not None and self.words and len(self.machine.ctx[self.ctx].rx) < 2:
+            self.machine.host_rx_push(self.ctx, self.words.pop(0))
+        return 0, 0
+
+
+def _aimed_morse_spaces():
+    """The longest dot (1,023 ms), then 24 word spaces with no pause between host words, then
+    letters: a word space keys nothing, so only the program's waits keep its deadlines from
+    running ahead of the clock. Attack only: the unmutated keyer takes minutes to send it."""
+    host = _FeedHost(0, [1 << 28 | 1023] + [2 << 28 | 0x202020] * 8 + [2 << 28 | 0x454545] * 2)
+    return Board(host), host, lambda b, h: []
+
+
 # Benches aimed at paths the co-simulation benches leave alone, for this campaign only: an
-# error or an answer, each found by a mutant that escert flags exactly and no search
-# reached. name: (firmware, ticks, factory, parameters). Without parameters a bench runs
+# error, an answer or an input held at its extreme, each found by a mutant that escert flags
+# and no search reached. name: (firmware, ticks, factory, parameters). Without parameters a bench runs
 # the default build, as the co-simulation benches above do; with them (a slower clock: the
 # 14-second tune is 350 million ticks at 25 MHz) it is another program, searched as
 # config_benches searches the parameter benches.
@@ -193,6 +215,7 @@ AIMED = {
     "cec_other_address": ("cec.asm", 40 * MS25, _aimed_cec_other, None),
     "dali_query": ("dali.asm", 40 * MS25, _aimed_dali_query, None),
     "westminster_250k": ("westminster.asm", 1_000_000, _aimed_westminster, {"CLK_KHZ": 250}),
+    "morse_long_spaces": ("morse.asm", 40_000, _aimed_morse_spaces, None),
 }
 
 

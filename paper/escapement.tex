@@ -491,7 +491,7 @@ tick short, a bug that lockstep comparison cannot see because the two agreed.
 For every program whose protocol someone else's software can read, that software reads
 the pins of the simulated run and must decode what the test asked for: sigrok's decoders
 \cite{sigrok}, the IRMP infrared library, Wireshark's dissectors, the rtl\_433 receiver and
-rc-switch's receiver code. They agree with 72 of the 80 programs, and each judge has a
+rc-switch's receiver code. They agree with 73 of the 80 programs, and each judge has a
 control: the same recording with one pulse inverted must fail it. The same runs are repeated with every pin delayed a tick each
 way, more than the pads and the board add, and every protocol still works.
 
@@ -510,11 +510,11 @@ Netlist vs.\ RTL & Sequentially equivalent (336 output bits) \\
 Lockstep co-simulation & 191 random programs, 74 firmware cases, two builds: no difference \\
 Timing certificates & 80 of 80 certified; measured lead equals the bound in 59 of 74 contexts, never below \\
 Mutation testing & 1,010 faults: 892 caught, 57 proved harmless, 61 argued, 0 surviving \\
-Outside judges & decoders by others agree with 72 of 80 programs; every control fails \\
+Outside judges & decoders by others agree with 73 of 80 programs; every control fails \\
 Planted firmware bugs & 719 timing bugs: 172 refuted, 29 not proven, 518 certified, 0 certified that fault \\
 Slower pins & every firmware case passes with a tick of delay each way \\
 Test suites & 1,507 software, 12 chip (RTL and netlist), 9 through the pins \\
-FPGA bench & 6 of 6 stages, 71 of 71 programs (15 Nov.); SWD on a real RP2040, judged by sigrok \\
+FPGA bench & 79 of 79 programs match the model and their certificates (19 Nov.); SWD on a real RP2040, judged by sigrok \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -649,8 +649,8 @@ tests the link, every memory and every pin, then loads every firmware, runs it, 
 compares the chip's digest, state and measured leads with the model's prediction and the
 certificate.
 
-The RTL that was hardened for silicon passes all six bring-up stages and 71 of 71
-firmware runs (every program at the time). The build uses 15{,}736 of 23{,}040 LUTs, 5{,}091 flip-flops and 3 of 56
+The RTL that was hardened for silicon runs all 79 programs through the bring-up script,
+and each matches the model and stays within its timing certificate. The build uses 15{,}736 of 23{,}040 LUTs, 5{,}091 flip-flops and 3 of 56
 block RAMs, and routes to 57.4\,MHz against the 25\,MHz it runs at. It differs from the
 silicon in one place that matters for timing: the half-tick sampler's falling-edge
 register is clocked through an inverter that leaves the FPGA's global clock network, so

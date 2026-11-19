@@ -73,3 +73,17 @@ every reselect.
 - More push-pull peers on bank B, through the output and input Pmods: each line is an
   output (`uo[3+i]`) or an input (`ui[3+i]`). A released bank B output is high.
 - An SSD1306 OLED and two buttons for the OLED Pong demo (`docs/23-OLED-PONG.md`).
+
+## Tiny Tapeout's common pinouts
+
+A program names its pins with assembler parameters, so it runs on the pins Tiny Tapeout
+recommends for its protocol with no change to its code. `.bank n` puts context n on bank B.
+`sw/tests/test_tt_pinouts.py` runs the first three rows against their bus models.
+
+| Pinout | Pins | Program and settings |
+| --- | --- | --- |
+| UART to USB through the demo board's RP2040 | `ui[3]` RX, `uo[4]` TX | `uart_rx` with `.bank 1` and `.equ uart_rx.RX_PIN, 0`; `uart_tx` with `.bank 0` and `.equ uart_tx.PIN, 1` |
+| SPI, top row (also the SPI RAM and QSPI Pmods) | `uio[0]` CS, `uio[1]` MOSI, `uio[2]` MISO, `uio[3]` SCK | `spi_flash` with `CS_PIN` 0, `MOSI_PIN` 1, `MISO_PIN` 2, `SCK_PIN` 3 |
+| TT Audio Pmod | `uo[7]` | `westminster` with `.equ westminster.PIN, 4` |
+| I2C, top row | `uio[2]` SCL, `uio[3]` SDA | `i2c_ctrl` and `i2c_eeprom` as they are |
+| Tiny VGA | `uo[3]` vsync, `uo[4]` to `uo[6]` R0, G0, B0, `uo[7]` hsync | `vga_pong` as it is; the high colour bits' pins carry the host port |

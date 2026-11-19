@@ -69,7 +69,10 @@ function Deploy-Files {
     )
     $bdir = Join-Path $Build "bundles"
     if (-not (Test-Path $bdir)) { throw "no ${bdir}: run .\bench.ps1 bundles first" }
-    foreach ($b in Get-ChildItem $bdir -Filter *.json) { $files += @{ src = $b.FullName; dst = "bundles/" + $b.Name } }
+    # a bundle's long phase and fold lists sit beside it in <name>.phases and .folds (make_bundle.py)
+    foreach ($b in Get-ChildItem $bdir | Where-Object { $_.Extension -in ".json", ".phases", ".folds" }) {
+        $files += @{ src = $b.FullName; dst = "bundles/" + $b.Name }
+    }
     $port = Find-Pico
     & $Mp connect $port exec "import os`ntry:`n os.mkdir('bundles')`nexcept OSError:`n pass"
     foreach ($f in $files) {

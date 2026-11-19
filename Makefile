@@ -5,9 +5,10 @@ PYTHON ?= python3
 # from data, so it is checked by the replay tests instead of by escert.
 FIRMWARE := $(filter-out firmware/replay.asm,$(wildcard firmware/*.asm))
 
-.PHONY: help env sw-test cert proof-table fw-mutants pad-audit judges test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test mon-test lint formal formal-quick formal-bmc formal-props formal-pdr formal-v2 formal-teeth equiv mutation harden precheck clean
+.PHONY: help quickstart env sw-test cert proof-table fw-mutants pad-audit judges test gl-test pin-test gl-pin-test cosim cosim-parallel host-test bringup-test unit-test line-test mon-test lint formal formal-quick formal-bmc formal-props formal-pdr formal-v2 formal-teeth equiv mutation harden precheck clean
 
 help:
+	@echo "quickstart one program from its source to the RTL, about a minute (start here)"
 	@echo "sw-test    assembler, ISS, certificate checker and bus-model tests (pytest)"
 	@echo "cert       static timing certificate for every firmware (escert)"
 	@echo "proof-table  every certified lead beside the lead the ISS measures (RTL=file adds the RTL's)"
@@ -39,6 +40,12 @@ help:
 
 env:
 	@bash scripts/check-env.sh
+
+# Assemble, certify, simulate and judge uart_tx (and refuse an impossible one), then load it
+# into the chip's RTL over SPI: the same bytes on the pin, the same execution digest.
+quickstart:
+	$(PYTHON) scripts/quickstart.py
+	cd test && $(MAKE) -B COCOTB_TEST_FILTER='test_load_and_run_uart_tx\|test_digest_matches_iss'
 
 # Uses every core when pytest-xdist is installed.
 sw-test:

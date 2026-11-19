@@ -108,6 +108,12 @@ def bringup(text):
             leads = re.findall(r"(\d):(\d+|none) \(cert (\d+)\)", rest)
             d["leads"] = [[int(c), None if l == "none" else int(l), int(k)] for c, l, k in leads]
             fw.append(d)
+            continue
+        # the diagnosis under a failed firmware: a program escert proved no bound for fails
+        # stage 5 with its state matching the model (bringup.py), which the page tells apart
+        if fw and not fw[-1]["ok"] and line.startswith("      ") and "note" not in fw[-1]:
+            fw[-1]["note"] = line.strip()
+            fw[-1]["uncertified"] = "escert proved no bound" in line and "matches" in line
     verdict = re.search(r"^bring-up (PASSED|FAILED)", text, re.M)
     return stages, fw, verdict.group(1) if verdict else None
 

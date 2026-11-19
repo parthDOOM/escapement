@@ -29,6 +29,7 @@
 #   read_uio_byte). machine.time_pulse_us and machine.UART are MicroPython's
 #   (docs.micropython.org/en/latest/library/machine.html, ports/rp2/machine_uart.c).
 
+import gc
 import json
 import time as _time
 
@@ -835,7 +836,16 @@ class Bringup:
         self.io.uio_pullups()
         bad = []
         for fn in files:
+            # the last bundle freed first: over 80 bundles the board's heap fragments, and a
+            # 15 KB bundle (xy2_100) no longer found room (MemoryError, bench 2026-11-19)
+            b = None
+            gc.collect()
             b = load_bundle(self.bundles + "/" + fn)
+            if not isinstance(b, dict) or "expect" not in b:
+                # a stray file (a bench experiment's bare image): named, never run
+                self.say("    %-22s FAIL  not a bundle (no expect)" % fn)
+                bad.append(fn)
+                continue
             ok, line, diag = self.run_bundle(b)
             self.say("    %s" % line)
             if not ok:
@@ -898,7 +908,8 @@ class Bringup:
             sig = self.read_sig()
             sig["uio"] = uio
             dg = host.read_dbg(0, 16)
-            folds = e["folds"]
+            folds = e["folds"] if "folds" in e else FoldFile(self.bundles + "/" + e["folds_file"],
+                                                             e["folds_n"])
             ticks_hi = int(run_us * f_hi / 1000000)
             m_max = ((ticks_hi - e["t0"]) // e["period"] + 1) * len(folds)
             m = find_on_orbit(e["dg0"], folds, dg, max(m_max, 0))
@@ -906,8 +917,11 @@ class Bringup:
             past = "until" in e and ticks_hi >= e["until"]
             e = dict(e)                       # STOP halted the running contexts
             e["ctx"] = [[2 if c[0] == 1 else c[0]] + c[1:] for c in e["ctx"]]
-            if dg_ok and "phases" in e:       # the state m folds on
-                ph = e["phases"][(m - 1) % len(e["phases"])]
+            if dg_ok and ("phases" in e or "phases_file" in e):   # the state m folds on
+                if "phases" in e:
+                    ph = e["phases"][(m - 1) % len(e["phases"])]
+                else:
+                    ph = read_phase(self.bundles + "/" + e["phases_file"], (m - 1) % e["phases_n"])
                 e["ctx"] = [[2 if c[0] == 1 else c[0]] + c[1:] for c in ph[0]]
                 e["uio"] = ph[1]
             if past:
@@ -921,6 +935,8 @@ class Bringup:
             else:
                 result = "digest 0x%08x not on the model orbit (%d folds from 0x%08x)" % (
                     dg, m_max, e["dg0"])
+            if isinstance(folds, FoldFile):
+                folds.close()
         else:
             io.sleep_us(int(e["ticks"] * 1000000 / f_lo))
             sig = self.read_sig()
@@ -934,7 +950,11 @@ class Bringup:
         line = "%s %s  %s%s%s" % (name, "ok  " if ok else "FAIL", note, result, leads)
         if ok:
             return True, line, ""
-        if cert_bad:
+        if cert_bad and all("certificate" in x for x in cert_bad):
+            diag = ("%s: escert proved no bound for this program, so a run cannot be judged "
+                    "against one (its state was compared and %s)."
+                    % ("; ".join(cert_bad), "differs: " + "; ".join(diffs) if diffs else "matches"))
+        elif cert_bad:
             diag = ("%s. escert proved this bound for every input, so the chip measured a "
                     "lead the certificate excludes: a bug in escert or in the chip's "
                     "admission path. Report it with the firmware name." % "; ".join(cert_bad))
@@ -1122,6 +1142,35 @@ def _fault(w):
 def load_bundle(path):
     with open(path) as f:
         return json.load(f)
+
+
+class FoldFile:
+    """A bundle's folds from its .folds file (make_bundle.py: 4 bytes a fold, little-endian),
+    read one at a time, so the board never holds the list."""
+
+    def __init__(self, path, n):
+        self.f, self.n = open(path, "rb"), n
+
+    def __len__(self):
+        return self.n
+
+    def __getitem__(self, k):
+        self.f.seek(4 * k)
+        b = self.f.read(4)
+        return b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)
+
+    def close(self):
+        self.f.close()
+
+
+def read_phase(path, k):
+    """Phase k of a bundle's .phases file (make_bundle.py moves a long phase list there, so
+    the board holds one phase, not all of them)."""
+    with open(path) as f:
+        for i, line in enumerate(f):
+            if i == k:
+                return json.loads(line)
+    raise Fail("%s has no phase %d" % (path, k))
 
 
 def _bundle_files(d):

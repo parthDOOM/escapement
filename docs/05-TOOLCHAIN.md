@@ -15,7 +15,7 @@ tools that produced it.
 | PDK | `IHP-GmbH/IHP-Open-PDK` @ `89d42ee` (SG13CMOS5L), installed by ciel |
 | LibreLane | 3.1.0.dev4, container `ghcr.io/librelane/librelane:3.1.0.dev4` (digest in `versions.txt`) |
 | Python | 3.11 |
-| Simulation and formal | OSS CAD Suite release 2026-10-04 (Yosys and ABC, Verilator, SymbiYosys, nextpnr); Icarus Verilog 13.0 (built from its `v13_0` tag in CI, `.github/actions/iverilog`); cocotb 2.0.1 |
+| Simulation and formal | OSS CAD Suite release 2026-10-04 (Yosys and ABC, Verilator, SymbiYosys, nextpnr); Icarus Verilog 13.0 (built from its `v13_0` tag in CI, `.github/actions/iverilog`); cocotb 2.1.0 |
 
 The workflows name the action and the support tools by commit, not by branch, so a change
 upstream cannot alter a harden without a change here.

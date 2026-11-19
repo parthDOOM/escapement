@@ -212,6 +212,56 @@ def test_digest_only_fault_is_caught(bundles, tmp_path):
     assert "same end state, different history" in log, log
 
 
+def test_uncertified_program_is_not_called_an_escert_bug(bundles, tmp_path):
+    """A program escert gives no bound (POSSIBLE) fails stage 5, saying so: not the message
+    for a chip that broke a proved bound."""
+    def possible(b):
+        b["cert"] = [[c[0], "POSSIBLE", None] for c in b["cert"]]
+    ok, results, log = run_on(SimChip(), subset(bundles, tmp_path, ["uart_tx.json"], possible))
+    assert results[-1][:2] == (5, False), log
+    assert "certificate POSSIBLE: escert proved no bound" in log and "matches" in log, log
+    assert "a bug in escert" not in log, log
+
+
+def test_a_stray_file_is_named_not_a_crash(bundles, tmp_path):
+    """A JSON file in the bundle folder that is not a bundle (an image from a bench
+    experiment, without expect) fails stage 5 by name; the bundles after it still run."""
+    d = subset(bundles, tmp_path, ["uart_tx.json", "wiegand_tx.json"])
+    (d / "rxcap.json").write_text(json.dumps({"name": "rxcap", "words": [0], "tape": {}, "cfg": [1]}))
+    ok, results, log = run_on(SimChip(), d)
+    assert results[-1][:2] == (5, False) and "rxcap.json" in results[-1][2], log
+    assert "not a bundle" in log and "wiegand_tx.asm" in log, log
+
+
+def test_phases_and_folds_beside_the_bundle(bundles, tmp_path):
+    """Long phase and fold lists (XY2-100's 1,204 of each) go to <name>.phases and
+    <name>.folds, and the bench reads only what it needs; quadrature's are moved too
+    (inline=0), to cover short files. The same chip passes; with the phase file's lines out
+    of order, or one fold changed, it fails."""
+    d = tmp_path / "side"
+    d.mkdir()
+    (d / "uart_tx.json").write_text((bundles / "uart_tx.json").read_text())
+    for stem, inline in (("xy2_100", make_bundle.PHASES_INLINE), ("quadrature", 0)):
+        make_bundle.write_bundle(d, stem, json.loads((bundles / (stem + ".json")).read_text()), inline)
+        e = json.loads((d / (stem + ".json")).read_text())["expect"]
+        assert "phases" not in e and (d / e["phases_file"]).exists()
+        assert "folds" not in e and (d / e["folds_file"]).stat().st_size == 4 * e["folds_n"]
+    assert len((d / "xy2_100.json").read_text()) < 4_000
+    ok, results, log = run_on(SimChip(), d)
+    assert ok and results[-1][:2] == (5, True), log
+    good = {n: (d / n).read_bytes() for n in ("quadrature.phases", "quadrature.folds")}
+    lines = good["quadrature.phases"].decode().splitlines(keepends=True)
+    (d / "quadrature.phases").write_bytes("".join(lines[1:] + lines[:1]).encode())
+    ok, results, log = run_on(SimChip(), d)
+    assert not ok and "quadrature.asm" in results[-1][2], log
+    (d / "quadrature.phases").write_bytes(good["quadrature.phases"])
+    f = bytearray(good["quadrature.folds"])
+    f[0] ^= 1
+    (d / "quadrature.folds").write_bytes(bytes(f))
+    ok, results, log = run_on(SimChip(), d)
+    assert not ok and "quadrature.asm" in results[-1][2] and "not on the model orbit" in log, log
+
+
 def test_stale_bundles_are_caught(bundles, tmp_path):
     def corrupt(b):
         if b["expect"]["kind"] == "halt":

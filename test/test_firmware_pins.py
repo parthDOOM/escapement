@@ -68,7 +68,7 @@ async def test_nec_loopback_on_chip(dut):
     rx = NecReceiver(0, tick_ns=400.0)
     board = Board(rx, Tsop(0, 1, tick_ns=400.0))
     host = await chip.bring_up(dut, board)
-    image = assemble(open(REPO / "test/cosim/nec_ir_cosim.asm").read(),
+    image = assemble((REPO / "test/cosim/nec_ir_cosim.asm").read_text(),
                      base_dir=REPO / "test/cosim")
     await host.load(image)
     await host.start()

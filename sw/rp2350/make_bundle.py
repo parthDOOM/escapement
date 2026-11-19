@@ -50,6 +50,12 @@ from esciss.machine import DG_POLY, M32, RUNNING, default_board, reached  # noqa
 SKIP = {"replay.asm",       # a template: sw/esctape fills in its pins and trace
         "westminster.asm"}  # a 14 s tune, far beyond the model budget below
 MAX_TICKS = 2_000_000       # model budget per firmware (80 ms of chip time)
+# A steady prediction's phases or folds longer than this (JSON bytes) go to <name>.phases (one
+# phase a line) and <name>.folds (4 bytes a fold), and bringup.py reads only what it needs:
+# the Pico parses a bundle whole, and MicroPython on the RP2040 has under 200 KB of heap
+# (XY2-100's 1,204 phases, inline, need more; its 1,204 folds, after 80 bundles on the bench,
+# found no 8 KB block left).
+PHASES_INLINE = 4096
 MAX_PERIOD = 8192           # longest repeating pattern searched for, in ticks
 CHUNK = 4096
 # Firmware with no periodic prediction. The seven-segment animation waits 160 ms between
@@ -295,6 +301,31 @@ def bundle(fw: Path, name: str | None = None, overrides: dict | None = None) -> 
     return out
 
 
+def write_bundle(dst: Path, stem: str, b: dict, inline: int = PHASES_INLINE) -> None:
+    """<stem>.json into dst. A phase list longer than `inline` bytes goes to <stem>.phases
+    beside it, one phase a line (expect gains phases_file and phases_n in place of phases),
+    and a fold list longer than that to <stem>.folds, 4 bytes a fold, little-endian
+    (folds_file and folds_n in place of folds): the board reads both a value at a time."""
+    e = dict(b["expect"])
+    side = dst / (stem + ".phases")
+    ph = e.get("phases")
+    if ph is not None and len(json.dumps(ph)) > inline:
+        del e["phases"]
+        e.update(phases_file=side.name, phases_n=len(ph))
+        side.write_text("".join(json.dumps(x) + "\n" for x in ph), newline="\n")
+    elif side.exists():
+        side.unlink()
+    fside = dst / (stem + ".folds")
+    fo = e.get("folds")
+    if fo is not None and len(json.dumps(fo)) > inline:
+        del e["folds"]
+        e.update(folds_file=fside.name, folds_n=len(fo))
+        fside.write_bytes(b"".join(x.to_bytes(4, "little") for x in fo))
+    elif fside.exists():
+        fside.unlink()
+    (dst / (stem + ".json")).write_text(json.dumps(dict(b, expect=e)), newline="\n")
+
+
 def main(argv: list[str]) -> None:
     trace = "--trace" in argv
     args = [a for a in argv if a != "--trace"]
@@ -308,7 +339,7 @@ def main(argv: list[str]) -> None:
         jobs += [(ROOT / "firmware" / f, n, o) for n, (f, o) in VARIANTS.items()]
     for fw, stem, overrides in jobs:
         b = bundle(fw, stem + ".json" if overrides else None, overrides)
-        (dst / (stem + ".json")).write_text(json.dumps(b))
+        write_bundle(dst, stem, b)
         e = b["expect"]
         detail = {"halt": lambda: f"digest 0x{e['digest']:08x} at tick {e['ticks']}",
                   "steady": lambda: f"digest 0x{e['dg0']:08x} at tick {e['t0']}, "

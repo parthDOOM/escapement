@@ -41,7 +41,8 @@ from esciss.machine import no_board_b  # noqa: E402
 from fw_cases import FIRMWARE_CASES, FW_EQU, fw_image  # noqa: E402
 
 SIGROK = shutil.which("sigrok-cli")
-# Decoders newer than 0.7.2 (ir_sirc, ir_irmp, sbus_futaba) and community ones (dcc), each at a
+# Decoders newer than 0.7.2 (ir_sirc, ir_irmp, sbus_futaba) and community ones (dcc,
+# sae_j2716_sent), each at a
 # pinned commit: test/cosim/outside_decoders.sh fetches them into OUTSIDE_PD
 OUTSIDE_PD = Path(os.environ.get("OUTSIDE_PD", REPO / "build" / "outside-decoders"))
 
@@ -83,6 +84,12 @@ class Judge:
     # decode from a sigrok session file made from the VCD: a decoder that reads the sample
     # rate in start() (swim) gets it only from a session file's header
     sr: bool = False
+    # the case built with these parameters as well (a pause pulse a decoder needs), run for
+    # `ticks` instead of the case's own length when set
+    equ: dict = field(default_factory=dict)
+    ticks: int = 0
+    # sigrok-cli's VCD input options ("downsample=100": the 10 ns VCD read at 1 MS/s)
+    vcd_in: str = ""
 
 
 def clock_khz(name: str, image) -> int:
@@ -92,10 +99,15 @@ def clock_khz(name: str, image) -> int:
     return ks[0] if ks else 25000
 
 
-def run_case(name: str) -> tuple[dict[int, list[int]], float]:
-    """The case on the ISS: every pin's level per tick (bank B as pins 8-12), and the tick."""
-    fw, ticks, factory = FIRMWARE_CASES[name]
-    image = fw_image(name, fw, REPO / "firmware")
+def run_case(name: str, equ: dict | None = None, ticks: int = 0) -> tuple[dict[int, list[int]], float]:
+    """The case on the ISS: every pin's level per tick (bank B as pins 8-12), and the tick.
+    `equ` adds parameters to the case's own; `ticks`, when set, is the run's length."""
+    fw, n, factory = FIRMWARE_CASES[name]
+    ticks = ticks or n
+    src = None
+    if equ:
+        src = "".join(f".equ {k}, {v}\n" for k, v in equ.items()) + (REPO / "firmware" / fw).read_text()
+    image = fw_image(name, fw, REPO / "firmware", src=src)
     tick_ns = 1e6 / clock_khz(name, image)
     board, host, check, *bb = factory()
     ra = Rec(board)
@@ -135,7 +147,7 @@ def decode(text: str, j: Judge) -> list[str]:
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "run.vcd"
         p.write_text(text, newline="\n")
-        cmd = [SIGROK, "-I", "vcd", "-i", str(p)]
+        cmd = [SIGROK, "-I", "vcd" + (f":{j.vcd_in}" if j.vcd_in else ""), "-i", str(p)]
         if j.sr:
             srf = Path(d) / "run.sr"
             r = subprocess.run(cmd + ["-o", str(srf)], capture_output=True, text=True, timeout=600)
@@ -169,7 +181,7 @@ def flipped(levels: list[int], at: float = 0.5) -> list[int]:
 def judge(i: int, show: bool = False):
     """JUDGES[i] (by index: a judge's lambdas do not cross to a worker process)."""
     j = JUDGES[i]
-    pins, tick_ns = run_case(j.case)
+    pins, tick_ns = run_case(j.case, j.equ, j.ticks)
     chans = {n: pins[p] for n, p in j.channels.items()}
     for n, f in j.transform.items():
         chans[n] = f(chans[n])
@@ -562,6 +574,23 @@ def _dcc_ok(lines):
     return got == want
 
 
+def _sent_want():
+    """sent: the sensor's zeros until the host's word, then status 3 and data 0xABCDEF; each
+    frame's CRC nibble (the recommended J2716 method, seed 5 and a zero nibble), and the
+    decoder's own CRC check passing ("SENT frame", not "Invalid SENT frame").
+
+    The decoder ends a frame only at a pulse over 100 ticks, so the case is built with
+    FRAME_UT = 400: a pause pulse of 128 ticks or more ends every frame (frames back to back,
+    the case's own setting, never end). It computes that 100-tick limit as if the samples were
+    1 us apart, so the 10 ns VCD is read at 1 MS/s; the tick it measures from the sync pulse,
+    3 samples, and every SENT edge falls on a 3 us grid, so no nibble moves."""
+    out = []
+    for status, data, crc in ((0, [0] * 6, 5), (3, [10, 11, 12, 13, 14, 15], 7)):
+        out += [f"Status: 0X{status:X}"] + [f"Data: 0X{d:X}" for d in data]
+        out += [f"CRC: 0X{crc:X}", "SENT frame of length 9"]
+    return out
+
+
 def _servo_tool(ch: dict, tick_ns: float) -> list[str]:
     """sigrok's timing decoder on each servo channel alone; every other interval from the
     channel's first edge (a rising one: the lines idle low) is a pulse, "s3 1.500 ms"."""
@@ -790,6 +819,10 @@ JUDGES: list[Judge] = [
           tree="upstream"),
     Judge("dcc_tx", ["dcc:data=data"], {"data": 0}, _dcc_ok, "data", "",
           "a community decoder (FrightRisk/sigrok-DCC-Protocoll): the packet and its bits", tree="upstream"),
+    Judge("sent", ["sae_j2716_sent:sent=sent"], {"sent": 0}, eq(_sent_want()), "sent",
+          "sae_j2716_sent=status:data:crc:packet:invalid-packet",
+          "a community decoder (enp6s0/sent-decoder): both frames, each with a good CRC, with a pause pulse",
+          tree="upstream", equ={"FRAME_UT": 400}, ticks=64000, vcd_in="downsample=100"),
     Judge("servo", [], {f"s{k}": k for k in range(8)}, _servo_ok, "s3", "",
           "timing: each channel's pulses, one channel at a time", tool=_servo_tool, by="timing"),
     Judge("quadrature", ["graycode:d0=a:d1=b"], {"a": 0, "b": 1}, _quad_ok, "a", "graycode=count",

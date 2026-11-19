@@ -18,5 +18,5 @@ die-area-um = 0 0 1724.16 710.64
 sram-macro = RM_IHPSG13_1P_1024x32_c2_bm_bist (program store), RM_IHPSG13_1P_256x32_c2_bm_bist (tape)
 flow-container-digest = sha256:af2405f5d48d8fe14d406ecce913811177a95e365e3b625859677307cace2469 (ghcr.io/librelane/librelane:3.1.0.dev4)
 oss-cad-suite-release = 2026-10-04 (oss-cad-suite-linux-x64-20261004.tgz; scripts/setup-wsl.sh)
-cocotb-version = 2.0.1 (test/requirements.txt)
+cocotb-version = 2.1.0 (test/requirements.txt)
 pytest-version = 8.4.2

@@ -60,7 +60,7 @@ export function ProofTable() {
           <tr><td>Timing certificates against measured leads (74 cases, 74 contexts with a bound)</td><td className="num">74</td><td>59 exact, 0 below</td></tr>
           <tr><td>Planted firmware timing bugs: escert must refute every one that can fault, and what it certifies is attacked on the simulator</td><td className="num">719</td><td>172 refuted, 29 not proven, 518 certified, 0 certified that fault</td></tr>
           <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 to 50 MHz</td><td className="num">1,507</td><td>pass</td></tr>
-          <tr><td>Outside judges: decoders written by others (sigrok, IRMP, Wireshark, rtl_433, rc-switch) read the pins, each with a control that must fail</td><td className="num">72 of 80 programs</td><td>agree; every control fails</td></tr>
+          <tr><td>Outside judges: decoders written by others (sigrok, IRMP, Wireshark, rtl_433, rc-switch) read the pins, each with a control that must fail</td><td className="num">73 of 80 programs</td><td>agree; every control fails</td></tr>
           <tr><td>Firmware cases with every pin a tick slower each way (pads and board)</td><td className="num">74</td><td>pass</td></tr>
           <tr><td>Chip tests on the final gate-level netlist</td><td className="num">12</td><td>pass</td></tr>
           <tr><td>Firmware through the pins on the final netlist; SDF-annotated chip tests at three corners</td><td className="num">9 · 11 × 3</td><td>pass</td></tr>

@@ -84,7 +84,7 @@ export default function App() {
                 <a className="icon-btn" href="#inside">How it works</a>
               </div>
               <p className="hero-hw"><a href={asset("fpga/")}>Runs on hardware: version 3 on an FPGA, driven by a
-                Pico W, passes all 6 bring-up stages and 71 of 71 firmware runs (every program on 15 Nov) →</a></p>
+                Pico W, runs all 79 programs, each matching the model and its certificate (19 Nov) →</a></p>
               <div className="facts">
                 <div><b>40 ns</b><span>one tick at 25 MHz, rated to 50</span></div>
                 <div><b>4</b><span>programs running at once</span></div>

@@ -7,6 +7,8 @@ export type Stage = { n: number; name: string; pass: boolean; detail: string };
 export type Firmware = {
   name: string; kind: "steady" | "halt" | "none"; ok: boolean; detail: string;
   digest?: string; model?: string; tick?: number; leads: [number, number | null, number][];
+  /** bringup.py's diagnosis under a failure; uncertified: no bound to judge it by, its state matched */
+  note?: string; uncertified?: boolean;
 };
 export type Manifest = {
   text: string; commit?: string; branch?: string; dirty?: boolean; built?: string; tools?: string;

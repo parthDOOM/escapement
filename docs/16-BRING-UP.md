@@ -350,8 +350,9 @@ Tang Primer 25K, with a Raspberry Pi Pico W as the host on the chip's pins
 ([`fpga/tangprimer25k`](../fpga/tangprimer25k/README.md)). The FPGA build replaces the IHP
 SRAM macros with block RAM of the same timing contract, and the clock gates and latch
 banks with plain flip-flops, so it checks the logic, the host protocol, the firmware and
-the script itself, not the hardened netlist, the silicon's pads, memories or timing. On version 3 every stage passes (2026-11-15), and in stage 5 all 71 firmware
-match the simulator's digest or final state and stay within their certificates. The
+the script itself, not the hardened netlist, the silicon's pads, memories or timing. On version 3 (2026-11-19) stages 0 to 4 pass, and in stage 5 all 79
+programs match the simulator's digest or final state and stay within their certificates.
+Stage 5 still fails, as it should, on one bench program, `eth_trx`, which has no certificate. The
 README there lists what that run does not show, including two of the FPGA build's own
 checks that the version 3 bitstream failed.
 

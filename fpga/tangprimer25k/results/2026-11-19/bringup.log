@@ -1,0 +1,98 @@
+[0] board and project ...
+[0] PASS  RP2040, SDK bare-pico, shuttle fpga
+[1] clock and reset ...
+[1] PASS  PWM 25000000 Hz (RP 125000000 Hz), uo = 11111000 in and after reset, uio released
+[2] host link ...
+[2] PASS  STATUS 0a 00 0f 00 x 201; one pin write 36110 ns; SCK half period about 67902 ns (fast) and 327125 ns (slow)
+[3] memories ...
+[3] PASS  data lines at 2 addresses, 4 patterns x 256 words, in the four program pages and the tape; spaces independent; tape reads during a run while the core uses the port
+[4] pins and clock rate ...
+[4] PASS  uio[7:0] toggle as driven; chip clock 24.9875 MHz from a 25000-tick period; STOP releases pins; all 8 inputs read correctly; bank B: 5 outputs toggle and release high, 5 inputs read correctly; streaming capture: 16 edges through an 8-word ring
+[5] firmware digests ...
+    avr_isp.asm            steady ok    digest 0xc742c3a7 = model at tick 55524; min lead 0:33 (cert 21)
+    can_rx.asm             steady ok    digest 0x4c43ae25 = model at tick 53552
+    can_tx.asm             steady ok    digest 0xa51d4df3 = model at tick 54860; min lead 0:3 (cert 3)
+    can_tx_lu.asm          steady ok    digest 0x4967acf1 = model at tick 54920; min lead 0:none (cert 1)
+    cec.asm                none   ok    no digest prediction; state compared; min lead 0:13 (cert 4)
+    combo_two_banks.asm    steady ok    digest 0x52da529b = model at tick 54194; min lead 0:5 (cert 5), 1:4 (cert 4), 2:31 (cert 7), 3:6 (cert 6)
+    combo_uart_i2c.asm     steady ok    digest 0x9ce441df = model at tick 55262; min lead 0:33 (cert 2), 1:none (cert 206), 2:7 (cert 7)
+    dali.asm               none   ok    no digest prediction; state compared; min lead 0:13 (cert 13)
+    dcc_tx.asm             steady ok    digest 0x98a5fd9f = model at tick 54592; min lead 0:9 (cert 9)
+    dcf77_tx.asm           steady ok    digest 0x9a16ceb5 = model at tick 54996; min lead 0:9 (cert 9)
+    dmx512_tx.asm          none   ok    no digest prediction; state compared; min lead 0:9 (cert 9)
+    dshot_tx.asm           none   ok    no digest prediction; state compared; min lead 0:8 (cert 8)
+    em4100_tag.asm         steady ok    digest 0x1241d2d6 = model at tick 55352; min lead 0:9 (cert 9)
+    eth_edges.json         steady ok    digest 0x1169a90a = model at tick 55124; min lead 1:52 (cert 52)
+    eth_rx.asm             steady ok    digest 0xd83c71c3 = model at tick 55120
+    eth_rx_bench.json      steady ok    digest 0x05afe2d6 = model at tick 55388; min lead 1:52 (cert 52)
+    eth_rx_bench_one.json  steady ok    digest 0x1333f9ef = model at tick 55078; min lead 1:52 (cert 52)
+    eth_trx.json           none   FAIL  no digest prediction; state compared
+      ctx 0 certificate POSSIBLE: escert proved no bound for this program, so a run cannot be judged against one (its state was compared and matches).
+    eth_tx.asm             none   ok    no digest prediction; state compared; min lead 0:49 (cert 1)
+    ev1527_tx.asm          steady ok    digest 0xea68b05a = model at tick 54956; min lead 0:9 (cert 9)
+    flexray_tx.asm         steady ok    digest 0x1c31d71a = model at tick 55212; min lead 0:9 (cert 9)
+    freq_meter.asm         steady ok    digest 0xc34f920c = model at tick 54824
+    i2c_burst.asm          steady ok    digest 0x439df8bb = model at tick 54828; min lead 0:33 (cert 2)
+    i2c_ctrl.asm           steady ok    digest 0xfcbc3bd7 = model at tick 54692; min lead 0:33 (cert 2)
+    i2c_eeprom.asm         steady ok    digest 0x327ac824 = model at tick 55948; min lead 0:3 (cert 2)
+    i2c_timing.asm         steady ok    digest 0xe05197c8 = model at tick 53848
+    j1850_vpw.asm          steady ok    digest 0x3331239e = model at tick 54984; min lead 0:9 (cert 9)
+    jtag_idcode.asm        steady ok    digest 0xf55038a5 = model at tick 57104; min lead 2:3 (cert 3)
+    jvc_tx.asm             steady ok    digest 0xea68b05a = model at tick 54956; min lead 0:9 (cert 9)
+    lin_resp.asm           none   ok    no digest prediction; state compared; min lead 0:13 (cert 13)
+    lin_tx.asm             steady ok    digest 0x284df583 = model at tick 58392; min lead 0:9 (cert 9)
+    logic_analyzer.asm     halt   ok    digest 0xcdce7920 model 0xcdce7920
+    logic_analyzer_stream.json halt   ok    digest 0xddcb7f20 model 0xddcb7f20
+    max7219.asm            steady ok    digest 0x1e3e78b7 = model at tick 55024; min lead 0:33 (cert 28)
+    midi_tx.asm            steady ok    digest 0xa311ed63 = model at tick 55320; min lead 0:9 (cert 9)
+    modbus_rtu.asm         none   ok    no digest prediction; state compared; min lead 0:9 (cert 9)
+    morse.asm              steady ok    digest 0x05698f30 = model at tick 54952; min lead 0:1017 (cert 148)
+    nec_rx.asm             steady ok    digest 0xd581e287 = model at tick 55212
+    nec_tx.asm             steady ok    digest 0x560873cd = model at tick 55172; min lead 0:9 (cert 9)
+    nec_tx_gen.asm         steady ok    digest 0x1c59ac21 = model at tick 55088; min lead 0:9 (cert 9)
+    nrf24_tx.asm           steady ok    digest 0x3b0d1695 = model at tick 54624; min lead 0:33 (cert 28)
+    oled_disp.asm          steady ok    digest 0x6291bc78 = model at tick 54770; min lead 0:33 (cert 2)
+    oled_menu.asm          steady ok    digest 0xa178f932 = model at tick 53517
+    oled_pong.asm          steady ok    digest 0xf663955f = model at tick 54374
+    oled_text.asm          steady ok    digest 0x10169f9b = model at tick 53794
+    onewire.asm            steady ok    digest 0x11b976c2 = model at tick 55024; min lead 3:30 (cert 4)
+    onewire_dev.asm        none   ok    no digest prediction; state compared; min lead 0:13 (cert 4)
+    oregon_tx.asm          steady ok    digest 0x21052956 = model at tick 54592; min lead 0:9 (cert 9)
+    panasonic_tx.asm       steady ok    digest 0xa489c1bd = model at tick 54584; min lead 0:9 (cert 9)
+    ps2_device.asm         steady ok    digest 0x50102325 = model at tick 55152; min lead 1:4 (cert 4)
+    qi_rx.asm              steady ok    digest 0x3a644cdf = model at tick 55128; min lead 0:13 (cert 13)
+    quadrature.asm         steady ok    digest 0x2aeb9131 = model at tick 54784
+    rc5_tx.asm             steady ok    digest 0x6719569f = model at tick 54384; min lead 0:9 (cert 9)
+    rc6_tx.asm             steady ok    digest 0xbcd1bdc8 = model at tick 54520; min lead 0:9 (cert 9)
+    samsung_tx.asm         steady ok    digest 0x434af64a = model at tick 55240; min lead 0:9 (cert 9)
+    sbus_rx.asm            none   ok    no digest prediction; state compared; min lead 0:347 (cert 347)
+    sd_spi.asm             halt   ok    digest 0xbccf5392 model 0xbccf5392; min lead 0:21 (cert 21)
+    sent_tx.asm            none   ok    no digest prediction; state compared; min lead 0:4 (cert 4)
+    servo.asm              none   ok    no digest prediction; state compared; min lead 0:57 (cert 57)
+    seven_seg.asm          none   ok    no digest prediction; state compared; min lead 0:9 (cert 9)
+    sharp_tx.asm           steady ok    digest 0xac64bae7 = model at tick 55396; min lead 0:9 (cert 9)
+    sirc_tx.asm            steady ok    digest 0x7f745d9d = model at tick 54804; min lead 0:9 (cert 9)
+    spi_ctrl.asm           steady ok    digest 0x6435905c = model at tick 55112; min lead 2:31 (cert 7)
+    spi_flash.asm          steady ok    digest 0x9824689c = model at tick 54960; min lead 0:33 (cert 28)
+    spi_sniff.asm          steady ok    digest 0x6201399e = model at tick 54724
+    spi_target.asm         steady ok    digest 0x3a71ec55 = model at tick 55524; min lead 2:none (cert 1)
+    spi_tx.asm             steady ok    digest 0xa48461f7 = model at tick 54536; min lead 0:1 (cert 1)
+    stepper.asm            steady ok    digest 0xdbac94e7 = model at tick 55160; min lead 0:57 (cert 40)
+    swd_idcode.asm         steady ok    digest 0x8441db7e = model at tick 55012; min lead 2:3 (cert 3)
+    swim_host.asm          steady ok    digest 0x6a57130d = model at tick 55636; min lead 0:9 (cert 9)
+    uart_rx.asm            steady ok    digest 0xf4cd5b0b = model at tick 55568; min lead 1:none (cert 206)
+    uart_tx.asm            halt   ok    digest 0x63114ed9 model 0x63114ed9; min lead 0:9 (cert 9)
+    uart_tx_gen.asm        steady ok    digest 0x8ca7dae7 = model at tick 55192; min lead 0:9 (cert 9)
+    udp_tx.asm             none   ok    no digest prediction; state compared; min lead 0:49 (cert 1)
+    usb_hid.asm            steady ok    digest 0x612c49ea = model at tick 53902; min lead 0:none (cert 1)
+    usbpd_tx.asm           steady ok    digest 0x9def4832 = model at tick 54672; min lead 0:9 (cert 9)
+    vga_pong.asm           none   ok    no digest prediction; state compared; min lead 0:1597 (cert 1597), 1:8 (cert 8)
+    wiegand_rx.asm         steady ok    digest 0x5ed0071a = model at tick 54900
+    wiegand_tx.asm         steady ok    digest 0x0c9c08b3 = model at tick 57728; min lead 0:9 (cert 9)
+    ws2801_tx.asm          none   ok    no digest prediction; state compared; min lead 0:9 (cert 9)
+    ws2812.asm             steady ok    digest 0x3e113184 = model at tick 55192; min lead 3:10 (cert 5)
+    ws2812_gen.asm         none   ok    no digest prediction; state compared; min lead 3:6 (cert 5)
+    ws2812_lu.asm          steady ok    digest 0x0223dffd = model at tick 54616; min lead 0:none (cert 1)
+    xy2_100.asm            steady ok    digest 0x94db42a3 = model at tick 54177; min lead 0:9 (cert 9), 1:8 (cert 5), 2:7 (cert 5)
+[5] FAIL  1 of 84 firmware differ from the model: eth_trx.json (details above).
+bring-up FAILED

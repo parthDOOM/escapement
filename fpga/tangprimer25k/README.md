@@ -11,7 +11,46 @@ so the script runs unchanged.
 | Chip | Sipeed Tang Primer 25K Dock (GW5A-LV25MG121NC1/I0), loaded over its onboard USB debugger |
 | Build | `fpga/escapement_board.v` with `ESC_NO_CG` and `fpga/escapement_sram_fpga.v`, as in `fpga/README.md` |
 
-## Result, 2026-11-15 (version 3)
+## Result, 2026-11-19 (version 3, every program)
+
+The same bitstream as on 15 November (`chip.fs` sha256 a495ad2e..., `results/2026-11-19/chip.MANIFEST`):
+the RTL has changed since only in its comments. The firmware bundles were built from the tree of
+this commit, and include the ten programs written since the last run.
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| wiring check | PASS: all 26 signals on the expected GPIOs | `results/2026-11-19/pinid.txt` |
+| 0 board and project | PASS | `results/2026-11-19/bringup.log` |
+| 1 clock and reset | PASS | same |
+| 2 host link | PASS | same |
+| 3 memories | PASS | same |
+| 4 pins and clock rate | PASS: chip clock 24.9875 MHz | same |
+| 5 firmware | 83 of 84 bundles match the model's digest or final state and their certificates: all 79 library programs, and four of the five bench programs. `eth_trx` is refused | same, and `proof.json` |
+
+The ten programs on the chip for the first time all match: `flexray_tx`, `j1850_vpw`, `oregon_tx`,
+`panasonic_tx`, `samsung_tx`, `sharp_tx`, `swim_host`, `ws2801_tx`, `xy2_100` and `vga_pong`.
+`westminster` (a 14-second tune) and `replay` (a template) have no bundle.
+
+`eth_trx`, the ping bench's program (Ethernet, below), is the one bundle stage 5 does not pass.
+Its state matched the model, but escert gives it no certificate (POSSIBLE), and stage 5 passes
+no program without one. Its findings point at a real fault in `send`: after waiting on a slow
+host, the program counts its next deadline from before the wait. It is written down to be fixed
+with the ping bench.
+
+Getting to this run took three tries, and each fixed something:
+
+- **Loads lost to the host-link wires.** In three earlier runs that day, 2, 2 and 5 loads read
+  back words from the wrong addresses, as if the chip had seen an extra or a missing SCK edge.
+  The readback check caught every one, so no wrong program ran, and each passed when loaded
+  again. The chip's host link has no timeout, so a pause on the Pico cannot cause it. Reseating
+  the CS_n, SCK, MOSI, MISO and ground jumpers cleared it: the run above lost none in 84 loads.
+- **Old files on the Pico.** Three images left from the Ethernet receive bench sat among the
+  bundles and stopped stage 5 with an error. Stage 5 now names such a file and goes on.
+- **The Pico's heap.** After about 80 bundles it was too fragmented for XY2-100's prediction
+  (1,204 folds and 1,204 phases). Each load now frees the one before, and long lists live in
+  `.folds` and `.phases` files beside the bundle, read a value at a time.
+
+## Earlier result, 2026-11-15 (version 3, 71 programs)
 
 The bitstream was built from commit fa0491a and the firmware bundles from 72a74f7, which
 adds OLED Pong and changes no RTL.
@@ -99,7 +138,8 @@ input. `chip-pnr.log` is the place-and-route log of that bitstream.
 | `swdjudge.py` | the SWD bench judged by an outside analyser and sigrok's `swd` decoder (runs on Windows; sigrok-cli in WSL) |
 | `bench.ps1` | Windows helper: build, deploy, load, run (the Dock's USB goes to WSL with usbipd-win) |
 | `hierarchy.sh`, `hierarchy.py` | block-level LUT, flip-flop and bus counts of the FPGA build |
-| `results/2026-11-15/` | the version 3 run above: the bring-up log, the bitstream's and bundles' MANIFESTs, the clock skew report |
+| `results/2026-11-19/` | the version 3 run with every program: the wiring check, the bring-up log, the telemetry, the MANIFESTs (the bitstream's copied from 2026-11-15, the same build) |
+| `results/2026-11-15/` | the earlier version 3 run: the bring-up log, the bitstream's and bundles' MANIFESTs, the clock skew report |
 | `results/2026-11-17/` | the Ethernet transmit demo (`ethdemo.ps1 -SaveTo`): its log, and the laptop's capture of the 20 frames (`eth-tx.pcapng`, EtherType 0x88B5 only; the capture header's machine fields removed); the SWD session against an RP2040 (`swd.log`), and the same session judged by an outside analyser and sigrok (`swd-judge/`) |
 | `results/2026-11-16/` | the Ethernet receive bench: the receive log (the laptop's MAC address masked) and the line captures |
 | `results/2026-11-08/` | the earlier version 1.6 run |
@@ -113,7 +153,7 @@ of `python3` and the virtual environments in your home folder that has it.
     fpga/tangprimer25k/build.sh pinid && fpga/tangprimer25k/build.sh chip && fpga/tangprimer25k/build.sh bundles
 
 1. MicroPython on the Pico W (RPI_PICO_W 1.24.1 UF2), then copy `sw/rp2350/bringup.py`,
-   `sw/eschost/protocol.py`, `barepico.py`, `pinid.py`, `ethbench.py` and `build/bundles/*.json` (into `bundles/`)
+   `sw/eschost/protocol.py`, `barepico.py`, `pinid.py`, `ethbench.py` and `build/bundles/*.json` with any `*.phases` and `*.folds` beside them (into `bundles/`)
    onto it. `bench.ps1 deploy` does this and checks every file by sha256.
 2. Wire it with both boards unplugged (below). Each board has its own USB to the same computer.
 3. `openFPGALoader -b tangprimer25k build/pinid/pinid.fs`, then on the Pico `import pinid; pinid.run()`.

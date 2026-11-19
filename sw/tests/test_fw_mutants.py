@@ -1,7 +1,7 @@
 """The planted timing bugs' aimed benches (test/mutation/fw_mutants.py, AIMED).
 
 Each aimed bench drives a path the co-simulation benches leave alone, and was added for a
-mutant that escert flags exactly while no search reached its flagged instruction. Here the
+mutant that escert flags while no search reached its fault. Here the
 unmutated program must pass the bench (so a protocol failure the campaign records for a
 certified mutant is the mutant's doing), and that mutant must fault on it at the
 instruction escert flags, for the reason escert gives.
@@ -28,6 +28,7 @@ MADE_FOR = {
     "cec_other_address": ("addt", 195, "ADDT  T_SA"),
     "dali_query": ("addt", 204, "ADDT  TE"),
     "westminster_250k": ("addt", 138, "ADDT  HB3"),
+    "morse_long_spaces": ("waitt", 179, "WAITT"),
 }
 SUBCODE = {"PAST": 3, "ORDER": 4}
 
