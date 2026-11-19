@@ -31,8 +31,9 @@ jobs:
           cd test
           make clean
           make
-          # make will return success even if the test fails, so check for failure in the results.xml
-          ! grep failure results.xml
+          # make will return success even if the test fails, so check results.xml for a failed
+          # or errored test case (cocotb 2.1 writes failures="0" on a pass: match the element)
+          ! grep -qE '<(failure|error)' results.xml
 
       - name: Test Summary
         uses: test-summary/action@v2.4
@@ -130,7 +131,7 @@ jobs:
       - name: Firmware through the chip pins
         run: |
           make pin-test
-          ! grep failure test/results_pins.xml
+          ! grep -qE '<(failure|error)' test/results_pins.xml
 
       # v1.4 (D-40): the clock gates and latch banks exist only in the standard-cell build,
       # so the lockstep co-simulation and the line unit run once more on the PDK's cell models
