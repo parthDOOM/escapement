@@ -29,8 +29,8 @@ def build(src: str):
 
 
 def test_uart_on_the_demo_boards_usb_serial_pins():
-    """The demo board's RP2040 bridges USB serial to ui_in[3] (the chip's RX) and
-    uo_out[4] (its TX): bank B pins 0 and 1. uart_tx sends its four bytes on uo_out[4];
+    """The demo board's RP2350 (RP2040 on earlier boards) bridges USB serial to ui_in[3]
+    (the chip's RX) and uo_out[4] (its TX): bank B pins 0 and 1. uart_tx sends its four bytes on uo_out[4];
     uart_rx receives three bytes from ui_in[3] and pushes them to the host."""
     tx = build('.bank 0\n.equ uart_tx.PIN, 1\n.include "uart_tx.asm"\n')
     levels = []

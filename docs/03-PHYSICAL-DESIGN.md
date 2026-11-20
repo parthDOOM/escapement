@@ -146,6 +146,7 @@ The figures are from the harden of commit `a127bcd` with [`scripts/local-harden.
 | Setup | No violations at any corner. Worst path into a flip-flop: +1.480 ns at the slow corner |
 | Hold | No violations. Worst slack: +0.180 ns at the fast corner (+0.361 ns typical, +0.611 ns slow) |
 | Hold buffers | 259 |
+| Electrical rules | Not all met, and not repaired. Max slew: 15 pins at the slow corner (worst 3.62 ns against a 2.51 ns limit; one is the tape's `A_DIN[11]`, the only one at the typical corner), 0 fast. Max capacitance: one pin at every corner, the program store's `A_DOUT[18]` (67 fF against 64 fF). Max fanout: 155 at every corner, all of them clock-tree buffers driving 10 to 19 sinks against the limit of 8 that design repair uses. The setup and hold figures above are computed with these slews. The lists are in the release's sign-off reports (`sta/*/checks.rpt`) |
 | Routing | 2.32 m of wire, 279,368 vias; global-route overflow 0; detailed-route DRC 0 |
 | LVS | Clean (0 errors, 0 net or device differences) |
 | DRC | Clean (KLayout SG13CMOS5L deck in the Tiny Tapeout precheck) |
@@ -180,8 +181,9 @@ that is high for 40% or 60% of the period, instead of half, also passes setup, h
 minimum pulse width at all three corners (`DUTY=40` and `DUTY=60`). Firmware takes the
 tick length as a constant (`CLK_KHZ` in the timing tables, and the tick counts in
 hand-written programs), so a different board clock needs rebuilt firmware, not a new chip.
-The Tiny Tapeout demo board should run the chip at exactly 50 MHz, which its RP2040 makes
-without jitter (100 MHz divided by 2), or 25 MHz; a clock made with a fractional divider
+The Tiny Tapeout demo board should run the chip at exactly 50 MHz, which its microcontroller
+(an RP2350 on the current ttDBv3, an RP2040 on earlier boards) makes without jitter
+(100 MHz divided by 2), or 25 MHz; a clock made with a fractional divider
 jitters, and a short cycle could fall below the 20 ns the layout is signed off at.
 
 These figures cover the design inside its tiles. The Tiny Tapeout multiplexer and the pads

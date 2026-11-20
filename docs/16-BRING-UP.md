@@ -110,19 +110,21 @@ compare.
 [1] clock and reset ...
 [1] PASS  PWM 25000000 Hz (RP 100000000 Hz), uo = 11111000 in and after reset, uio released
 [2] host link ...
-[2] PASS  STATUS 08 00 0f 00 x 201; one pin write ... ns; SCK half period about ... ns (fast) and ... ns (slow)
+[2] PASS  STATUS 0a 00 0f 00 x 201; one pin write ... ns; SCK half period about ... ns (fast) and ... ns (slow)
 [3] memories ...
-[3] PASS  data lines at 2 addresses, 4 patterns x 256 words, in both SRAMs; spaces independent; tape reads during a run while the core uses the port
+[3] PASS  data lines at 2 addresses, 4 patterns x 256 words, in the four program pages and the tape; spaces independent; tape reads during a run while the core uses the port
 [4] pins and clock rate ...
 [4] PASS  uio[7:0] toggle as driven; chip clock 25.0000 MHz from a 25000-tick period; STOP releases pins; all 8 inputs read correctly; bank B: 5 outputs toggle and release high, 5 inputs read correctly; streaming capture: 16 edges through an 8-word ring
 [5] firmware digests ...
-    can_rx.asm             steady ok    digest 0xe50858a7 = model at tick 183088
-    can_tx.asm             steady ok    digest 0x37f7d58e = model at tick 183084; min lead 0:3 (cert 3)
+    avr_isp.asm            steady ok    digest 0x8c2fc601 = model at tick 35924; min lead 0:33 (cert 21)
+    can_rx.asm             steady ok    digest 0x27f46eca = model at tick 35928
+    can_tx.asm             steady ok    digest 0x3dd6dd2f = model at tick 35924; min lead 0:3 (cert 3)
+    can_tx_lu.asm          steady ok    digest 0x831a3e4f = model at tick 35924; min lead 0:none (cert 1)
     cec.asm                none   ok    no digest prediction; state compared; min lead 0:13 (cert 4)
     ...
     uart_tx.asm            halt   ok    digest 0x63114ed9 model 0x63114ed9; min lead 0:9 (cert 9)
-    usb_hid.asm            steady ok    digest 0x1bce2a0d = model at tick 183086; min lead 0:none (cert 1)
-[5] PASS  48 of 48 firmware match the model and their certificates
+    usb_hid.asm            steady ok    digest 0x0cafaeb5 = model at tick 35926; min lead 0:none (cert 1)
+[5] PASS  79 of 79 firmware match the model and their certificates
 [6] UART smoke test (optional) ...
     uart_tx.asm: RP UART received 55 4b 21 0a
 [6] PASS  1 UART smoke test(s) received exactly the model's bytes

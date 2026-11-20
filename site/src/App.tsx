@@ -75,7 +75,7 @@ export default function App() {
               <h1>Escape<em>ment</em></h1>
               <p className="claim">No pin edge is ever late, whatever program runs.
                 <a href="#proof">Proved for every program, on the netlist that goes to silicon.</a></p>
-              <p className="lede">A chip that speaks UART, SPI, I2C, CAN, JTAG, ARM SWD, low-speed USB and more, with
+              <p className="lede">A chip that speaks UART, SPI, I2C, CAN, JTAG, ARM SWD, low-speed USB, 10BASE-T Ethernet and more, with
                 none of them built into the hardware. Firmware schedules every pin change for an exact 40 ns tick. The chip makes
                 that tick, or refuses the change when it is queued. The guarantee is in the silicon, not in a tool
                 that vets programs: one nobody has checked still cannot make a late edge.</p>
@@ -84,7 +84,8 @@ export default function App() {
                 <a className="icon-btn" href="#inside">How it works</a>
               </div>
               <p className="hero-hw"><a href={asset("fpga/")}>Runs on hardware: version 3 on an FPGA, driven by a
-                Pico W, runs all 79 programs, each matching the model and its certificate (19 Nov) →</a></p>
+                Pico W, runs 79 of the 80 programs (all but a 14-second chime), each matching the model and its
+                certificate (19 Nov) →</a></p>
               <div className="facts">
                 <div><b>40 ns</b><span>one tick at 25 MHz, rated to 50</span></div>
                 <div><b>4</b><span>programs running at once</span></div>
@@ -173,9 +174,9 @@ export default function App() {
                   work. <code>SEND</code> queues a packet like any other event, checked when it is queued and sent on its
                   exact tick; a receive records the tick the packet ended, so a reply can leave a fixed number of
                   ticks after the host's packet, whatever ran in between.</p>
-                <p>The unit knows no protocol. Three words in the tape set the pins, the coding, the stuffing rule,
-                  the bit period and any CRC up to 16 bits, so USB and CAN frames are configurations of it. While it
-                  is idle its clocks are gated off.</p>
+                <p>The unit knows no protocol. Three words in the tape, or five with symbol coding, set the pins,
+                  the coding, the stuffing rule, the bit period and any CRC up to 32 bits, so USB, CAN and 10BASE-T
+                  Ethernet frames are configurations of it. While it is idle its clocks are gated off.</p>
               </div>
               <div className="prose">
                 <h3>A USB keyboard in 187 instructions</h3>

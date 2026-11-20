@@ -511,10 +511,10 @@ Lockstep co-simulation & 191 random programs, 74 firmware cases, two builds: no 
 Timing certificates & 80 of 80 certified; measured lead equals the bound in 59 of 74 contexts, never below \\
 Mutation testing & 1,010 faults: 892 caught, 57 proved harmless, 61 argued, 0 surviving \\
 Outside judges & decoders by others agree with 73 of 80 programs; every control fails \\
-Planted firmware bugs & 719 timing bugs: 172 refuted, 29 not proven, 518 certified, 0 certified that fault \\
+Planted firmware bugs & 719 timing bugs: 173 refuted, 25 not proven, 521 certified, 0 certified that fault \\
 Slower pins & every firmware case passes with a tick of delay each way \\
-Test suites & 1,507 software, 12 chip (RTL and netlist), 9 through the pins \\
-FPGA bench & 79 of 79 programs match the model and their certificates (19 Nov.); SWD on a real RP2040, judged by sigrok \\
+Test suites & 1,522 software, 12 chip (RTL and netlist), 9 through the pins \\
+FPGA bench & 79 of 80 programs match the model and their certificates (19 Nov.; the 14\,s chime has no bench bundle); SWD on a real RP2040, judged by sigrok \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -649,8 +649,8 @@ tests the link, every memory and every pin, then loads every firmware, runs it, 
 compares the chip's digest, state and measured leads with the model's prediction and the
 certificate.
 
-The RTL that was hardened for silicon runs all 79 programs through the bring-up script,
-and each matches the model and stays within its timing certificate. The build uses 15{,}736 of 23{,}040 LUTs, 5{,}091 flip-flops and 3 of 56
+The RTL that was hardened for silicon runs 79 of the 80 programs through the bring-up
+script (all but a 14-second chime, which has no bench bundle), and each matches the model and stays within its timing certificate. The build uses 15{,}736 of 23{,}040 LUTs, 5{,}091 flip-flops and 3 of 56
 block RAMs, and routes to 57.4\,MHz against the 25\,MHz it runs at. It differs from the
 silicon in one place that matters for timing: the half-tick sampler's falling-edge
 register is clocked through an inverter that leaves the FPGA's global clock network, so

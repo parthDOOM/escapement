@@ -38,9 +38,9 @@ unless a section says otherwise. The final runs at a glance:
 | Timing certificates | 80 of 80 programs certified; the measured lead equals the bound in 59 of 74 contexts and is never below it |
 | Mutation testing | 1,010 planted RTL faults: 892 caught, 57 proved harmless, 61 argued harmless, none surviving |
 | Outside judges | decoders written by other people agree with 73 of the 80 programs; every control fails |
-| Planted firmware bugs | 719 timing bugs in 77 programs: 172 refuted with a reproducer, 29 not proven, 518 certified, none certified that can fault |
+| Planted firmware bugs | 719 timing bugs in 77 programs: 173 refuted with a reproducer, 25 not proven, 521 certified, none certified that can fault |
 | Pads and board | every firmware case still passes with its pins one tick slower each way |
-| Test suites | 1,507 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
+| Test suites | 1,522 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
 
 ## How the checks grew
 
@@ -758,22 +758,22 @@ system.
 
 | escert's answer | Mutants |
 | --- | ---: |
-| REFUTED: a fault, reproduced on the simulator with concrete inputs | 172 |
-| NOT_PROVEN: a fault not excluded, and none found by the searches | 29 |
-| CHECKED: no admission fault for any input | 518 |
+| REFUTED: a fault, reproduced on the simulator with concrete inputs | 173 |
+| NOT_PROVEN: a fault not excluded, and none found by the searches | 25 |
+| CHECKED: no admission fault for any input | 521 |
 | CHECKED, yet a search or a bench made it fault | **0** |
 
-Of the 172 refuted, 148 fell to the random search, 14 to the long search whose host never
-pauses and 10 to a bench, five of those to the aimed benches.
+Of the 173 refuted, 148 fell to the random search, 14 to the long search whose host never
+pauses and 11 to a bench, six of those to the aimed benches.
 
-**NOT_PROVEN is never counted as safe.** Of the 29, 8 are located exactly: escert holds a
+**NOT_PROVEN is never counted as safe.** Of the 25, 8 are located exactly: escert holds a
 state at the flagged instruction in which every deadline breaks a rule (escert reports the
 first such state, not every state there). Seven of these fault on their bench built at its
 own clock or tape, another program than the one judged. The eighth is escert being
 cautious: `usbpd_tx` with the first half of a 1 bit cut to a quarter still queues its
 edges faster than the line sends them, so the queue never drains as in escert's state,
 and on the bench the flagged instruction always has a lead of 98 ticks or more. Five more fault
-on their bench built at that bench's clock. The other 16 have a bound that straddles a rule
+on their bench built at that bench's clock. The other 12 have a bound that straddles a rule
 and no fault found anywhere; they are escert being cautious or faults on a path no search
 drove, and the campaign does not tell which.
 
@@ -789,8 +789,8 @@ admissible, which escert is right to accept: it proves timing, not protocol corr
 Most inverted branches are of this kind, because escert already follows both directions of
 a branch whose flag depends on inputs, so inverting one leaves the same timed paths. For a
 certified mutant with a bench, the campaign therefore also records the bench's own
-protocol check. Of the 248 certified mutants with a bench, the bus models see the
-protocol fail in 118: a frame with a bad CRC, a USB device that never enumerates, a
+protocol check. Of the 250 certified mutants with a bench, the bus models see the
+protocol fail in 119: a frame with a bad CRC, a USB device that never enumerates, a
 frame never sent. Every unmutated program passes its benches, so each failure is the
 mutant's doing. escert and the bus models catch different bugs, and the campaign shows both.
 
@@ -1127,7 +1127,7 @@ inputs it samples are its buttons.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,507 | Pass (the sigrok tests need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,522 | Pass (the sigrok tests need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 12 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 12 | Pass; with SDF timing at the three corners, 11 each |
 | Co-simulation and line unit lockstep on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make cosim-parallel line-test`) | all | Pass |
@@ -1138,7 +1138,7 @@ inputs it samples are its buttons.
 | Line unit lockstep (`make line-test`) | 19 runs, 3.8 million edges | Pass |
 | Newer firmware (SWD, SPI target, NEC, NEC rebuilt for 33 and for 50 MHz, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 9 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
-| Outside judges: sigrok's decoders on the co-simulation cases (`make judges`), each with its control | 39 | Pass; every control fails |
+| Outside judges: decoders written by others on the co-simulation cases (`make judges`), each with its control; 14 more are in the software tests | 61 | Pass; every control fails |
 | Pads and board: every co-simulation case with its pins delayed 0 to 3 ticks each way (`make pad-audit`) | 74 × 4 | Pass at one tick each way |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 
@@ -1163,28 +1163,34 @@ and the SDF-annotated runs replay the chip tests with those delays.
   bus) the stretch never outlasted the controller's own low time; its Fast-mode margin is
   measured against our controller model only.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
-- **FPGA, not silicon.** No chip exists yet. The design runs on an FPGA bench (all 79
-  programs matching the model and their certificates, [the bench](../fpga/tangprimer25k/README.md)), with
+- **FPGA, not silicon.** No chip exists yet. The design runs on an FPGA bench (79 of the
+  80 programs matching the model and their certificates; the 14-second `westminster` chime
+  has no bench bundle; [the bench](../fpga/tangprimer25k/README.md)), with
   plain flip-flops for the clock gates and latch banks and block RAM for the SRAM macros;
   those stay covered by the gate-level suites and the equivalence proof.
 
 ## In CI
 
-Every check above runs on GitHub Actions whenever something it depends on changes, and the
+Every check above runs on GitHub Actions whenever something it depends on changes, except
+four that are run locally: lint, the bring-up script on the chip RTL (`make bringup-test`),
+the firmware through the pins on the gate-level netlist (`make gl-pin-test`) and the
+SDF-annotated chip tests. The host, core unit and bus monitor suites run in CI as part of
+the mutation workflow's baseline. The
 [results page](https://parthdoom.github.io/escapement/#results) shows the latest run of each
-on master, with its commit and log, failures included.
+workflow on master, with its commit and log, failures included.
 
 | Workflow | Runs on | Checks |
 | --- | --- | --- |
 | `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, the certificates against the RTL's measured leads (`proof_table.py`), the outside judges and the pad audit, firmware through the pins; the co-simulation and the line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
 | `formal` | a change to `src/` or `formal/` | three jobs: the properties and covers with the unbounded core proof as one PDR task per assertion group; the bounded check from reset, one task per assertion group (`make formal-bmc`); the tripwire, line unit and non-interference proofs, then the planted bugs that must make each fail (`make formal-v2 formal-teeth`) |
 | `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in 40 shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors; the shards are dealt by each mutant's time in earlier runs (`test/mutation/costs.json`), the canaries run once beside them, and the summary requires the canaries and exactly one result per mutant |
+| `fw-mutants` | a push to any branch that changes the firmware, `escert`, the simulator, the assembler or the bus models | the firmware mutation campaign (`make fw-mutants`) in 24 shards: every planted timing bug against `escert`, and each certified one attacked on the simulator |
 | `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
 | `equivalence` | each successful `gds` run on master | that run's netlist against the RTL of its commit (`formal/equiv.sh`) |
 
 Each job writes a summary (`scripts/ci_summary.py`); the site's build collects the
 summaries of the latest master runs (`site/tools/ci_results.py`) and rebuilds after each of
-these workflows. The formal and equivalence jobs use the OSS CAD Suite release pinned in
+these workflows except `fw-mutants`, whose latest finished run it shows when it next builds. The formal and equivalence jobs use the OSS CAD Suite release pinned in
 `scripts/versions.txt`, and the equivalence job the standard-cell liberty of the pinned PDK.
 
 ## Rerunning

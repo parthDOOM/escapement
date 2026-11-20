@@ -35,7 +35,7 @@ Three units do work that firmware cannot do per bit:
 - A **capture unit** streams timestamped pin changes into the tape.
 
 The design clock is 25 MHz. The layout is signed off at 20 ns, so the chip is rated for
-clocks up to 50 MHz. On the demo board, use a clock the RP2040 makes without jitter (25, 33
+clocks up to 50 MHz. On the demo board, use a clock its RP2350 or RP2040 makes without jitter (25, 33
 and 50 MHz all are; see `docs/16-BRING-UP.md`).
 
 A host loads programs and reads results over an SPI port on `ui[2:0]` / `uo[0]`, and can
@@ -82,7 +82,7 @@ recommends for its protocol with no change to its code. `.bank n` puts context n
 
 | Pinout | Pins | Program and settings |
 | --- | --- | --- |
-| UART to USB through the demo board's RP2040 | `ui[3]` RX, `uo[4]` TX | `uart_rx` with `.bank 1` and `.equ uart_rx.RX_PIN, 0`; `uart_tx` with `.bank 0` and `.equ uart_tx.PIN, 1` |
+| UART to USB through the demo board's RP2350 or RP2040 | `ui[3]` RX, `uo[4]` TX | `uart_rx` with `.bank 1` and `.equ uart_rx.RX_PIN, 0`; `uart_tx` with `.bank 0` and `.equ uart_tx.PIN, 1` |
 | SPI, top row (also the SPI RAM and QSPI Pmods) | `uio[0]` CS, `uio[1]` MOSI, `uio[2]` MISO, `uio[3]` SCK | `spi_flash` with `CS_PIN` 0, `MOSI_PIN` 1, `MISO_PIN` 2, `SCK_PIN` 3 |
 | TT Audio Pmod | `uo[7]` | `westminster` with `.equ westminster.PIN, 4` |
 | I2C, top row | `uio[2]` SCL, `uio[3]` SDA | `i2c_ctrl` and `i2c_eeprom` as they are |

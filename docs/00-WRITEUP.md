@@ -246,10 +246,10 @@ escert is attacked the way the RTL's tests are. A campaign plants the timing bug
 authors make, one at a time in each shipped program (a wait deleted, a delay cut to a
 quarter, a branch inverted), and attacks each mutant on the simulator with random inputs,
 the program's own bus models and a host that never pauses. Of 719 mutants, escert
-certified 518, and none of those faulted under any search; it refuted 172, each with inputs
-that reproduce the fault; and it could not decide 29, which are never counted as safe. A
-certificate is about timing, not function: of the 248 certified mutants that have a bench,
-118 still break their protocol, and the bus models catch them. The campaign also found two
+certified 521, and none of those faulted under any search; it refuted 173, each with inputs
+that reproduce the fault; and it could not decide 25, which are never counted as safe. A
+certificate is about timing, not function: of the 250 certified mutants that have a bench,
+119 still break their protocol, and the bus models catch them. The campaign also found two
 real escert bugs: a line unit command allowed before the unit's configuration had finished,
 which the chip faults on, and a branch after GETI followed one way only, because escert
 kept the flag it knew from before the GETI. A check of every instruction against the
@@ -315,7 +315,8 @@ digest, state and measured leads with the model's prediction and the certificate
 
 ![The bench: a Raspberry Pi Pico W wired to a Sipeed Tang Primer 25K Dock](img/bench-setup.jpg)
 
-Version 3's RTL, the same Verilog that was hardened for silicon, runs all 79 programs, and
+Version 3's RTL, the same Verilog that was hardened for silicon, runs 79 of the 80
+programs, all but the 14-second `westminster` chime, which has no bench bundle, and
 every one matches the reference model and stays within its timing certificate (19 November). One detail of
 the FPGA build matters for timing: there the half-tick sampler's falling-edge register is
 clocked through an inverter off the global clock network, so that bitstream fails two of
@@ -369,8 +370,10 @@ pass on the players' key presses, while every I2C edge stays certified
 
 ![The OLED on the bench, showing the PONG title screen](img/bench-oled.jpg)
 
-**Protocols after the silicon froze.** The design was frozen on 12 November, and nine
-protocols were added after it without touching the hardware. Four are timing tables for
+**Protocols after the silicon froze.** The silicon was frozen on 14 November: since then
+the RTL and the layout settings have changed only in their comments. OLED Pong's four
+programs and the I2C burst writer came the next day, and nine protocols were added after
+them, all without touching the hardware. Four are timing tables for
 `escgen`: Samsung, Sharp and Panasonic infrared, and WS2801 LEDs. Five are hand-written: an
 XY2-100 laser-scanner link in four cooperating contexts, SAE J1850 VPW (the GM diagnostic
 bus), an Oregon Scientific weather sensor, a FlexRay frame with both of its CRCs computed
@@ -413,7 +416,7 @@ integration and can be rerun the same way:
 | The tests notice a broken design | 1,010 planted RTL faults | `make mutation` |
 | The programs speak the protocol, not our model of it | decoders written by other people, each with a control that must fail | `make judges` |
 | The protocols survive pad and board delays | every case with its pins a tick slower each way | `make pad-audit` |
-| The layout meets 20 ns at every corner | the sign-off reports in `asic/reports/` | `make harden` |
+| The layout meets 20 ns at every corner | the sign-off reports in the v3.0 release's `escapement-v3.0-signoff.zip`, summarised in [physical design](03-PHYSICAL-DESIGN.md#sign-off-results) | `make harden` |
 | It runs on real pins | the FPGA bench: six bring-up stages and every program | [the bench](../fpga/tangprimer25k/README.md) |
 
 [Verification](04-VERIFICATION.md) gives each result in full, the workflow that produces it

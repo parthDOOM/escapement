@@ -58,8 +58,8 @@ export function ProofTable() {
           <tr><td>Line unit against its model, every output every cycle</td><td className="num">3.8 million edges</td><td>0 mismatches</td></tr>
           <tr><td>Planted RTL faults (mutants) across every module, standard-cell models</td><td className="num">1,010</td><td>892 caught, 57 proved equivalent, 61 excluded, 0 surviving</td></tr>
           <tr><td>Timing certificates against measured leads (74 cases, 74 contexts with a bound)</td><td className="num">74</td><td>59 exact, 0 below</td></tr>
-          <tr><td>Planted firmware timing bugs: escert must refute every one that can fault, and what it certifies is attacked on the simulator</td><td className="num">719</td><td>172 refuted, 29 not proven, 518 certified, 0 certified that fault</td></tr>
-          <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 to 50 MHz</td><td className="num">1,507</td><td>pass</td></tr>
+          <tr><td>Planted firmware timing bugs: escert must refute every one that can fault, and what it certifies is attacked on the simulator</td><td className="num">719</td><td>173 refuted, 25 not proven, 521 certified, 0 certified that fault</td></tr>
+          <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 to 50 MHz</td><td className="num">1,522</td><td>pass</td></tr>
           <tr><td>Outside judges: decoders written by others (sigrok, IRMP, Wireshark, rtl_433, rc-switch) read the pins, each with a control that must fail</td><td className="num">73 of 80 programs</td><td>agree; every control fails</td></tr>
           <tr><td>Firmware cases with every pin a tick slower each way (pads and board)</td><td className="num">74</td><td>pass</td></tr>
           <tr><td>Chip tests on the final gate-level netlist</td><td className="num">12</td><td>pass</td></tr>
