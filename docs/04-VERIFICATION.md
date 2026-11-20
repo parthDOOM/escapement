@@ -806,6 +806,29 @@ analyses again with the earlier keys, and those mutants certify. A random test o
 loops, at the usual key limits and at tiny ones, checks that every certificate holds on the
 simulator.
 
+A later run found a second bug in escert, and this one could certify a program that faults.
+GETI writes Z from the bits its SAMPLEs read, but escert carried past it the Z it knew
+before, so where Z was known just ahead of a GETI (after a MOVI, say, or on the match path
+of a WAITP, which escert now tells from the timeout), the branch after the GETI was
+followed one way only. The guard against incomplete analysis caught it: with `dali`'s test
+of the start bit's first half inverted, escert never reached the receiver's bit loop and
+said NOT_PROVEN, while on the simulator a short glitch on the bus runs straight into it.
+With GETI fixed to leave Z unknown, every shipped program certifies with the same bounds as
+before, and that mutant is CHECKED again. The guard notices a lost path only when the path
+holds an event site no other path reaches, so the test kept for this bug has none: seven
+instructions whose two paths meet at one EMIT, which the old escert certified and the
+simulator faults at once.
+
+That bug sent escert's instruction cases back through a check against the specification,
+looking for its kind: state written after it was handed on to the next instruction, an
+instruction that writes Z or a register with no case to say so, an instruction with no case
+at all. It found one more. GETM, which reads the bus monitor or the line unit, had no case,
+so the register it writes kept the value escert knew before; five instructions that load a
+delay, overwrite it with GETM and wait by it were certified, and the simulator faults them
+at once. GETM now leaves its register unknown. Every other instruction checked out, and
+every shipped program certifies with the same bounds after both fixes. Each bug has its
+test.
+
 ## Protocol coverage
 
 Each program runs against an independent bus model in `sw/escmodels` on the simulator

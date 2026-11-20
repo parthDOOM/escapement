@@ -255,6 +255,54 @@ def test_accumulating_deadlines_after_unbounded_wait_are_refuted():
     assert c.status in ("REFUTED", "NOT_PROVEN") and c.findings[0].kind == "PAST", str(c)
 
 
+def test_a_branch_on_geti_follows_both_paths_whatever_z_was_before():
+    """GETI writes Z from the sampled bits, so a branch after it must follow both ways even
+    where Z was known just before (here from MOVI). Until 2026-11-20 escert carried the old
+    Z past GETI: it followed only the on-time path and certified this program, which the
+    ISS faults at once (pin 0 reads high, the EMIT keeps tmr = 40). Both paths reach the
+    same EMIT, so the INCOMPLETE guard could not catch it; in dali.asm the WAITP change
+    made the lost path a whole frame, and the guard did (fw-mutants, branch 79)."""
+    src = """
+    .entry 0, s
+    .own 0, 0
+    s: ADDT 40
+       SAMPLE 0, MSB
+       MOVI r0, 0
+       GETI r1
+       JNZ  late
+       ADDT 100
+    late:
+       EMIT 1, 1, 1
+       HALT
+    """
+    c = certify(assemble(src), witness_trials=10)[0]
+    assert c.status == "REFUTED" and c.findings[0].kind == "PAST", str(c)
+    m = Machine(assemble(src))
+    m.run(400)
+    assert m.ff.valid and m.ff.subcode == 3
+
+
+def test_a_register_getm_writes_is_forgotten():
+    """GETM writes rd. Until 2026-11-20 escert had no case for it and kept the register's
+    old value: here r0 = 100, so it put the EMIT at tick 100 and certified it, while a
+    context that owns neither the monitor nor the line unit reads 0 (sec. 7.8), and the
+    EMIT, due at tick 0, faults at once."""
+    src = """
+    .entry 0, s
+    .own 0, 0
+    s: MOVI r0, 100
+       GETM r0, 5
+       ADDTR r0
+       EMIT 1, 1, 1
+       HALT
+    """
+    c = certify(assemble(src), witness_trials=10)[0]
+    assert c.status == "REFUTED" and c.findings[0].kind == "PAST", str(c)
+    m = Machine(assemble(src))
+    m.run(400)
+    assert m.ff.valid and m.ff.subcode == 3 and m.ctx[0].r[0] == 0
+
+
 def test_counted_bit_loop_inside_an_uncounted_frame_loop_is_exact():
     # a frame counter compared with a tape word makes a state key per frame; when a pc has
     # too many, escert must forget the counter's value before the bit loop's count, or a

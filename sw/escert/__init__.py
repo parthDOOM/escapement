@@ -934,6 +934,8 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
         elif name in ("STSH", "GETP", "GETX", "GETC"):
             setreg(f["rd"], ("top",))
             s.zf = None
+        elif name == "GETM":
+            setreg(f["rd"], ("top",))                # monitor or line unit state; Z is kept
         elif name == "LDT":
             base = ("const", 0, 0) if f["rb"] in fixed else s.reg[f["rb"]]
             v = (consts.get((int(base[1]) + f["imm"]) & 0xFF)
@@ -1041,6 +1043,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
                 go(s, nxt, 0, INF)
         elif name == "GETI":
             setreg(f["rd"], ("top",))
+            s.zf = None                                  # Z is written from the sampled bits
             smp = [slot for slot, k in s.fifo if k == "SAMPLE"]
             if smp:
                 last = smp[-1]
@@ -1052,7 +1055,6 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
                 go(t, nxt)
             else:
                 go(s, nxt)
-            s.zf = None
         elif name == "HALT":
             continue
         elif name in ("LDT", "STT") and lu_ctx and s.cf == 1:

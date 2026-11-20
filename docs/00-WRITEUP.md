@@ -249,9 +249,12 @@ the program's own bus models and a host that never pauses. Of 719 mutants, escer
 certified 518, and none of those faulted under any search; it refuted 172, each with inputs
 that reproduce the fault; and it could not decide 29, which are never counted as safe. A
 certificate is about timing, not function: of the 248 certified mutants that have a bench,
-118 still break their protocol, and the bus models catch them. The campaign also found a real
-escert bug, a line unit command allowed before the unit's configuration had finished,
-which the chip faults on.
+118 still break their protocol, and the bus models catch them. The campaign also found two
+real escert bugs: a line unit command allowed before the unit's configuration had finished,
+which the chip faults on, and a branch after GETI followed one way only, because escert
+kept the flag it knew from before the GETI. A check of every instruction against the
+specification for more of that kind found a third, a register GETM writes left at its old
+value. Neither of the last two changed a shipped program's certificate.
 
 **Mutation testing.** To check the tests themselves, faults are planted in the RTL one at
 a time across every module and simulated on the PDK's standard-cell models; a fault the
