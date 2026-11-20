@@ -27,13 +27,16 @@ own co-simulation benches (test/cosim/fw_cases.py: its bus models and host scrip
 ISS with the mutant in place, those whose image is the very one certified (a bench that
 sets .equ parameters or prepares the tape runs a different program, and is left out),
 and a few benches aimed at the paths those leave alone (AIMED: a target that never
-answers, a byte NACKed for its parity, a frame for another device, a query answered, a
-keyer kept busy with its longest spaces).
-A NOT_PROVEN mutant gets two more searches. A host that never pauses, over a run five times
+answers and a command right after that, a byte NACKed for its parity, a frame for another
+device, a query answered, a keyer kept busy with its longest spaces, a line held low by
+another device, a receiver that glitches while the reply goes out).
+A NOT_PROVEN mutant gets more searches. A host that never pauses, over a run five times
 as long (a deleted WAITT may fault only once frames follow each other back to back), can
-still refute it. And the benches that set parameters (most set the clock) build it their
-way and run it: a fault there is reported beside NOT_PROVEN, never as REFUTED, because a
-different clock makes a different program; if escert certifies that build, the run fails.
+still refute it, and so can the aimed benches too long to run on every mutant (LONG_AIMED:
+a host word that comes two seconds late). And the benches that set parameters (most set
+the clock) build it their way and run it: a fault there is reported beside NOT_PROVEN,
+never as REFUTED, because a different clock makes a different program; if escert
+certifies that build, the run fails.
 
 escert proves timing, not that the protocol still works: for a certified mutant the
 bench's own check (its bus models' verdict) is recorded too, and the report counts the
@@ -67,6 +70,7 @@ from esciss.machine import no_board_b  # noqa: E402
 
 sys.path.insert(0, str(REPO / "test" / "cosim"))
 from escmodels import Board, CecDevice, DaliController, HostScript  # noqa: E402
+from escmodels.board import Device  # noqa: E402
 from escmodels.swim import SwimTarget  # noqa: E402
 from fw_cases import FIRMWARE_CASES, FW_EQU, SWIM_MEM, SWIM_UID, TAPE_PREP, fw_image  # noqa: E402
 
@@ -135,9 +139,12 @@ class _SwimBadParity(SwimTarget):
 
 def _aimed_avr_no_target():
     """Programming Enable with no AVR on the bus: nothing echoes 0x53, so the programmer
-    pulses RESET and tries again, eight times in all, then reports 1 (no echo)."""
-    host = HostScript([(100, 0, 1 << 28)], drain=[0], poll=2500)
-    return Board(host), host, lambda b, h: [] if h.received[0][:1] == [1] else [f"avr_isp {h.received}"]
+    pulses RESET and tries again, eight times in all, then reports 1 (no echo). A raw
+    instruction is already waiting, so the next command starts as soon as that report is
+    pushed, while the last RESET pulse is still queued; MISO reads all ones (pulled up)."""
+    host = _FeedHost(0, [1 << 28, 2 << 28, 0xAC530000], drain=[0], poll=2500)
+    return Board(host), host, lambda b, h: ([] if h.received[0] == [1, 0xFFFFFFFF]
+                                            else [f"avr_isp {h.received}"])
 
 
 def _aimed_swim_nack():
@@ -150,6 +157,71 @@ def _aimed_swim_nack():
         ok = h.received[0] == [4, 0x00, 0x5A, 0x00, 0x3C] and not tgt.violations
         return ([] if ok else [f"swim {h.received} {tgt.violations[:2]}"]) + board.errors()
     return Board(tgt, host, pullups=0x01), host, check
+
+
+class _LowAfterEdges(Device):
+    """Another device on an open-drain line: from the line's `nth` falling edge it holds the
+    line low for `hold` ticks, once (a target that answers too early, or a glitch)."""
+    def __init__(self, mask, nth, hold):
+        self.mask, self.nth, self.hold = mask, nth, hold
+        self.prev, self.n, self.until = mask, 0, -1
+
+    def step(self, t, bus):
+        lvl = bus & self.mask
+        if self.prev and not lvl:
+            self.n += 1
+            if self.n == self.nth:
+                self.until = t + self.hold
+        self.prev = lvl
+        return (self.mask if t < self.until else 0), 0
+
+
+def _aimed_swim_glitch():
+    """The co-simulation bench's read, with SWIM held low for 80 ticks (1.6 us) from its 13th
+    falling edge, the third bit of the host's first command: the host may take that low for
+    the target's acknowledge. It reports the read as failed and tries again."""
+    tgt = SwimTarget(0, tick_ns=20, mem=SWIM_MEM)
+    host = HostScript([(100, 0, 3 << 24 | SWIM_UID)], drain=[0], poll=300)
+    return (Board(_LowAfterEdges(1, 13, 80), tgt, host, pullups=0x01), host,
+            lambda b, h: [] if h.received[0][:1] in ([0xFFFFFFFF], [4]) else [f"swim {h.received}"])
+
+
+class _EchoNoise(Device):
+    """A transceiver whose receiver output RO glitches low for 4 ticks in every 64 while
+    the driver is enabled (DE high): a noisy bus, or a client talking over the reply."""
+    def __init__(self, ro, de):
+        self.ro, self.de = 1 << ro, 1 << de
+
+    def step(self, t, bus):
+        return (self.ro if bus & self.de and t % 64 < 4 else 0), 0
+
+
+def _aimed_modbus_noise():
+    """Read Holding Registers at the default 25 MHz build, with RO noisy while the server
+    drives the bus: the server receives nothing while it replies, and the reply still
+    comes back whole."""
+    from escmodels.modbus import ModbusClient, adu
+    cl = ModbusClient(ro=1, di=0, de=2, ticks_per_bit=MS25 * 1000 / 19200,
+                      requests=[(adu(1, bytes([3, 0, 0, 0, 2])), True)], start=60_000, turn=5000)
+    host = HostScript([], drain=[0], poll=500)
+
+    def check(board, h):
+        out = [bytes(r["bytes"]) for r in cl.replies]
+        if out and out[0][:3] == bytes([1, 3, 4]):
+            return []
+        return [f"modbus {[o.hex() for o in out]}"]
+    return Board(_EchoNoise(1, 2), cl, host), host, check
+
+
+def _aimed_dcf77_late_word():
+    """A frame at once, with bit 1 set so that second 1 is a 1 (second 0 is always a 0), then
+    the next frame's first word 2.1 s later, after second 2 has begun: the transmitter takes
+    a word only when RXREADY saw one, so a word that comes late never holds up a second,
+    after a 0's mark or a 1's. 54 million ticks at the default 25 MHz: run only for a
+    NOT_PROVEN mutant."""
+    host = HostScript([(100, 0, 1 << 1), (101, 0, 1 << 20), (52_500_000, 0, 0)], drain=[0],
+                      poll=5000)
+    return Board(host), host, lambda b, h: []
 
 
 def _aimed_cec_other():
@@ -184,15 +256,16 @@ def _aimed_westminster():
 
 class _FeedHost(HostScript):
     """A host that keeps one context's RX mailbox full: each word goes in as soon as there
-    is room, so the program never finds the mailbox empty and never pauses."""
-    def __init__(self, ctx, words):
-        super().__init__([], drain=())
+    is room, so the program never finds the mailbox empty and never pauses. With `drain`,
+    it also reads those contexts' TX mailboxes every `poll` ticks, as HostScript does."""
+    def __init__(self, ctx, words, drain=(), poll=1400):
+        super().__init__([], drain=drain, poll=poll)
         self.ctx, self.words = ctx, list(words)
 
     def step(self, t, bus):
         if self.machine is not None and self.words and len(self.machine.ctx[self.ctx].rx) < 2:
             self.machine.host_rx_push(self.ctx, self.words.pop(0))
-        return 0, 0
+        return super().step(t, bus)
 
 
 def _aimed_morse_spaces():
@@ -216,6 +289,14 @@ AIMED = {
     "dali_query": ("dali.asm", 40 * MS25, _aimed_dali_query, None),
     "westminster_250k": ("westminster.asm", 1_000_000, _aimed_westminster, {"CLK_KHZ": 250}),
     "morse_long_spaces": ("morse.asm", 40_000, _aimed_morse_spaces, None),
+    "swim_host_glitch": ("swim_host.asm", 400_000, _aimed_swim_glitch, None),
+    "modbus_rtu_noise": ("modbus_rtu.asm", 500_000, _aimed_modbus_noise, None),
+}
+# Aimed benches too long to attack every mutant with (a second of the default clock is 25
+# million ticks, minutes on the ISS): run for a NOT_PROVEN mutant only, after the searches
+# above found nothing. name: (firmware, ticks, factory).
+LONG_AIMED = {
+    "dcf77_late_word": ("dcf77_tx.asm", 54_000_000, _aimed_dcf77_late_word),
 }
 
 
@@ -365,6 +446,13 @@ def _run_one(job):
                 w = long_witness(image, b.ctx)
                 if w:
                     break
+            for name, (f, ticks, factory) in LONG_AIMED.items() if not w else []:
+                if f == fw:                   # the long aimed benches, last
+                    w, _ = bench_witness_one(image, name, ticks, factory)
+                    if w and w["ctx"] not in {b.ctx for b in bad}:
+                        return {**r, "result": "UNSOUND", "ctx": w["ctx"], "detail": json.dumps(w)}
+                    if w:
+                        break
             if w:
                 r["ctx"] = w["ctx"]
                 status, detail = "REFUTED", detail + " " + json.dumps(w)

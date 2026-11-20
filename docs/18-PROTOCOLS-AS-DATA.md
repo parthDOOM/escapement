@@ -11,6 +11,7 @@ co-simulates against the RTL, and it can be edited by hand afterwards.
 python -m escgen                       # every protocols/*.yaml -> firmware/<name>.asm
 python -m escgen protocols/midi_tx.yaml
 python -m escgen --check-only          # the files in firmware/ are up to date
+python -m escgen protocols/nec_tx_gen.yaml --rx   # its receiver, nec_tx_gen_rx.asm
 ```
 
 ## A table
@@ -60,6 +61,13 @@ pin levels are known, so a phase that changes nothing becomes a wait, not an eve
 `escert` then proves a minimum lead for every event site or the table is refused, with
 the instruction where the proof fails.
 
+With `--rx` the same table gives a receiver instead (`sw/escgen/rx.py`): it measures each
+mark and space edge to edge, decides each bit on the first run where its two symbols
+differ, and pushes the word the transmitter would have been given. It handles pulse codes
+on one pin, which five of the shipped tables are (NEC, Samsung, JVC, Sony SIRC, EV1527),
+and refuses the others with the reason. [Record it, speak it](20-LEARN.md#receiving-it-too)
+describes it with a table learned from a real remote.
+
 ## The tables
 
 | Table | Protocol | Source | Checked against |
@@ -106,8 +114,9 @@ that stays in hand-written code.
 
 ## Limits
 
-- Transmitters only. Receivers and clocked buses with a target that answers (I2C, SPI,
-  SWD) stay hand-written: they need decisions on input during a frame.
+- Receivers for pulse codes on one pin only. Other receivers, and clocked buses with a
+  target that answers (I2C, SPI, SWD), stay hand-written: they need decisions on input
+  during a frame that a timing table does not describe.
 - A data phase drives only its data pins; other pins change in their own phases.
 - Fields up to 32 bits, units taken from bit 0 of the source word up; a `choose` field
   is sent LSB first and needs the mailbox or constant source (it counts bits in r3).

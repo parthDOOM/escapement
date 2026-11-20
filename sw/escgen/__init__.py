@@ -4,7 +4,9 @@ A table (YAML, `protocols/*.yaml`) describes a transmit-side protocol as pins, t
 symbols and a frame; `generate()` writes commented assembly in the idioms of the
 hand-written firmware, and `build()` assembles it and refuses it unless every context is
 CHECKED by escert. The generated program is ordinary firmware: it runs on the ISS and the
-RTL, carries a timing certificate, and can be edited by hand afterwards.
+RTL, carries a timing certificate, and can be edited by hand afterwards. For a pulse code
+on one pin, `build_rx()` makes the table's receiver instead (escgen.rx), refused with the
+reason for any other table.
 
 Table keys:
 
@@ -39,6 +41,8 @@ Table keys:
     packet      {before: [symbols], after: [symbols], ack: true|false}: symbols sent
                 around each packet (a mailbox word, a pass over the tape); ack PUSHes 1
                 after each packet
+    receive     {tolerance: percent, slack_us: us}: how far a run may be from its length
+                for the receiver (default 25 and 60); the transmitter ignores it
 
 Registers: r1 holds the source word (r0 directly when a word is one plain field), r0 the
 unit being shifted (or the constant 1), r2 the tape address, r3 the re-anchoring
@@ -460,3 +464,24 @@ def _override(text: str, equ: dict) -> str:
                 line = f".default {k}, {v}"
         out.append(line)
     return "\n".join(out) + "\n"
+
+
+def build_rx(t: dict, check: bool = True, **equ) -> tuple[str, Image]:
+    """The receiver for table `t` (escgen.rx): (assembly, image), refused as build()
+    refuses a transmitter; one that does not fit a 256-word page is refused too."""
+    from escasm import AsmError
+    from .rx import generate_rx
+    text = generate_rx(t)
+    try:
+        image = assemble(_override(text, equ) if equ else text, name=f"{t['name']}_rx.asm")
+    except AsmError as e:
+        if "exceeds 256 words" in str(e):
+            raise TableError(f"receiver: {t['name']}_rx does not fit a 256-word page "
+                             "(each fixed run takes five words)") from None
+        raise
+    if check:
+        from escert import certify
+        bad = [c for c in certify(image) if c.status != "CHECKED"]
+        if bad:
+            raise TableError(f"{t['name']}_rx: not CHECKED: " + "; ".join(str(c) for c in bad))
+    return text, image

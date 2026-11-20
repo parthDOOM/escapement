@@ -33,9 +33,19 @@ The ten programs on the chip for the first time all match: `flexray_tx`, `j1850_
 
 `eth_trx`, the ping bench's program (Ethernet, below), is the one bundle stage 5 does not pass.
 Its state matched the model, but escert gives it no certificate (POSSIBLE), and stage 5 passes
-no program without one. Its findings point at a real fault in `send`: after waiting on a slow
-host, the program counts its next deadline from before the wait. It is written down to be fixed
-with the ping bench.
+no program without one. Its findings pointed at a real fault in `send`: after waiting on a slow
+host, the program counted its next deadline from before the wait. The bit-banged host link
+takes about 0.7 s to push a large frame, longer than the 0.42 s (2^24 ticks) by which `send`
+bounds its wait for the line unit, so the frame's deadline could already be past. On the
+simulator, with the host pausing 0.45 s inside a frame, the old program's frame was late and the
+line unit dropped it; with the host slow to read a status word, it faulted at its next link
+pulse. `send` now takes the time again after each wait on the host. It also waits for the host
+in 10 µs slices, as listening does, so the link pulses keep their 16 ms through a slow host:
+before, they stopped for as long as the host took, and a link partner drops the link after 50
+to 150 ms without them. With two precision fixes in escert
+([verification](../../docs/04-VERIFICATION.md#planted-timing-bugs)) the program is CHECKED
+with a minimum lead of 13 ticks, and `test_ethbench.py` runs both slow hosts. This bench run
+predates the fix; the next one will load it.
 
 Getting to this run took three tries, and each fixed something:
 

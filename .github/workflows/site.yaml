@@ -20,7 +20,7 @@ on:
       - '.github/workflows/site.yaml'
   # After each verification workflow, so the results page shows its latest run
   workflow_run:
-    workflows: [gds, test, formal, equivalence, mutation]
+    workflows: [gds, test, formal, equivalence, mutation, fw-mutants]
     types: [completed]
     branches: [master]
   workflow_dispatch:

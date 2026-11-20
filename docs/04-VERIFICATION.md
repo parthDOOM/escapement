@@ -39,8 +39,8 @@ unless a section says otherwise. The final runs at a glance:
 | Mutation testing | 1,010 planted RTL faults: 892 caught, 57 proved harmless, 61 argued harmless, none surviving |
 | Outside judges | decoders written by other people agree with 73 of the 80 programs; every control fails |
 | Planted firmware bugs | 719 timing bugs in 77 programs: 173 refuted with a reproducer, 25 not proven, 521 certified, none certified that can fault |
-| Pads and board | every firmware case still passes with its pins one tick slower each way |
-| Test suites | 1,522 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
+| Pads and board | every firmware case still passes with its pins up to three ticks slower each way |
+| Test suites | 1,559 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
 
 ## How the checks grew
 
@@ -619,9 +619,9 @@ timing. The certified minimum leads, in ticks, per context:
 | 28 | 3 | `max7219`, `nrf24_tx`, `spi_flash` |
 | 40 | 1 | `stepper` |
 | 57 | 2 | `servo`, `westminster` |
-| 148 | 1 | `morse` |
 | 206 | 2 | `combo_uart_i2c` (context 1), `uart_rx` |
 | 347 | 1 | `sbus_rx` |
+| 692 | 1 | `morse` |
 | 1,597 | 1 | `vga_pong` (context 0) |
 | no queued events | 16 | `can_rx`, `dshot_tx` (context 1), `eth_rx`, `freq_meter`, `i2c_timing`, `logic_analyzer`, `nec_rx`, `oled_menu`, `oled_pong`, `oled_text`, `quadrature`, `sent_tx` (context 1), `spi_sniff`, `usb_hid` (context 1), `wiegand_rx`, `xy2_100` (context 3) |
 
@@ -696,7 +696,7 @@ contexts:
 | --- | ---: |
 | Queued events, so a lead was measured | 74 |
 | Measured lead equal to the certified bound, to the tick | 59 |
-| Measured lead above the bound (`uart_rx` 210 against 206, alone and as `combo_uart_i2c`'s second context; `ws2812` 8 against 5, `ws2812_gen` 6 against 5, `xy2_100`'s two axes 8 and 7 against 5, `morse` 908 against 148; `i2c_burst` 6 against 2, and `oled_disp` 6 against 2 in both OLED Pong cases; on the line unit, `usb_hid` 12, `can_tx_lu` 17, `eth_tx` 13, `udp_tx` 13 and `ws2812_lu` 20, each against 1) | 15 |
+| Measured lead above the bound (`uart_rx` 210 against 206, alone and as `combo_uart_i2c`'s second context; `ws2812` 8 against 5, `ws2812_gen` 6 against 5, `xy2_100`'s two axes 8 and 7 against 5, `morse` 908 against 692; `i2c_burst` 6 against 2, and `oled_disp` 6 against 2 in both OLED Pong cases; on the line unit, `usb_hid` 12, `can_tx_lu` 17, `eth_tx` 13, `udp_tx` 13 and `ws2812_lu` 20, each against 1) | 15 |
 | Measured lead below the bound | 0 |
 | RTL lead or digest different from the simulator's | 0 |
 
@@ -736,14 +736,17 @@ answer:
 - **A certified mutant** gets escert's randomised input search, 12 runs of random pins and
   host words, and then the program's own co-simulation benches: its bus models and host
   script, which drive the protocol much further than random inputs do. A few more benches
-  are aimed at paths the co-simulation leaves alone: an AVR that never echoes, a SWIM
-  byte refused for its parity, a CEC frame for another device, a DALI query answered. A
-  fault in any of these would mean escert certified a program that can fault, and fails
-  the run.
+  are aimed at paths the co-simulation leaves alone: an AVR that never echoes, with the
+  next command already waiting; a SWIM byte refused for its parity, and a SWIM line held
+  low by a glitch while the host sends; a CEC frame for another device; a DALI query
+  answered; a Modbus server whose receiver picks up noise while it replies. A fault in any
+  of these would mean escert certified a program that can fault, and fails the run.
 - **A mutant escert could not prove** (POSSIBLE) gets the same random search. If that finds
   nothing, three more searches follow: the benches; a host that never pauses, over a run
   five times as long on fresh seeds (a deleted WAITT may fault only once frames follow
-  each other back to back); and finally the benches that set the program's clock or tape,
+  each other back to back); an aimed bench too long to give every mutant (a DCF77 word
+  that comes more than two seconds late, 54 million ticks); and finally the benches that set
+  the program's clock or tape,
   each building the mutant its own way. A fault in that last search is reported beside
   NOT_PROVEN, never as REFUTED, because a different clock makes a different program. If
   escert certifies that build and it faults anyway, the run fails.
@@ -828,6 +831,45 @@ delay, overwrite it with GETM and wait by it were certified, and the simulator f
 at once. GETM now leaves its register unknown. Every other instruction checked out, and
 every shipped program certifies with the same bounds after both fixes. Each bug has its
 test.
+
+The 12 mutants left without an answer in the run on version 3.0 were each followed, to a
+path that faults or to escert's caution. That, and the ping bench's program `eth_trx`
+([FPGA bench](../fpga/tangprimer25k/README.md)), changed escert's precision in four places:
+
+- **Widening.** At a loop head escert joins the states that come back to it, and after a
+  few passes widens the join: a bound that keeps moving is pushed out to the next of a fixed
+  list of thresholds instead of being followed pass by pass. The list stopped at 2^16. In
+  `servo` with its channel loop's exit inverted, only a full queue holds the loop back, so
+  its deadlines run at most two 22 ms frames ahead (about 1.1 million ticks); the next
+  threshold was 2^31 - 1, past the half-range horizon, so the lead looked like a deadline
+  in the past.
+  The list now has landmarks at 2^20, 2^24 and 2^28 as well. Adding every power of two
+  instead tripled the states of `xy2_100`.
+- **Counted loops in shared routines.** A loop whose counter escert knows has a key per
+  pass, so a state comes back to the same key only from outside the loop, from a routine
+  called at several sites. Widening such a head after four visits, as for other heads,
+  lost `qi_rx`'s bit timing with one ADDT removed; it now waits for eight.
+- **Constants at the key limit.** When an instruction has collected too many keys, escert
+  forgets register constants so that a frame counter cannot multiply them. It now keeps a
+  constant that every key there already holds, which cannot multiply anything: in
+  `eth_trx`, the operand that a `MOVI` loads just before a `LINE` stays known.
+- **Z at the coarse key.** Past a second limit escert drops the loop counter from the key
+  too, and it used to drop Z with it. In `eth_trx`, a state in which a `GETL` saw a
+  reception end, with the timer at that end, then joined the states that timed out and took
+  their branch as well, to a link pulse scheduled from the stale end. Z has three values at
+  most, so it is now kept.
+
+With these, every shipped program certifies with the same bounds as before except `morse`,
+whose bound rose from 148 to 692 ticks (the simulator measures 908), and the largest
+analysis (`udp_tx`) takes 42,995 states. Four of the 12 now certify: `servo` and `qi_rx`
+above, and `vga_pong` and `dali`, each with a WAITT deleted. The campaign's searches and
+benches attack each like any other certified mutant, and none of them faults. Five more
+fault on benches aimed at them: `avr_isp` with a WAITT deleted, when the next command
+arrives while the last RESET pulse is still queued; `swim_host` and `modbus_rtu`, each
+with a WAITT deleted, when the line glitches; and `dcf77_tx` with either of two branches
+inverted, when a word comes more than two seconds late. The last three, `ps2_device`,
+`onewire_dev` and `can_tx`, each with a WAITT deleted, stay NOT_PROVEN: no search or bench
+has made them fault.
 
 ## Protocol coverage
 
@@ -1114,10 +1156,14 @@ passes at k when its protocol check passes, its board reports no error and no co
 faults. A check that measures an exact time allows for the delay: `usb_hid`'s replies must
 start exactly 75 ticks after the host's end of packet, plus the round trip.
 
-All 74 cases pass with one tick each way, and all but one with three. The exception is
-`spi_target` in SPI mode 3 at its rated 416 kHz, which passes one tick each way (80 ns of
-round trip at 25 MHz) and fails at two, where its MISO change comes too close to the
-controller's sampling edge. No program needs a slower setting for real pads. The audit also
+All 74 cases pass with three ticks each way, so no program needs a slower setting for real
+pads. The closest is `spi_target` in SPI mode 3 at its rated 416 kHz (a 60-tick SCK period
+at 25 MHz). Each MISO bit reaches the pad 36 to 51 ticks after the rising edge before it, so it
+is set up at least 9 ticks ahead of the rising edge that samples it: room for the 2 ticks of
+setup the controller model needs and three ticks of pad delay each way. An earlier version
+prepared the first data bit of a READ after the last address bit's edge, which put that bit on
+the pad up to 55 ticks after the edge and failed at two ticks each way; it now has both
+candidate bytes loaded and shifted into place before that edge. The audit also
 reports each case's fastest pin: the 10BASE-T transmitters change a pin every 50 ns, the line
 unit's SPI every 80 ns, and most programs every microsecond or slower. `vga_pong`, which has
 no co-simulation case, changes its colour pins at most once per 40 ns pixel, and the only
@@ -1127,7 +1173,7 @@ inputs it samples are its buttons.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,522 | Pass (the sigrok tests need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings and receivers generated from their tables, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,559 | Pass (the sigrok tests need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 12 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 12 | Pass; with SDF timing at the three corners, 11 each |
 | Co-simulation and line unit lockstep on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make cosim-parallel line-test`) | all | Pass |
@@ -1139,7 +1185,7 @@ inputs it samples are its buttons.
 | Newer firmware (SWD, SPI target, NEC, NEC rebuilt for 33 and for 50 MHz, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 9 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Outside judges: decoders written by others on the co-simulation cases (`make judges`), each with its control; 14 more are in the software tests | 61 | Pass; every control fails |
-| Pads and board: every co-simulation case with its pins delayed 0 to 3 ticks each way (`make pad-audit`) | 74 × 4 | Pass at one tick each way |
+| Pads and board: every co-simulation case with its pins delayed 0 to 3 ticks each way (`make pad-audit`) | 74 × 4 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 
 The chip-level tests drive the real pins: they load firmware over SPI, run it, decode the
@@ -1190,7 +1236,7 @@ workflow on master, with its commit and log, failures included.
 
 Each job writes a summary (`scripts/ci_summary.py`); the site's build collects the
 summaries of the latest master runs (`site/tools/ci_results.py`) and rebuilds after each of
-these workflows except `fw-mutants`, whose latest finished run it shows when it next builds. The formal and equivalence jobs use the OSS CAD Suite release pinned in
+these workflows. The formal and equivalence jobs use the OSS CAD Suite release pinned in
 `scripts/versions.txt`, and the equivalence job the standard-cell liberty of the pinned PDK.
 
 ## Rerunning

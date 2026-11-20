@@ -492,8 +492,8 @@ For every program whose protocol someone else's software can read, that software
 the pins of the simulated run and must decode what the test asked for: sigrok's decoders
 \cite{sigrok}, the IRMP infrared library, Wireshark's dissectors, the rtl\_433 receiver and
 rc-switch's receiver code. They agree with 73 of the 80 programs, and each judge has a
-control: the same recording with one pulse inverted must fail it. The same runs are repeated with every pin delayed a tick each
-way, more than the pads and the board add, and every protocol still works.
+control: the same recording with one pulse inverted must fail it. The same runs are repeated with every pin delayed by up to three
+ticks each way, more than the pads and the board add, and every protocol still works.
 
 \begin{table}[t]
 \centering
@@ -512,8 +512,8 @@ Timing certificates & 80 of 80 certified; measured lead equals the bound in 59 o
 Mutation testing & 1,010 faults: 892 caught, 57 proved harmless, 61 argued, 0 surviving \\
 Outside judges & decoders by others agree with 73 of 80 programs; every control fails \\
 Planted firmware bugs & 719 timing bugs: 173 refuted, 25 not proven, 521 certified, 0 certified that fault \\
-Slower pins & every firmware case passes with a tick of delay each way \\
-Test suites & 1,522 software, 12 chip (RTL and netlist), 9 through the pins \\
+Slower pins & every firmware case passes with up to three ticks of delay each way \\
+Test suites & 1,559 software, 12 chip (RTL and netlist), 9 through the pins \\
 FPGA bench & 79 of 80 programs match the model and their certificates (19 Nov.; the 14\,s chime has no bench bundle); SWD on a real RP2040, judged by sigrok \\
 \bottomrule
 \end{tabular}
@@ -693,8 +693,9 @@ allows \cite{usb20}.
 \textbf{Record it, speak it.} Pointed at a transmitter it has never seen, such as an
 infrared remote, the chip records the waveform, a host tool works out the protocol's
 timing table from the recording, a generator turns the table into firmware that
-\texttt{escert} certifies, and the chip then sends new messages in that protocol. A
-recording that fits no model is refused with the reason.
+\texttt{escert} certifies, and the chip then sends new messages in that protocol. The same
+table also gives a receiver, which reads the remote's frames back, those never recorded
+included. A recording that fits no model is refused with the reason.
 
 \begin{figure}[t]
 \centering

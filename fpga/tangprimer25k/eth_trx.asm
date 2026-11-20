@@ -10,7 +10,10 @@
 ; A received frame stays in the tape (words RB..), and the host reads it there: the context
 ; pushes only a header word and keeps sending link pulses while the host reads, with the
 ; receiver disarmed until the host releases the buffer. So the host's slow link never stalls
-; the pulses, as it would if every word went through the mailbox.
+; the pulses, as it would if every word went through the mailbox. Where the context does
+; wait on the host (a frame's words to send, room in the mailbox for a status word), it
+; waits in slices too and keeps the pulses: a link partner drops the link after 50 to 150 ms
+; without them, and the bit-banged host link takes about 0.7 s to push a large frame.
 ;
 ; Host (POP), one command word at a time:
 ;   1 << 28                       release the receive buffer: arm the receiver again
@@ -123,7 +126,16 @@ got:
     MOVHI r0, 0x8000
     OR    r1, r0
 tell:
-    PUSH  r1
+    TXREADY                  ; Z: the mailbox is full (the host has not read the last word)
+    JNZ   tput
+    ADDT  SLICE
+    WAITT
+    DJNZ  tell
+    CALL  pulse
+    LDLC  SLICES
+    JMP   tell
+tput:
+    PUSH  r1                 ; (there is room: only this context fills the mailbox)
     CALL  anchor
 
 ; ---- holding a frame for the host: the receiver disarmed
@@ -163,10 +175,14 @@ anchor:
     RET
 
 ; ---- send the frame the host is pushing: r2 = its command word. Returns with the line unit
-; configured to receive (not armed) and tmr = the end of that CONFIG. Every word the host
-; pushes is popped, so the mailbox stays in step whatever the length; only the words that
-; fit before CFGF are stored and sent, so a length over TBMAX can never overwrite the
-; configurations (the host keeps to TBMAX; this is the firmware's own guard).
+; configured to receive (not armed) and tmr = the end of that CONFIG, or of the wait for
+; room to push the status word after it. Every word the host pushes is popped, so the
+; mailbox stays in step whatever the length; only the words that fit before CFGF are
+; stored and sent, so a length over TBMAX can never overwrite the configurations (the host
+; keeps to TBMAX; this is the firmware's own guard). It waits for the host in slices, as
+; listening does, and sends the link pulses that fall due: inline, as send is itself a
+; CALL. A slice that tmr has already passed (words came back to back) ends at once, so the
+; slices catch up with the time, and each pulse is re-anchored first.
 send:
     MOV   r1, r2
     SHL   r1, 16
@@ -179,6 +195,21 @@ send:
 store:
     CMP   r0, r3
     JZ    stored             ; (a length of 0 pushes nothing)
+swait:
+    RXREADY                  ; Z: no word from the host yet
+    JNZ   sword
+    ADDT  SLICE
+    WAITT
+    DJNZ  swait
+    RDTIME r2                ; a link pulse (r2 is free until the POP)
+    SETT  r2
+    ADDT  LEAD
+    EMIT  M, 1 << TDP, M
+    ADDT  W
+    EMIT  M, 0, 0
+    LDLC  SLICES
+    JMP   swait
+sword:
     POP   r2
     CMPI  r0, CFGF
     JNC   skip               ; C: borrow, r0 < CFGF
@@ -194,6 +225,8 @@ fits:
     MOVI  r0, CFGF
     MOVHI r0, 0x3000
     LINE  r0                 ; CONFIG: transmit (cancels an armed receiver)
+    RDTIME r0                ; tmr = now: the POPs above wait on the host, and the LINE on a
+    SETT  r0                 ; frame arriving, for any time
     ADDT  0xFFFFFF
     GETL  r2                 ; tmr = the end of the CONFIG
     SHL   r1, 3              ; bits
@@ -214,10 +247,29 @@ fits:
     MOVI  r0, 0
     MOVHI r0, 0x0200
     OR    r1, r0             ; tag 2: a frame sent
-    PUSH  r1
     MOVI  r0, CFGR
     MOVHI r0, 0x3000
-    LINE  r0                 ; CONFIG: receive
+    LINE  r0                 ; CONFIG: receive (the unit lets go of TD+/TD- for the pulses)
+    RDTIME r0                ; tmr = now: the LINE waits for the send to end, for any time
+    SETT  r0
     ADDT  0xFFFFFF
     GETL  r2                 ; tmr = the end of the CONFIG
+sput:
+    TXREADY                  ; Z: the mailbox is full
+    JNZ   sputn
+    ADDT  SLICE
+    WAITT
+    DJNZ  sput
+    RDTIME r0                ; a link pulse (r0 is free here)
+    SETT  r0
+    ADDT  LEAD
+    EMIT  M, 1 << TDP, M
+    ADDT  W
+    EMIT  M, 0, 0
+    LDLC  SLICES
+    JMP   sput
+sputn:
+    PUSH  r1                 ; (there is room: only this context fills the mailbox)
+    RDTIME r0                ; tmr = now (escert does not tie this PUSH to the TXREADY
+    SETT  r0                 ; above, so it lets the PUSH wait)
     RET

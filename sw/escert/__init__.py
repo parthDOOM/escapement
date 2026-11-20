@@ -50,10 +50,13 @@ POP/PUSH unboundedly; an event with a full FIFO to 0..3 ticks after the head's d
 GETI until its SAMPLEs have retired. Where an entry may or may not have retired, the
 state is split on it. Branches on unknown flags take both directions; loop counters and
 constant registers are tracked exactly, so counted loops are unrolled; uncounted loop
-heads are widened. A register that cannot affect timing or control flow (never a time,
-never compared, never feeding a Z flag that a branch reads, never copied into one that
-does; e.g. a tape address) is held as unknown, so a loop that only advances such a
-register converges like any uncounted loop instead of being unrolled. Admission checks are entailment queries on the zone:
+heads are widened, to landmark bounds (THRESHOLDS) rather than straight to infinity; a
+head whose loop counter is known is widened only after more visits (a routine's counted
+loop is entered again from each of its callers). A register that cannot affect timing or
+control flow (never a time, never compared, never feeding a Z flag that a branch reads,
+never copied into one that does; e.g. a tape address) is held as unknown, so a loop that
+only advances such a register converges like any uncounted loop instead of being
+unrolled. Admission checks are entailment queries on the zone:
 
     PAST   now - tmr <= -1 (and the lead stays below 2^31)
     ORDER  ftail - tmr <= -1
@@ -80,9 +83,16 @@ HALF = 1 << 31
 WIDEN_AFTER = 4
 WIDEN_AFTER_LINE = 32       # line unit contexts: reply bounds meet at loops entered from many
                             # sites, and joins there need more visits to settle exactly
+WIDEN_AFTER_COUNTED = 8     # a loop head with the loop counter known: its passes have keys of
+                            # their own, so a key comes back only from outside the loop (a
+                            # routine called from several sites); widening there can wait
 MAX_KEYS_PER_PC = 48         # exact keys at one pc; past this, register constants are dropped
 MAX_KEYS_LC = 192            # keys with the loop counter kept; past this, it is dropped too
-THRESHOLDS = (-HALF, -65536, -1024, -256, -64, -16, 0, 16, 64, 256, 1024, 65536, HALF - 1)
+# widening landmarks; 2^20, 2^24 and 2^28 let a bound of a few frames (a FIFO-full wait
+# holding a 22 ms frame loop) settle below the half range instead of jumping to 2^31 - 1,
+# past the deadline horizon (more landmarks cost states: every power of two tripled xy2_100's)
+THRESHOLDS = tuple(sorted({-HALF, -65536, -1024, -256, -64, -16, 0, 16, 64, 256, 1024, 65536,
+                           HALF - 1} | {s * (1 << k) for k in (20, 24, 28) for s in (-1, 1)}))
 
 NOW, TMR = 0, 1
 R = [2, 3, 4, 5]
@@ -229,8 +239,11 @@ class St:
                 self.lu, self.stale, self.zrx, self.rxne, self.cf, self.cl, self.cp)
 
     def coarse_key(self, pc: int):
-        return (pc, tuple(k for _, k in self.fifo), self.lee, self.lu, self.stale, self.cf,
-                self.cl, self.cp)
+        # without the loop counter, but with Z: three values at most, and a state whose Z
+        # chose a branch (a GETL that saw a reception end, tmr its end) must not take the
+        # other one
+        return (pc, self.zf, tuple(k for _, k in self.fifo), self.lee, self.lu, self.stale,
+                self.cf, self.cl, self.cp)
 
     def free_slot(self) -> int:
         used = {s for s, _ in self.fifo}
@@ -819,12 +832,17 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
             if key not in ks and len(ks) >= MAX_KEYS_PER_PC:
                 # first forget register constants (a frame counter compared with a tape word
                 # would make a key per frame), keeping the loop counter: forgetting it lets a
-                # counted loop exit at any pass, and a frame of 20 bits becomes one of 1
-                t.reg = [r if r[0] == "time" else ("top",) for r in t.reg]
+                # counted loop exit at any pass, and a frame of 20 bits becomes one of 1.
+                # A constant that every key here already holds alike cannot multiply the
+                # keys, so it is kept (a MOVI just before a LINE: its operand stays known)
+                full = [k[4] for k in ks if len(k) == len(key)]
+                alike = [bool(full) and all(c[i] == key[4][i] for c in full) for i in range(4)]
+                t.reg = [r if r[0] == "time" or alike[i] else ("top",)
+                         for i, r in enumerate(t.reg)]
                 key = t.key(pc)
                 if key not in ks and len(ks) >= (MAX_KEYS_LC if keys_lc is None else keys_lc):
                     key = t.coarse_key(pc)
-                    t.lc, t.zf = None, None
+                    t.lc = None
             ks.add(key)
             old = seen.get(key)
             if old is not None:
@@ -834,7 +852,8 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
                         and t.lr <= old.lr:
                     continue
                 visits[key] = visits.get(key, 0) + 1
-                t = join_st(old, t, widen=visits[key] > widen_after and pc in heads)
+                after = widen_after if t.lc is None else max(widen_after, WIDEN_AFTER_COUNTED)
+                t = join_st(old, t, widen=visits[key] > after and pc in heads)
                 if not t.z.canon():
                     continue
             seen[key] = t

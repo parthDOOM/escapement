@@ -1,8 +1,9 @@
-"""python -m escgen [TABLE.yaml ...] [--out DIR] [--check-only]
+"""python -m escgen [TABLE.yaml ...] [--out DIR] [--check-only] [--rx]
 
 Generates firmware/<name>.asm from each timing table (default: every protocols/*.yaml)
 and refuses any program escert does not CHECK. --check-only compares with the files
-already in DIR instead of writing them (the test suite's drift check).
+already in DIR instead of writing them (the test suite's drift check). --rx generates
+the table's receiver instead, <name>_rx.asm (escgen.rx: pulse codes on one pin).
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import ROOT, TABLES, TableError, build, load
+from . import ROOT, TABLES, TableError, build, build_rx, load
 
 
 def main(argv=None) -> int:
@@ -19,18 +20,19 @@ def main(argv=None) -> int:
     ap.add_argument("tables", nargs="*")
     ap.add_argument("--out", default=str(ROOT / "firmware"))
     ap.add_argument("--check-only", action="store_true")
+    ap.add_argument("--rx", action="store_true", help="the receiver, <name>_rx.asm")
     args = ap.parse_args(argv)
     paths = [Path(p) for p in args.tables] or sorted(TABLES.glob("*.yaml"))
     status = 0
     for p in paths:
         try:
             t = load(p)
-            text, image = build(t)
+            text, image = (build_rx if args.rx else build)(t)
         except TableError as e:
             print(f"{p.name}: REFUSED: {e}")
             status = 1
             continue
-        out = Path(args.out) / f"{t['name']}.asm"
+        out = Path(args.out) / f"{t['name']}{'_rx' if args.rx else ''}.asm"
         n = sum(1 for w in image.words if w)
         if args.check_only:
             same = out.exists() and out.read_text() == text

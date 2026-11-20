@@ -12,6 +12,7 @@ python -m esclearn capture.sr                          # what it found, frame by
 python -m esclearn capture.sr -o remote.yaml           # the timing table (escgen's format)
 python -m esclearn capture.sr --send 10ff00 -o remote.yaml --check
 python -m escgen remote.yaml --out firmware/           # firmware, refused unless CHECKED
+python -m escgen remote.yaml --rx --out firmware/      # its receiver, <name>_rx.asm
 ```
 
 The input is one pin of a chip capture ([instrument](17-INSTRUMENT.md)), a VCD or a
@@ -188,6 +189,50 @@ of 30, and tone bursts and random pulse trains as data, 38 of 60. The causes:
 
 Each is fixed by one of the principles above, not by a special case.
 
+## Receiving it too
+
+The same table gives a receiver. `escgen --rx` (`sw/escgen/rx.py`) turns a table into a
+program that listens on the table's pin and pushes to the host, for every packet it hears,
+the word the transmitter would have been given to send it:
+
+```text
+$ python -m esclearn tests/data/sigrok/nec_all.sr -o remote.yaml
+$ python -m escgen remote.yaml --rx --out .
+remote.yaml: learned_nec_all_rx.asm (63 words, CHECKED)
+```
+
+The receiver reads pulse codes, where every phase boundary is an edge. The packet becomes a
+list of runs, marks and spaces, and the receiver measures each one edge to edge: a WAITP for
+the other level, its timeout longer than any run the packet accepts, then RDTIME. A run is
+accepted within 25% and 60 µs of its length, the slack an IR receiver module's pulse
+stretching needs. Both can be set per table (`receive: {tolerance, slack_us}`). For each bit
+the first run where its two symbols differ decides it, and the bit's other runs must fit
+either symbol. The windows of a deciding run are checked at assembly (`.assert`) to be
+disjoint at the build's clock, so a run is never read as both. A run outside every window
+drops the packet, and the receiver waits for the line to go quiet before it listens again.
+The NEC remote's repeat codes are dropped that way, since their 2.2 ms space fits no symbol.
+
+The receiver queues no events, so escert certifies it with nothing to refuse, and it reads
+the pin whoever owns it. The tests (`sw/tests/test_escgen_rx.py`) show it three ways:
+
+- **Against the recording.** The receiver built from the table that esclearn learned from
+  `nec_all.sr`, fed that recording, reports the 21 frames esclearn read, word for word, and
+  none for the 30 repeat codes.
+- **Against its transmitter.** A word the remote never sent (command 0x10) goes out from the
+  learned table's transmitter on one context and is read back by its receiver on another.
+- **Against the shipped tables.** The NEC, Samsung, JVC and Sony SIRC tables loop through a
+  demodulator model (active low, two carrier periods of delay) and EV1527 straight from
+  the pin. Each receiver reads back every word its transmitter sends.
+
+The other eleven tables are refused with the reason. RC-5, MIDI and UART are Manchester or
+asynchronous codes, whose equal bits merge into one run, so edges do not delimit them.
+Wiegand and WS2801 use two pins. DMX512 and Sharp pack four and two units into each host
+word, where the receiver pushes one word a frame. DCC and RC-6 have several fields that are
+not all LSB first (RC-6, a Manchester code, would be refused for that too). A WS2812 bit is
+too short to time with WAITP and RDTIME. The
+Panasonic receiver does not fit a 256-word page: the frame's first 20 bits are a fixed vendor
+code, and each of their runs is measured on its own.
+
 ## On the chip
 
 `make pin-test` runs the whole loop on the RTL, and `make gl-pin-test` on the final
@@ -221,10 +266,11 @@ simulation short, as the other infrared tests on the RTL scale theirs. It takes 
 - **Resolve what was not sampled.** A Manchester half-bit and a serial bit must span at
   least 4 samples. At 6 MHz, a WS2812 stream's runs fit some half-bit, so it stays a
   pulse-width code. A raw carrier needs a few samples per pulse.
-- **Receive, or drive several wires.** It generates transmitters for single-wire,
-  self-timed codes. Clocked buses (SPI, I2C) already have firmware, and checksums beyond
-  the simple check bytes above (CRCs) are not inferred: such a frame can be replayed but
-  not changed.
+- **Drive several wires, or receive codes that edges do not delimit.** It generates
+  transmitters for single-wire, self-timed codes, and receivers for the pulse codes among
+  them. Clocked buses (SPI, I2C) already have firmware, and checksums beyond the simple
+  check bytes above (CRCs) are not inferred: such a frame can be replayed but not changed,
+  and its receiver reports the bits without checking them.
 
 ## Prior work
 

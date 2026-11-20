@@ -1,4 +1,4 @@
-# Escapement ISA v1.4 — machine-readable encoding.
+# Escapement ISA 3.0 — machine-readable encoding (the version of docs/11-SEMANTICS.md).
 # Single source for the assembler, documentation tables and RTL decoder constants.
 # Execution SEMANTICS are normative only in docs/11-SEMANTICS.md and must never be
 # generated from this file (independent ISS/RTL verification, docs/04-VERIFICATION.md).
@@ -7,7 +7,7 @@
 # format is reserved and must be zero; a nonzero reserved bit or an unlisted opcode is
 # ILLEGAL. 0x00000000 and 0xFFFFFFFF are ILLEGAL by construction (opcodes 0x00, 0xFF).
 
-version: "1.4"
+version: "3.0"
 word_bits: 32
 imem_words: 256
 tape_words: 256

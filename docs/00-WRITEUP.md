@@ -279,8 +279,8 @@ that software reads the pins of its simulated run and must decode what the test 
 sigrok's decoders, the IRMP infrared library, Wireshark's dissectors, the rtl_433 receiver
 and rc-switch's receiver code. They agree with 73 of the 80 programs, and each judge has a
 control: the same recording with one pulse inverted must fail it. The same runs are
-repeated with every pin delayed a tick each way, more than a real chip's pads and board
-add, and every protocol still works.
+repeated with every pin delayed by up to three ticks each way, more than a real chip's pads
+and board add, and every protocol still works.
 
 ## 7. The silicon
 
@@ -350,8 +350,9 @@ reach.
 infrared remote. The capture unit records the waveform, `esclearn` works out the protocol's
 timing table from the recording, `escgen` turns the table into firmware that `escert`
 certifies, and the chip then sends new messages in that protocol, such as a button the
-remote never sent. A recording that fits no model is refused with the reason
-([20-LEARN](20-LEARN.md)).
+remote never sent. The same table also gives a receiver, which reads the remote's frames
+back, those never recorded included. A recording that fits no model is refused with the
+reason ([20-LEARN](20-LEARN.md)).
 
 **Pong on a monitor.** Two contexts drive a VGA monitor at 640 × 480 and 60 Hz from five
 bank B pins: one makes the syncs, the other draws a framebuffer from the tape and runs the
@@ -415,7 +416,7 @@ integration and can be rerun the same way:
 | The certificate checker refuses what can fault | 719 planted firmware timing bugs | `make fw-mutants` |
 | The tests notice a broken design | 1,010 planted RTL faults | `make mutation` |
 | The programs speak the protocol, not our model of it | decoders written by other people, each with a control that must fail | `make judges` |
-| The protocols survive pad and board delays | every case with its pins a tick slower each way | `make pad-audit` |
+| The protocols survive pad and board delays | every case with its pins up to three ticks slower each way | `make pad-audit` |
 | The layout meets 20 ns at every corner | the sign-off reports in the v3.0 release's `escapement-v3.0-signoff.zip`, summarised in [physical design](03-PHYSICAL-DESIGN.md#sign-off-results) | `make harden` |
 | It runs on real pins | the FPGA bench: six bring-up stages and every program | [the bench](../fpga/tangprimer25k/README.md) |
 

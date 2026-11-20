@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from escasm import AsmError, assemble, assemble_file
-from escert import certify
+from escert import certify, witness
 from escmodels import (Board, CanBus, I2cController, I2cTarget, JtagTap, OneWireDevice,
                        Ps2Host, SpiTarget, SwdTarget, UartRx, UartTx)
 from escmodels.spi import SpiController
@@ -303,6 +303,53 @@ def test_a_register_getm_writes_is_forgotten():
     assert m.ff.valid and m.ff.subcode == 3 and m.ctx[0].r[0] == 0
 
 
+def _mutant(fw: str, line: int, was: str, now: str):
+    """`fw` with source line `line` (which must read `was`) replaced by `now`, assembled."""
+    lines = (FW / fw).read_text().split("\n")
+    assert lines[line - 1].split(";")[0].strip() == was, "the firmware moved"
+    lines[line - 1] = now
+    return assemble("\n".join(lines), base_dir=FW, name=fw)
+
+
+def test_a_frame_loop_held_by_a_full_queue_stays_inside_the_horizon():
+    """servo with its channel loop's exit inverted queues two events a frame, 22 ms apart,
+    and nothing but a full queue (4 entries) holds it back, so its deadlines run at most
+    two frames ahead. Widening had to jump from 65,536 to 2^31 - 1, past the deadline
+    horizon, and escert could not certify it (fw-mutants, servo branch 87, until
+    2026-11-20); the landmarks at 2^20, 2^24 and 2^28 let the bound settle below it."""
+    image = _mutant("servo.asm", 87, "JNZ   chan", "    JZ    chan")
+    c = certify(image)[0]
+    assert c.status == "CHECKED" and c.min_lead >= 57, str(c)
+    assert witness(image, 0, trials=6) is None
+
+
+def test_a_counted_loop_in_a_routine_called_from_several_sites_is_not_widened_early():
+    """qi_rx without the wake delay builds its first packet straight after the Power Signal
+    appears. build's byte loop (LDLC 9) is entered from every packet's call, so each of its
+    keys came back more than four times and was widened, and the cascade through the nine
+    passes took the lead to -inf (fw-mutants, qi_rx addt 106, until 2026-11-20). With the
+    loop counter known, a pass has a key of its own, so such a head now widens only after
+    eight visits, and the bound holds: 13, as for the unmutated program."""
+    image = _mutant("qi_rx.asm", 106, "ADDT  T_WAKE - PREP", "    ; ADDT (deleted)")
+    c = certify(image)[0]
+    assert c.status == "CHECKED" and c.min_lead >= 13, str(c)
+    assert witness(image, 0, trials=6) is None
+
+
+def test_the_ping_bench_program_keeps_its_constants_and_z_at_the_key_limits():
+    """eth_trx (fpga/tangprimer25k) counts 1,600 slices between link pulses, so its listening
+    loop passes both key limits. Past the first, escert forgot every register constant, the
+    MOVI before the transmit LINE included: the configuration was lost and SEND looked
+    unowned (OWNER), and with the link pulses kept inside send the states ran out. It now
+    keeps a constant that every key at that pc holds alike. Past the second limit it also
+    dropped Z, so a GETL that saw a reception end (tmr = that end, any age) joined the
+    timeouts and fell through to the link pulse (PAST). It now keeps Z. Without either
+    change the program is POSSIBLE (2026-11-20)."""
+    from escasm import assemble_file
+    c = certify(assemble_file(REPO / "fpga" / "tangprimer25k" / "eth_trx.asm"))[0]
+    assert c.status == "CHECKED" and c.min_lead >= 13, str(c)
+
+
 def test_counted_bit_loop_inside_an_uncounted_frame_loop_is_exact():
     # a frame counter compared with a tape word makes a state key per frame; when a pc has
     # too many, escert must forget the counter's value before the bit loop's count, or a
@@ -356,19 +403,25 @@ def frame_loop_program(rng):
                       "    JNZ   f", "    MOVI  r2, 0", "    JMP   f", ""])
 
 
-def test_many_counted_loops_fall_back_to_coarse_keys_within_the_state_limit():
+def test_many_counted_loops_fall_back_to_coarse_keys_within_the_state_limit(monkeypatch):
     """Keeping loop counts past MAX_KEYS_PER_PC multiplies the states of a program with many
     counted loops: eth_tx with its frame branch inverted (a firmware mutant) passed the
-    60,000-state limit that way, where coarse keys certify it in 3,233 states. certify()
-    then analyses again with coarse keys."""
+    60,000-state limit that way, where coarse keys certify it; certify() then analyses again
+    with coarse keys. escert's later precision (constants every key holds, Z in the coarse
+    key) brought the long keys down to 17,143 states, so the limit is set to 10,000 here,
+    between the two analyses, to keep the fallback exercised on the same program."""
     import escert
     src = (FW / "eth_tx.asm").read_text()
     assert src.count("    JNZ   frame\n") == 1
     image = assemble(src.replace("    JNZ   frame\n", "    JZ    frame\n"), base_dir=FW)
+    real = escert.analyse
+    monkeypatch.setattr(escert, "analyse", lambda im, k, max_states=60_000, keys_lc=None:
+                        real(im, k, max_states=10_000, keys_lc=keys_lc))
     (first,) = [escert.analyse(image, k) for k, en in enumerate(image.ctx_enable) if en]
     assert [f.kind for f in first.findings] == ["UNBOUNDED"]
-    (c,) = certify(image)
-    assert c.status == "CHECKED" and c.states == 3233, str(c)
+    (c,) = escert.certify(image)
+    assert c.status == "CHECKED" and c.states == 3911, str(c)
+    assert real(image, 0).states == 17143                  # the default limit: long keys
 
 
 LOOP_SEEDS = int(os.environ.get("ESCERT_LOOP_SEEDS", "60"))

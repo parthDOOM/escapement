@@ -421,6 +421,93 @@ def test_trx_send_keeps_to_its_buffer():
     assert d[8:68] == small and int.from_bytes(d[68:72], "little") == zlib.crc32(small)
 
 
+class _LateDrain(HostScript):
+    """HostScript that reads nothing back before tick `start`, as a host busy elsewhere."""
+
+    def __init__(self, pushes, start, **kw):
+        super().__init__(pushes, **kw)
+        self.start = start
+
+    def step(self, t, bus):
+        if t < self.start:
+            drain, self.drain = self.drain, ()
+            try:
+                return super().step(t, bus)
+            finally:
+                self.drain = drain
+        return super().step(t, bus)
+
+
+SLOW = 18_000_000                          # 0.45 s: past send's 2^24-tick wait for the unit
+
+
+def _slow_host_run(pushes, start=0, extra=40 * TICKS_MS):
+    host = _LateDrain(pushes, start, drain=[0], poll=4000)
+    board = PinLog(EthSource(2, [], RX_BIT_HT), host)
+    m = Machine(trx_image(), board=board, record=False)
+    host.machine = m
+    m.run(max(pushes[-1][0], start) + extra, stop_when_idle=False)
+    return m, host, board
+
+
+def _frames_sent(board):
+    return [to_bytes(frame_bits(window(board.changes, a, b + 1), 0)[0])
+            for a, b in driven(board.changes) if b - a > 64]
+
+
+def _pulses_kept(board, end):
+    """Link pulses 16 ms apart from the first to `end`, through every wait on the host (a
+    link partner drops the link after 50 to 150 ms without one)."""
+    pulses = [a for a, b in driven(board.changes) if b - a == 4]
+    gaps = [b - a for a, b in zip(pulses, pulses[1:])]
+    assert pulses[0] < 17 * TICKS_MS and pulses[-1] > end - 17 * TICKS_MS, pulses
+    assert all(16 * TICKS_MS <= g < 17 * TICKS_MS for g in gaps), gaps
+
+
+def test_trx_send_after_a_slow_host():
+    """The host pushes a send's command word, and its data words 0.45 s later (the bare
+    Pico's bit-banged link takes about 0.7 s for a large frame). send waits for the line
+    unit's CONFIG by 2^24 ticks from the time it last took, so it must take the time again
+    after the wait on the host: the frame leaves whole (the program before 2026-11-20 sent
+    it late, so the line unit dropped it). It waits in slices, so the link pulses keep
+    their 16 ms through the wait."""
+    f = bytes(range(60))
+    words = ethbench.frame_words(f)
+    words[0] |= ethbench.CMD_SEND
+    pushes = [(100_000, 0, words[0])] + [(100_000 + SLOW + 1800 * i, 0, w)
+                                         for i, w in enumerate(words[1:])]
+    m, host, board = _slow_host_run(pushes)
+    assert not m.ff.valid, m.ff
+    assert [(w >> 24) & 3 for w in host.received[0]] == [2]
+    d = _frames_sent(board)
+    assert len(d) == 1 and d[0][8:68] == f
+    assert int.from_bytes(d[0][68:72], "little") == zlib.crc32(f)
+    _pulses_kept(board, m.now)
+
+
+def test_trx_status_after_a_slow_host():
+    """Three sends while the host reads nothing back: the third send's status word waits
+    0.45 s for room in the mailbox. send configures the unit to receive first, so that the
+    pins are free for the link pulses, and waits for room in slices; it then takes the time
+    again before it returns. No fault, the pulses keep their 16 ms through the wait, and a
+    fourth frame goes out afterwards (the program before 2026-11-20 faulted at its next
+    pulse)."""
+    f = bytes(range(60))
+    words = ethbench.frame_words(f)
+    words[0] |= ethbench.CMD_SEND
+    pushes, t = [], 100_000
+    for k in range(3):
+        pushes += [(t + 1800 * i, 0, w) for i, w in enumerate(words)]
+        t += 2 * TICKS_MS
+    start = t + SLOW
+    pushes += [(start + 2 * TICKS_MS + 1800 * i, 0, w) for i, w in enumerate(words)]
+    m, host, board = _slow_host_run(pushes, start)
+    assert not m.ff.valid, m.ff
+    assert [(w >> 24) & 3 for w in host.received[0]] == [2, 2, 2, 2]
+    assert len(_frames_sent(board)) == 4
+    _pulses_kept(board, m.now)
+
+
 class TrxChip(RxChip):
     """RxChip that also keeps every change of TD+ and TD-."""
 

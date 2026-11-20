@@ -354,9 +354,10 @@ SRAM macros with block RAM of the same timing contract, and the clock gates and 
 banks with plain flip-flops, so it checks the logic, the host protocol, the firmware and
 the script itself, not the hardened netlist, the silicon's pads, memories or timing. On version 3 (2026-11-19) stages 0 to 4 pass, and in stage 5 all 79
 programs match the simulator's digest or final state and stay within their certificates.
-Stage 5 still fails, as it should, on one bench program, `eth_trx`, which has no certificate. The
-README there lists what that run does not show, including two of the FPGA build's own
-checks that the version 3 bitstream failed.
+Stage 5 still failed, as it should, on one bench program, `eth_trx`, which had no certificate.
+Its findings were a real fault, since fixed, and the program is now CHECKED; the next bench run
+loads the fixed version. The README there lists what that run does not show, including two of
+the FPGA build's own checks that the version 3 bitstream failed.
 
 The simulated board imitates the parts of tt-micropython-firmware the script uses,
 including microcotb's `Logic` type, which has no `&` with an integer.

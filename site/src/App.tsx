@@ -209,7 +209,8 @@ export default function App() {
               <h3>A protocol from a recording</h3>
               <p>Point the chip at a transmitter it has never seen. It records the waveform, the
                 host works out the protocol's timing table, and generates firmware that escert certifies. The chip
-                then sends new messages in that protocol, such as a command the remote never sent. The recordings below
+                then sends new messages in that protocol, such as a command the remote never sent, and the same table
+                gives a receiver that reads them back. The recordings below
                 are real remotes, from sigrok-dumps; the same loop runs on the chip's RTL in CI.</p>
             </div>
             <Later h={700}><Learn /></Later>

@@ -68,6 +68,8 @@ def test_dot_length():
 
 
 def test_certificate_matches_telemetry():
+    # 692 since escert's widening has landmarks past 2^16 (2026-11-20; 148 before); the
+    # simulator measures 908 (docs/04, certificates against measurements)
     from escert import certify
     im = assemble('.equ morse.CLK_KHZ, 25000\n.include "morse.asm"\n', base_dir=FW)
-    assert [(c.status, c.min_lead) for c in certify(im)] == [("CHECKED", 148)]
+    assert [(c.status, c.min_lead) for c in certify(im)] == [("CHECKED", 692)]

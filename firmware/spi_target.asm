@@ -22,11 +22,12 @@
 ;   hi  SCK high or CS_n high: a 12-tick GETP loop, so a rising edge is seen 2..13 ticks
 ;       after it reaches the pad, and MOSI is read from the same snapshot.
 ; From that snapshot to the next hi poll no bit takes more than 15 instructions (60 ticks:
-; READ address bit 0, and the first and last bit of each READ data byte), and the next
-; MISO bit reaches the pad at most 55 ticks after the rising edge (READ address bit 0; 51
-; for the other bits) and no sooner than 36. Hence:
+; the first and last bit of each READ data byte), and the next MISO bit reaches the pad at
+; most 51 ticks after the rising edge and no sooner than 36 (READ address bit 0 included:
+; both candidates for it are loaded and shifted before its edge). Hence:
 ;   SCK period >= 60 ticks (2.4 us, 416 kHz); SCK high >= 12 ticks, low >= 24 ticks;
-;   MISO is set up >= (period - 55) ticks before each rising edge, held >= 36 after it.
+;   MISO is set up >= (period - 51) ticks before each rising edge, held >= 36 after it:
+;   9 ticks at 416 kHz, enough for a round trip of 3 ticks each way through pads and board.
 ;   CS_n low to the first SCK edge >= 1 us; CS_n high >= 4 us between frames.
 ; MISO is released at most 4 us after CS_n rises (a real part takes about 100 ns).
 ;
@@ -120,10 +121,14 @@ cmd8_hi:
     JZ    write
     CMPI  r0, 0x80 | (READ >> 1)
     JNZ   main              ; any other command: ignore the frame
-    LDLC  7
+    MOVI  r0, 0             ; the address, built in r0[7:1]
+    LDLC  6
 
-; ---- READ: address bits 7..1, then load the two candidates for address bit 0, so the
-; first data bit can go out right after the last address bit
+; ---- READ: address bits 7..1 into r0[7:1] (each bit adds 2, so r0 ends as the address
+; with bit 0 clear), then the two candidates for address bit 0, loaded and shifted to the
+; top before its edge, so the first data bit goes out as soon after it as any other bit.
+; Bits 7..2 loop; bit 1 is unrolled, so that without its DJNZ the loads and shifts still
+; reach the next low poll within SCK's shortest low phase (24 ticks)
 ra_lo:
     GETP  r1
     TSTI  r1, SCK | CS
@@ -136,12 +141,27 @@ ra_hi:
     SHL   r0, 1
     TSTI  r1, MOSI
     JZ    ra_0
-    ADDI  r0, 1
+    ADDI  r0, 2
 ra_0:
     DJNZ  ra_lo
-    SHL   r0, 1             ; r0 = address with bit 0 clear
+ra1_lo:                     ; address bit 1
+    GETP  r1
+    TSTI  r1, SCK | CS
+    JZ    ra1_hi
+    CALL  lo_wait
+ra1_hi:
+    GETP  r1
+    TSTI  r1, SCK | CS
+    JZ    ra1_hi
+    SHL   r0, 1
+    TSTI  r1, MOSI
+    JZ    ra1_0
+    ADDI  r0, 2
+ra1_0:
     LDT   r2, r0, 0         ; the first data byte if bit 0 is 0
     LDT   r3, r0, 1         ; and if it is 1
+    SHL   r2, 24
+    SHL   r3, 24
 ra8_lo:
     GETP  r1
     TSTI  r1, SCK | CS
@@ -153,7 +173,6 @@ ra8_hi:
     JZ    ra8_hi
     TSTI  r1, MOSI
     JNZ   ra8_1
-    SHL   r2, 24
     LDSH  r2
     RDTIME r2
     ADDI  r2, LAT
@@ -161,7 +180,6 @@ ra8_hi:
     EMITX MISO, MSB, MISO   ; data bit 7: MISO is driven from here until CS_n rises
     JMP   rd_b1
 ra8_1:
-    SHL   r3, 24
     LDSH  r3
     RDTIME r2
     ADDI  r2, LAT
