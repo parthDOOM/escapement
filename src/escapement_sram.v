@@ -21,6 +21,12 @@
  * otherwise); BIST is disabled and every A_BIST_* pin tied to 0. All enables
  * are active high. The instance name `sram` is part of the flattened path
  * used by src/config.json (MACROS, PDN_MACRO_CONNECTIONS).
+ *
+ * Every input that switches reaches the macro through escapement_mbuf (below): a
+ * buffer of its own beside nothing but the macro pin. The macro's inputs allow a
+ * transition of 0.595 ns at the slow corner (the cells: 2.5 ns), and the flow's
+ * repair judges slew at the fast corner only, where those pins are within their
+ * limit, so a minimum-size gate could drive one over ~150 um of wire unrepaired.
  */
 `default_nettype none
 module escapement_sram (
@@ -32,13 +38,20 @@ module escapement_sram (
     input  wire [31:0] wdata,
     output wire [31:0] rdata
 );
+  wire        macro_in_men, macro_in_wen, macro_in_ren;
+  wire [7:0]  macro_in_addr;
+  wire [31:0] macro_in_din;
+  escapement_mbuf #(.W(43)) u_mbuf (
+      .a({rst_n & (re | we), we, re & ~we, addr, wdata}),
+      .x({macro_in_men, macro_in_wen, macro_in_ren, macro_in_addr, macro_in_din})
+  );
   RM_IHPSG13_1P_256x32_c2_bm_bist sram (
       .A_CLK      (clk),
-      .A_MEN      (rst_n & (re | we)),
-      .A_WEN      (we),
-      .A_REN      (re & ~we),
-      .A_ADDR     (addr),
-      .A_DIN      (wdata),
+      .A_MEN      (macro_in_men),
+      .A_WEN      (macro_in_wen),
+      .A_REN      (macro_in_ren),
+      .A_ADDR     (macro_in_addr),
+      .A_DIN      (macro_in_din),
       .A_DLY      (1'b1),
       .A_DOUT     (rdata),
       .A_BM       (32'hFFFF_FFFF),
@@ -51,5 +64,28 @@ module escapement_sram (
       .A_BIST_DIN (32'b0),
       .A_BIST_BM  (32'b0)
   );
+endmodule
+
+// One buffer per bit in front of a macro input (see above). Synthesis (VERILOG_DEFINES
+// ESC_MACRO_BUFFERS in src/config.json) places a sg13cmos5l_buf_2 per bit; simulation,
+// formal and equivalence see a wire, which is all a buffer is. The nets it drives are
+// named macro_in_* and are don't-touch in place and route (RSZ_DONT_TOUCH_RX), so the
+// resizer neither removes a buffer nor puts another on the short net after it.
+module escapement_mbuf #(
+    parameter integer W = 1
+) (
+    input  wire [W-1:0] a,
+    output wire [W-1:0] x
+);
+`ifdef ESC_MACRO_BUFFERS
+  genvar i;
+  generate
+    for (i = 0; i < W; i = i + 1) begin : g_buf
+      sg13cmos5l_buf_2 u_buf (.A(a[i]), .X(x[i]));
+    end
+  endgenerate
+`else
+  assign x = a;
+`endif
 endmodule
 `default_nettype wire
