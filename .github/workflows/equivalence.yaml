@@ -2,7 +2,9 @@ name: equivalence
 
 # After every successful gds run on master, the gate-level netlist it produced is proved
 # sequentially equivalent to the RTL of the same commit (formal/equiv.sh). The result goes
-# to the results page on the site.
+# to the results page on the site. Run by hand (workflow_dispatch), it takes the latest
+# successful gds run on the branch it is run on, so a branch's netlist can be proved
+# before it is merged.
 
 on:
   workflow_run:
@@ -29,7 +31,7 @@ jobs:
             echo "id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
             echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
           else
-            gh run list -R "$GITHUB_REPOSITORY" -w gds -b master -s success -L 1 \
+            gh run list -R "$GITHUB_REPOSITORY" -w gds -b "${{ github.ref_name }}" -s success -L 1 \
               --json databaseId,headSha -q '.[0] | "id=\(.databaseId)\nsha=\(.headSha)"' >> "$GITHUB_OUTPUT"
           fi
 
