@@ -38,7 +38,7 @@ unless a section says otherwise. The final runs at a glance:
 | Timing certificates | 80 of 80 programs certified; the measured lead equals the bound in 59 of 74 contexts and is never below it |
 | Mutation testing | 1,010 planted RTL faults: 892 caught, 57 proved harmless, 61 argued harmless, none surviving |
 | Outside judges | decoders written by other people agree with 73 of the 80 programs; every control fails |
-| Planted firmware bugs | 719 timing bugs in 77 programs: 173 refuted with a reproducer, 25 not proven, 521 certified, none certified that can fault |
+| Planted firmware bugs | 721 timing bugs in 77 programs: 178 refuted with a reproducer, 16 not proven, 527 certified, none certified that can fault |
 | Pads and board | every firmware case still passes with its pins up to three ticks slower each way |
 | Test suites | 1,559 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
 
@@ -753,7 +753,7 @@ answer:
 - **A crash** of the checker or the simulator on a mutant is reported as ERROR and fails
   the run, without losing the other results.
 
-On the final tree the campaign planted 719 mutants in the 77 programs that have mutation
+On the final tree the campaign planted 721 mutants in the 77 programs that have mutation
 sites: every program but the logic analyser, which has none, and the two combined images,
 whose programs are mutated on their own. The four OLED Pong programs are mutated inside
 their four-page image, beside the unmutated other three, so the search attacks the whole
@@ -761,22 +761,22 @@ system.
 
 | escert's answer | Mutants |
 | --- | ---: |
-| REFUTED: a fault, reproduced on the simulator with concrete inputs | 173 |
-| NOT_PROVEN: a fault not excluded, and none found by the searches | 25 |
-| CHECKED: no admission fault for any input | 521 |
+| REFUTED: a fault, reproduced on the simulator with concrete inputs | 178 |
+| NOT_PROVEN: a fault not excluded, and none found by the searches | 16 |
+| CHECKED: no admission fault for any input | 527 |
 | CHECKED, yet a search or a bench made it fault | **0** |
 
-Of the 173 refuted, 148 fell to the random search, 14 to the long search whose host never
-pauses and 11 to a bench, six of those to the aimed benches.
+Of the 178 refuted, 148 fell to the random search, 14 to the long search whose host never
+pauses and 16 to a bench, 11 of those to the aimed benches.
 
-**NOT_PROVEN is never counted as safe.** Of the 25, 8 are located exactly: escert holds a
+**NOT_PROVEN is never counted as safe.** Of the 16, 8 are located exactly: escert holds a
 state at the flagged instruction in which every deadline breaks a rule (escert reports the
 first such state, not every state there). Seven of these fault on their bench built at its
 own clock or tape, another program than the one judged. The eighth is escert being
 cautious: `usbpd_tx` with the first half of a 1 bit cut to a quarter still queues its
 edges faster than the line sends them, so the queue never drains as in escert's state,
 and on the bench the flagged instruction always has a lead of 98 ticks or more. Five more fault
-on their bench built at that bench's clock. The other 12 have a bound that straddles a rule
+on their bench built at that bench's clock. The other three have a bound that straddles a rule
 and no fault found anywhere; they are escert being cautious or faults on a path no search
 drove, and the campaign does not tell which.
 
@@ -792,8 +792,8 @@ admissible, which escert is right to accept: it proves timing, not protocol corr
 Most inverted branches are of this kind, because escert already follows both directions of
 a branch whose flag depends on inputs, so inverting one leaves the same timed paths. For a
 certified mutant with a bench, the campaign therefore also records the bench's own
-protocol check. Of the 250 certified mutants with a bench, the bus models see the
-protocol fail in 119: a frame with a bad CRC, a USB device that never enumerates, a
+protocol check. Of the 256 certified mutants with a bench, the bus models see the
+protocol fail in 121: a frame with a bad CRC, a USB device that never enumerates, a
 frame never sent. Every unmutated program passes its benches, so each failure is the
 mutant's doing. escert and the bus models catch different bugs, and the campaign shows both.
 

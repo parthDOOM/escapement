@@ -245,11 +245,11 @@ equals the bound in 59 of 74 contexts and exceeds it in the rest; it is never be
 escert is attacked the way the RTL's tests are. A campaign plants the timing bugs firmware
 authors make, one at a time in each shipped program (a wait deleted, a delay cut to a
 quarter, a branch inverted), and attacks each mutant on the simulator with random inputs,
-the program's own bus models and a host that never pauses. Of 719 mutants, escert
-certified 521, and none of those faulted under any search; it refuted 173, each with inputs
-that reproduce the fault; and it could not decide 25, which are never counted as safe. A
-certificate is about timing, not function: of the 250 certified mutants that have a bench,
-119 still break their protocol, and the bus models catch them. The campaign also found two
+the program's own bus models and a host that never pauses. Of 721 mutants, escert
+certified 527, and none of those faulted under any search; it refuted 178, each with inputs
+that reproduce the fault; and it could not decide 16, which are never counted as safe. A
+certificate is about timing, not function: of the 256 certified mutants that have a bench,
+121 still break their protocol, and the bus models catch them. The campaign also found two
 real escert bugs: a line unit command allowed before the unit's configuration had finished,
 which the chip faults on, and a branch after GETI followed one way only, because escert
 kept the flag it knew from before the GETI. A check of every instruction against the
@@ -413,7 +413,7 @@ integration and can be rerun the same way:
 | A program can be swapped beside a running one | the non-interference proof (`formal/esc_ni_ind.sby`) | `make formal-v2` |
 | The RTL is the machine the specification defines | lockstep co-simulation against the instruction-set simulator | `make cosim-parallel` |
 | Every program is certified, and the chip measures the bound | `escert`, and each bound beside the lead the RTL measures | `make cert proof-table` |
-| The certificate checker refuses what can fault | 719 planted firmware timing bugs | `make fw-mutants` |
+| The certificate checker refuses what can fault | 721 planted firmware timing bugs | `make fw-mutants` |
 | The tests notice a broken design | 1,010 planted RTL faults | `make mutation` |
 | The programs speak the protocol, not our model of it | decoders written by other people, each with a control that must fail | `make judges` |
 | The protocols survive pad and board delays | every case with its pins up to three ticks slower each way | `make pad-audit` |
