@@ -11,7 +11,7 @@ tools that produced it.
 | --- | --- |
 | Tiny Tapeout template | `ttihp-verilog-template` branch `main` @ `4b1204a` (the ttihp27a shuttle's) |
 | GDS action | `TinyTapeout/tt-gds-action` @ `e7a50f8` (tag `ttihp27a`) |
-| Support tools and precheck | `TinyTapeout/tt-support-tools` @ `9d13ff3` (`main`, the action's default) |
+| Support tools and precheck | `TinyTapeout/tt-support-tools` @ `0922544` (`main`, the action's default) |
 | PDK | `IHP-GmbH/IHP-Open-PDK` @ `89d42ee` (SG13CMOS5L), installed by ciel |
 | LibreLane | 3.1.0.dev4, container `ghcr.io/librelane/librelane:3.1.0.dev4` (digest in `versions.txt`) |
 | Python | 3.11 |
@@ -23,7 +23,11 @@ upstream cannot alter a harden without a change here.
 The current design is signed off on the flow of the shuttle it targets, `ttihp27a`, as
 version 2 was. Versions 1.2 to 1.6 were signed off on the flow that came before it: action
 `3412659` (branch `ihp-cmos5l`), tools `d66cf17`, PDK `2bbec755`, LibreLane 3.1.0.dev3.
-`FLOW=pre` in the local scripts still reproduces that flow. The cell models and liberty
+`FLOW=pre` in the local scripts still reproduces that flow.
+Version 3.0 was signed off on tools `9d13ff3`; the 15 commits up to `0922544` add a
+datasheet generator and a sky130-only precheck rule and leave the cmos5l harden, precheck and
+`info.yaml` checks as they were. The action stays at its `ttihp27a` tag: the two commits on
+its `main` after it make the docs check read the PDK from an input that defaults to sky130A. The cell models and liberty
 files that ciel installs at `89d42ee` are byte-identical to the IHP-Open-PDK tree at that
 commit, which the simulation and equivalence jobs check out directly.
 

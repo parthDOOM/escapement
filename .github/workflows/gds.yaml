@@ -3,7 +3,7 @@ name: gds
 # Pinned to the exact revisions in scripts/versions.txt (docs/05-TOOLCHAIN.md).
 # The ttihp27a shuttle's release (v2.0 on): tt-gds-action tag ttihp27a = e7a50f8, which installs
 # LibreLane 3.1.0.dev4 for ihp-sg13cmos5l (given explicitly below) and whose precheck and GL test
-# use IHP-Open-PDK 89d42ee; tt-support-tools 9d13ff3 (the action's default, main, pinned).
+# use IHP-Open-PDK 89d42ee; tt-support-tools 0922544 (the action's default, main, pinned; v3.0: 9d13ff3).
 # v1.2-v1.6 were signed off on the pre-release pins (action 3412659, tools d66cf17, LibreLane
 # 3.1.0.dev3, PDK 2bbec755): docs/05-TOOLCHAIN.md.
 # The template's `viewer` job (GDS viewer on GitHub Pages) is not used.
@@ -37,7 +37,7 @@ jobs:
         uses: TinyTapeout/tt-gds-action@e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6
         with:
           pdk: ihp-sg13cmos5l
-          tools-ref: 9d13ff3e3e6202090740110438c6a10c1d62ca0f
+          tools-ref: 0922544e6c7f6126047c3fba720b0437fa32a1b8
           librelane-version: 3.1.0.dev4
 
   precheck:
@@ -47,7 +47,7 @@ jobs:
       - name: Run Tiny Tapeout Precheck
         uses: TinyTapeout/tt-gds-action/precheck@e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6
         with:
-          tools-ref: 9d13ff3e3e6202090740110438c6a10c1d62ca0f
+          tools-ref: 0922544e6c7f6126047c3fba720b0437fa32a1b8
 
   gl_test:
     needs: gds

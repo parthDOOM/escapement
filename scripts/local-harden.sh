@@ -5,7 +5,7 @@
 #   scripts/local-harden.sh [--tag NAME] [--to STEP_ID] [KEY=JSON_VALUE ...]
 #
 # Same inputs as CI (FLOW=ttihp27a, the default from v2.0: the March 2027 shuttle's release):
-# tt-support-tools main 9d13ff3 (the action's default tools-ref is main; pinned here),
+# tt-support-tools main 0922544 (the action's default tools-ref is main; pinned here),
 # LibreLane 3.1.0.dev4 (the action's default for cmos5l) in its official container
 # (--dockerized), IHP-Open-PDK 89d42ee fetched by ciel (LibreLane 3.1.0.dev4's pdk_hashes.yaml;
 # also the action's precheck and GL-test PDK). FLOW=pre: the pre-release inputs v1.2-v1.6 were
@@ -29,7 +29,7 @@ case "$FLOW" in
     TT_PDK_ARGS=(--ihp)
     LL_PDK_ARGS=(--pdk ihp-sg13cmos5l --manual-pdk) ;;
   ttihp27a)   # the shuttle's release
-    TOOLS_REF=9d13ff3e3e6202090740110438c6a10c1d62ca0f
+    TOOLS_REF=0922544e6c7f6126047c3fba720b0437fa32a1b8
     PDK_REV=89d42ee6d2fd9b50b86a1aada6fee6673c3e6008
     LIBRELANE=3.1.0.dev4
     export PDK_ROOT="${PDK_ROOT:-$EDA/pdk-ciel}"

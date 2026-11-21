@@ -7,7 +7,7 @@
 | [Jane Street: protocol emulator ASIC competition](https://blog.janestreet.com/protocol-emulator-asic-competition/) | Brief: IHP 130 nm CMOS5L via Tiny Tapeout, tile allocation, protocol targets |
 | [Tiny Tapeout IHP template, `main` @ 4b1204a](https://github.com/TinyTapeout/ttihp-verilog-template/tree/4b1204ab387b5ab94db1d57067051d8d89a2f83c) (v1.2-v1.6: `cmos5l` @ b86a2a7) | Repository layout, workflows, base flow configuration |
 | [tt-gds-action, tag `ttihp27a` @ e7a50f8](https://github.com/TinyTapeout/tt-gds-action/tree/ttihp27a) (v1.2-v1.6: `ihp-cmos5l` @ 3412659) | CI harden, precheck and gate-level test actions |
-| [tt-support-tools, `main` @ 9d13ff3](https://github.com/TinyTapeout/tt-support-tools/tree/9d13ff3e3e6202090740110438c6a10c1d62ca0f) (v1.2-v1.6: `ihp-sg13cmos5l` @ d66cf17) | Tile sizes (`tech/ihp-sg13cmos5l/tile_sizes.yaml`) and the precheck |
+| [tt-support-tools, `main` @ 0922544](https://github.com/TinyTapeout/tt-support-tools/tree/0922544e6c7f6126047c3fba720b0437fa32a1b8) (v1.2-v1.6: `ihp-sg13cmos5l` @ d66cf17) | Tile sizes (`tech/ihp-sg13cmos5l/tile_sizes.yaml`) and the precheck |
 | [LibreLane](https://github.com/librelane/librelane) and its [configuration reference](https://librelane.readthedocs.io/en/latest/reference/configuration.html) | RTL-to-GDS flow, version 3.1.0.dev4 (v1.2-v1.6: 3.1.0.dev3) |
 | [LibreLane issue #1039](https://github.com/librelane/librelane/issues/1039) | `-threads None` in 3.1.0.dev3 (D-23) |
 | [Tiny Tapeout local hardening guide](https://www.tinytapeout.com/guides/local-hardening/) | Local flow setup |

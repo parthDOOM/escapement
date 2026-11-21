@@ -12,7 +12,7 @@ EDA="${EDA:-$HOME/eda}"
 export PDK=ihp-sg13cmos5l
 # FLOW as for scripts/local-harden.sh (default ttihp27a): the precheck of the release the harden used.
 #   pre       tt-support-tools d66cf17's precheck, IHP-Open-PDK 2bbec755, KLayout from LibreLane 3.1.0.dev3
-#   ttihp27a  the shuttle's (tools 9d13ff3, the ./tt checkout local-harden.sh makes for it): its PDK
+#   ttihp27a  the shuttle's (tools 0922544, the ./tt checkout local-harden.sh makes for it): its PDK
 #             89d42ee from ciel and KLayout + Magic from LibreLane 3.1.0.dev4 (KLayout 0.30.12, Magic
 #             8.3.677; its tool-versions.json pins 0.30.4 / 8.3.568: the CI precheck job is the authority)
 FLOW="${FLOW:-ttihp27a}"
