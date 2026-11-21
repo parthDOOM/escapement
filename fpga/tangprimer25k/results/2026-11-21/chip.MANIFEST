@@ -1,0 +1,25 @@
+target: chip (span)
+built: 2026-11-21T21:59:53+05:30
+tools: Yosys 0.69+190 (git sha1 0e8336b4e, Release, Clang /usr/bin/clang++ 21.1.8); "nextpnr-himbaechel" -- Next Generation Place and Route (Version nextpnr-0.11.1-47-ge2fe86b3)
+repo: b78feb7 (span, merged with electrical-rules; local commit, not pushed)
+BUILD CHECKS FAILED (2), packed by hand 2026-11-21 for a bench run, NOT a clean build (same two as v3, 11-14):
+  - chip.clk not wholly on the global network: one LUT1 input (the inverter for project.v's
+    negedge pin_h bank) is routed by general routing (X91Y18/CLK1 -> X3Y20/A6)
+  - clock skew 0.649 ns > 0.05 ns: that LUT1 input (1.932 ns) against every flop/RAM clock pin (1.283 ns)
+  no other check failed: hold flags on block RAM address pins only
+  timing: Max frequency for clock 'chip.clk': 60.69 MHz (PASS at 25.00 MHz)
+sha256:
+d140c878a6df58a9bb3ba50040d9e134c0fe87c582581a6150fab24daeda3d4a  src/project.v
+f6ffee50ff677a51fab580e41b6c2f1ee7059800fdf4e41208b8e5c486d64d85  src/escapement_host.v
+cfbd55f60a93fb9573fd12ea3eaf18652f71f05fb734578252c87db48a942291  src/escapement_pstore.v
+23512efac7a51cee5c78867501b1eb002b597aba9e9fcf67ce17bfbd9648a46b  src/esc_core.v
+dc07f00a08d7e797dd13a82e4ce1647430d597ad2a0457b142b0247234a90089  src/esc_ctx.v
+6a7b36e68322ecceeea2d306f4923bd9f179f70f4e9094ec61165857afe2f0fa  src/esc_cap.v
+8cea545ac09bfb863b95f0ff85dea419a556f35fddf89ebb43fda217f052cf58  src/esc_mon.v
+7426437bb7dbd1782321e5d2a2970216736556b4093977bd44ec5203a0eb1a0c  src/esc_line.v
+7d7f38fae27ef075004763a5ca26146eba031af601cb8be81142dd1972ba8721  src/esc_greg.v
+51ba8c4098cc3e6d99ecd97bf2878d15dcabc6fb7df9a18966848892844866ef  src/escapement_art.v
+e9e8c90b838685069a1ed10784c58a82daf80c2362c537231e7100e7852deb8a  fpga/escapement_sram_fpga.v
+8b2bc7b423c98980c83efea7255a28377a1b15bba9a18f6721d230a1dcda659d  fpga/escapement_board.v
+a855e31d3791903e1b9b62638055ab9aa8dbd8f92ca20ee182dc8918a68fe9d7  chip.cst
+ab8380e2d7f512033169d1e7b09a46067f9d4839ae1b126d32a146b7e82321a3  chip.fs

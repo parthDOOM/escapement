@@ -72,8 +72,17 @@ case $target in
     SRC=$(echo $SRC)
     DROP_ART="hierarchy -top escapement_board; delete tt_um_escapement/t:escapement_art"
     cp "$H/tangprimer25k.cst" "$W/chip.cst"
+    # The half-tick input sampler (project.v, pin_h) is a bank of falling-edge flip-flops.
+    # synth_gowin -family gw5a legalizes every flip-flop to a rising-edge clock and puts the
+    # inverter in a LUT, which takes the sampler's clock off the global network and out of
+    # nextpnr's timing. So the falling-edge flip-flops alone are mapped first, onto Gowin's
+    # own DFFN* cells, which the GW5A-25 has: their clock stays on the global network and
+    # nextpnr times the sampler's half-cycle path into the core (negedge -> posedge).
+    NEG='t:$_DFF_N* t:$_DFFE_N*'
     yosys -q -l "$W/synth.log" \
-      -p "read_verilog -DESC_NO_CG $SRC; $DROP_ART; synth_gowin -family gw5a -top escapement_board -json $W/synth.json"
+      -p "read_verilog -DESC_NO_CG $SRC; $DROP_ART; synth_gowin -family gw5a -top escapement_board -run :map_ffs;
+          dfflegalize -cell \$_DFF_?P?_ r -cell \$_DFFE_?P?P_ r $NEG; techmap -map +/gowin/cells_map.v $NEG;
+          synth_gowin -family gw5a -top escapement_board -run map_ffs: -json $W/synth.json"
     # --timing-allow-fail only because nextpnr flags hold at every block RAM address pin, even
     # for a lone register feeding a RAM on a fully global clock (nextpnr-0.11.1-47 on GW5A-25A:
     # 40 flags with the clock on L3 and on E2). The checks below replace it: clock routed by the
