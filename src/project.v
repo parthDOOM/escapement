@@ -46,6 +46,7 @@ module tt_um_escapement (
   wire [3:0]   ctx_bank;
   wire [3:0]   ctx_pair;
   wire [7:0]   ctx_page;                       // program pages
+  wire [3:0]   ctx_span;                       // 3.1: contexts that also fetch their partner's page
   wire [1:0]   host_mem_page;
   wire [4:0]   ob_out;
   wire [25:0]  pin_owner;
@@ -65,7 +66,7 @@ module tt_um_escapement (
       .cs_n_pin(ui_in[0]), .sck_pin(ui_in[1]), .mosi_pin(ui_in[2]), .miso(miso),
       .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
-      .ctx_page(ctx_page),
+      .ctx_page(ctx_page), .ctx_span(ctx_span),
       .irq_clear(irq_clear), .ctx_stop(ctx_stop), .ctx_start(ctx_start),
       .imem_wpend(imem_wpend), .imem_wgnt(imem_wgnt),
       .running(running), .ctx_state(ctx_state), .irq_pending(irq_pending),
@@ -156,7 +157,7 @@ module tt_um_escapement (
       .ctx_stop(ctx_stop), .ctx_start(ctx_start),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
-      .ctx_page(ctx_page),
+      .ctx_page(ctx_page), .ctx_span(ctx_span),
       .imem_addr(core_imem_addr), .imem_re(core_imem_re), .imem_free(core_imem_free),
       .imem_rdata(imem_rdata),
       .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ui_in[7:3]), .pin_h(pin_h), .ob_out(ob_out),

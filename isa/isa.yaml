@@ -1,4 +1,4 @@
-# Escapement ISA 3.0 — machine-readable encoding (the version of docs/11-SEMANTICS.md).
+# Escapement ISA 3.1 — machine-readable encoding (the version of docs/11-SEMANTICS.md).
 # Single source for the assembler, documentation tables and RTL decoder constants.
 # Execution SEMANTICS are normative only in docs/11-SEMANTICS.md and must never be
 # generated from this file (independent ISS/RTL verification, docs/04-VERIFICATION.md).
@@ -7,9 +7,9 @@
 # format is reserved and must be zero; a nonzero reserved bit or an unlisted opcode is
 # ILLEGAL. 0x00000000 and 0xFFFFFFFF are ILLEGAL by construction (opcodes 0x00, 0xFF).
 
-version: "3.0"
+version: "3.1"
 word_bits: 32
-imem_words: 256
+imem_words: 256            # one page; a spanning context (3.1) addresses 512, two pages
 tape_words: 256
 contexts: 4
 registers: [r0, r1, r2, r3]
@@ -23,7 +23,7 @@ formats:
   RS:  {rs: [21, 20]}
   I16: {rd: [23, 22], imm: [15, 0]}
   SH:  {rd: [23, 22], n: [4, 0]}
-  B:   {target: [7, 0]}
+  B:   {target: [8, 0]}                                 # bit 8 (3.1): ILLEGAL unless the context spans
   L16: {imm: [15, 0]}
   T24: {imm: [23, 0]}
   P:   {mask: [23, 16], value: [15, 8], oe: [7, 0]}

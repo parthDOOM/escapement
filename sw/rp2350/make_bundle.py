@@ -68,8 +68,8 @@ CHUNK = 4096
 # repeat every 800 ticks, but its game changes the picture every frame (420,000 ticks).
 # The 10BASE-T transmitters send a link pulse every 16 ms (640,000 ticks at their
 # 40 MHz); the S.BUS receiver, on the demo board's pulled-up pins, sees an inverted line
-# held at a start bit, and keeps receiving (and counting) bad frames. The Modbus server
-# looks at the host every millisecond while the bus is idle (25,020 ticks), and the servo
+# held at a start bit, and keeps receiving (and counting) bad frames. The Modbus servers
+# (modbus_rtu, modbus_full) look at the host every millisecond while the bus is idle (25,020 ticks), and the servo
 # driver's frames are 22 ms apart (550,000 ticks). The LIN responder and the 1-Wire
 # device look at the host every millisecond while the bus is idle (25,000 ticks, RDTIME each
 # time): inside that wait the model sees a 4-tick pattern, and its self-check ends before the
@@ -77,7 +77,8 @@ CHUNK = 4096
 # Bundled with kind "none": loaded, run and checked for faults only.
 NO_PREDICT = {"seven_seg.asm", "ws2812_gen.asm", "ws2801_tx.asm", "dmx512_tx.asm", "dshot_tx.asm",
               "sent_tx.asm", "cec.asm", "dali.asm", "vga_pong.asm", "eth_tx.asm", "udp_tx.asm",
-              "sbus_rx.asm", "modbus_rtu.asm", "servo.asm", "lin_resp.asm", "onewire_dev.asm"}
+              "sbus_rx.asm", "modbus_rtu.asm", "servo.asm", "lin_resp.asm", "onewire_dev.asm",
+              "modbus_full.asm"}
 # Variants: name -> (firmware, .equ overrides): the logic analyser streaming a
 # 64-word ring to the host during the run (escapement_demo.stream).
 VARIANTS = {"logic_analyzer_stream": ("logic_analyzer.asm",
@@ -162,7 +163,7 @@ def _parked_until(m: Machine, L: int) -> int | None:
     period."""
     near = None
     for k, x in enumerate(m.ctx):
-        if x.state == RUNNING and m.imem[256 * m.ctx_page[k] + x.pc] >> 24 in TIMED_WAITS \
+        if x.state == RUNNING and m.imem[m.imem_index(k, x.pc)] >> 24 in TIMED_WAITS \
                 and not reached(m.now, x.tmr):
             d = (x.tmr - m.now) & M32
             if d > L and (near is None or d < near):
@@ -275,13 +276,18 @@ def bundle(fw: Path, name: str | None = None, overrides: dict | None = None) -> 
     else:
         image = assemble_file(fw)
     used = [i for i, w in enumerate(image.words) if w]
+    # a paged image (one that spans, 3.1) keeps its page layout, 256 words a page
+    paged = len(image.words) > 256
     out = {
         "name": name or fw.name,
         "words": image.words[: (max(used) + 1) if used else 0],
         "tape": {str(a): image.tape[a] for a in image.tape_used},
         "cfg": [image.ctx_enable_mask, image.entry_pcs_packed, image.pin_owned_mask,
                 image.pin_owner_packed, image.pin_od_mask, image.ctx_bank_mask,
-                image.ctx_pair_mask],
+                image.ctx_pair_mask]
+               # WRITE_CFG bytes 14 and 15 only for a paged image: every other bundle is as
+               # before (bringup.py sends 0 for a field the bundle leaves out)
+               + ([image.ctx_page_packed, image.ctx_span_mask] if paged else []),
         "expect": predict(image) if fw.name not in NO_PREDICT else no_prediction(image),
         # the certified lower bound on min_lead; None when escert gives no finite one (no
         # event, or a status other than CHECKED, which bringup.py reports by itself)

@@ -15,6 +15,7 @@ module tb_core ();
   reg  [3:0]  ctx_bank = 4'd0;
   reg  [3:0]  ctx_pair = 4'd0;
   reg  [7:0]  ctx_page = 8'd0;     // v2 (S-A): page 0 here; pages are in the cosim
+  reg  [3:0]  ctx_span = 4'd0;     // 3.1: span is in the cosim
   reg  [4:0]  ib_in = 5'd0;
   reg  [12:0] pin_h = 13'd0;           // v3: the falling-edge sample (project.v), driven here
   reg  [25:0] pin_owner = 26'd0;
@@ -48,7 +49,7 @@ module tb_core ();
   wire [127:0] mbx_tx_data;
   wire        dbg_commit_valid, dbg_post_z, dbg_post_c;
   wire [1:0]  dbg_commit_ctx, dbg_commit_outcome;
-  wire [7:0]  dbg_commit_pc, dbg_post_pc;
+  wire [8:0]  dbg_commit_pc, dbg_post_pc;
   wire [31:0] dbg_commit_insn, dbg_post_r0, dbg_post_r1, dbg_post_r2, dbg_post_r3;
   wire [31:0] dbg_post_sh, dbg_post_tmr, dbg_rdata;
   wire [15:0] dbg_post_lc;
@@ -67,7 +68,7 @@ module tb_core ();
       .ctx_stop(ctx_stop), .ctx_start(ctx_start), .imem_free(imem_free),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs), .pin_owned(pin_owned),
       .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
-      .ctx_page(ctx_page), .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
+      .ctx_page(ctx_page), .ctx_span(ctx_span), .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
       .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ib_in), .pin_h(pin_h), .ob_out(ob_out),
       .running(running), .ctx_state(ctx_state),
       .irq_pending(irq_pending), .fault_valid(fault_valid), .irq_clear(irq_clear),

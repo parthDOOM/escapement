@@ -66,7 +66,7 @@ def blank_image() -> Image:
                  pin_owned=[False] * 8, pin_owner=[0] * 8, pin_od=[False] * 8)
 
 
-def cfg_image(imem, tape, cfg, ctx_page=0) -> Image:
+def cfg_image(imem, tape, cfg, ctx_page=0, ctx_span=0) -> Image:
     en, entry, owned, owner, od, bank = cfg
     return Image(words=list(imem), entry_pcs=[(entry >> (8 * k)) & 0xFF for k in range(4)],
                  ctx_enable=[bool((en >> k) & 1) for k in range(4)],
@@ -74,7 +74,8 @@ def cfg_image(imem, tape, cfg, ctx_page=0) -> Image:
                  pin_owner=[(owner >> (2 * i)) & 3 for i in range(13)],
                  pin_od=[bool((od >> i) & 1) for i in range(8)], tape=list(tape),
                  ctx_bank=[bool((bank >> k) & 1) for k in range(4)],
-                 ctx_page=[(ctx_page >> (2 * k)) & 3 for k in range(4)])
+                 ctx_page=[(ctx_page >> (2 * k)) & 3 for k in range(4)],
+                 ctx_span=[bool((ctx_span >> k) & 1) for k in range(4)])
 
 
 class FaultyMachine(Machine):
@@ -105,7 +106,7 @@ def _force(v: int, stuck) -> int:
 
 
 class SimChip:
-    def __init__(self, *, version=10, clock_scale=1.0, clock_dead=False, miso_stuck=None,
+    def __init__(self, *, version=11, clock_scale=1.0, clock_dead=False, miso_stuck=None,
                  mosi_stuck=None, mem_faults=None, uio_out_dead=0, uio_in_stuck=None,
                  uio_ext_low=0, ob_stuck=None, ib_stuck=None, exec_fault=None, tripwire=0,
                  seed=1):
@@ -119,6 +120,7 @@ class SimChip:
         rng = random.Random(seed)
         # powers up undefined; v2 (S-A): the program store is four pages of 256 words
         self.pages = version >= 10
+        self.span = version >= 11              # 3.1: WRITE_CFG byte 15
         self.mem = [[rng.randrange(1 << 32) for _ in range(1024 if self.pages else 256)],
                     [rng.randrange(1 << 32) for _ in range(256)]]
         self.pads = Pads()
@@ -163,6 +165,7 @@ class SimChip:
         self.cfg = [0, 0, 0, 0, 0, 0]
         self.mem_addr = self.mem_space = 0
         self.mem_page = self.ctx_page = 0     # v2 (S-A)
+        self.ctx_span = 0                     # 3.1
         self.dbg_ctx = self.dbg_sel = 0
         self.running = False
         self.m = Machine(blank_image())
@@ -419,6 +422,8 @@ class SimChip:
         elif cmd == C_WC:
             if not self.running and idx == 14 and self.pages:      # v2 (S-A) byte 14
                 self.ctx_page = rx
+            elif not self.running and idx == 15 and self.span:     # 3.1 byte 15
+                self.ctx_span = rx & 0xF
             elif not self.running and 1 <= idx <= 13:
                 c = self.cfg
                 if idx == 1:
@@ -473,7 +478,7 @@ class SimChip:
         prog = ([self.mem_read(0, a & 0xFF, a >> 8) for a in range(1024)] if self.pages
                 else [self.mem_read(0, a) for a in range(256)])
         image = cfg_image(prog, [self.mem_read(1, a) for a in range(256)], self.cfg,
-                          self.ctx_page)
+                          self.ctx_page, self.ctx_span)
         FaultyMachine.exec_fault = self.exec_fault
         self.m = (FaultyMachine if self.exec_fault else Machine)(image, board=self._board,
                                                                    board_b=self._board_b)

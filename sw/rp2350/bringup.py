@@ -40,7 +40,7 @@ except ImportError:                       # on a PC (tests): sw/eschost
 
 PROJECT = "tt_um_escapement"
 F_CLK = 25000000
-VERSION = 10                              # program pages
+VERSION = 11                              # span (3.1)
 M32 = 0xFFFFFFFF
 DG_POLY = 0x04C11DB7
 CS, SCK, MOSI = 1, 2, 4                   # ui_in bits (docs/12-HOST-PROTOCOL.md)
@@ -48,7 +48,7 @@ MISO, IRQ, RUN = 1, 2, 4                  # uo_out bits
 UO_RESET = 0xF8                           # in and after reset: bank B (uo[7:3]) released high
 STATE = ("IDLE", "RUNNING", "HALTED", "FAULTED")
 CAUSE = {1: "ILLEGAL", 2: "PC_RANGE", 3: "ADMIT", 4: "LATE_HEAD"}
-RESET_STATUS = b"\x0a\x00\x0f\x00"        # version 10, all IDLE, TX mailboxes empty
+RESET_STATUS = b"\x0b\x00\x0f\x00"        # version 11, all IDLE, TX mailboxes empty
 MIN_HALF_NS = 8 * 1000000000 // F_CLK     # bit-bang margin: 2x the 4-clock SCK minimum
 # Every data bit at 0 and 1, and every pair of bits different in at least one word.
 # Each program page's patterns are masked with its own word (the tape: M32)
@@ -325,22 +325,31 @@ class Bringup:
         self.host = P.Host(self.link.xfer)
 
     def load(self, words, cfg, tape=None, verify=True):
+        """words: page 0's 256 words, or for a paged bundle (a spanning program) every page
+        up to the last that holds code, 256 words a page; cfg: WRITE_CFG's fields as a bundle
+        carries them (make_bundle.py), the ones it leaves out 0. The full frame always goes,
+        so no earlier program's bank B, pair, page or span settings stay in force."""
         h = self.host
         h.stop()
-        h.imem_page(0)                    # a bundle is one page, page 0
-        h.write_imem(0, words)
-        if verify:
-            got = h.read_imem(0, len(words))
-            if got != list(words):
-                bad = [a for a in range(len(words)) if got[a] != words[a]]
-                raise Fail("program readback differs at %d words (first at 0x%02x: wrote "
-                           "0x%08x, read 0x%08x); stage 3 should have found this"
-                           % (len(bad), bad[0], words[bad[0]], got[bad[0]]))
+        n = 256 * max(1, -(-len(words) // 256))          # whole pages, at least page 0
+        words = list(words) + [0] * (n - len(words))
+        for p in range(len(words) // 256):
+            ws = words[256 * p:256 * (p + 1)]
+            h.imem_page(p)
+            h.write_imem(0, ws)
+            if verify:
+                got = h.read_imem(0, 256)
+                if got != ws:
+                    bad = [a for a in range(256) if got[a] != ws[a]]
+                    raise Fail("program readback differs at %d words of page %d (first at "
+                               "0x%02x: wrote 0x%08x, read 0x%08x); stage 3 should have "
+                               "found this" % (len(bad), p, bad[0], ws[bad[0]], got[bad[0]]))
+        h.imem_page(0)
         if tape is not None:
             h.write_tape(0, tape)
             if verify and h.read_tape(0, len(tape)) != list(tape):
                 raise Fail("tape readback differs; stage 3 should have found this")
-        h.write_cfg(*cfg)
+        h.write_cfg(*(tuple(cfg) + (0,) * (9 - len(cfg))))
         h.clear_err()
 
     def check_tripwires(self, num):
@@ -435,6 +444,9 @@ class Bringup:
         if v == 9:
             return ("protocol version 9: an Escapement v1.7 design (no program pages) "
                     "answers, not v2.")
+        if v == 10:
+            return ("protocol version 10: an Escapement v2 or v3.0 design (no span) answers, "
+                    "not v3.1.")
         if v != VERSION:
             return ("protocol version %d: a different design is answering; check the "
                     "project selection (stage 0)." % v)
@@ -973,7 +985,8 @@ class Bringup:
         ctx = []
         for k in range(4):
             v7 = h.read_dbg(k, 7)
-            ctx.append([(v7 >> 2) & 3, (v7 >> 8) & 0xFF] + [h.read_dbg(k, r) for r in range(4)])
+            ctx.append([(v7 >> 2) & 3, (v7 >> 8) & 0xFF | (v7 >> 24 & 1) << 8]
+                       + [h.read_dbg(k, r) for r in range(4)])
         return {"ctx": ctx, "first_fault": h.read_dbg(0, 14), "fault_tick": h.read_dbg(0, 15),
                 "uio": self.io.read_uio(), "tele": [h.read_dbg(k, 9) for k in range(4)]}
 
@@ -1136,7 +1149,7 @@ def _fault(w):
         return "none"
     cause = (w >> 24) & 0xF
     return "%s/%d ctx %d PC 0x%02x" % (CAUSE.get(cause, str(cause)), (w >> 20) & 0xF,
-                                       (w >> 16) & 3, w & 0xFF)
+                                       (w >> 16) & 3, w & 0x1FF)
 
 
 def load_bundle(path):

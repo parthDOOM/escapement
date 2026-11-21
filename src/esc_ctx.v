@@ -58,9 +58,9 @@ module esc_ctx (
     input  wire [15:0] w_lc,
     input  wire        w_tmr_we,
     input  wire [31:0] w_tmr,
-    input  wire [7:0]  w_pc,          // next PC (applied on COMPLETE)
+    input  wire [8:0]  w_pc,          // next PC (applied on COMPLETE); bit 8 only when spanning (3.1)
     input  wire        w_lr_we,
-    input  wire [7:0]  w_lr,
+    input  wire [8:0]  w_lr,
     input  wire        w_halt,
     input  wire        w_irq,
     input  wire [7:0]  w_irq_code,
@@ -99,8 +99,8 @@ module esc_ctx (
     output wire [31:0] o_sh,
     output reg  [15:0] o_lc,
     output wire [31:0] o_tmr,
-    output reg  [7:0]  o_pc,
-    output reg  [7:0]  o_lr,
+    output reg  [8:0]  o_pc,
+    output reg  [8:0]  o_lr,
     output reg         o_z,
     output reg         o_c,
     output reg  [1:0]  o_state,
@@ -143,7 +143,7 @@ module esc_ctx (
 `ifdef ESC_NI
     // formal only (formal/esc_ni_ind.sby): every flip-flop of this context, for the
     // non-interference miter's inductive invariant
-    , output wire [865:0] f_all
+    , output wire [867:0] f_all
 `endif
 );
 
@@ -279,7 +279,7 @@ module esc_ctx (
   // ------------------------------------------------------------------ registers
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      o_lc <= 16'd0; o_pc <= 8'd0; o_lr <= 8'd0;
+      o_lc <= 16'd0; o_pc <= 9'd0; o_lr <= 9'd0;
       o_z <= 1'b0; o_c <= 1'b0; o_state <= ST_IDLE;
       head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0; h_q <= 26'd0;
       o_act <= 1'b0; ck_mask <= 8'd0; ck_level <= 8'd0; ck_mode <= 1'b0; ck_rem <= 7'd0;
@@ -290,7 +290,7 @@ module esc_ctx (
       rx_cnt <= 2'd0; tx_cnt <= 2'd0; rx_rp <= 1'b0; tx_rp <= 1'b0;
     end else if (start_i) begin
       // sec. 9 Start
-      o_lc <= 16'd0; o_pc <= cfg_entry_pc; o_lr <= 8'd0;
+      o_lc <= 16'd0; o_pc <= {1'b0, cfg_entry_pc}; o_lr <= 9'd0;   // entry PCs are 8 bits
       o_z <= 1'b0; o_c <= 1'b0; o_state <= cfg_enable ? ST_RUN : ST_IDLE;
       head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0; h_q <= 26'd0;
       o_act <= 1'b0; ck_rem <= 7'd0;

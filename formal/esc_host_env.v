@@ -40,6 +40,7 @@ module esc_host_env (
   wire [7:0]  pin_od;
   wire [3:0]  ctx_bank, ctx_pair;
   wire [7:0]  ctx_page;
+  wire [3:0]  ctx_span;                    // 3.1
   wire [1:0]  mem_page;
   wire        imem_wpend;
   wire [7:0]  mem_addr;
@@ -63,7 +64,7 @@ module esc_host_env (
       .clk(clk), .rst_n(rst_n), .cs_n_pin(cs_n_pin), .sck_pin(sck_pin), .mosi_pin(mosi_pin),
       .miso(), .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
-      .ctx_pair(ctx_pair), .ctx_page(ctx_page), .imem_wpend(imem_wpend), .imem_wgnt(imem_wgnt),
+      .ctx_pair(ctx_pair), .ctx_page(ctx_page), .ctx_span(ctx_span), .imem_wpend(imem_wpend), .imem_wgnt(imem_wgnt),
       .irq_clear(),
       .running(run), .ctx_state(ctx_state), .irq_pending(irq_pending),
       .fault_valid(fault_valid), .mem_we(mem_we), .mem_addr(mem_addr), .mem_page(mem_page),
@@ -88,6 +89,7 @@ module esc_host_env (
       assert ($stable(ctx_bank));
       assert ($stable(ctx_pair));
       assert ($stable(ctx_page));
+      assert ($stable(ctx_span));
     end
   // P1 (v2, S-A) and P2 (C6): a live word that waited a cycle without a grant is still
   // waiting, aimed at the same page and address, with the same data. In the grant cycle the

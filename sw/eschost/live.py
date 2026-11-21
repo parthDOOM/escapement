@@ -9,17 +9,19 @@ other context or break ctx's own timing:
 - every changed word is outside what any other enabled context can reach in `running`
   (escert's control-flow reach), so no other context ever fetches a changed word. v2
   (S-A): a context fetches only from its own page, so only words in its page can matter
-  to it; a context alone in its page can be reloaded whatever the others reach;
+  to it; a context alone in its page can be reloaded whatever the others reach. 3.1: a
+  spanning context also fetches from its partner's page, at addresses 256 to 511;
 - escert certifies ctx in `new` (CHECKED): a restarted context sees what a run start shows
   it, so the certificate holds for the reloaded program as it would after START.
 """
 
 from __future__ import annotations
 
+from escasm import spans
 from escert import _reach, analyse
 
 CONFIG = ("ctx_enable_mask", "entry_pcs_packed", "pin_owned_mask", "pin_owner_packed",
-          "pin_od_mask", "ctx_bank_mask", "ctx_pair_mask", "ctx_page_packed")
+          "pin_od_mask", "ctx_bank_mask", "ctx_pair_mask", "ctx_page_packed", "ctx_span_mask")
 
 
 def plan_reload(running, new, ctx: int) -> list:
@@ -36,12 +38,18 @@ def plan_reload(running, new, ctx: int) -> list:
     paged = len(new.words) > 256
     for k in range(4):
         if k != ctx and running.ctx_enable[k]:
-            base = 256 * running.ctx_page[k] if paged else 0
-            mine = {a - base for a in changed if base <= a < base + 256}   # in k's page
-            shared = mine & _reach(running, k)
+            # k's pages and the address k fetches each at (a spanning k: its partner's
+            # page at 256..511)
+            pages = [(running.ctx_page[k] if paged else 0, 0)]
+            if paged and spans(running, k):
+                pages.append((running.ctx_page[k ^ 2], 256))
+            mine = {}                                    # k's address -> store address
+            for p, off in pages:
+                mine.update({a - 256 * p + off: a for a in changed if 256 * p <= a < 256 * p + 256})
+            shared = set(mine) & _reach(running, k)
             if shared:
                 raise ValueError(f"reload changes words context {k} can reach: "
-                                 f"{sorted(a + base for a in shared)[:8]}")
+                                 f"{sorted(mine[a] for a in shared)[:8]}")
     cert = analyse(new, ctx)
     if cert.status != "CHECKED":
         raise ValueError(f"context {ctx} of the new image is not certified: {cert.status}")

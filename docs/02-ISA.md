@@ -18,7 +18,8 @@ A program runs in one of four **contexts**. Each context has:
 - a 16-bit loop counter `lc`, used by DJNZ;
 - the 32-bit deadline register `tmr`, which supplies the tick of every event the context
   queues;
-- an 8-bit program counter and an 8-bit link register for CALL and RET;
+- an 8-bit program counter and an 8-bit link register for CALL and RET, 9-bit when the
+  context spans (below);
 - the flags Z (zero) and C (carry or borrow);
 - a 32-bit input shift register `ish`, filled by SAMPLE events and read by GETI.
 
@@ -37,8 +38,15 @@ to 4. The bank is part of the configuration, not of the code, so one protocol mo
 on either bank without change.
 
 A context fetches from its own **page** of the program store: 256 words, addressed by the
-8-bit program counter. Branch targets are word addresses within the page. The **tape** is
-a separate memory of 256 words that every context can load from and store to.
+8-bit program counter. Branch targets are word addresses within the page. A context whose
+partner (the context numbered k XOR 2) is not enabled can **span** (3.1): it also fetches
+from the partner's page, which would otherwise sit idle, and its program counter and link
+register grow to 9 bits, so its program has 512 words, addresses 256 to 511 being the
+partner's page. Code runs straight on from word 255 to word 256. Span is asked for per
+context, so a program that does not ask behaves exactly as before. It is independent of
+pair mode, which also needs the partner off: a context can pair, span, both or neither.
+The **tape** is a separate memory of 256 words that every context can load from and store
+to.
 
 ## Encoding
 
@@ -57,7 +65,7 @@ garbage.
 | RD / RS | `[23:22] rd` / `[21:20] rs` |
 | I16 | `[23:22] rd`, `[15:0] imm` |
 | SH | `[23:22] rd`, `[4:0] n` |
-| B | `[7:0] target` (a word address in the context's page) |
+| B | `[8:0] target` (a word address in the context's page; bit 8, the partner's page, only when the context spans, and ILLEGAL otherwise) |
 | L16 | `[15:0] imm` |
 | T24 | `[23:0] imm` (unsigned ticks) |
 | P | `[23:16] mask`, `[15:8] value`, `[7:0] oe` |
@@ -232,7 +240,7 @@ either on time or not sent at all.
 | Cause | Trigger |
 | --- | --- |
 | ILLEGAL (1) | an opcode that does not exist, or a nonzero reserved bit |
-| PC_RANGE (2) | sequential execution, or a CALL's return address, past word 255 of the page |
+| PC_RANGE (2) | sequential execution, or a CALL's return address, past word 255 of the page (past word 511 for a spanning context) |
 | ADMIT (3) | an event or unit request refused; subcodes MASK (1), OWNER (2), PAST (3), ORDER (4), OVERLAP (5), CONFIG (6, an invalid line unit configuration) |
 | LATE_HEAD (4) | an event at the head of the queue found past its deadline; unreachable, and proved so |
 
@@ -272,6 +280,7 @@ expressions. Its directives:
 | `.od pin` | bank A pin `pin` is open-drain |
 | `.bank ctx` | context `ctx` uses bank B (before its `.own` lines) |
 | `.pair ctx` | context `ctx` also takes the slot of context ctx XOR 2, which must not be enabled |
+| `.span ctx` | context `ctx` may use 512 words, its own page and that of context ctx XOR 2, which must not be enabled; one per source |
 | `.tape addr, words...` | initial tape words, loaded by the host before the run |
 | `.tapeb addr, bytes...` | initial tape bytes from `addr`, packed little-endian (USB descriptors, for example) |
 | `.assert expr, message` | stop the assembly unless `expr` is nonzero |
@@ -288,10 +297,13 @@ A bank B pin is push-pull and one-directional. A context drives it (an output on
 [`firmware/combo_two_banks.asm`](../firmware/combo_two_banks.asm) runs four unchanged
 modules on both banks at once.
 
-An image assembled from one source fills one page. To give each context its own page, the
-host tools combine up to four separately assembled images with `escasm.paged()`, which
-places image p in page p and refuses two images that enable the same context, own the same
-pin or set the same tape word differently. [OLED Pong](23-OLED-PONG.md) runs this way, on
+An image assembled from one source fills one page, or two with `.span`. To give each
+context its own page, the host tools combine up to four separately assembled images with
+`escasm.paged()`, which places image p in page p and refuses two images that enable the same
+context, own the same pin or set the same tape word differently. A spanning image takes
+pages p and p + 1: its words 256 to 511 go to page p + 1, which becomes the page of the
+spanning context's partner, and `paged()` refuses another image there or one that enables
+the partner. [OLED Pong](23-OLED-PONG.md) runs this way, on
 four pages.
 
 ## An example: UART transmit

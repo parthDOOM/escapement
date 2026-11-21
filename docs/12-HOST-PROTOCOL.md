@@ -4,7 +4,7 @@ This is the SPI command set between a host and Escapement: how a host loads prog
 data, configures and starts the chip, exchanges words with running programs, and reads
 every status register. It is implemented by `src/escapement_host.v` and driven by
 `sw/eschost` (from a PC, and in the cocotb test benches) and by the MicroPython host for
-an RP2350 or a Raspberry Pi Pico (`sw/rp2350`). The chip reports **protocol version 10**.
+an RP2350 or a Raspberry Pi Pico (`sw/rp2350`). The chip reports **protocol version 11**.
 
 The link is deliberately plain: SPI mode 0 on four pins, sampled with the chip's own
 clock, so the design has a single clock domain. Every response begins with a status byte,
@@ -14,8 +14,9 @@ frame it sends.
 **Versions.** Each version of the protocol adds commands or configuration bytes and
 changes nothing an older host sends. A host reads the version from the status byte, and
 `sw/eschost` refuses to load an image that needs a newer chip: a paired image onto a chip
-below version 9, which would run it unpaired at half its rate, and a paged image onto a
-chip below version 10. It sends the newer configuration bytes only to chips that have
+below version 9, which would run it unpaired at half its rate, a paged image onto a
+chip below version 10, and a spanning image onto a chip below version 11, where the
+spanning context would fault at the end of its own page. It sends the newer configuration bytes only to chips that have
 them, so the frames an older chip receives are unchanged.
 
 | Version | Chip | Adds |
@@ -26,6 +27,7 @@ them, so the frames an older chip receives are unchanged.
 | 8 | 1.3 to 1.6 | READ_TAPE during a run and TAPE_ACK (0x15), for streaming capture ([11-SEMANTICS](11-SEMANTICS.md) §6.5). The line unit needs no command: firmware uses it, and the host sees it through READ_DBG selects 21, 25 and 26 |
 | 9 | 1.7 | WRITE_CFG byte 10 bits 7:4 set pair mode ([11-SEMANTICS](11-SEMANTICS.md) §3); live reload: CTX_STOP and CTX_START (0x22, 0x23) and WRITE_IMEM during a run (below) |
 | 10 | 2 and 3 | Program pages: WRITE_CFG byte 14 sets each context's page, and IMEM_PAGE (0x24) selects the page that WRITE_IMEM and READ_IMEM address ([11-SEMANTICS](11-SEMANTICS.md) §3). Version 3's additions (the monitor, the receive strobes) are used from firmware and need no command |
+| 11 | 3.1 | Span: WRITE_CFG byte 15 bits 3:0 let a context whose partner is off also fetch from the partner's page, for a 512-word program ([11-SEMANTICS](11-SEMANTICS.md) §3). READ_DBG select 7 gains PC[8] and lr[8], select 14 the faulting PC's bit 8 |
 
 ## Physical layer
 
@@ -66,7 +68,7 @@ is the status byte**:
 | 6 | IRQ pending on any context |
 | 5 | first-fault register valid |
 | 4 | host error (sticky; see CLEAR_ERR) |
-| 3:0 | protocol version: `0xA` (the table above lists earlier values) |
+| 3:0 | protocol version: `0xB` (the table above lists earlier values) |
 
 Raising CS_n ends the frame at any point; a partial word is discarded. Bytes after the
 end of a command's payload are ignored (response 0x00). An unknown command sets host
@@ -82,7 +84,7 @@ the chip prepares data; its response is 0x00.
 | 0x00 | STATUS | 3 × dummy | ctx_state, {rx_full[3:0], tx_empty[3:0]}, irq_pending[3:0] | |
 | 0x10 | WRITE_IMEM | addr, then words (4 bytes each) | zeros | Writes addr, addr+1, … in the host's page (v2, IMEM_PAGE; the address wraps inside the page). While stopped as in v1.6; during a run (v1.7) each word is written in a free fetch slot (live reload, below) |
 | 0x11 | READ_IMEM | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … in the host's page (v2) | Readback verification of a loaded image; while stopped (during a run the words read are undefined) |
-| 0x12 | WRITE_CFG | ctx_enable, entry0, entry1, entry2, entry3, pin_owned[7:0], pin_owner[15:8], pin_owner[7:0], pin_od, then optionally ctx_bank (bits 3:0) and ctx_pair (bits 7:4, v1.7), pin_owned[12:8], pin_owner[25:24], pin_owner[23:16], then optionally (v2) ctx_page (bits 2k+1:2k: context k's page) | zeros | 9, 13 or 14 bytes; only while stopped. Takes effect at the next START. Bytes 10–13 (v1.2) configure bank B, and byte 10's high nibble pair mode (v1.7); a 9-byte frame leaves them unchanged (0 after reset), a v1.1 chip ignores them, and a v1.2 to v1.6 chip ignores byte 10 bits 7:4. Byte 14 (v2): a shorter frame leaves it unchanged (0 after reset: every context on page 0), and an older chip ignores it |
+| 0x12 | WRITE_CFG | ctx_enable, entry0, entry1, entry2, entry3, pin_owned[7:0], pin_owner[15:8], pin_owner[7:0], pin_od, then optionally ctx_bank (bits 3:0) and ctx_pair (bits 7:4, v1.7), pin_owned[12:8], pin_owner[25:24], pin_owner[23:16], then optionally (v2) ctx_page (bits 2k+1:2k: context k's page), then optionally (3.1) ctx_span (bits 3:0) | zeros | 9, 13, 14 or 15 bytes; only while stopped. Takes effect at the next START. Bytes 10–13 (v1.2) configure bank B, and byte 10's high nibble pair mode (v1.7); a 9-byte frame leaves them unchanged (0 after reset), a v1.1 chip ignores them, and a v1.2 to v1.6 chip ignores byte 10 bits 7:4. Byte 14 (v2): a shorter frame leaves it unchanged (0 after reset: every context on page 0), and an older chip ignores it. Byte 15 (3.1): context k spans if bit k is set and context k ^ 2 is not enabled; a shorter frame leaves it unchanged (0 after reset), and an older chip ignores it |
 | 0x13 | WRITE_TAPE | addr, then words (4 bytes each) | zeros | As WRITE_IMEM, into the tape; only while stopped, else host error and no write |
 | 0x14 | READ_TAPE | addr, dummy, then 4 dummy bytes per word | words from addr, addr+1, … | As READ_IMEM, from the tape, at any time (v1.3; below) |
 | 0x15 | TAPE_ACK | rptr | zeros | v1.3: the host has read the capture records before `rptr`; sets the capture unit's `rptr` at the end of the byte ([11-SEMANTICS](11-SEMANTICS.md) §6.5). Allowed while running or stopped |
@@ -144,7 +146,8 @@ One context `k` gets a new program while the others run on, untouched:
 4. STATUS: host error clear, `k` RUNNING.
 
 Pins, bank and pairing stay as configured: the new program must use the same configuration
-(WRITE_CFG stays stopped-only). The program words of running contexts must not change.
+(WRITE_CFG stays stopped-only). The program words of running contexts must not change
+(both pages of a spanning one, 3.1).
 `sw/eschost` checks both before sending anything (`eschost.live.plan_reload`: the changed
 words are outside every other enabled context's reach, and escert certifies the new program),
 and `Host.reload` sends steps 1 to 4. READ_IMEM cannot verify the words during the run; the
@@ -153,7 +156,7 @@ folds every commit, so it depends on when the reload happened.
 
 ## Typical session
 
-1. STATUS, and check the version: 0xA runs every image; an older chip runs an image
+1. STATUS, and check the version: 0xB runs every image; an older chip runs an image
    that does not use what came after it (the table at the top).
 2. STOP.
 3. WRITE_IMEM with the image, page by page with IMEM_PAGE for a paged image, then

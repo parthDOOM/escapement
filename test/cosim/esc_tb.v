@@ -30,6 +30,7 @@ module esc_tb (
     input  wire [3:0]   ctx_bank,
     input  wire [3:0]   ctx_pair,      // v1.7
     input  wire [7:0]   ctx_page,      // v2 (S-A)
+    input  wire [3:0]   ctx_span,      // 3.1
     // program load (only while not running)
     input  wire         load_we,
     input  wire         load_space,
@@ -67,7 +68,7 @@ module esc_tb (
     // observation
     output wire         dbg_commit_valid,
     output wire [1:0]   dbg_commit_ctx,
-    output wire [7:0]   dbg_commit_pc,
+    output wire [8:0]   dbg_commit_pc,
     output wire [31:0]  dbg_commit_insn,
     output wire [1:0]   dbg_commit_outcome,
     output wire [31:0]  dbg_post_r0,
@@ -79,7 +80,7 @@ module esc_tb (
     output wire [31:0]  dbg_post_tmr,
     output wire         dbg_post_z,
     output wire         dbg_post_c,
-    output wire [7:0]   dbg_post_pc,
+    output wire [8:0]   dbg_post_pc,
     input  wire [1:0]   dbg_sel_ctx,
     input  wire [4:0]   dbg_sel,
     output wire [31:0]  dbg_rdata
@@ -128,7 +129,7 @@ module esc_tb (
       .ctx_stop(ctx_stop), .ctx_start(ctx_start), .imem_free(imem_free),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
-      .ctx_page(ctx_page), .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
+      .ctx_page(ctx_page), .ctx_span(ctx_span), .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
       .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ib_in), .pin_h(pin_h), .ob_out(ob_out),
       .running(running), .ctx_state(ctx_state),
       .irq_pending(irq_pending), .fault_valid(fault_valid), .irq_clear(irq_clear),

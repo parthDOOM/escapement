@@ -22,7 +22,7 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import FallingEdge, RisingEdge, Timer
 
-from escasm import AsmError, assemble, assemble_file, disassemble
+from escasm import AsmError, assemble, assemble_file, disassemble, paged
 from esciss import Machine
 from esciss.machine import no_board_b
 
@@ -41,7 +41,8 @@ async def reset_and_load(dut, image):
     for sig in ("start", "stop", "load_we", "load_space", "load_addr", "load_data", "uio_in",
                 "mbx_rx_push", "mbx_rx_data", "mbx_tx_pop", "dbg_sel_ctx", "dbg_sel", "irq_clear",
                 "ctx_enable", "entry_pcs", "pin_owned", "pin_owner", "pin_od", "ctx_bank", "ctx_pair",
-                "ctx_page", "ib_in", "pin_h", "hrd_req", "hrd_addr", "tape_ack", "tape_ack_v"):
+                "ctx_page", "ctx_span", "ib_in", "pin_h", "hrd_req", "hrd_addr", "tape_ack",
+                "tape_ack_v"):
         getattr(dut, sig).value = 0
     for _ in range(4):
         await FallingEdge(dut.clk)
@@ -64,6 +65,7 @@ async def reset_and_load(dut, image):
     dut.ctx_bank.value = image.ctx_bank_mask
     dut.ctx_pair.value = image.ctx_pair_mask
     dut.ctx_page.value = image.ctx_page_packed if len(image.words) == 1024 else 0   # v2 (S-A)
+    dut.ctx_span.value = getattr(image, "ctx_span_mask", 0)                          # 3.1
     for _ in range(4):  # uio_in = 0 so both synchroniser stages are 0 at start
         await FallingEdge(dut.clk)
 
@@ -227,7 +229,10 @@ async def run_rtl(dut, image, board, n_cycles, host=None, board_b=no_board_b, ta
         if int(u.ld_v.value) and int(u.ld_ctx.value) == ctx:
             final[(ctx, int(u.ld_rd.value))] = int(u.tape_rdata.value)
         final[(ctx, 4)], final[(ctx, 5)], final[(ctx, 6)] = regs["o_sh"], regs["o_lc"], regs["o_tmr"]
-        final[(ctx, 7)] = ((regs["o_lr"] << 16) | (regs["o_pc"] << 8) | (regs["o_state"] << 2)
+        # sel 7 as the core packs it (3.1: PC[8] in bit 24, lr[8] in bit 25)
+        lr, pc = regs["o_lr"], regs["o_pc"]
+        final[(ctx, 7)] = ((lr >> 8 << 25) | (pc >> 8 << 24) | ((lr & 0xFF) << 16)
+                           | ((pc & 0xFF) << 8) | (regs["o_state"] << 2)
                            | (regs["o_z"] << 1) | regs["o_c"])
         final[(ctx, 8)] = regs["o_ish"]
         for sel in range(9, 14):
@@ -1014,3 +1019,149 @@ async def test_v2_pages_random(dut):
                   f"{len(failures)} mismatching {failures}")
     assert used == {0, 1, 2, 3}, used
     assert not failures, f"mismatching seeds: {failures}"
+
+
+# ---------------------------------------------------------------------------- 3.1 span
+
+def span_case(seed: int):
+    """3.1 span: progen's program with one context k (partner off) spanning: every context
+    enters through a stub in page 0, the code itself starts near the end of page 0, so it
+    runs across 255 -> 256 and its branches go both ways; half the seeds also pair k. Other
+    contexts' code past 255 (and their targets with bit 8) must fault exactly as the ISS
+    says. The two pages go to a random page pair, the others hold random decoy words."""
+    rng = random.Random(seed * 2654435761 + 0x31)
+    src = gen_program(seed)
+    lines = src.splitlines()
+    ents = [ln for ln in lines if ln.startswith(".entry ")]
+    ctxs = [int(ln.split()[1].rstrip(",")) for ln in ents]
+    free = [k for k in ctxs if (k ^ 2) not in ctxs]
+    if not free:
+        return None
+    k = rng.choice(free)
+    stubs = [f".span {k}"] + ([f".pair {k}"] if rng.random() < 0.5 else [])
+    for c in ctxs:
+        stubs += [f".entry {c}, span_stub{c}"]
+    body = [ln for ln in lines if not ln.startswith(".entry ")]
+    stub_code = [f"span_stub{c}: JMP ctx{c}_start" for c in ctxs]
+    # mostly just below the boundary, so the spanning context crosses early in its run
+    base = (256 - rng.randrange(2, 40)) if rng.random() < 0.6 else rng.randrange(len(ctxs) + 1, 250)
+    try:
+        img = assemble("\n".join(stubs + body[:1] + stub_code + [f".org {base}"] + body[1:]) + "\n")
+    except AsmError:
+        return None
+    p = rng.randrange(3)
+    out = paged({p: img})
+    words = [rng.randrange(1 << 32) for _ in range(1024)]
+    for q in (p, p + 1):
+        words[256 * q:256 * (q + 1)] = out.words[256 * q:256 * (q + 1)]
+    out.words = words
+    return out, k
+
+
+@cocotb.test()
+async def test_v31_span_random(dut):
+    """3.1 span: random programs whose spanning context crosses between its own page and
+    its partner's, beside contexts that do not span, compared tick by tick with the ISS."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    seeds = int(os.environ.get("COSIM_SPAN_SEEDS", "60"))
+    failures, runs, commits, high = [], 0, 0, 0
+    for seed in range(1, 1 + 4 * seeds):
+        case = span_case(seed)
+        if case is None:
+            continue
+        image, k = case
+        errs, m = await cosim_one(dut, f"span{seed}", image, make_board(seed),
+                                  board_b=make_board_b(seed))
+        runs += 1
+        commits += len(m.commits)
+        high += sum(1 for c in m.commits if c["ctx"] == k and c["pc"] >= 256)
+        if errs:
+            failures.append(seed)
+            if len(failures) >= 5:
+                break
+        if runs >= seeds:
+            break
+    dut._log.info(f"span: {runs} programs, {commits} commits, {high} in a partner's page, "
+                  f"{len(failures)} mismatching {failures}")
+    assert runs >= seeds // 2 and high >= 10 * runs, (runs, high)
+    assert not failures, f"mismatching seeds: {failures}"
+
+
+SPAN_DIRECTED = {
+    # across both ways: JMP to page 1, back, CALL into page 1 from page 0, RET, and 255 -> 256
+    "cross": """
+.span {k}
+{pair}
+.entry {k}, s
+s:      MOVI r0, 1
+        JMP far
+back:   ADDI r0, 4
+        CALL sub_hi
+        ADDI r0, 16
+        JMP edge
+.org 250
+edge:   ADDI r0, 32
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        ADDI r0, 64
+        HALT
+.org 300
+far:    ADDI r0, 2
+        JMP back
+.org 310
+sub_hi: ADDI r0, 8
+        RET
+""",
+    # a CALL from page 1 to page 0 and back (lr bit 8)
+    "call_hi": """
+.span {k}
+{pair}
+.entry {k}, s
+s:   JMP hi
+sub: MOVI r1, 7
+     RET
+.org 400
+hi:  CALL sub
+     MOVI r2, 9
+     HALT
+""",
+    "range_511": ".span {k}\n{pair}\n.entry {k}, s\ns: JMP e\n.org 511\ne: NOP\n",
+    "call_511": ".span {k}\n{pair}\n.entry {k}, s\ns: JMP e\nf: HALT\n.org 511\ne: CALL f\n",
+    # a context sharing page 0 that does not span: a target of 300 is ILLEGAL for it
+    "other_illegal": """
+.span {k}
+{pair}
+.entry {k}, a
+.entry {o}, b
+a:  HALT
+b:  .word 0x1800012C
+.org 300
+    HALT
+""",
+}
+
+
+@cocotb.test()
+async def test_v31_span_directed(dut):
+    """3.1 span, the boundary cases on every context, unpaired and paired: crossing 255 ->
+    256 and branching both ways, lr bit 8, PC_RANGE at 511, ILLEGAL for bit 8 on a context
+    that does not span (whose fetches stay in its own page)."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    failures, n = [], 0
+    for name, src in SPAN_DIRECTED.items():
+        for k in range(4):
+            for pair in ("", f".pair {k}"):
+                o = (k + 1) % 4 if ((k + 1) % 4) != (k ^ 2) else (k + 3) % 4
+                image = assemble(src.format(k=k, pair=pair, o=o))
+                for p in (0, 2):
+                    im = paged({p: image}) if p else image
+                    errs, m = await cosim_one(dut, f"{name}-k{k}{'p' if pair else ''}-pg{p}",
+                                              im, loopback_board)
+                    n += 1
+                    if errs:
+                        failures.append(f"{name} k{k} {pair} page {p}")
+    dut._log.info(f"span directed: {n} runs, {len(failures)} mismatching")
+    assert not failures, failures

@@ -36,6 +36,7 @@ module tb_host (
     output wire [3:0] ctx_bank,
     output wire [3:0] ctx_pair,
     output wire [7:0] ctx_page,      // v2 (S-A)
+    output wire [3:0] ctx_span,      // 3.1
     output wire [1:0] mem_page,
     output wire [3:0] irq_clear,
     output wire [1:0] dbg_ctx,
@@ -70,7 +71,7 @@ module tb_host (
       .clk(clk), .rst_n(rst_n), .cs_n_pin(cs_n), .sck_pin(sck), .mosi_pin(mosi), .miso(miso),
       .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank),
-      .ctx_pair(ctx_pair), .ctx_page(ctx_page), .irq_clear(irq_clear), .ctx_stop(ctx_stop), .ctx_start(ctx_start),
+      .ctx_pair(ctx_pair), .ctx_page(ctx_page), .ctx_span(ctx_span), .irq_clear(irq_clear), .ctx_stop(ctx_stop), .ctx_start(ctx_start),
       .imem_wpend(imem_wpend), .imem_wgnt(imem_wgnt),
       .running(running), .ctx_state(ctx_state), .irq_pending(irq_pending), .fault_valid(fault_valid),
       .mem_we(mem_we), .mem_addr(mem_addr), .mem_page(mem_page), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata),

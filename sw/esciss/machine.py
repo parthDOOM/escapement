@@ -276,6 +276,7 @@ class Commit:
     c: int = 0
     lr: int = 0
     next_pc: int = 0
+    pc_mask: int = 0xFF                 # 0x1FF when the context spans (3.1, §3)
     sequential: bool = True             # next PC is PC+1 (for PC_RANGE, §7)
     halt: bool = False
     geti_clear: bool = False
@@ -342,6 +343,11 @@ class Machine:
         # Pair mode: context k also takes its partner's slot k^2 when that one is off
         pair = list(getattr(image, "ctx_pair", [0] * N_CTX)) + [0] * N_CTX
         self.pair_on = [bool(pair[k]) and not self.ctx_enable[k ^ 2] for k in range(N_CTX)]
+        # Span (3.1, §3): context k also fetches from its partner's page when that one is
+        # off; its PC and lr are then 9 bits (pc_mask 0x1FF), else 8 (0xFF)
+        span = list(getattr(image, "ctx_span", [0] * N_CTX)) + [0] * N_CTX
+        self.span_on = [bool(span[k]) and not self.ctx_enable[k ^ 2] for k in range(N_CTX)]
+        self.pc_mask = [0x1FF if self.span_on[k] else 0xFF for k in range(N_CTX)]
         # observation records (§10)
         self.commits: list[dict] = []
         self.pins: list[dict] = []
@@ -542,7 +548,8 @@ class Machine:
         if sel == 6:
             return x.tmr
         if sel == 7:
-            return (x.lr << 16) | (x.pc << 8) | (x.state << 2) | (x.z << 1) | x.c
+            return ((x.lr >> 8 << 25) | (x.pc >> 8 << 24) | ((x.lr & 0xFF) << 16)
+                    | ((x.pc & 0xFF) << 8) | (x.state << 2) | (x.z << 1) | x.c)
         if sel == 8:
             return x.ish
         if sel == 9:
@@ -559,7 +566,7 @@ class Machine:
         if sel == 14:
             f = self.ff
             return ((int(f.valid) << 31) | ((f.cause & 0xF) << 24) | ((f.subcode & 0xF) << 20)
-                    | ((f.ctx & 3) << 16) | (f.pc & 0xFF))
+                    | ((f.ctx & 3) << 16) | (f.pc & 0x1FF))
         return self.ff.tick  # sel 15
 
     # ------------------------------------------------------------------ §5 pins
@@ -671,6 +678,7 @@ class Machine:
         x = self.ctx[k]
         if x.state != RUNNING:
             return
+        m = self.pc_mask[k]
         pc = x.pc
         prev = [fl for fl in x.inflight if fl.commit_tick == t + 1]
         if prev and prev[0].pc == x.pc:
@@ -682,14 +690,21 @@ class Machine:
             if (name in ("JMP", "CALL") or (name == "JZ" and x.z) or (name == "JNZ" and not x.z)
                     or (name == "JC" and x.c) or (name == "JNC" and not x.c)
                     or (name == "DJNZ" and x.lc != 1)):
-                pc = word & 0xFF
+                pc = word & m
             elif name == "RET":
                 pc = x.lr
             elif name == "HALT":
                 pc = x.pc
             else:
-                pc = (x.pc + 1) & 0xFF
-        x.inflight.append(InFlight(pc, self.imem[256 * self.ctx_page[k] + pc], t + 3))
+                pc = (x.pc + 1) & m
+        x.inflight.append(InFlight(pc, self.imem[self.imem_index(k, pc)], t + 3))
+
+    def imem_index(self, k: int, a: int) -> int:
+        """§3 (3.1): {a[8] ? ctx_page[k ^ 2] : ctx_page[k], a[7:0]}; a context that does not
+        span fetches a mod 256 from its own page."""
+        a &= self.pc_mask[k]
+        page = self.ctx_page[k ^ 2] if a >> 8 else self.ctx_page[k]
+        return 256 * page + (a & 0xFF)
 
     # ------------------------------------------------------------------ edge E_t
 
@@ -1016,17 +1031,21 @@ class Machine:
         # Working copies of the state during cycle c; modified by the semantics below.
         cm.r = list(x.r)
         cm.sh, cm.lc, cm.tmr, cm.z, cm.c, cm.lr = x.sh, x.lc, x.tmr, x.z, x.c, x.lr
-        cm.next_pc = (fl.pc + 1) & 0xFF
+        cm.pc_mask = m = self.pc_mask[k]
+        cm.next_pc = (fl.pc + 1) & m
         dec = decode(fl.insn)
         try:
             if dec is None:
+                self._fail(cm, "ILLEGAL")
+            # §7 (3.1): format B's target bit 8 is reserved unless the context spans
+            if ISA.by_name[dec.name].format == "B" and dec.f["target"] > m:
                 self._fail(cm, "ILLEGAL")
             # Q = FIFO after the retirement at E_c (§6.2, §7.2 HALT)
             q = x.fifo[1:] if plan.retire is not None else list(x.fifo)
             chk_active_after = plan.chk.active_after if plan.chk is not None else x.chk.active
             _SEM[dec.name](self, x, k, cm, dec.f, c, sync, q, chk_active_after)
-            # §7 PC_RANGE
-            if fl.pc == 255 and (cm.sequential or dec.name == "CALL"):
+            # §7 PC_RANGE, at the context's last address (255, or 511 when it spans)
+            if fl.pc == m and (cm.sequential or dec.name == "CALL"):
                 self._fail(cm, "PC_RANGE")
         except _Done:
             pass
@@ -1052,8 +1071,8 @@ class Machine:
             return
         x.r = [v & M32 for v in cm.r]
         x.sh, x.lc, x.tmr = cm.sh & M32, cm.lc & 0xFFFF, cm.tmr & M32
-        x.z, x.c, x.lr = cm.z, cm.c, cm.lr & 0xFF
-        x.pc = cm.next_pc & 0xFF
+        x.z, x.c, x.lr = cm.z, cm.c, cm.lr & cm.pc_mask
+        x.pc = cm.next_pc & cm.pc_mask
         if cm.halt:
             x.state = HALTED                           # §7.2 HALT, PC unchanged
         if cm.append is not None:                      # §6.2 append at E_c
@@ -1212,7 +1231,7 @@ def _write(cm: Commit, rd: int, v: int) -> None:
 
 
 def _jump(cm: Commit, target: int) -> None:
-    cm.next_pc = target & 0xFF
+    cm.next_pc = target & cm.pc_mask
     cm.sequential = False
 
 
@@ -1353,7 +1372,7 @@ def _DJNZ(m, x, k, cm, f, c, sync, q, ca):
 
 
 def _CALL(m, x, k, cm, f, c, sync, q, ca):
-    cm.lr = (cm.pc + 1) & 0xFF                        # PC_RANGE at 255 is checked by caller
+    cm.lr = (cm.pc + 1) & cm.pc_mask                  # PC_RANGE at the last address: caller
     _jump(cm, f["target"])
 
 

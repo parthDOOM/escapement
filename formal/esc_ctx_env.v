@@ -30,7 +30,8 @@ module esc_ctx_env (
     input wire [1:0]  w_rd_idx,
     input wire [31:0] w_rd_data, w_sh, w_tmr, w_lee, w_tx_data,
     input wire [15:0] w_lc, w_lead16,
-    input wire [7:0]  w_pc, w_lr, w_irq_code,
+    input wire [8:0]  w_pc, w_lr,       // 9 bits (3.1)
+    input wire [7:0]  w_irq_code,
     input wire [57:0] w_entry,
     input wire        h_rx_push, h_tx_pop, h_irq_clear,
     input wire [31:0] h_rx_data,

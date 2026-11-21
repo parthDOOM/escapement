@@ -17,6 +17,11 @@ Syntax (one statement per line; `;` or `#` starts a comment):
                                 context's .own lines
     .pair ctx                   context `ctx` also takes the slot of context ctx ^ 2, which
                                 must not be enabled
+    .span ctx                   (3.1) context `ctx` has 512 words: addresses 0..255 in its
+                                own page and 256..511 in the page of context ctx ^ 2, which
+                                must not be enabled. One per source; the image is then
+                                paged (1,024 words): page 0 holds words 0..255 for every
+                                context of the source, page 1 words 256..511
 
 Operands: registers r0..r3; integers (123, 0x7B, 0b1111011); labels and .equ names;
 `LSB`/`MSB` for dir; `HOLD`/`ARRIVE` for mode; `+ - * << >> | & ~ ( )` expressions.
@@ -93,6 +98,9 @@ class Image:
     # Program pages: the 256-word page of the 1,024-word program store each
     # context fetches from. An image of 256 words is page 0 alone (every context on it).
     ctx_page: list[int] = field(default_factory=lambda: [0] * 4)
+    # Span (3.1): contexts that also fetch from their partner's page (ctx_page[k ^ 2]),
+    # with a 9-bit PC, so their program has 512 words
+    ctx_span: list[bool] = field(default_factory=lambda: [False] * 4)
 
     def __post_init__(self) -> None:
         # images from tools without bank B describe 8 pins; bank B pins are then unowned
@@ -129,6 +137,11 @@ class Image:
         return sum(1 << k for k, p in enumerate(self.ctx_pair) if p)
 
     @property
+    def ctx_span_mask(self) -> int:
+        """WRITE_CFG byte 15 (3.1): bit k set if context k spans."""
+        return sum(1 << k for k, p in enumerate(self.ctx_span) if p)
+
+    @property
     def ctx_page_packed(self) -> int:
         """WRITE_CFG byte 14: bits 2k+1:2k are context k's page."""
         return sum((p & 3) << (2 * k) for k, p in enumerate(self.ctx_page))
@@ -143,6 +156,7 @@ class Image:
             "entry_pcs": self.entry_pcs, "ctx_enable": self.ctx_enable,
             "pin_owned": self.pin_owned, "pin_owner": self.pin_owner, "pin_od": self.pin_od,
             "ctx_bank": self.ctx_bank, "ctx_pair": self.ctx_pair, "ctx_page": self.ctx_page,
+            **({"ctx_span": self.ctx_span} if any(self.ctx_span) else {}),
             "symbols": self.symbols, "used_words": self.used_words,
             "tape": {f"{a}": f"{self.tape[a]:08x}" for a in self.tape_used},
         }, indent=1)
@@ -157,41 +171,73 @@ class Image:
                    d["pin_owned"], d["pin_owner"], d["pin_od"], d.get("symbols", {}),
                    [], d.get("used_words", 0), tape, sorted(int(a) for a in d.get("tape", {})),
                    d.get("ctx_bank", [False] * 4), d.get("ctx_pair", [False] * 4),
-                   d.get("ctx_page", [0] * 4))
+                   d.get("ctx_page", [0] * 4), d.get("ctx_span", [False] * 4))
 
 
 PAGE_WORDS, PAGES = 256, 4
 
 
+def spans(image: Image, ctx: int) -> bool:
+    """Context ctx spans (3.1, §3): ctx_span set and its partner ctx ^ 2 not enabled."""
+    return bool(image.ctx_span[ctx]) and not image.ctx_enable[ctx ^ 2]
+
+
 def page_view(image: Image, ctx: int) -> Image:
-    """The 256-word program context ctx fetches (its page), with the image's configuration:
-    what a context sees, so escert and the reload checks analyse it unchanged. A 256-word
-    image is its own view."""
-    if len(image.words) == PAGE_WORDS:
+    """The program context ctx fetches, by address, with the image's configuration: what a
+    context sees, so escert and the reload checks analyse it unchanged. That is its page
+    (256 words; a 256-word image is its own view), or for a spanning context (3.1) 512
+    words: its own page, then its partner's. A view (256 or 512 words) is its own view."""
+    if len(image.words) in (PAGE_WORDS, 2 * PAGE_WORDS):
         return image
-    p = image.ctx_page[ctx]
     v = copy.copy(image)
+    p = image.ctx_page[ctx]
     v.words = list(image.words[PAGE_WORDS * p:PAGE_WORDS * (p + 1)])
+    if spans(image, ctx):
+        q = image.ctx_page[ctx ^ 2]
+        v.words += image.words[PAGE_WORDS * q:PAGE_WORDS * (q + 1)]
     v.ctx_page = [0] * PAGES
     return v
 
 
+def _span_ctx(img: Image) -> int | None:
+    """The spanning context of an assembled spanning image (3.1), else None."""
+    ks = [k for k in range(4) if img.ctx_span[k]]
+    return ks[0] if ks else None
+
+
 def paged(pages: dict[int, Image]) -> Image:
-    """One 1,024-word image from up to four 256-word images, image `pages[p]` in page p.
+    """One 1,024-word image from up to four images, image `pages[p]` in page p.
     Every context an image enables fetches from that image's page (a combined image's
-    contexts share it). Refused: a context enabled by two images, a pin owned by two, a tape
-    word set differently by two, a page out of range."""
+    contexts share it). An image is 256 words, or a spanning image (3.1, `.span k`), which
+    takes two pages: its words 0..255 go to page p and its words 256..511 to page p + 1,
+    which becomes the page of its spanning context's partner k ^ 2. Refused: a context
+    enabled by two images, a page taken by two, the partner of a spanning context enabled,
+    a pin owned by two, a tape word set differently by two, a page out of range."""
     words = [0] * (PAGE_WORDS * PAGES)
     entry, enable, page = [0] * 4, [False] * 4, [0] * 4
     owned, owner, od = [False] * 13, [0] * 13, [False] * 8
     bank, pair, tape, tape_used = [False] * 4, [False] * 4, [0] * 256, set()
+    span, taken, span_partner = [False] * 4, {}, {}
     used = 0
     for p, img in sorted(pages.items()):
-        if not 0 <= p < PAGES:
-            raise ValueError(f"page {p} out of range 0..{PAGES - 1}")
-        if len(img.words) != PAGE_WORDS:
+        sk = _span_ctx(img)
+        own = [p] if sk is None else [p, p + 1]
+        for q in own:
+            if not 0 <= q < PAGES:
+                raise ValueError(f"page {q} out of range 0..{PAGES - 1}"
+                                 + (" (a spanning image takes pages p and p + 1)" if q != p else ""))
+            if q in taken:
+                raise ValueError(f"page {q} is taken by two images (pages {taken[q]} and {p})")
+            taken[q] = p
+        if sk is None and len(img.words) != PAGE_WORDS:
             raise ValueError(f"page {p}: an image of {len(img.words)} words (256 expected)")
-        words[PAGE_WORDS * p:PAGE_WORDS * (p + 1)] = [w & 0xFFFFFFFF for w in img.words]
+        words[PAGE_WORDS * p:PAGE_WORDS * (p + 1)] = [w & 0xFFFFFFFF for w in img.words[:PAGE_WORDS]]
+        if sk is not None:
+            if len(img.words) != PAGE_WORDS * PAGES:
+                raise ValueError(f"page {p}: a spanning image of {len(img.words)} words")
+            words[PAGE_WORDS * (p + 1):PAGE_WORDS * (p + 2)] = [
+                w & 0xFFFFFFFF for w in img.words[PAGE_WORDS:2 * PAGE_WORDS]]
+            span[sk], span_partner[sk ^ 2] = True, (sk, p + 1)
         used += img.used_words
         for k in range(4):
             if not img.ctx_enable[k]:
@@ -212,8 +258,13 @@ def paged(pages: dict[int, Image]) -> Image:
                 raise ValueError(f"tape word {a} is set differently by two images")
             tape[a] = img.tape[a]
             tape_used.add(a)
+    for j, (sk, q) in span_partner.items():
+        if enable[j]:
+            raise ValueError(f"context {j} is enabled, but it is the partner of spanning "
+                             f"context {sk}, which uses its page")
+        page[j] = q
     return Image(words, entry, enable, owned, owner, od, {}, [], used, tape,
-                 sorted(tape_used), bank, pair, page)
+                 sorted(tape_used), bank, pair, page, span)
 
 
 _ALLOWED_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant, ast.Name,
@@ -334,8 +385,11 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
         return view
 
     symbols: dict[str, int] = {}
+    span_ctx: int | None = None         # .span (3.1), from the first pass
     for final in (False, True):
         pc = 0
+        over: str | None = None         # where the program first went past word 255
+        span_seen: int | None = None
         words: dict[int, int] = {}
         entry = [0] * isa.contexts
         enable = [False] * isa.contexts
@@ -420,6 +474,9 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
                     raise AsmError(f"{where}: context {ctx} out of range")
                 if final and enable[ctx]:
                     raise AsmError(f"{where}: context {ctx} already has an entry point")
+                if final and not 0 <= target < isa.imem_words:
+                    raise AsmError(f"{where}: entry {target} is past word 255 (entry PCs "
+                                   f"are 8 bits: a spanning context starts in its own page)")
                 entry[ctx], enable[ctx] = target, True
             elif directive == ".own":
                 if len(ops) != 2:
@@ -454,6 +511,14 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
                 if len(ops) != 1 or not 0 <= ctx < isa.contexts:
                     raise AsmError(f"{where}: .pair ctx (0..3)")
                 pair[ctx] = True
+            elif directive == ".span":
+                ctx = ev(ops[0])
+                if len(ops) != 1 or not 0 <= ctx < isa.contexts:
+                    raise AsmError(f"{where}: .span ctx (0..3)")
+                if span_seen is not None:
+                    raise AsmError(f"{where}: a second .span (one spanning context per "
+                                   f"source; combine images with escasm.paged)")
+                span_seen = ctx
             elif directive.startswith("."):
                 raise AsmError(f"{where}: unknown directive '{head}'")
             else:
@@ -461,14 +526,24 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
                 if opc is None:
                     raise AsmError(f"{where}: unknown mnemonic '{head}'")
                 word = _encode(opc, ops, sc, where, final)
+                if final and opc.format == "B" and (word & 0x1FF) >= PAGE_WORDS and span_ctx is None:
+                    raise AsmError(f"{where}: target {word & 0x1FF} is past word 255 "
+                                   f"(only a spanning context, .span, has 512 words)")
                 if final:
                     if pc in words:
                         raise AsmError(f"{where}: address {pc} written twice")
                     words[pc] = word
                     listing.append(f"{pc:3d}  {word:08x}  {raw.strip()}")
                 pc += 1
-            if pc > isa.imem_words:
-                raise AsmError(f"{where}: program exceeds {isa.imem_words} words")
+            if pc > 2 * isa.imem_words:
+                raise AsmError(f"{where}: program exceeds {2 * isa.imem_words} words")
+            if pc > isa.imem_words and over is None:
+                over = where
+        if (span_seen if not final else span_ctx) is None and over is not None:
+            raise AsmError(f"{over}: program exceeds {isa.imem_words} words "
+                           f"(.span gives a context 512)")
+        if not final:
+            span_ctx = span_seen
     for p in range(13):                 # a context only ever uses pins of its own bank
         if owned[p] and bank[owner[p]] != (p >= 8):
             name = f"B{p - 8}" if p >= 8 else str(p)
@@ -477,10 +552,17 @@ def assemble(source: str, isa: ISA | None = None, base_dir: str | Path | None = 
     for k in range(isa.contexts):       # a pair takes a slot that no enabled context uses
         if pair[k] and enable[k ^ 2]:
             raise AsmError(f".pair {k}: context {k ^ 2} is enabled (its slot is not free)")
-    image_words = [words.get(a, 0) for a in range(isa.imem_words)]
+    if span_ctx is not None and enable[span_ctx ^ 2]:
+        raise AsmError(f".span {span_ctx}: context {span_ctx ^ 2} is enabled (its page is not free)")
+    span = [k == span_ctx for k in range(isa.contexts)]
+    page = [0] * isa.contexts
+    n_words = isa.imem_words
+    if span_ctx is not None:            # paged: page 0 words 0..255, page 1 words 256..511
+        n_words, page[span_ctx ^ 2] = PAGE_WORDS * PAGES, 1
+    image_words = [words.get(a, 0) for a in range(n_words)]
     return Image(image_words, entry, enable, owned, owner, od,
                  {k: v for k, v in symbols.items()}, listing, len(words),
-                 [tape.get(a, 0) for a in range(256)], sorted(tape), bank, pair)
+                 [tape.get(a, 0) for a in range(256)], sorted(tape), bank, pair, page, span)
 
 
 def assemble_file(path: str | Path, isa: ISA | None = None) -> Image:

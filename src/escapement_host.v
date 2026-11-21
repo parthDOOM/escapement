@@ -16,10 +16,10 @@
  * leaves the tape port free (tape_req until tape_gnt) and latched here; a word not fetched
  * by the time it is sent sets host error. TAPE_ACK sets the capture unit's rptr (streaming
  * capture). IMEM_PAGE selects the program-store page that WRITE_IMEM and READ_IMEM
- * address (mem_page), and WRITE_CFG byte 14 sets each context's page (ctx_page). VERSION
- * reads 10. With PAGES = 1 both are absent (0x24 is an unknown command, byte 14 is
- * ignored, ctx_page and mem_page stay 0) and VERSION reads 9: the same interface without
- * pages.
+ * address (mem_page), and WRITE_CFG byte 14 sets each context's page (ctx_page) and
+ * byte 15 (3.1) the contexts that span (ctx_span). VERSION reads 11. With PAGES = 1 all
+ * three are absent (0x24 is an unknown command, bytes 14 and 15 are ignored, ctx_page,
+ * ctx_span and mem_page stay 0) and VERSION reads 9: the same interface without pages.
  */
 `default_nettype none
 module escapement_host #(
@@ -43,6 +43,7 @@ module escapement_host #(
     output reg  [3:0]   ctx_bank,
     output reg  [3:0]   ctx_pair,      // pair mode: WRITE_CFG byte 10 bits 7:4
     output reg  [7:0]   ctx_page,      // WRITE_CFG byte 14
+    output reg  [3:0]   ctx_span,      // WRITE_CFG byte 15 (3.1)
     output reg  [3:0]   irq_clear,
     output reg  [3:0]   ctx_stop,      // CTX_STOP strobe, a context mask
     output reg  [3:0]   ctx_start,     // CTX_START strobe, a context mask
@@ -84,7 +85,7 @@ module escapement_host #(
                    C_IMEM_PAGE = 8'h24,
                    C_READ_DBG = 8'h30, C_MBX_PUSH = 8'h40, C_MBX_POP = 8'h41,
                    C_IRQ_CLEAR = 8'h50, C_CLEAR_ERR = 8'h51, C_IGNORE = 8'hFF;
-  localparam [3:0] VERSION = (PAGES > 1) ? 4'hA   // with program pages
+  localparam [3:0] VERSION = (PAGES > 1) ? 4'hB   // with program pages and span (3.1)
                                          : 4'h9;  // without
 
   // ---------------------------------------------------------------- synchronisers
@@ -129,7 +130,7 @@ module escapement_host #(
   reg [31:0] tdata;
   wire [31:0] rdat = (cmd == C_READ_TAPE) ? tdata : mem_rdata;
   wire       stale = (cmd == C_READ_TAPE) & (tape_req | gnt_d);   // not fetched yet
-  reg [3:0]  idx;        // byte index within the frame, saturating at 15
+  reg [4:0]  idx;        // byte index within the frame, saturating at 31 (3.1: byte 15 is used)
   reg [1:0]  wcnt;       // byte position within a 32-bit word
   reg [31:0] word;       // assembled MOSI word, or MISO word being sent
   reg [1:0]  mctx;       // mailbox context
@@ -140,17 +141,17 @@ module escapement_host #(
   reg [7:0] next_tx;
   always @(*) begin
     next_tx = 8'h00;
-    if (idx == 4'd0) begin
+    if (idx == 5'd0) begin
       if (rx_byte == C_STATUS) next_tx = ctx_state;
     end else begin
       case (cmd)
         C_STATUS: begin
-          if (idx == 4'd1) next_tx = {mbx_rx_full, mbx_tx_empty};
-          else if (idx == 4'd2) next_tx = {4'b0, irq_pending};
+          if (idx == 5'd1) next_tx = {mbx_rx_full, mbx_tx_empty};
+          else if (idx == 5'd2) next_tx = {4'b0, irq_pending};
         end
         C_READ_IMEM, C_READ_TAPE, C_READ_DBG: begin
-          if (idx == 4'd2) next_tx = (cmd != C_READ_DBG) ? rdat[31:24] : dbg_rdata[31:24];
-          else if (idx > 4'd2) begin
+          if (idx == 5'd2) next_tx = (cmd != C_READ_DBG) ? rdat[31:24] : dbg_rdata[31:24];
+          else if (idx > 5'd2) begin
             case (wcnt)
               2'd0: next_tx = word[23:16];
               2'd1: next_tx = word[15:8];
@@ -160,11 +161,11 @@ module escapement_host #(
           end
         end
         C_MBX_POP: begin
-          if (idx == 4'd1) next_tx = {7'b0, ~mbx_tx_empty[rx_byte[1:0]]};
-          else if (idx == 4'd2) next_tx = word[31:24];
-          else if (idx == 4'd3) next_tx = word[23:16];
-          else if (idx == 4'd4) next_tx = word[15:8];
-          else if (idx == 4'd5) next_tx = word[7:0];
+          if (idx == 5'd1) next_tx = {7'b0, ~mbx_tx_empty[rx_byte[1:0]]};
+          else if (idx == 5'd2) next_tx = word[31:24];
+          else if (idx == 5'd3) next_tx = word[23:16];
+          else if (idx == 5'd4) next_tx = word[15:8];
+          else if (idx == 5'd5) next_tx = word[7:0];
         end
         default: next_tx = 8'h00;
       endcase
@@ -182,11 +183,11 @@ module escapement_host #(
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       bitcnt <= 3'd0; rx_shift <= 7'd0; tx_shift <= 8'h00;
-      cmd <= C_IGNORE; idx <= 4'd0; wcnt <= 2'd0; word <= 32'd0; mctx <= 2'd0;
+      cmd <= C_IGNORE; idx <= 5'd0; wcnt <= 2'd0; word <= 32'd0; mctx <= 2'd0;
       host_err <= 1'b0;
       start <= 1'b0; stop <= 1'b0; irq_clear <= 4'd0;
       ctx_enable <= 4'd0; entry_pcs <= 32'd0; pin_owned <= 13'd0; pin_owner <= 26'd0;
-      pin_od <= 8'd0; ctx_bank <= 4'd0; ctx_pair <= 4'd0; ctx_page <= 8'd0; mem_page <= 2'd0;
+      pin_od <= 8'd0; ctx_bank <= 4'd0; ctx_pair <= 4'd0; ctx_page <= 8'd0; ctx_span <= 4'd0; mem_page <= 2'd0;
       ctx_stop <= 4'd0; ctx_start <= 4'd0; imem_wpend <= 1'b0;
       mem_we <= 1'b0; mem_addr <= 8'd0; mem_wdata <= 32'd0; mem_space <= 1'b0;
       dbg_ctx <= 2'd0; dbg_sel <= 5'd0;
@@ -208,7 +209,7 @@ module escapement_host #(
 
       if (!selected) begin
         bitcnt   <= 3'd0;
-        idx      <= 4'd0;
+        idx      <= 5'd0;
         wcnt     <= 2'd0;
         cmd      <= C_IGNORE;
         tape_req <= 1'b0;
@@ -218,8 +219,8 @@ module escapement_host #(
         rx_shift <= rx_byte[6:0];
         tx_shift <= byte_done ? next_tx : {tx_shift[6:0], 1'b0};
         if (byte_done) begin
-          if (idx != 4'd15) idx <= idx + 4'd1;
-          if (idx == 4'd0) begin
+          if (idx != 5'd31) idx <= idx + 5'd1;
+          if (idx == 5'd0) begin
             // ------------------------------------------------ command byte
             cmd  <= rx_byte;
             wcnt <= 2'd0;
@@ -241,7 +242,7 @@ module escapement_host #(
             // ------------------------------------------------ payload bytes
             case (cmd)
               C_WRITE_IMEM, C_WRITE_TAPE: begin
-                if (idx == 4'd1) begin
+                if (idx == 5'd1) begin
                   if (wslot) mem_addr <= rx_byte; else host_err <= 1'b1;   // v1.7: a word waits
                 end else begin
                   word <= {word[23:0], rx_byte};
@@ -258,11 +259,11 @@ module escapement_host #(
                 end
               end
               C_READ_IMEM, C_READ_TAPE: begin
-                if (idx == 4'd1) begin
+                if (idx == 5'd1) begin
                   if (wslot) mem_addr <= rx_byte;               // read starts now
                   else host_err <= 1'b1;
                   if (cmd == C_READ_TAPE) tape_req <= 1'b1;
-                end else if (idx == 4'd2) begin
+                end else if (idx == 5'd2) begin
                   word     <= rdat;                             // first word
                   if (wslot) mem_addr <= mem_addr + 8'd1;       // prefetch next
                   else host_err <= 1'b1;
@@ -279,69 +280,71 @@ module escapement_host #(
                   end
                 end
               end
-              C_TAPE_ACK: if (idx == 4'd1) begin
+              C_TAPE_ACK: if (idx == 5'd1) begin
                 tape_ack   <= 1'b1;
                 tape_ack_v <= rx_byte;
               end
               C_WRITE_CFG: if (!running) begin
                 case (idx)
-                  4'd1: ctx_enable       <= rx_byte[3:0];
-                  4'd2: entry_pcs[7:0]   <= rx_byte;
-                  4'd3: entry_pcs[15:8]  <= rx_byte;
-                  4'd4: entry_pcs[23:16] <= rx_byte;
-                  4'd5: entry_pcs[31:24] <= rx_byte;
-                  4'd6: pin_owned[7:0]   <= rx_byte;
-                  4'd7: pin_owner[15:8]  <= rx_byte;
-                  4'd8: pin_owner[7:0]   <= rx_byte;
-                  4'd9: pin_od           <= rx_byte;
+                  5'd1: ctx_enable       <= rx_byte[3:0];
+                  5'd2: entry_pcs[7:0]   <= rx_byte;
+                  5'd3: entry_pcs[15:8]  <= rx_byte;
+                  5'd4: entry_pcs[23:16] <= rx_byte;
+                  5'd5: entry_pcs[31:24] <= rx_byte;
+                  5'd6: pin_owned[7:0]   <= rx_byte;
+                  5'd7: pin_owner[15:8]  <= rx_byte;
+                  5'd8: pin_owner[7:0]   <= rx_byte;
+                  5'd9: pin_od           <= rx_byte;
                   // bank B and pair mode; a 9-byte WRITE_CFG leaves these unchanged
-                  4'd10: begin ctx_bank <= rx_byte[3:0]; ctx_pair <= rx_byte[7:4]; end
-                  4'd11: pin_owned[12:8]   <= rx_byte[4:0];
-                  4'd12: pin_owner[25:24]  <= rx_byte[1:0];
-                  4'd13: pin_owner[23:16]  <= rx_byte;
+                  5'd10: begin ctx_bank <= rx_byte[3:0]; ctx_pair <= rx_byte[7:4]; end
+                  5'd11: pin_owned[12:8]   <= rx_byte[4:0];
+                  5'd12: pin_owner[25:24]  <= rx_byte[1:0];
+                  5'd13: pin_owner[23:16]  <= rx_byte;
                   // program pages; a 9- or 13-byte WRITE_CFG leaves it unchanged
-                  4'd14: if (PAGES > 1) ctx_page <= rx_byte;
+                  5'd14: if (PAGES > 1) ctx_page <= rx_byte;
+                  // span (3.1); a shorter WRITE_CFG leaves it unchanged
+                  5'd15: if (PAGES > 1) ctx_span <= rx_byte[3:0];
                   default: ;
                 endcase
               end
               C_READ_DBG: begin
-                if (idx == 4'd1) begin
+                if (idx == 5'd1) begin
                   dbg_ctx <= rx_byte[5:4];
                   dbg_sel <= {rx_byte[6], rx_byte[3:0]};
-                end else if (idx == 4'd2) begin
+                end else if (idx == 5'd2) begin
                   word <= dbg_rdata;
                   wcnt <= 2'd0;
                 end else if (wcnt != 2'd3) wcnt <= wcnt + 2'd1;
               end
               C_MBX_PUSH: begin
-                if (idx == 4'd1) mctx <= rx_byte[1:0];
-                else if (idx <= 4'd5) begin
+                if (idx == 5'd1) mctx <= rx_byte[1:0];
+                else if (idx <= 5'd5) begin
                   word <= {word[23:0], rx_byte};
-                  if (idx == 4'd5) begin
+                  if (idx == 5'd5) begin
                     if (mbx_rx_full[mctx]) host_err <= 1'b1;
                     else mbx_rx_push[mctx] <= 1'b1;
                   end
                 end
               end
               C_MBX_POP: begin
-                if (idx == 4'd1) begin
+                if (idx == 5'd1) begin
                   mctx <= rx_byte[1:0];
                   word <= mbx_tx_data[32*rx_byte[1:0] +: 32];
                   if (!mbx_tx_empty[rx_byte[1:0]]) mbx_tx_pop[rx_byte[1:0]] <= 1'b1;
                 end
               end
-              C_IRQ_CLEAR: if (idx == 4'd1) irq_clear <= rx_byte[3:0];
+              C_IRQ_CLEAR: if (idx == 5'd1) irq_clear <= rx_byte[3:0];
               // running or stopped; refused while a live word waits (its page is
               // part of its address, as for a new address byte)
-              C_IMEM_PAGE: if (idx == 4'd1) begin
+              C_IMEM_PAGE: if (idx == 5'd1) begin
                 if (wslot) mem_page <= rx_byte[1:0]; else host_err <= 1'b1;
               end
               // Live reload: stop / restart contexts during a run. CTX_START refuses (host error,
               // nothing started) a context that is not enabled or is RUNNING.
-              C_CTX_STOP: if (idx == 4'd1) begin
+              C_CTX_STOP: if (idx == 5'd1) begin
                 if (running) ctx_stop <= rx_byte[3:0]; else host_err <= 1'b1;
               end
-              C_CTX_START: if (idx == 4'd1) begin
+              C_CTX_START: if (idx == 5'd1) begin
                 if (running && (rx_byte[3:0] & (~ctx_enable | ctx_run)) == 4'd0)
                   ctx_start <= rx_byte[3:0];
                 else host_err <= 1'b1;

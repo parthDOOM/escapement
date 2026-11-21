@@ -64,7 +64,7 @@ async def test_status_and_identity(dut):
     dut.mbx_rx_full.value = 0b0011
     dut.mbx_tx_empty.value = 0b1010
     s = await host.status()
-    assert s["version"] == 10 and not s["host_err"] and not s["running"]
+    assert s["version"] == 11 and not s["host_err"] and not s["running"]
     assert s["irq"] and s["ctx_state"] == 0b10011100
     assert s["rx_full"] == 0b0011 and s["tx_empty"] == 0b1010 and s["irq_pending"] == 0b0101
     dut.running.value = 1
@@ -321,7 +321,7 @@ async def test_unknown_command_and_aborted_frame(dut):
     await spi.xfer(bytes((0x10, 9, 0xDE, 0xAD, 0xBE, 0xEF)), abort_after_bits=8 * 4 + 3)
     assert await host.read_imem(9, 1) == [0x0BADF00D]
     s = await host.status()
-    assert s["version"] == 10 and not s["host_err"] and pulses.start == 0
+    assert s["version"] == 11 and not s["host_err"] and pulses.start == 0
 
 
 @cocotb.test()
@@ -513,6 +513,26 @@ async def test_cfg_page_byte(dut):
     dut.running.value = 1
     await host.write_cfg(0b0001, 0, 0, 0, 0, 0, 0, 0xFF)
     assert int(dut.ctx_page.value) == 0b00011011 and (await host.status())["host_err"]
+
+
+@cocotb.test()
+async def test_cfg_span_byte(dut):
+    """3.1: WRITE_CFG byte 15 sets the contexts that span (bits 3:0); a 14-byte or shorter
+    frame leaves it (0 after reset); bytes after the 15th are ignored; it is ignored during a
+    run, like the rest of WRITE_CFG."""
+    host, spi, _ = await setup(dut)
+    assert int(dut.ctx_span.value) == 0
+    await host.write_cfg(0b0011, 0, 0, 0, 0, 0, 0, 0b01_00_01_00, 0b0011)
+    assert int(dut.ctx_span.value) == 0b0011 and int(dut.ctx_page.value) == 0b01000100
+    await host.write_cfg(0b0001, 0, 0, 0, 0, 0, 0, 0b00_01_00_00)          # 15 bytes
+    assert int(dut.ctx_span.value) == 0b0011 and int(dut.ctx_page.value) == 0b00010000
+    await spi.xfer(bytes((0x12, 0b0001, 1, 2, 3, 4, 0x0F, 0x12, 0x34, 0x00)))   # 9 bytes
+    assert int(dut.ctx_span.value) == 0b0011
+    await spi.xfer(bytes((0x12,)) + bytes(13) + bytes((0x00, 0xF4)) + bytes((0x0F,) * 20))
+    assert int(dut.ctx_span.value) == 0b0100                               # only bits 3:0, once
+    dut.running.value = 1
+    await host.write_cfg(0b0001, 0, 0, 0, 0, 0, 0, 0, 0b1111)
+    assert int(dut.ctx_span.value) == 0b0100 and (await host.status())["host_err"]
 
 
 @cocotb.test()

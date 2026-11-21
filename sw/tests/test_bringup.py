@@ -153,6 +153,7 @@ FAULTS = [
     ("v1.1 chip", {"version": 6}, {}, 2, "protocol version 6"),
     ("v1.6 chip", {"version": 8}, {}, 2, "protocol version 8"),
     ("v1.7 chip, no pages", {"version": 9}, {}, 2, "protocol version 9: an Escapement v1.7"),
+    ("v3.0 chip, no span", {"version": 10}, {}, 2, "protocol version 10: an Escapement v2 or v3.0"),
     ("bit-bang too fast", {}, {"op_ns": 100}, 2, "one pin write takes 100 ns"),
     ("program SRAM address bit 3 stuck", {"mem_faults": {0: {"addr_stuck": (3, 0)}}}, {}, 3,
      "program SRAM page 0, address in data pattern: 128 of 256 words wrong; address bit(s) "

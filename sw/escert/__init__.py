@@ -375,12 +375,18 @@ class SendSite:
 # --------------------------------------------------------------------------- analysis
 
 
-def _decode(word: int):
+def _decode(word: int, last: int = 255):
+    """(name, fields), or (None, {}) for a word that faults ILLEGAL in a context whose last
+    address is `last` (255, or 511 when it spans): sec. 7, a format B target's bit 8 is
+    reserved unless the context spans (3.1). The default is the 256-word context, so a
+    caller that does not pass its view's size only ever loses precision."""
     opc = ISA.by_op.get((word >> 24) & 0xFF)
     if opc is None or word & ISA.reserved_mask(opc):
         return None, {}
-    return opc.name, {n: (word >> lsb) & ((1 << (msb - lsb + 1)) - 1)
-                      for n, (msb, lsb) in opc.fields.items()}
+    f = {n: (word >> lsb) & ((1 << (msb - lsb + 1)) - 1) for n, (msb, lsb) in opc.fields.items()}
+    if opc.format == "B" and f["target"] > last:
+        return None, {}
+    return opc.name, f
 
 
 _ZW = {"MOVI", "MOVHI", "MOV", "ADD", "SUB", "ADDI", "AND", "OR", "XOR", "SHL", "SHR",
@@ -406,7 +412,7 @@ def timing_regs(image: Image) -> set:
     """Registers whose value can affect timing or control flow; escert tracks only these.
     Sound by construction: forgetting a register's value only loses precision."""
     words = image.words
-    code = [_decode(w) if w else (None, {}) for w in words]
+    code = [_decode(w, len(words) - 1) if w else (None, {}) for w in words]
     returns = [pc + 1 for pc, (n, _) in enumerate(code) if n == "CALL"]
     rel = set()
     for pc, (n, f) in enumerate(code):
@@ -507,14 +513,15 @@ def _reach(image: Image, ctx: int, stop=None) -> set:
     are not followed (the stopping instruction itself is reached). Within the
     context's own page, the only words it can fetch."""
     image = page_view(image, ctx)
-    rets = {pc + 1 for pc, w in enumerate(image.words) if _decode(w)[0] == "CALL"}
+    rets = {pc + 1 for pc, w in enumerate(image.words)
+            if _decode(w, len(image.words) - 1)[0] == "CALL"}
     seen, todo = set(), [image.entry_pcs[ctx]]
     while todo:
         pc = todo.pop()
-        if pc in seen or not 0 <= pc <= 255:
+        if pc in seen or not 0 <= pc < len(image.words):
             continue
         seen.add(pc)
-        name, f = _decode(image.words[pc])
+        name, f = _decode(image.words[pc], len(image.words) - 1)
         if name is None or name == "HALT" or (stop is not None and stop(name, f)):
             continue
         if name == "JMP":
@@ -549,7 +556,7 @@ def _liveness(image: Image, ctx: int) -> dict:
     some path). A dead register cannot affect anything, so the analysis forgets it."""
     image = page_view(image, ctx)
     reach = _reach(image, ctx)
-    code = {pc: _decode(image.words[pc]) for pc in reach}
+    code = {pc: _decode(image.words[pc], len(image.words) - 1) for pc in reach}
     rets = [pc + 1 for pc, (n, _) in code.items() if n == "CALL"]
     succ = {pc: [q for q in _succ(image.words, pc, n, f, rets) if q in reach]
             for pc, (n, f) in code.items()}
@@ -574,7 +581,7 @@ def _loop_heads(image: Image, ctx: int) -> set:
     and joins elsewhere stay exact."""
     image = page_view(image, ctx)
     reach = _reach(image, ctx)
-    code = {pc: _decode(image.words[pc]) for pc in reach}
+    code = {pc: _decode(image.words[pc], len(image.words) - 1) for pc in reach}
     rets = [pc + 1 for pc, (n, _) in code.items() if n == "CALL"]
     succ = {pc: [q for q in _succ(image.words, pc, n, f, rets) if q in reach]
             for pc, (n, f) in code.items()}
@@ -597,7 +604,7 @@ def _loop_heads(image: Image, ctx: int) -> set:
 
 def _uses_line(image: Image, ctx: int) -> bool:
     image = page_view(image, ctx)
-    return any(_decode(image.words[pc])[0] in LINE_OPS for pc in _reach(image, ctx))
+    return any(_decode(image.words[pc], len(image.words) - 1)[0] in LINE_OPS for pc in _reach(image, ctx))
 
 
 def _mon_sites(image: Image, ctx: int) -> tuple[list, list]:
@@ -606,7 +613,7 @@ def _mon_sites(image: Image, ctx: int) -> tuple[list, list]:
     image = page_view(image, ctx)
     mons, getms = [], []
     for pc in sorted(_reach(image, ctx)):
-        name, f = _decode(image.words[pc])
+        name, f = _decode(image.words[pc], len(image.words) - 1)
         if name == "MON":
             mons.append(pc)
         elif name == "GETM" and f["imm"] <= 2:
@@ -617,7 +624,7 @@ def _mon_sites(image: Image, ctx: int) -> tuple[list, list]:
 def _fixed_regs(image: Image, ctx: int) -> set:
     """Registers no reachable instruction of the context writes: they hold 0 (sec. 9)."""
     image = page_view(image, ctx)
-    written = {_writes(*_decode(image.words[pc])) for pc in _reach(image, ctx)}
+    written = {_writes(*_decode(image.words[pc], len(image.words) - 1)) for pc in _reach(image, ctx)}
     return {r for r in range(4) if r not in written}
 
 
@@ -634,7 +641,7 @@ def const_tape(image: Image) -> dict:
         vk = page_view(image, k)                 # context k's page
         fixed = _fixed_regs(vk, k)
         for pc in _reach(vk, k):
-            name, f = _decode(vk.words[pc])
+            name, f = _decode(vk.words[pc], len(vk.words) - 1)
             if name == "CAPT":
                 return {}
             if name == "STT":
@@ -663,7 +670,7 @@ def const_tape_before_stores(image: Image, ctx: int) -> tuple:
         vk = page_view(image, k)                 # context k's page
         fixed = _fixed_regs(vk, k)
         for pc in _reach(vk, k):
-            name, f = _decode(vk.words[pc])
+            name, f = _decode(vk.words[pc], len(vk.words) - 1)
             if name == "CAPT" or (name == "STT" and f["rb"] not in fixed and k != ctx):
                 return {}, set()
             if name == "STT" and f["rb"] in fixed:
@@ -737,7 +744,7 @@ def _port_waits(lu: str) -> list:
 
 def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[int] = None) -> Cert:
     full = image                           # checks across contexts
-    image = page_view(image, ctx)          # the 256 words ctx fetches
+    image = page_view(image, ctx)          # the words ctx fetches (256; 512 when it spans)
     words = image.words
     z0 = Zone()
     # Context k fetches first in run cycle k and commits at tick k + 3 (sec. 3), while
@@ -759,8 +766,8 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
     if lu_ctx:
         z0.d[LUE][NOW], z0.d[NOW][LUE] = -first, first  # e = 0 until a job ends
         # tape walks over constant tables: their base registers matter
-        tracked |= {_decode(image.words[pc])[1]["rb"] for pc in _reach(image, ctx)
-                    if _decode(image.words[pc])[0] == "LDT"}
+        tracked |= {_decode(image.words[pc], len(image.words) - 1)[1]["rb"] for pc in _reach(image, ctx)
+                    if _decode(image.words[pc], len(image.words) - 1)[0] == "LDT"}
     fixed = _fixed_regs(image, ctx)
     consts = const_tape(full) if lu_ctx else {}
     early, early_pcs = const_tape_before_stores(full, ctx) if lu_ctx else ({}, set())
@@ -818,7 +825,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
         return t
 
     def push(pc: int, s: St) -> None:
-        if not 0 <= pc <= 255:
+        if not 0 <= pc < len(words):
             flag(pc, "RANGE", "control leaves memory")
             return
         live = live_at.get(pc, range(4))
@@ -865,7 +872,7 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
             flag(-1, "UNBOUNDED", "state limit")
             break
         pc, st = work.pop()
-        name, f = _decode(words[pc])
+        name, f = _decode(words[pc], len(words) - 1)
         if name is None:
             flag(pc, "ILLEGAL", "illegal word reachable")
             continue
@@ -997,8 +1004,11 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
                 go(s, f["target"])
                 go(s, nxt)
         elif name == "CALL":
-            s.lr = frozenset({pc + 1})
-            go(s, f["target"])
+            if nxt == len(words):            # sec. 7: a CALL at the last address faults
+                flag(pc, "RANGE", "CALL at the last address")
+            else:
+                s.lr = frozenset({pc + 1})
+                go(s, f["target"])
         elif name == "RET":
             for t in s.lr:
                 go(s, t)
@@ -1339,10 +1349,10 @@ def _cfg_events(image: Image, ctx: int) -> set:
     seen, todo, ev = set(), [image.entry_pcs[ctx]], set()
     while todo:
         pc = todo.pop()
-        if pc in seen or not 0 <= pc <= 255:
+        if pc in seen or not 0 <= pc < len(image.words):
             continue
         seen.add(pc)
-        name, f = _decode(image.words[pc])
+        name, f = _decode(image.words[pc], len(image.words) - 1)
         if name is None or name == "HALT":
             continue
         if name in EVENTS or name == "SEND":

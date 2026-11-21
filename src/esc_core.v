@@ -55,6 +55,7 @@ module esc_core #(
     input  wire [3:0]   ctx_bank,      // context k's logical pins are bank B
     input  wire [3:0]   ctx_pair,      // pair mode: context k also takes slot k^2 when context k^2 is off
     input  wire [7:0]   ctx_page,      // context k fetches from program page [2k+1:2k]
+    input  wire [3:0]   ctx_span,      // 3.1: context k also fetches from its partner's page when k^2 is off
     // instruction memory
     output wire [9:0]   imem_addr,     // {page, PC}
     output wire         imem_re,       // D-29: this slot's fetch will be used (else no read)
@@ -83,7 +84,7 @@ module esc_core #(
     // observation
     output reg          dbg_commit_valid,
     output reg  [1:0]   dbg_commit_ctx,
-    output reg  [7:0]   dbg_commit_pc,
+    output reg  [8:0]   dbg_commit_pc,
     output reg  [31:0]  dbg_commit_insn,
     output reg  [1:0]   dbg_commit_outcome,
     output wire [31:0]  dbg_post_r0,
@@ -95,7 +96,7 @@ module esc_core #(
     output wire [31:0]  dbg_post_tmr,
     output wire         dbg_post_z,
     output wire         dbg_post_c,
-    output wire [7:0]   dbg_post_pc,
+    output wire [8:0]   dbg_post_pc,
     input  wire [1:0]   dbg_sel_ctx,
     input  wire [4:0]   dbg_sel,
     output reg  [31:0]  dbg_rdata,
@@ -118,8 +119,8 @@ module esc_core #(
     // and for the inductive invariant (formal/esc_ni_ind.sby): every flip-flop of each
     // context, and the core's schedule, input synchronisers, pipeline stages and deferred
     // tape load (layout: the concatenation at the end of this file)
-    output wire [3463:0] f_ctx_all,
-    output wire [342:0]  f_core,
+    output wire [3471:0] f_ctx_all,
+    output wire [344:0]  f_core,
     output wire [32:0]   f_lu             // {lu_el, lu_port, lu_rel, lu_drv, lu_mode, lu_bank}
 `endif
 );
@@ -165,7 +166,7 @@ module esc_core #(
   // reserved payload bits per format (payload bits not named by the format)
   localparam [23:0] RSV_N = 24'hFFFFFF, RSV_I8 = 24'hFFFF00, RSV_R = 24'h0FFFFF,
                     RSV_RD = 24'h3FFFFF, RSV_RS = 24'hCFFFFF, RSV_I16 = 24'h3F0000,
-                    RSV_SH = 24'h3FFFE0, RSV_B = 24'hFFFF00, RSV_L16 = 24'hFF0000,
+                    RSV_SH = 24'h3FFFE0, RSV_B = 24'hFFFE00, RSV_L16 = 24'hFF0000,
                     RSV_T24 = 24'h000000, RSV_P = 24'h000000, RSV_PR = 24'h003F00,
                     RSV_PX = 24'h007F00, RSV_PE = 24'h000000, RSV_PS = 24'hF87FFF,
                     RSV_PW = 24'h0000FF, RSV_TM = 24'h0FFF00;
@@ -187,7 +188,7 @@ module esc_core #(
   reg [12:0] s1, s2;
   reg [12:0] h2, h3;                   // pin_h re-timed; h3 is half a tick older than s2
   reg        p1v, p2v, p3v;
-  reg  [7:0] p1_spc, p2_spc;           // the PC each instruction was fetched from
+  reg  [8:0] p1_spc, p2_spc;           // the PC each instruction was fetched from
   reg        p3ok;                     // ... equal to its context's PC in X
   reg [31:0] p2_insn, p3_insn;
   reg [54:0] d_op;                     // decode of p3_insn, registered (below)
@@ -195,7 +196,7 @@ module esc_core #(
   reg        ff_valid;
   reg [2:0]  ff_cause, ff_sub;
   reg [1:0]  ff_ctx;
-  reg [7:0]  ff_pc;
+  reg [8:0]  ff_pc;
   reg [31:0] ff_tick;
 
   wire       stop_q = stop & ~start;     // start wins over a simultaneous stop
@@ -203,7 +204,8 @@ module esc_core #(
   // ------------------------------------------------------------------ context state buses
   wire [127:0] c_r0, c_r1, c_r2, c_r3, c_sh, c_tmr, c_ish, c_tail, c_ffick, c_lee, c_rxh;
   wire [63:0]  c_lc, c_minl, c_wfull;
-  wire [31:0]  c_pc, c_lr, c_pass, c_fail, c_ffobs, c_ffmask, c_fflvl, c_irqc;
+  wire [35:0]  c_pc, c_lr;                 // 9 bits a context (3.1); bit 8 is 0 unless it spans
+  wire [31:0]  c_pass, c_fail, c_ffobs, c_ffmask, c_fflvl, c_irqc;
   wire [31:0]  c_dmask, c_dval, c_doe;
   wire [11:0]  c_cnt, c_cnta, c_maxo;
   wire [7:0]   c_state;
@@ -228,7 +230,7 @@ module esc_core #(
   reg         w_halt, w_irq, w_geti, w_push, w_exp_admit, w_rx_pop, w_tx_push, waitfull;
   reg  [31:0] w_rd_data, w_sh, w_tmr;
   reg  [15:0] w_lc;
-  reg  [7:0]  w_pc, w_lr;
+  reg  [8:0]  w_pc, w_lr;
   reg  [1:0]  outcome;
   reg  [2:0]  f_cause, f_sub;
 
@@ -242,6 +244,9 @@ module esc_core #(
   // stage's context selects start from flip-flops as before. With no pair, cq = sq,
   // nq = sq + 1 and fq = now mod 4.
   wire [3:0]  pair_on = ctx_pair & ~{ctx_enable[1:0], ctx_enable[3:2]};
+  // Span (3.1, sec. 3): context k also fetches from its partner's page when the partner is
+  // off; its PC and lr are then 9 bits. Static during a run, like pair_on.
+  wire [3:0]  span_on = ctx_span & ~{ctx_enable[1:0], ctx_enable[3:2]};
   function [1:0] own(input [1:0] s, input [3:0] pr);
     own = pr[s ^ 2'd2] ? (s ^ 2'd2) : s;
   endfunction
@@ -258,8 +263,9 @@ module esc_core #(
   wire [31:0] cs_ish  = c_ish[32*cctx +: 32];
   wire [31:0] cs_rxh  = c_rxh[32*cctx +: 32];
   wire [15:0] cs_lc   = c_lc[16*cctx +: 16];
-  wire [7:0]  cs_pc   = c_pc[8*cctx +: 8];
-  wire [7:0]  cs_lr   = c_lr[8*cctx +: 8];
+  wire [8:0]  cs_pc   = c_pc[9*cctx +: 9];
+  wire [8:0]  cs_lr   = c_lr[9*cctx +: 9];
+  wire        cs_span = span_on[cctx];
   wire [7:0]  cs_pass = c_pass[8*cctx +: 8];
   wire [7:0]  cs_fail = c_fail[8*cctx +: 8];
   wire [2:0]  cs_cnta = c_cnta[3*cctx +: 3];
@@ -324,7 +330,7 @@ module esc_core #(
   wire [15:0] f_imm16 = insn[15:0];
   wire [23:0] f_imm24 = insn[23:0];
   wire [4:0]  f_n     = insn[4:0];
-  wire [7:0]  f_tgt   = insn[7:0];
+  wire [8:0]  f_tgt   = insn[8:0];        // bit 8: ILLEGAL unless the context spans (illegal_n)
   wire [7:0]  f_mask  = insn[23:16];
   wire [7:0]  f_val   = insn[15:8];
   wire        f_dir   = insn[15];
@@ -381,7 +387,13 @@ module esc_core #(
   // of the opcode compare and legality trees. Equal to the decode of p3_insn in every
   // cycle (formal, B6 and B7).
   wire [54:0] d_op_n    = onehot(p2_insn[31:24]);
-  wire        illegal_n = illegal_of(p2_insn);
+  // 3.1: a format B target's bit 8 is reserved unless the context spans (X: context nq)
+  function far_of(input [7:0] op, input b8, input sp);
+    far_of = b8 & ~sp & (|(onehot(op) & ((55'd1 << I_JMP) | (55'd1 << I_JZ) | (55'd1 << I_JNZ)
+                                                | (55'd1 << I_JC) | (55'd1 << I_JNC)
+                                                | (55'd1 << I_DJNZ) | (55'd1 << I_CALL))));
+  endfunction
+  wire        illegal_n = illegal_of(p2_insn) | far_of(p2_insn[31:24], p2_insn[8], span_on[nq]);
 
   // ------------------------------------------------------------------ datapath
   // Main adder: ADD/ADDI (A + B), SUB/CMP/CMPI (A + ~B + 1; borrow = ~carry).
@@ -450,7 +462,7 @@ module esc_core #(
   wire [57:0] w_entry = {ev_kind, cs_tmr, f_mask, ev_val, insn[7:0]};
   wire        p_match = ((sync & f_mask) == f_val);            // WAITP
   wire [15:0] lc_dec  = cs_lc - 16'd1;
-  wire [7:0]  pc_inc  = cs_pc + 8'd1;
+  wire [8:0]  pc_inc  = (cs_pc + 9'd1) & {cs_span, 8'hFF};   // 9 bits when spanning
 
   // ------------------------------------------------------------------ execute / outcome
   // z_src: 0 none, 1 rd_data, 2 sum (compare), 3 TSTI, 4 explicit (w_z preset)
@@ -540,7 +552,7 @@ module esc_core #(
         end
         d_op[I_LDLC]: begin w_lc_we = 1'b1; w_lc = f_imm16; end
         d_op[I_CALL]: begin
-          // seq stays 1: CALL at PC 255 faults PC_RANGE (sec. 7.2)
+          // seq stays 1: CALL at the last address faults PC_RANGE (sec. 7.2)
           w_pc = f_tgt; w_lr_we = 1'b1; w_lr = pc_inc;
         end
         d_op[I_RDTIME]: begin w_rd_we = 1'b1; w_rd_data = now; end
@@ -666,8 +678,9 @@ module esc_core #(
         default: ;  // unreachable: illegal opcodes handled above
       endcase
 
-      // PC_RANGE (sec. 7): COMPLETE with a sequential next PC (or CALL) at PC 255
-      if (outcome == OC_C && seq && cs_pc == 8'hFF) begin
+      // PC_RANGE (sec. 7): COMPLETE with a sequential next PC (or CALL) at the last
+      // address, 255, or 511 when the context spans (3.1)
+      if (outcome == OC_C && seq && cs_pc == {cs_span, 8'hFF}) begin
         outcome = OC_F;
         f_cause = FC_PC_RANGE;
       end
@@ -890,7 +903,7 @@ module esc_core #(
           .w_lr        (w_lr),
           .w_halt      (w_halt),
           .w_irq       (w_irq),
-          .w_irq_code  (f_tgt),
+          .w_irq_code  (insn[7:0]),           // IRQ code (format I8)
           .w_geti      (w_geti),
           .w_push      (w_push),
           .w_entry     (w_entry),
@@ -919,8 +932,8 @@ module esc_core #(
           .o_sh        (c_sh[32*gk +: 32]),
           .o_lc        (c_lc[16*gk +: 16]),
           .o_tmr       (c_tmr[32*gk +: 32]),
-          .o_pc        (c_pc[8*gk +: 8]),
-          .o_lr        (c_lr[8*gk +: 8]),
+          .o_pc        (c_pc[9*gk +: 9]),
+          .o_lr        (c_lr[9*gk +: 9]),
           .o_z         (c_z[gk]),
           .o_c         (c_c[gk]),
           .o_state     (c_state[2*gk +: 2]),
@@ -961,7 +974,7 @@ module esc_core #(
           , .f_owned   (owned_by[8*gk +: 8])
 `endif
 `ifdef ESC_NI
-          , .f_all     (f_ctx_all[866*gk +: 866])
+          , .f_all     (f_ctx_all[868*gk +: 868])
 `endif
       );
     end
@@ -982,22 +995,25 @@ module esc_core #(
   // now, would sit on the program store's address path.) A wrong guess costs a
   // bubble (p3ok), never a wrong commit. After an LDT, whose load lands an edge after it
   // commits, the slot is skipped so X never reads a register before the load.
-  wire [7:0]  x_pc   = c_pc[8*nq +: 8];
+  wire [8:0]  x_pc   = c_pc[9*nq +: 9];
   wire        x_ok    = p2v & (p2_spc == x_pc);
   wire        x_z     = c_z[nq], x_c = c_c[nq];
   wire [15:0] x_lc    = c_lc[16*nq +: 16];
-  wire [7:0]  x_lr    = c_lr[8*nq +: 8];
+  wire [8:0]  x_lr    = c_lr[9*nq +: 9];
   wire        x_jump  = d_op_n[I_JMP] | d_op_n[I_CALL] | (d_op_n[I_JZ] & x_z)
                       | (d_op_n[I_JNZ] & ~x_z) | (d_op_n[I_JC] & x_c) | (d_op_n[I_JNC] & ~x_c)
                       | (d_op_n[I_DJNZ] & (x_lc != 16'd1));
   wire        x_stay  = d_op_n[I_HALT];
-  wire [7:0]  x_npc   = x_jump ? p2_insn[7:0] : d_op_n[I_RET] ? x_lr : x_stay ? x_pc
-                      : x_pc + 8'd1;
+  // bit 8 kept only for a spanning context (3.1): one that does not span fetches mod 256
+  wire [8:0]  x_npc   = (x_jump ? p2_insn[8:0] : d_op_n[I_RET] ? x_lr : x_stay ? x_pc
+                         : x_pc + 9'd1) & {span_on[nq], 8'hFF};
   wire        f_chain = x_ok & (nq == fq);           // only a paired context, 2 slots apart
-  wire [7:0]  f_pc    = f_chain ? x_npc : c_pc[8*fq +: 8];
-  // The page is the fetching context's. f_chain means nq == fq, so f_pc is always
-  // fq's PC; fq is a register and ctx_page static, so the page bits are off the f_pc path.
-  assign imem_addr = {ctx_page[2*fq +: 2], f_pc};
+  wire [8:0]  f_pc    = f_chain ? x_npc : c_pc[9*fq +: 9];
+  // The page is the fetching context's, or (3.1) its partner's when f_pc[8] is set, which
+  // only a spanning context's PC can be. f_chain means nq == fq, so f_pc is always fq's
+  // PC; fq is a register and ctx_page static, so only the 2:1 choice by f_pc[8] is on the
+  // f_pc path.
+  assign imem_addr = {f_pc[8] ? ctx_page[2*(fq ^ 2'd2) +: 2] : ctx_page[2*fq +: 2], f_pc[7:0]};
   wire   f_valid   = run & (c_state[2*fq +: 2] == ST_RUN) & ~(f_chain & d_op_n[I_LDT]);
   // A slot whose context is not RUNNING is never committed (p3v), so its instruction need
   // not be read: a program with one context leaves the program store idle 3 cycles in 4,
@@ -1053,7 +1069,7 @@ module esc_core #(
   reg  [20:0] dg_prev;                 // outputs during the previous cycle (bank B as ~ob)
   wire [4:0]  ob_low = ~ob_out;
   wire        dg_act = commit_valid | ld_v | ({ob_low, uio_oe, uio_out} != dg_prev);
-  wire [31:0] dg_cw = commit_valid ? {16'd0, outcome, cctx, 4'd0, cs_pc} : 32'd0;
+  wire [31:0] dg_cw = commit_valid ? {16'd0, outcome, cctx, 3'd0, cs_pc} : 32'd0;
   wire [31:0] dg_wv = ((cm_ok & w_rd_we) ? w_rd_data : 32'd0) ^ (ld_v ? tape_rdata : 32'd0);
   wire [31:0] dg_x  = {uio_oe, uio_out, 3'd0, ob_low, 8'd0} ^ dg_cw ^ dg_wv;
   wire [31:0] dg_n  = {dg[30:0], 1'b0} ^ (dg[31] ? DG_POLY : 32'd0) ^ dg_x;
@@ -1080,7 +1096,7 @@ module esc_core #(
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       run <= 1'b0; now <= 32'd0; sq <= 2'd1; cq <= 2'd1; nq <= 2'd2; fq <= 2'd0;
-      p1_spc <= 8'd0; p2_spc <= 8'd0; p3ok <= 1'b1; lu_bank <= 1'b0;
+      p1_spc <= 9'd0; p2_spc <= 9'd0; p3ok <= 1'b1; lu_bank <= 1'b0;
       pin_val <= 13'd0; pin_oe <= 13'd0;
       s1 <= 13'd0; s2 <= 13'd0; h2 <= 13'd0; h3 <= 13'd0;
       p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
@@ -1088,8 +1104,8 @@ module esc_core #(
       d_op <= 55'd0; illegal <= 1'b1;          // the decode of 0: no opcode, illegal
       opa <= 32'd0; opb <= 32'd0;
       ff_valid <= 1'b0; ff_cause <= 3'd0; ff_sub <= 3'd0; ff_ctx <= 2'd0;
-      ff_pc <= 8'd0; ff_tick <= 32'd0;
-      dbg_commit_valid <= 1'b0; dbg_commit_ctx <= 2'd0; dbg_commit_pc <= 8'd0;
+      ff_pc <= 9'd0; ff_tick <= 32'd0;
+      dbg_commit_valid <= 1'b0; dbg_commit_ctx <= 2'd0; dbg_commit_pc <= 9'd0;
       dbg_commit_insn <= 32'd0; dbg_commit_outcome <= 2'd0;
     end else begin
       // synchronisers run continuously (not cleared by start)
@@ -1142,7 +1158,7 @@ module esc_core #(
         run <= 1'b1; now <= START_NOW;
         pin_val <= 13'd0; pin_oe <= 13'd0;
         ff_valid <= 1'b0; ff_cause <= 3'd0; ff_sub <= 3'd0; ff_ctx <= 2'd0;
-        ff_pc <= 8'd0; ff_tick <= 32'd0;
+        ff_pc <= 9'd0; ff_tick <= 32'd0;
       end else if (stop) begin
         run    <= 1'b0;          // now holds
         pin_oe <= 13'd0;
@@ -1158,10 +1174,10 @@ module esc_core #(
             ff_ctx <= cctx; ff_pc <= cs_pc; ff_tick <= now;
           end else if (lu_cfgf) begin
             ff_valid <= 1'b1; ff_cause <= FC_ADMIT; ff_sub <= lu_flto ? AS_OWNER : AS_CONFIG;
-            ff_ctx <= lu_owner; ff_pc <= c_pc[8*lu_owner +: 8]; ff_tick <= now;
+            ff_ctx <= lu_owner; ff_pc <= c_pc[9*lu_owner +: 9]; ff_tick <= now;
           end else if (c_late != 4'd0) begin
             ff_valid <= 1'b1; ff_cause <= FC_LATE; ff_sub <= 3'd0;
-            ff_ctx <= late_ctx; ff_pc <= c_pc[8*late_ctx +: 8]; ff_tick <= now;
+            ff_ctx <= late_ctx; ff_pc <= c_pc[9*late_ctx +: 9]; ff_tick <= now;
           end
         end
       end
@@ -1187,7 +1203,7 @@ module esc_core #(
   assign dbg_post_tmr = c_tmr[32*pk_ +: 32];
   assign dbg_post_z   = c_z[pk_];
   assign dbg_post_c   = c_c[pk_];
-  assign dbg_post_pc  = c_pc[8*pk_ +: 8];
+  assign dbg_post_pc  = c_pc[9*pk_ +: 9];
 
   // D-41: a context's registers (selects 0-8) are read through the commit stage's
   // multiplexers, which select that context in its commit slot during a run and in every
@@ -1204,7 +1220,7 @@ module esc_core #(
       4'd4:    dcs = cs_sh;
       4'd5:    dcs = {16'd0, cs_lc};
       4'd6:    dcs = cs_tmr;
-      4'd7:    dcs = {8'd0, cs_lr, cs_pc, 4'd0, cs_state, cs_z, cs_c};
+      4'd7:    dcs = {6'd0, cs_lr[8], cs_pc[8], cs_lr[7:0], cs_pc[7:0], 4'd0, cs_state, cs_z, cs_c};
       default: dcs = cs_ish;
     endcase
   end
@@ -1275,7 +1291,7 @@ module esc_core #(
       5'd12: dbg_rdata = {8'd0, c_ffmask[8*sk +: 8], c_fflvl[8*sk +: 8], c_ffobs[8*sk +: 8]};
       5'd13: dbg_rdata = {23'd0, c_irqp[sk], c_irqc[8*sk +: 8]};
       5'd14: dbg_rdata = {ff_valid, 3'd0, 1'b0, ff_cause, 1'b0, ff_sub, 2'd0, ff_ctx,
-                          8'd0, ff_pc};
+                          7'd0, ff_pc};
       5'd15: dbg_rdata = ff_tick;
       5'd16: dbg_rdata = dg;
       5'd17: dbg_rdata = cap_status;
@@ -1309,6 +1325,7 @@ module esc_core #(
       assume ($stable(ctx_bank));
       assume ($stable(ctx_pair));
       assume ($stable(ctx_page));    // v2 (S-A)
+      assume ($stable(ctx_span));    // 3.1
     end
 
   // B1-B5: the deadline tests registered in the cycle before a commit are their
@@ -1344,10 +1361,18 @@ module esc_core #(
     ahead_b5: `ESC_AHEAD (lead16 == ((f_d_now[31:16] != 16'd0) ? 16'hFFFF : f_d_now[15:0]));
   end
   wire [7:0] op = insn[31:24];
+  // 3.1: illegal includes far_of, which depends on the X slot's context (nq) a cycle before
+  // the commit. f_far_sp is that context's span bit as illegal_n used it, so B7 holds in every
+  // cycle as before; B7S ties it to the committing context while a commit is valid (cq is
+  // the previous nq during a run, but while stopped cq is the host's debug selection).
+  reg f_far_sp;
+  always @(posedge clk) f_far_sp <= span_on[nq];
   always @(*) if (rst_n) begin
     ahead_b6: `ESC_AHEAD (d_op == onehot(op));
-    ahead_b7: `ESC_AHEAD (illegal == illegal_of(insn));
+    ahead_b7: `ESC_AHEAD (illegal == (illegal_of(insn) | far_of(insn[31:24], insn[8], f_far_sp)));
   end
+  always @(*) if (rst_n && commit_valid)
+    ahead_b7s: `ESC_AHEAD (f_far_sp == span_on[cctx]);
   wire [1:0] f_rs = d_op[I_EMITR] ? insn[15:14] : insn[21:20];
   always @(*) if (rst_n && commit_valid) begin
     ahead_b8: `ESC_AHEAD (opa == pick(f_rd, cs_r0, cs_r1, cs_r2, cs_r3));
@@ -1362,8 +1387,8 @@ module esc_core #(
 `ifdef ESC_NI
   generate
     for (gk = 0; gk < 4; gk = gk + 1) begin : g_ni
-      assign f_ctx_obs[320*gk +: 320] = {7'd0,
-          c_state[2*gk +: 2], c_pc[8*gk +: 8], c_lr[8*gk +: 8], c_z[gk], c_c[gk],
+      assign f_ctx_obs[320*gk +: 320] = {5'd0,
+          c_state[2*gk +: 2], c_pc[9*gk +: 9], c_lr[9*gk +: 9], c_z[gk], c_c[gk],
           c_lc[16*gk +: 16], c_r0[32*gk +: 32], c_r1[32*gk +: 32], c_r2[32*gk +: 32],
           c_r3[32*gk +: 32], c_sh[32*gk +: 32], c_tmr[32*gk +: 32], c_ish[32*gk +: 32],
           c_cnt[3*gk +: 3], c_tail[32*gk +: 32], c_act[gk], c_irqp[gk],
@@ -1382,8 +1407,16 @@ module esc_core #(
   always @(*) if (rst_n) begin
     assert (!rs_any || !commit_valid);
     assert (!free_q || !imem_re);
-    // a context fetches only from its own page
-    if (imem_re) assert (imem_addr[9:8] == ctx_page[2*fq +: 2]);
+    // a context fetches only from its own page, or (3.1) a spanning one also from its
+    // partner's; one that does not span never from another page, and its PC and lr stay
+    // below 256
+    if (imem_re) assert (imem_addr[9:8] == ((span_on[fq] & f_pc[8]) ? ctx_page[2*(fq ^ 2'd2) +: 2]
+                                                                     : ctx_page[2*fq +: 2]));
+    if (imem_re && !span_on[fq]) assert (imem_addr[9:8] == ctx_page[2*fq +: 2]);
+    if (run && !span_on[0]) assert (!c_pc[8] && !c_lr[8]);
+    if (run && !span_on[1]) assert (!c_pc[17] && !c_lr[17]);
+    if (run && !span_on[2]) assert (!c_pc[26] && !c_lr[26]);
+    if (run && !span_on[3]) assert (!c_pc[35] && !c_lr[35]);
   end
   // C6: a live program write waits at most 4 cycles: while some context is not RUNNING
   // and still owns its own slot (pair mode gives an off context's slot to its partner), the

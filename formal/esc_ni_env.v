@@ -10,7 +10,9 @@
  * equal in both copies, every cycle.
  * v2 (S-A): the store has four pages and both copies have the same ctx_page. The fetch
  * address is {page, PC}, so "the words j fetches" are in j's page (ni_page): if no other
- * context shares j's page, no write outside it changes anything j does.
+ * context shares j's page, no write outside it changes anything j does. 3.1: a spanning j
+ * also fetches from its partner's page (ctx_page[j ^ 2]); the partner is off, and the words
+ * j fetches there are j's, the same in both copies, by the same assumption.
  *
  * Channels shared by design are equal by construction (the pins, the tape's contents as
  * read data) or excluded: j does not use the capture unit (CAPT, GETC) or the line unit
@@ -46,8 +48,10 @@ module esc_ni_env (
   (* anyconst *) reg [25:0] pin_owner;
   (* anyconst *) reg [7:0]  pin_od;
   (* anyconst *) reg [7:0]  ctx_page;                 // v2 (S-A)
+  (* anyconst *) reg [3:0]  ctx_span;                 // 3.1
 
   wire [3:0]   jb = 4'd1 << j;
+  wire         span_j = ctx_span[j] & ~ctx_enable[j ^ 2'd2];   // 3.1: j spans
   wire [127:0] jl = 128'hFFFFFFFF << (32 * j);
   // copy B: j's lanes are copy A's, the others free
   wire [3:0]   cstop_bj  = (cstop_a & jb)  | (cstop_b & ~jb);
@@ -64,14 +68,14 @@ module esc_ni_env (
   wire [1:0]    fqa, fqb;
   wire          cva, cvb;
   wire [1:0]    cca, ccb, coa, cob;
-  wire [7:0]    cpa, cpb;
+  wire [8:0]    cpa, cpb;
   wire [31:0]   cia, cib;
 
 `define NI_CORE(N, RD, CSTOP, CSTART, IRQC, PUSH, PDATA, POP, IA, RE, O, P, FQ, CV, CC, CP, CI, CO, CA, FC, LU) \
   esc_core N ( \
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop), .ctx_stop(CSTOP), .ctx_start(CSTART), \
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs), .pin_owned(pin_owned), .pin_owner(pin_owner), \
-      .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair), .ctx_page(ctx_page), \
+      .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair), .ctx_page(ctx_page), .ctx_span(ctx_span), \
       .imem_addr(IA), .imem_re(RE), .imem_free(), .imem_rdata(RD), \
       .uio_in(uio_in), .uio_out(), .uio_oe(), .ib_in(ib_in), .pin_h(pin_h), .ob_out(), \
       .running(), .ctx_state(), .irq_pending(), .fault_valid(), .irq_clear(IRQC), \
@@ -85,8 +89,8 @@ module esc_ni_env (
       .tape_addr(), .tape_re(), .tape_we(), .tape_wdata(), .tape_rdata(tape_rdata), .tape_busy(), \
       .tape_host_we(tape_host_we), .tape_ack(tape_ack), .tape_ack_v(tape_ack_v), \
       .f_ctx_obs(O), .f_pins(P), .f_fq(FQ), .f_ctx_all(CA), .f_core(FC), .f_lu(LU));
-  wire [3463:0] caa, cab;
-  wire [342:0]  fca, fcb;
+  wire [3471:0] caa, cab;
+  wire [344:0]  fca, fcb;
   wire [32:0]   lua, lub;
   `NI_CORE(u_a, rd_a, cstop_a, cstart_a, irqc_a, push_a, pdata_a, pop_a, ia, rea, oa, pa, fqa, cva, cca, cpa, cia, coa, caa, fca, lua)
   `NI_CORE(u_b, rd_b, cstop_bj, cstart_bj, irqc_bj, push_bj, pdata_bj, pop_bj, ib, reb, ob, pb, fqb, cvb, ccb, cpb, cib, cob, cab, fcb, lub)
@@ -127,8 +131,10 @@ module esc_ni_env (
     ni_commit: assert ((cva && cca == j) == (cvb && ccb == j));
     if (cva && cca == j) ni_record: assert ({cpa, cia, coa} == {cpb, cib, cob});
     // v2 (S-A): every word j fetches is in j's page, in both copies
-    if (fj_a) ni_page: assert (fa_a[9:8] == ctx_page[2*j +: 2]);
-    if (fj_b) ni_page_b: assert (fa_b[9:8] == ctx_page[2*j +: 2]);
+    if (fj_a) ni_page: assert (fa_a[9:8] == ctx_page[2*j +: 2]
+                               || (span_j && fa_a[9:8] == ctx_page[2*(j ^ 2'd2) +: 2]));
+    if (fj_b) ni_page_b: assert (fa_b[9:8] == ctx_page[2*j +: 2]
+                                 || (span_j && fa_b[9:8] == ctx_page[2*(j ^ 2'd2) +: 2]));
   end
 
 `ifdef ESC_NI_IND
@@ -162,9 +168,9 @@ module esc_ni_env (
   wire [31:0] a_p3_insn;
   wire a_p3v;
   wire [31:0] a_p2_insn;
-  wire [7:0] a_p2_spc;
+  wire [8:0] a_p2_spc;
   wire a_p2v;
-  wire [7:0] a_p1_spc;
+  wire [8:0] a_p1_spc;
   wire a_p1v;
   wire [12:0] a_s2;
   wire [12:0] a_s1;
@@ -200,9 +206,9 @@ module esc_ni_env (
   wire [31:0] b_p3_insn;
   wire b_p3v;
   wire [31:0] b_p2_insn;
-  wire [7:0] b_p2_spc;
+  wire [8:0] b_p2_spc;
   wire b_p2v;
-  wire [7:0] b_p1_spc;
+  wire [8:0] b_p1_spc;
   wire b_p1v;
   wire [12:0] b_s2;
   wire [12:0] b_s1;
@@ -220,11 +226,12 @@ module esc_ni_env (
   function [1:0] own(input [1:0] s, input [3:0] pr);
     own = pr[s ^ 2'd2] ? (s ^ 2'd2) : s;
   endfunction
-  // j's context, every flop; but h_q (the head's kind and payload, f_all[727:702]) loads the
+  // j's context, every flop (868 bits since 3.1: pc and lr are 9 bits, at the top, so the
+  // fields below keep their places); but h_q (the head's kind and payload, f_all[727:702]) loads the
   // shared commit entry on every cycle its FIFO is empty (o_cnt, f_all[829:827], is 0), whoever
   // commits, and is read only when the FIFO holds an entry: compared only then
-  wire [865:0] ctx_ja = caa[866*j +: 866], ctx_jb = cab[866*j +: 866];
-  wire [865:0] ctx_m  = (ctx_ja[829:827] == 3'd0) ? ~({26{1'b1}} << 702) : {866{1'b1}};
+  wire [867:0] ctx_ja = caa[868*j +: 868], ctx_jb = cab[868*j +: 868];
+  wire [867:0] ctx_m  = (ctx_ja[829:827] == 3'd0) ? ~({26{1'b1}} << 702) : {868{1'b1}};
   function ni_ok_insn(input [31:0] w);
     ni_ok_insn = w[31:24] != 8'h36 && w[31:24] != 8'h37 && w[31:24] != 8'h2D
               && w[31:24] != 8'h3C && w[31:24] != 8'h3D && w[31:24] != 8'h3E;
@@ -239,7 +246,10 @@ module esc_ni_env (
     if (j_p1) inv_p1: assert (a_p1v == b_p1v && (!a_p1v || a_p1_spc == b_p1_spc));
     // the program-store assumption's records (fj_*, fa_*: last cycle's fetch was j's, at this
     // address) agree with the stage that holds that fetch now
-    if (j_p1 && a_p1v) inv_fetch: assert (fj_a && fj_b && fa_a[7:0] == a_p1_spc && fa_b[7:0] == b_p1_spc);
+    // (3.1: the whole store address, as esc_core forms it: PC bit 8 picks the partner's page)
+    if (j_p1 && a_p1v) inv_fetch: assert (fj_a && fj_b
+        && fa_a == {a_p1_spc[8] ? ctx_page[2*(j ^ 2'd2) +: 2] : ctx_page[2*j +: 2], a_p1_spc[7:0]}
+        && fa_b == {b_p1_spc[8] ? ctx_page[2*(j ^ 2'd2) +: 2] : ctx_page[2*j +: 2], b_p1_spc[7:0]});
     // the exclusions hold for j's words in flight too (the assumption above applies at fetch)
     if (j_p2 && a_p2v) inv_op2: assert (ni_ok_insn(a_p2_insn));
     if (j_p3 && a_p3v) inv_op3: assert (ni_ok_insn(a_p3_insn));

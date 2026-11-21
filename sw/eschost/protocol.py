@@ -13,6 +13,7 @@ START, STOP, READ_DBG, MBX_PUSH, MBX_POP = 0x20, 0x21, 0x30, 0x40, 0x41
 CTX_STOP, CTX_START = 0x22, 0x23    # live reload of one context
 IMEM_PAGE = 0x24                    # the program-store page WRITE/READ_IMEM use
 PAGES_VERSION = 0xA                 # the first protocol version with pages
+SPAN_VERSION = 0xB                  # the first with span (3.1): WRITE_CFG byte 15
 IRQ_CLEAR, CLEAR_ERR = 0x50, 0x51
 
 
@@ -53,6 +54,14 @@ def check_pages(image, st):
     if is_paged(image) and st["version"] < PAGES_VERSION:
         raise IOError("image uses program pages, chip reports protocol version %d (needs %d)"
                       % (st["version"], PAGES_VERSION))
+
+
+def check_span(image, st):
+    """A spanning image needs a chip that spans (protocol version 11, machine 3.1); an
+    older chip ignores byte 15, and its context would fault at the end of its own page."""
+    if getattr(image, "ctx_span_mask", 0) and st["version"] < SPAN_VERSION:
+        raise IOError("image uses span, chip reports protocol version %d (needs %d)"
+                      % (st["version"], SPAN_VERSION))
 
 
 def plan_status():
@@ -114,12 +123,13 @@ def stream_chunks(base, lim, rptr, ptr):
 
 
 def plan_write_cfg(ctx_enable, entry_pcs, pin_owned, pin_owner, pin_od, ctx_bank=0, ctx_pair=0,
-                   ctx_page=None):
+                   ctx_page=None, ctx_span=None):
     # Always the 13-byte frame with bank B: a chip of protocol version 6 ignores bytes after
     # the ninth, and from version 7 on no chip keeps a previous program's bank B settings.
     # Byte 10 bits 7:4 are the pair-mode contexts (ignored below version 9). Byte 14, the contexts'
     # pages, when ctx_page is given: load() gives it to every chip with pages, so none keeps
-    # a previous program's pages, and an older chip's frame is unchanged.
+    # a previous program's pages, and an older chip's frame is unchanged. Byte 15 (3.1), the
+    # spanning contexts, when ctx_span is given (after byte 14), the same way from version 11.
     e = entry_pcs
     frame = bytes((WRITE_CFG, ctx_enable & 0xF, e & 0xFF, (e >> 8) & 0xFF, (e >> 16) & 0xFF,
                   (e >> 24) & 0xFF, pin_owned & 0xFF, (pin_owner >> 8) & 0xFF,
@@ -128,6 +138,8 @@ def plan_write_cfg(ctx_enable, entry_pcs, pin_owned, pin_owner, pin_od, ctx_bank
                   (pin_owner >> 16) & 0xFF))
     if ctx_page is not None:
         frame += bytes((ctx_page & 0xFF,))
+        if ctx_span is not None:
+            frame += bytes((ctx_span & 0xF,))
     return frame, _st
 
 
@@ -286,6 +298,7 @@ class Host:
         st = self.stop()
         check_pair(image, st)
         check_pages(image, st)
+        check_span(image, st)
         n = 0
         for page, base, words in page_loads(image):
             if page is not None:
@@ -308,6 +321,8 @@ class Host:
                        image.pin_owner_packed, image.pin_od_mask,
                        getattr(image, "ctx_bank_mask", 0), getattr(image, "ctx_pair_mask", 0),
                        getattr(image, "ctx_page_packed", 0) if st["version"] >= PAGES_VERSION
+                       else None,
+                       getattr(image, "ctx_span_mask", 0) if st["version"] >= SPAN_VERSION
                        else None)
         return n
 
@@ -372,6 +387,7 @@ class AsyncHost:
         st = await self.stop()
         check_pair(image, st)
         check_pages(image, st)
+        check_span(image, st)
         n = 0
         for page, base, words in page_loads(image):
             if page is not None:
@@ -395,7 +411,9 @@ class AsyncHost:
                              getattr(image, "ctx_bank_mask", 0),
                              getattr(image, "ctx_pair_mask", 0),
                              getattr(image, "ctx_page_packed", 0)
-                             if st["version"] >= PAGES_VERSION else None)
+                             if st["version"] >= PAGES_VERSION else None,
+                             getattr(image, "ctx_span_mask", 0)
+                             if st["version"] >= SPAN_VERSION else None)
         return n
 
     async def reload(self, ctx, runs, paged=False):

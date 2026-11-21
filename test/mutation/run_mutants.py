@@ -678,8 +678,8 @@ CANARY = {   # suite -> (file, old, new): a fault that suite must catch
     "mon": ("esc_mon.v", "assign rdata = rsel ? rec : counts;", "assign rdata = rsel ? counts : rec;"),
     "cosim": ("esc_core.v", "w_rd_data = {16'd0, f_imm16};", "w_rd_data = {16'd0, ~f_imm16};"),
     "unit": ("esc_core.v", "w_rd_data = {16'd0, f_imm16};", "w_rd_data = {16'd0, ~f_imm16};"),
-    "host": ("escapement_host.v", "localparam [3:0] VERSION = (PAGES > 1) ? 4'hA", "localparam [3:0] VERSION = (PAGES > 1) ? 4'h8"),
-    "chip": ("escapement_host.v", "localparam [3:0] VERSION = (PAGES > 1) ? 4'hA", "localparam [3:0] VERSION = (PAGES > 1) ? 4'h8"),
+    "host": ("escapement_host.v", "localparam [3:0] VERSION = (PAGES > 1) ? 4'hB", "localparam [3:0] VERSION = (PAGES > 1) ? 4'h8"),
+    "chip": ("escapement_host.v", "localparam [3:0] VERSION = (PAGES > 1) ? 4'hB", "localparam [3:0] VERSION = (PAGES > 1) ? 4'h8"),
     "pins": ("project.v", "assign uo_out = {ob_out, running, |irq_pending | fault_valid, miso};",
              "assign uo_out = {ob_out, running, |irq_pending | fault_valid, ~miso};"),
 }

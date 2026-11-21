@@ -1,4 +1,4 @@
-# Escapement machine semantics 3.0 (normative)
+# Escapement machine semantics 3.1 (normative)
 
 This document is the normative definition of the machine: what every register holds in
 every cycle, and what every instruction does at its commit edge. The Python
@@ -23,6 +23,7 @@ before, execution digest included.
 | 1.7 | Pair mode (§3); context stop, restart and program writes during a run (live reload, §9) |
 | 2 | Program pages: a 1,024-word store of four pages, one selected per context (§3); proof tripwires (§10) |
 | 3 | The half-tick input sample (§5); the line unit's receive strobes, both-edge decoding and long receive (§6.6); the bus timing monitor, `MON` and `GETM` (§6.7, §7.8) |
+| 3.1 | Span (§3): a context whose partner is not enabled may also fetch from its partner's page, with a 9-bit PC and link, so its program has 512 words; `ctx_span` (§4) |
 
 Notation: all arithmetic on 32-bit values is modulo 2^32 unless stated. `zext` is
 zero extension. `ahead(a, b)` means `1 <= (a - b) mod 2^32 < 2^31` ("a is strictly
@@ -36,7 +37,7 @@ after b within the half-range horizon"). `reached(t, d)` means `(t - d) mod 2^32
 | Name | Value |
 | --- | --- |
 | Contexts | 4 (k = 0..3) |
-| Instruction memory | 1,024 words × 32 bits in four pages of 256 (v2, S-A), single port, shared; a context fetches only from its own page (§3) |
+| Instruction memory | 1,024 words × 32 bits in four pages of 256 (v2, S-A), single port, shared; a context fetches only from its own page, or (3.1) also from its partner's when it spans (§3) |
 | Event FIFO depth | 4 entries per context |
 | Protocol pins | 13: bank A, 8 bidirectional (`uio[7:0]`); bank B (v1.2), 5 split pins (out `uo_out[7:3]`, in `ui_in[7:3]`) |
 | Pins per context | 8 logical pins, mapped onto the context's bank (§5) |
@@ -58,7 +59,7 @@ then at edge E_s the machine initialises the run (§9). The cycle after E_s is r
 cycle **0**. The **tick counter** `now` equals t during run cycle t and wraps modulo
 2^32. All ticks in this document are run cycles.
 
-## 3. Context scheduling (4-slot barrel, pair mode)
+## 3. Context scheduling (4-slot barrel, pair mode, span)
 
 A context is in one of four states: `IDLE`, `RUNNING`, `HALTED`, `FAULTED`.
 
@@ -112,6 +113,20 @@ the v1.7 machine on page 0. The memory returns `imem_rdata = IMEM[imem_addr]`
 during cycle t+1 (synchronous read registered at E_t). IMEM is never written during a
 run.
 
+**Span (3.1).** Context k **spans** in a run when `ctx_span[k]` is set and its partner
+k ^ 2 is not enabled (`ctx_enable[k ^ 2] = 0`); this is fixed at start (§9), as pairing
+is, and the two are independent: a context may pair, span, both or neither. A spanning
+context has a 9-bit PC and `lr`, and its program is 512 words: addresses 0 to 255 in its
+own page and 256 to 511 in its partner's. Its fetch address `a` (9 bits) presents
+`imem_addr` = `{a[8] ? ctx_page[k ^ 2] : ctx_page[k], a[7:0]}`. Everything that computes
+a PC (PC + 1, branch targets, `lr`, the pair-mode fetch address above) is 9 bits wide for
+a spanning context, so sequential flow runs from 255 on to 256. A context that does not
+span has PC[8] = `lr[8]` = 0 always, and its fetch address is taken mod 256, so it
+fetches only from its own page. With `ctx_span = 0` (every configuration before 3.1)
+this is the 3.0 machine. The partner's page is the page the configuration already gives
+the partner (`ctx_page[k ^ 2]`), which no one else fetches from while the partner is
+off.
+
 **What a commit sees.** Every decision and value used by the instruction committing
 at tick c is taken from state **during cycle c**: registers, flags, `tmr`, `lc`,
 `sh`, `ish`, checker status, FIFO contents, mailbox contents and the synchronised
@@ -130,8 +145,8 @@ Each commit has one **outcome**:
 
 ## 4. Architectural state
 
-Per context k: `r0..r3` (32 b), `sh` (32 b), `lc` (16 b), `tmr` (32 b), `PC` (8 b),
-`lr` (8 b), flags `Z`, `C`, state, `ish` (32 b), event FIFO (4 entries), expectation
+Per context k: `r0..r3` (32 b), `sh` (32 b), `lc` (16 b), `tmr` (32 b), `PC` (8 b;
+9 b when the context spans, §3), `lr` (8 b; 9 b when spanning), flags `Z`, `C`, state, `ish` (32 b), event FIFO (4 entries), expectation
 checker, telemetry, IRQ pending + code, mailboxes.
 
 Global: `now`, pin registers `val[12:0]` and `oe[12:0]`, input synchronisers, the
@@ -142,7 +157,7 @@ registers `h2`, `h3` (§5, v3), the execution digest `dg` (§10.1), and configur
 (static during a run):
 `ctx_enable[3:0]`, `entry_pc[k]`, `pin_owned[12:0]`, `pin_owner[p]` (2 b each),
 `pin_od[7:0]`, `ctx_bank[3:0]` (v1.2), `ctx_pair[3:0]` (v1.7, §3), `ctx_page[k]` (2 b
-each, v2, §3).
+each, v2, §3), `ctx_span[3:0]` (3.1, §3).
 
 ## 5. Pins
 
@@ -682,9 +697,12 @@ record is not `valid`, there is no owner, and `prev` is `psync` during the start
 ## 7. Instructions
 
 Formats and opcodes are in `isa/isa.yaml`. Unlisted opcodes and nonzero reserved bits
-→ FAULT ILLEGAL. On COMPLETE the next PC is PC+1 unless stated. **PC_RANGE**: an
-instruction at PC = 255 whose outcome would be COMPLETE with a sequential next PC (or
-a CALL at 255) faults PC_RANGE instead, with no effects.
+→ FAULT ILLEGAL. Format B's `target` is 9 bits, `[8:0]` (3.1); its bit 8 is reserved
+(→ FAULT ILLEGAL) unless the context spans (§3), so every earlier encoding keeps its
+meaning. On COMPLETE the next PC is PC+1 unless stated. **PC_RANGE**: an instruction at
+the context's last address (PC = 255, or 511 when it spans) whose outcome would be
+COMPLETE with a sequential next PC (or a CALL there) faults PC_RANGE instead, with no
+effects.
 
 `R[x]` is register x. Flags are unchanged unless listed.
 
@@ -719,7 +737,7 @@ listed.
 | JZ / JNZ / JC / JNC t | PC = t if the condition holds, else PC+1 |
 | LDLC imm16 | lc = imm |
 | DJNZ t | lc = lc − 1 (16-bit wrap); PC = t if the new lc ≠ 0, else PC+1 |
-| CALL t | lr = PC+1, PC = t (PC_RANGE at PC 255) |
+| CALL t | lr = PC+1, PC = t (PC_RANGE at the last address, above) |
 | RET | PC = lr |
 | IRQ code | irq_pending = 1, irq_code = code (sticky; cleared by the host) |
 | HALT (wait) | if the FIFO after retirement at E_c is empty, the checker is not active after E_c and (v1.4) the context does not own an engaged line unit during cycle c: state = HALTED at E_c, PC unchanged, pins retained, and an armed receiver of its line unit is cancelled; else WAIT |
@@ -863,9 +881,10 @@ clear, mailboxes empty, `now = 0`.
 **Start** at E_s:
 - run = 1 and `now` = 0 in the next cycle.
 - Each context k: state = RUNNING if `ctx_enable[k]` else IDLE; paired (v1.7, §3) if
-  `ctx_pair[k]` and not `ctx_enable[k ^ 2]`, for the whole run. No instruction is in
-  flight.
-- r0–r3 = sh = tmr = 0, lc = 0, lr = 0, Z = C = 0, PC = entry_pc[k], ish = 0.
+  `ctx_pair[k]` and not `ctx_enable[k ^ 2]`, and spanning (3.1, §3) if `ctx_span[k]` and
+  not `ctx_enable[k ^ 2]`, both for the whole run. No instruction is in flight.
+- r0–r3 = sh = tmr = 0, lc = 0, lr = 0, Z = C = 0, PC = entry_pc[k], ish = 0. Entry
+  PCs are 8 bits, so a spanning context starts in its own page (PC[8] = 0).
 - FIFO empty, checker idle with counts 0 and no fail record, EXPECT history cleared.
 - min_lead = 0xFFFF, max_occupancy = 0, wait_full = 0, IRQ clear.
 - `val = oe = 0`, first-fault cleared, mailboxes emptied.
@@ -909,6 +928,8 @@ first fetch is at t + 1 and its timing certificate holds unchanged.
 
 A program word written during a run (host WRITE_IMEM, v1.7) is written in a cycle whose
 fetch slot belongs to a context that is not RUNNING, and fetches after that cycle read it.
+(3.1: a spanning context fetches from two pages; a word written into either is read by
+its next fetch of that address.)
 
 ## 10. Observation interface (verification only)
 
@@ -925,11 +946,11 @@ per-context state (state, registers, ish, telemetry, checker status, IRQ) and th
 first-fault register.
 
 **RTL ports** (core module `esc_core`): `dbg_commit_valid`, `dbg_commit_ctx[1:0]`,
-`dbg_commit_pc[7:0]`, `dbg_commit_insn[31:0]` and `dbg_commit_outcome[1:0]` (0 C, 1 W,
+`dbg_commit_pc[8:0]` (3.1; `[7:0]` before), `dbg_commit_insn[31:0]` and `dbg_commit_outcome[1:0]` (0 C, 1 W,
 2 F) describe a commit at E_c and are valid **during cycle c+1**. During that same cycle,
 `dbg_post_*` show the committed context's registers (post-commit): `dbg_post_r0..r3`,
 `dbg_post_sh`, `dbg_post_lc[15:0]`, `dbg_post_tmr`, `dbg_post_z`, `dbg_post_c`,
-`dbg_post_pc[7:0]`. A combinational read port `dbg_sel_ctx[1:0]`, `dbg_sel[3:0]` →
+`dbg_post_pc[8:0]` (3.1). A combinational read port `dbg_sel_ctx[1:0]`, `dbg_sel[3:0]` →
 `dbg_rdata[31:0]` exposes the state (selects 0–8 as described below the map). The ISS writes the same fields as JSON lines.
 
 `dbg_sel` map (fields not listed read 0; 14 and 15 ignore `dbg_sel_ctx`):
@@ -940,14 +961,14 @@ first-fault register.
 | 4 | sh |
 | 5 | lc in [15:0] |
 | 6 | tmr |
-| 7 | [23:16] lr, [15:8] PC, [3:2] state (0 IDLE, 1 RUNNING, 2 HALTED, 3 FAULTED), [1] Z, [0] C |
+| 7 | [25] lr[8], [24] PC[8] (3.1, 0 unless the context spans), [23:16] lr[7:0], [15:8] PC[7:0], [3:2] state (0 IDLE, 1 RUNNING, 2 HALTED, 3 FAULTED), [1] Z, [0] C |
 | 8 | ish |
 | 9 | [31:16] min_lead, [15:0] wait_full |
 | 10 | [31:24] fail_count, [23:16] pass_count, [10:8] max_occupancy, [6:4] FIFO count, [1] checker active, [0] failed since start |
 | 11 | first_fail tick |
 | 12 | [23:16] first_fail mask, [15:8] first_fail level, [7:0] first_fail observed |
 | 13 | [8] irq_pending, [7:0] irq_code |
-| 14 | first-fault: [31] valid, [27:24] cause, [23:20] subcode, [17:16] ctx, [7:0] PC |
+| 14 | first-fault: [31] valid, [27:24] cause, [23:20] subcode, [17:16] ctx, [8:0] PC ([8] since 3.1) |
 | 15 | first-fault tick |
 | 16 | execution digest `dg` (v1.1) |
 | 17 | capture status, as GETC |
@@ -987,7 +1008,8 @@ dg  <= ((dg << 1) mod 2^32) XOR (dg[31] ? 0x04C11DB7 : 0) XOR x_t
 x_t  = ((uio_oe_t << 24) | (uio_out_t << 16) | ((ob_t XOR 0x1F) << 8)) XOR cw_t XOR wv_t
        (outputs during t, §5; a released bank B folds as 0)
 cw_t = a commit observed at E_t ? (outcome << 14) | (ctx << 12) | pc : 0
-       (outcome 0 COMPLETE, 1 WAIT, 2 FAULT, as dbg_commit_*)
+       (outcome 0 COMPLETE, 1 WAIT, 2 FAULT, as dbg_commit_*; pc is 9 bits since
+       3.1, and a program that does not span has pc[8] = 0, so its digest is unchanged)
 wv_t = XOR of every register value written at E_t: the rd result of a COMPLETE
        MOV, MOVI, MOVHI, ADD, ADDI, SUB, AND, OR, XOR, SHL, SHR (n = 0: the unchanged
        value), STSH, RDTIME, GETP, GETI, GETX, POP, GETC or GETL (v1.4) committing at
@@ -1001,7 +1023,8 @@ bank B (`ob` stays 0x1F) produces the same digest as on 1.1.0.
 - Clock and control: `clk`, `rst_n`, `start`, `stop`.
 - Configuration: `ctx_enable[3:0]`, `entry_pcs[31:0]` (ctx k at [8k+7:8k]),
   `pin_owned[12:0]`, `pin_owner[25:0]` (pin p at [2p+1:2p]), `pin_od[7:0]`,
-  `ctx_bank[3:0]` (v1.2), `ctx_page[7:0]` (v2, ctx k at [2k+1:2k]).
+  `ctx_bank[3:0]` (v1.2), `ctx_page[7:0]` (v2, ctx k at [2k+1:2k]), `ctx_span[3:0]`
+  (3.1).
 - Instruction memory: `imem_addr[9:0]` out (v2; `[7:0]` before), `imem_rdata[31:0]` in.
 - Pins: `uio_in[7:0]`, `uio_out[7:0]`, `uio_oe[7:0]`; bank B (v1.2) `ib_in[4:0]`
   (`ui_in[7:3]`) and `ob_out[4:0]` (`uo_out[7:3]`).

@@ -52,7 +52,9 @@ def ctx_reg(core, ctx, sel):
     if sel < 4:
         return v(f"o_r{sel}")
     if sel == 7:
-        return (v("o_lr") << 16) | (v("o_pc") << 8) | (v("o_state") << 2) | (v("o_z") << 1) | v("o_c")
+        lr, pc = v("o_lr"), v("o_pc")          # 3.1: bit 8 of each in bits 25 and 24
+        return ((lr >> 8 << 25) | (pc >> 8 << 24) | ((lr & 0xFF) << 16) | ((pc & 0xFF) << 8)
+                | (v("o_state") << 2) | (v("o_z") << 1) | v("o_c"))
     return v({4: "o_sh", 5: "o_lc", 6: "o_tmr", 8: "o_ish"}[sel])
 
 class Env:
@@ -614,8 +616,10 @@ async def test_reserved_bits_fault(dut):
     contexts at a time. Words that differ only in a reserved bit are otherwise never run:
     the random programs draw raw words uniformly, about one in 256 per opcode."""
     from esciss.decode import ISA
+    # 3.1: a format B target's bit 8 decodes (the field is [8:0]) but faults ILLEGAL in a
+    # context that does not span, as every context here
     words = [(op << 24) | (1 << b) for op in sorted(ISA.by_op) for b in range(24)
-             if _iss_illegal((op << 24) | (1 << b))]
+             if _iss_illegal((op << 24) | (1 << b)) or (ISA.by_op[op].format == "B" and b == 8)]
     words += [op << 24 for op in range(256) if op not in ISA.by_op]
     assert len(words) == 905 + 201
     env = await new_env(dut)
