@@ -5,7 +5,8 @@
 ; Listening, the line unit is configured to receive and armed. The context waits in slices of
 ; SLICE ticks: each slice ends early if a reception ends, and between slices the context checks
 ; the host's mailbox. Every SLICES slices (16 ms) it sends a normal link pulse on TD+/TD- with
-; timed pin events, since the line unit is busy receiving.
+; timed pin events, since the line unit is busy receiving: both pins low for 100 ns, then TD+
+; high for 100 ns, then released (the low lead: README.md, Ethernet).
 ;
 ; A received frame stays in the tape (words RB..), and the host reads it there: the context
 ; pushes only a header word and keeps sending link pulses while the host reads, with the
@@ -163,6 +164,8 @@ hcmd:
 ; ---- a link pulse LEAD ticks after tmr; tmr = its end
 pulse:
     ADDT  LEAD
+    EMIT  M, 0, M            ; both low
+    ADDT  W
     EMIT  M, 1 << TDP, M     ; TD+ high, TD- low
     ADDT  W
     EMIT  M, 0, 0            ; released
@@ -204,6 +207,8 @@ swait:
     RDTIME r2                ; a link pulse (r2 is free until the POP)
     SETT  r2
     ADDT  LEAD
+    EMIT  M, 0, M
+    ADDT  W
     EMIT  M, 1 << TDP, M
     ADDT  W
     EMIT  M, 0, 0
@@ -263,6 +268,8 @@ sput:
     RDTIME r0                ; a link pulse (r0 is free here)
     SETT  r0
     ADDT  LEAD
+    EMIT  M, 0, M
+    ADDT  W
     EMIT  M, 1 << TDP, M
     ADDT  W
     EMIT  M, 0, 0

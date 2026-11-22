@@ -7,8 +7,8 @@ longest quiet gap on the wire must stay under 50 ms with slow register writes.
 
 The receive bench (eth_rx_bench.asm: firmware/eth_rx.asm in context 0, eth_link.asm's link
 pulses in context 1) runs on the ISS at 40 MHz against escmodels.EthSource: each frame must
-arrive byte for byte with its FCS judged good, and the link pulses must be 100 ns long and
-16 ms apart, with both-edge sampling and with one sample a tick.
+arrive byte for byte with its FCS judged good, and the link pulses must keep their shape
+(link_pulses) and be 16 ms apart, with both-edge sampling and with one sample a tick.
 
 The receive line check (eth_edges.asm, ethbench.edges): the capture unit records a frame's
 edges on RXP and line_check() judges the high and low times; the cases include the three
@@ -74,6 +74,14 @@ def driven(changes):
             out.append((start, t))
             start = None
     return out
+
+
+def link_pulses(changes):
+    """First tick of each EMIT link pulse (eth_link.asm, eth_trx.asm): both pins low for 100 ns,
+    then TD+ high and TD- low for 100 ns, then both released."""
+    return [a[0] for a, b, c in zip(changes, changes[1:], changes[2:])
+            if a[1:] == (0, 3) and b[1:] == (1, 3) and c[2] == 0
+            and b[0] - a[0] == 4 and c[0] - b[0] == 4]
 
 
 def window(changes, t0, t1):
@@ -206,10 +214,9 @@ def test_rx_bench_receives_frames_and_keeps_the_link(both):
         got.append((h, data[:(h & 0x3FFF) // 8]))
     assert [d for _, d in got] == [f + zlib.crc32(f).to_bytes(4, "little") for f in sent]
     assert all(h >> 31 == 1 and (h >> 28) & 7 == 0 for h, _ in got)
-    pulses = driven([(c[0], c[1], c[2]) for c in board.changes])
-    assert [b - a for a, b in pulses] == [4, 4], pulses
-    assert pulses[1][0] - pulses[0][0] == 16 * TICKS_MS
-    assert all(c[1] == 1 for c in board.changes if c[2] == 3)    # TD+ high, TD- low
+    pulses = link_pulses(board.changes)
+    assert len(pulses) == 2 and len(driven(board.changes)) == 2, board.changes
+    assert pulses[1] - pulses[0] == 16 * TICKS_MS
     assert not m.ff.valid
 
 
@@ -277,7 +284,7 @@ def records(runs, t=1000):
     ([(1, 3), (0, 1)] * 40 + [(1, 7), (0, 1)] * 8, "edges missed, lows short"),
     ([(1, 2), (0, 2)] * 30 + [(1, 3), (0, 1), (1, 7), (0, 1)] * 6, "edges missed, lows short"),
     ([(1, 2), (0, 2)] * 40 + [(1, 4), (0, 4), (1, 2), (0, 4), (1, 4), (0, 2)] * 6, "clean"),
-    ([(1, 3), (0, 1)] * 40 + [(1, 5), (0, 3)] * 20, "decodable, no missed edge, but the lows"),
+    ([(1, 3), (0, 1)] * 40 + [(1, 5), (0, 3)] * 20, "decodable, no missed edge; the lows read"),
     ([(1, 1), (0, 3)] * 30 + [(1, 1), (0, 7)] * 5, "edges missed, highs short"),
     ([], "no frame seen"),
 ])
@@ -333,6 +340,18 @@ def echo_request(seq=1, data=b"abcdefghijklmnopqrstuvwabcdefghi"):
     return ethbench.SRC + LAPTOP + b"\x08\x00" + bytes(ip) + bytes(icmp)
 
 
+def udp_request(data=b"Escapement UDP echo 0042", sport=50007, dport=7):
+    udp = bytearray(sport.to_bytes(2, "big") + dport.to_bytes(2, "big")
+                    + (8 + len(data)).to_bytes(2, "big") + bytes(2) + data)
+    c = ethbench._csum(LAPTOP_IP + CHIP_IP + b"\x00\x11" + bytes(udp[4:6]) + bytes(udp))
+    udp[6:8] = bytes((c >> 8, c & 0xFF))
+    ip = bytearray(bytes.fromhex("4500") + (20 + len(udp)).to_bytes(2, "big")
+                   + bytes.fromhex("1235 0000 80 11 0000") + LAPTOP_IP + CHIP_IP)
+    c = ethbench._csum(ip)
+    ip[10:12] = bytes((c >> 8, c & 0xFF))
+    return ethbench.SRC + LAPTOP + b"\x08\x00" + bytes(ip) + bytes(udp)
+
+
 def test_reply_to():
     r = ethbench.reply_to(arp_request(), ethbench.SRC, CHIP_IP)
     assert len(r) == 60 and r[:6] == LAPTOP and r[6:12] == ethbench.SRC
@@ -346,6 +365,13 @@ def test_reply_to():
     assert ethbench._csum(r[14:34]) == 0 and ethbench._csum(r[34:len(q)]) == 0
     assert r[34] == 0 and r[38:42] == q[38:42] and r[42:len(q)] == q[42:]
     assert ethbench.reply_to(q[:-2], ethbench.SRC, bytes(4)) is None
+    q = udp_request()
+    r = ethbench.reply_to(q, ethbench.SRC, CHIP_IP)
+    assert r[:6] == LAPTOP and r[23] == 17 and r[26:30] == CHIP_IP and r[30:34] == LAPTOP_IP
+    assert r[34:38] == q[36:38] + q[34:36] and r[42:len(q)] == q[42:]
+    assert ethbench._csum(r[14:34]) == 0
+    assert ethbench._csum(CHIP_IP + LAPTOP_IP + b"\x00\x11" + r[38:40] + r[34:len(q)]) == 0
+    assert ethbench.reply_to(udp_request(dport=9), ethbench.SRC, CHIP_IP) is None
 
 
 def trx_image():
@@ -381,7 +407,7 @@ def test_trx_receives_answers_and_keeps_the_link():
     data = to_bytes(bits)
     assert data[8:8 + len(reply)] == reply
     assert int.from_bytes(data[8 + len(reply):12 + len(reply)], "little") == zlib.crc32(reply)
-    pulses = [a for a, b in runs if b - a == 4]
+    pulses = link_pulses(board.changes)
     gaps = [b - a for a, b in zip(pulses, pulses[1:])]
     assert len(pulses) >= 2 and all(16 * TICKS_MS <= g < 17 * TICKS_MS for g in gaps), pulses
     assert pulses[0] < 17 * TICKS_MS
@@ -458,7 +484,7 @@ def _frames_sent(board):
 def _pulses_kept(board, end):
     """Link pulses 16 ms apart from the first to `end`, through every wait on the host (a
     link partner drops the link after 50 to 150 ms without one)."""
-    pulses = [a for a, b in driven(board.changes) if b - a == 4]
+    pulses = link_pulses(board.changes)
     gaps = [b - a for a, b in zip(pulses, pulses[1:])]
     assert pulses[0] < 17 * TICKS_MS and pulses[-1] > end - 17 * TICKS_MS, pulses
     assert all(16 * TICKS_MS <= g < 17 * TICKS_MS for g in gaps), gaps
@@ -524,33 +550,33 @@ class TrxChip(RxChip):
 
 
 def test_ping_through_the_bare_pico(tmp_path):
-    """ethbench.ping(): the laptop's ARP request and then its echo request arrive; the Pico
-    reads each from the tape and the chip sends the ARP reply and the echo reply."""
+    """ethbench.ping(): the laptop's ARP request, its echo request and a UDP echo datagram
+    arrive; the Pico reads each from the tape and the chip sends the three replies."""
     im = trx_image()
     used = [i for i, w in enumerate(im.words) if w]
     (tmp_path / "eth_trx.json").write_text(json.dumps(
         {"words": im.words[: max(used) + 1], "tape": {str(a): im.tape[a] for a in im.tape_used},
          "cfg": [im.ctx_enable_mask, im.entry_pcs_packed, im.pin_owned_mask,
                  im.pin_owner_packed, im.pin_od_mask, im.ctx_bank_mask, im.ctx_pair_mask]}))
-    arp, echo = arp_request(), echo_request(3)
-    src = EthSource(2, [(30 * TICKS_MS, wire_bits(arp)), (45 * TICKS_MS, wire_bits(echo))],
-                    RX_BIT_HT, ppm=-100.0)
+    arp, echo, udp = arp_request(), echo_request(3), udp_request()
+    src = EthSource(2, [(30 * TICKS_MS, wire_bits(arp)), (45 * TICKS_MS, wire_bits(echo)),
+                        (60 * TICKS_MS, wire_bits(udp))], RX_BIT_HT, ppm=-100.0)
     chip = TrxChip(src)
     board = MockBoard(chip, op_ns=1000)
     io = barepico.open_io(machine=GpioMachine(board), time_mod=board.time_mod,
                           sys_hz=ethbench.SYS_HZ)
     lines = []
-    n = ethbench.ping(seconds=1, ip="169.254.0.42", count=2, bundles=str(tmp_path), io=io,
+    n = ethbench.ping(seconds=1, ip="169.254.0.42", count=3, bundles=str(tmp_path), io=io,
                       out=lines.append)
     log = "\n".join(lines)
-    assert n is not None and n["ARP replies"] == 1 and n["echo replies"] == 1, log
+    assert n is not None and n["ARP replies"] == n["echo replies"] == n["UDP echoes"] == 1, log
     assert chip.timing_violations == 0
     frames = [r for r in driven(chip.changes) if r[1] - r[0] > 64]
     sent = []
     for s, e in frames:
         bits, _ = frame_bits(window(chip.changes, s, e + 1), 0)
         sent.append(to_bytes(bits)[8:])
-    want = [ethbench.reply_to(f, ethbench.SRC, CHIP_IP) for f in (arp, echo)]
+    want = [ethbench.reply_to(f, ethbench.SRC, CHIP_IP) for f in (arp, echo, udp)]
     assert [d[:-4] for d in sent] == want, log
     assert all(int.from_bytes(d[-4:], "little") == zlib.crc32(d[:-4]) for d in sent)
-    assert "-> ARP reply" in log and "-> echo reply" in log
+    assert "-> ARP reply" in log and "-> echo reply" in log and "-> UDP echo" in log
