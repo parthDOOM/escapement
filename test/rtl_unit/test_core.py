@@ -1596,6 +1596,7 @@ async def test_tripwires_teeth(dut):
             dut.stop.value = 0
             await env.run(8)
             assert await env.rd(27) == 0, f"bit {bit}: set by the stop"
+        t_forced = int(dut.u_core.now.value)     # the tick the forcing edge records
         for name, v in nets:
             getattr(dut.u_core, name).value = Force(v(dut) if callable(v) else v)
         for _ in range(n):
@@ -1609,6 +1610,12 @@ async def test_tripwires_teeth(dut):
         await FallingEdge(dut.clk)
         got = await env.rd(27)
         assert got == 1 << bit, f"bit {bit}: tripwires read 0x{got:03x} after the fault"
+        if bit == 0:
+            # a late head is also the first fault: LATE_HEAD on context 0, at the tick of the
+            # edge that saw it (11-22: no other test reaches this record's late branch)
+            ff = await env.rd(14)
+            assert ff >> 31 == 1 and (ff >> 24) & 0xF == LATE_HEAD and (ff >> 16) & 3 == 0, hex(ff)
+            assert await env.rd(15) == t_forced, "bit 0: the late fault's tick"
         await env.run(1000)
         got = await env.rd(27)
         assert got == 1 << bit, f"bit {bit}: 0x{got:03x} 1,000 cycles later (must hold)"
