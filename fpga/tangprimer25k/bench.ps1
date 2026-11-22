@@ -11,6 +11,7 @@
 #   .\bench.ps1 ethrx [-Opts "seconds=60"]   # 10BASE-T frames into eth_rx (the receive bench)
 #   .\bench.ps1 ethedges              # receive line check: high and low times on RXP
 #   .\bench.ps1 swd                   # swd_idcode debugs a second Pico (README.md, SWD)
+#   .\bench.ps1 usb ["more text"]     # the chip as a USB keyboard on this laptop types a line (README.md, USB keyboard)
 #   .\bench.ps1 repl                  # MicroPython REPL (Ctrl-] to leave)
 #
 # Environment (all optional): MPREMOTE (default: mpremote on PATH, else the one pip put in
@@ -66,7 +67,9 @@ function Deploy-Files {
         @{ src = "$Here\barepico.py"; dst = "barepico.py" },
         @{ src = "$Here\pinid.py"; dst = "pinid.py" },
         @{ src = "$Here\ethbench.py"; dst = "ethbench.py" },
-        @{ src = "$Here\swdbench.py"; dst = "swdbench.py" }
+        @{ src = "$Here\swdbench.py"; dst = "swdbench.py" },
+        @{ src = "$Here\usbbench.py"; dst = "usbbench.py" },
+        @{ src = "$Repo\sw\rp2350\escapement_demo.py"; dst = "escapement_demo.py" }
     )
     $bdir = Join-Path $Build "bundles"
     if (-not (Test-Path $bdir)) { throw "no ${bdir}: run .\bench.ps1 bundles first" }
@@ -121,6 +124,40 @@ switch ($Cmd) {
     "ethedges" { Invoke-Mp @("exec", "$EthImport; ethbench.edges($Opts)") }
     "ethping" { Invoke-Mp @("exec", "$EthImport; ethbench.ping($Opts)") }
     "swd" { Invoke-Mp @("exec", "import swdbench; swdbench.run($Opts)") }
+    "usb" {
+        # The chip types into the focused window, which must be this one; a job watches
+        # Windows' device list for the keyboard and its product string.
+        $line = "escapement usb_hid " + (Get-Random -Minimum 100000 -Maximum 999999)
+        if ($Arg) { $line += " " + $Arg }        # more text to type (letters, digits, space, .,-=;/)
+        $typed = Join-Path $env:TEMP "escapement-usb-typed.txt"
+        Remove-Item $typed -ErrorAction SilentlyContinue
+        $rd = "`$Host.UI.RawUI.WindowTitle = 'escapement keyboard'; " +
+              "`$l = Read-Host 'the chip types here'; Set-Content -Encoding ascii -Path '$typed' -Value `$l"
+        $win = Start-Process powershell -PassThru -ArgumentList @("-NoProfile", "-Command", $rd)
+        $watch = Start-Job {
+            $t0 = Get-Date; $seen = $null
+            while (((Get-Date) - $t0).TotalSeconds -lt 40 -and -not $seen) {
+                $d = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+                    Where-Object { $_.InstanceId -match "^USB\\VID_1209&PID_0001" } | Select-Object -First 1
+                if ($d) {
+                    $desc = (Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName DEVPKEY_Device_BusReportedDeviceDesc -ErrorAction SilentlyContinue).Data
+                    $seen = "after {0:N1} s: {1} ({2}), status {3}, product string '{4}'" -f ((Get-Date) - $t0).TotalSeconds, $d.FriendlyName, $d.InstanceId, $d.Status, $desc
+                }
+                Start-Sleep -Milliseconds 500
+            }
+            if ($seen) { "windows: keyboard enumerated $seen" } else { "windows: no USB\VID_1209&PID_0001 device appeared in 40 s" }
+        }
+        $o = "'" + $line + "\n'"; if ($Opts) { $o += ", " + $Opts }
+        try { Invoke-Mp @("exec", "import gc; import bringup; gc.collect(); import usbbench; gc.collect(); usbbench.run($o)") }
+        finally {
+            Write-Output (Receive-Job $watch -Wait -AutoRemoveJob)
+            for ($i = 0; $i -lt 20 -and -not (Test-Path $typed); $i++) { Start-Sleep -Milliseconds 250 }
+            if (-not $win.HasExited) { Stop-Process -Id $win.Id -ErrorAction SilentlyContinue }
+        }
+        $got = if (Test-Path $typed) { (Get-Content $typed -Raw).Trim() } else { $null }
+        if ($got -eq $line) { Write-Output "USB: PASS  the window received '$got', the line the chip was given" }
+        else { Write-Output "USB: FAIL  expected '$line', the window received '$got'" }
+    }
     "proof" {
         New-Item -ItemType Directory -Force $Build | Out-Null
         $dst = Join-Path $Build ("proof-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".json")

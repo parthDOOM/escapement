@@ -1,0 +1,44 @@
+# fpga/tangprimer25k: .\bench.ps1 usb -Opts "enumerate_ms=8000" (run 1), then five more runs, the last with extra text
+# chip.fs sha256 6cd77342... (results/2026-11-22/chip.MANIFEST); usb_hid.json from b78feb7 (firmware/usb_hid.asm unchanged since)
+#### run 1
+17:07:40.280 usb: chip at 24.000 MHz (RP system clock 144 MHz); usb_hid running
+17:07:40.284 usb: D- pull-up on (GP9 high): the keyboard is attached
+17:07:40.284 usb: waiting 8000 ms for the computer to enumerate the keyboard
+17:07:50.691 usb: typed 26 characters in 52 key reports, no fault: 'escapement usb_hid 156620\n'; detached
+17:07:50.736 windows: keyboard enumerated after 9.4 s: USB Input Device (USB\VID_1209&PID_0001\5&274D72C6&0&6), status OK, product string 'Escapement'
+17:07:50.756 USB: PASS  the window received 'escapement usb_hid 156620', the line the chip was given
+#### run 2
+17:09:54.424 usb: chip at 24.000 MHz (RP system clock 144 MHz); usb_hid running
+17:09:54.424 usb: D- pull-up on (GP9 high): the keyboard is attached
+17:09:54.424 usb: waiting 8000 ms for the computer to enumerate the keyboard
+17:10:04.832 usb: typed 26 characters in 52 key reports, no fault: 'escapement usb_hid 328159\n'; detached
+17:10:04.870 windows: keyboard enumerated after 7.4 s: USB Input Device (USB\VID_1209&PID_0001\5&274D72C6&0&6), status OK, product string 'Escapement'
+17:10:04.877 USB: PASS  the window received 'escapement usb_hid 328159', the line the chip was given
+#### run 3
+17:10:13.994 usb: chip at 24.000 MHz (RP system clock 144 MHz); usb_hid running
+17:10:14.011 usb: D- pull-up on (GP9 high): the keyboard is attached
+17:10:14.011 usb: waiting 8000 ms for the computer to enumerate the keyboard
+17:10:24.424 usb: typed 26 characters in 52 key reports, no fault: 'escapement usb_hid 373858\n'; detached
+17:10:24.439 windows: keyboard enumerated after 7.8 s: USB Input Device (USB\VID_1209&PID_0001\5&274D72C6&0&6), status OK, product string 'Escapement'
+17:10:24.472 USB: PASS  the window received 'escapement usb_hid 373858', the line the chip was given
+#### run 4
+17:10:33.601 usb: chip at 24.000 MHz (RP system clock 144 MHz); usb_hid running
+17:10:33.618 usb: D- pull-up on (GP9 high): the keyboard is attached
+17:10:33.618 usb: waiting 8000 ms for the computer to enumerate the keyboard
+17:10:44.015 usb: typed 26 characters in 52 key reports, no fault: 'escapement usb_hid 240298\n'; detached
+17:10:44.029 windows: keyboard enumerated after 7.4 s: USB Input Device (USB\VID_1209&PID_0001\5&274D72C6&0&6), status OK, product string 'Escapement'
+17:10:44.031 USB: PASS  the window received 'escapement usb_hid 240298', the line the chip was given
+#### run 5
+17:10:53.142 usb: chip at 24.000 MHz (RP system clock 144 MHz); usb_hid running
+17:10:53.142 usb: D- pull-up on (GP9 high): the keyboard is attached
+17:10:53.142 usb: waiting 8000 ms for the computer to enumerate the keyboard
+17:11:03.559 usb: typed 26 characters in 52 key reports, no fault: 'escapement usb_hid 693905\n'; detached
+17:11:03.581 windows: keyboard enumerated after 7.3 s: USB Input Device (USB\VID_1209&PID_0001\5&274D72C6&0&6), status OK, product string 'Escapement'
+17:11:03.581 USB: PASS  the window received 'escapement usb_hid 693905', the line the chip was given
+#### run 6
+17:11:12.719 usb: chip at 24.000 MHz (RP system clock 144 MHz); usb_hid running
+17:11:12.719 usb: D- pull-up on (GP9 high): the keyboard is attached
+17:11:12.719 usb: waiting 8000 ms for the computer to enumerate the keyboard
+17:11:28.648 usb: typed 151 characters in 302 key reports, no fault: 'escapement usb_hid 776783 the quick brown fox jumps over the lazy dog 0123456789. escapement types this through usb_hid on the fpga bench, 22 nov 2026\n'; detached
+17:11:28.663 windows: keyboard enumerated after 8.7 s: USB Input Device (USB\VID_1209&PID_0001\5&274D72C6&0&6), status OK, product string 'Escapement'
+17:11:28.667 USB: PASS  the window received 'escapement usb_hid 776783 the quick brown fox jumps over the lazy dog 0123456789. escapement types this through usb_hid on the fpga bench, 22 nov 2026', the line the chip was given
