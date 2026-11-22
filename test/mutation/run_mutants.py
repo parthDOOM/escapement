@@ -281,9 +281,6 @@ EXCLUDED = {
     "esc_line_stuck_e1b77044": "the CONFIG that completes here set cause to OK when it was issued, and "
                                "nothing changes cause while the unit stays in CFG: every operation that "
                                "sets another cause also leaves CFG (RECV with no receiver to IDLE)",
-    "project_const_25d7c148": "pin_h reloads from the pins at every falling edge, so its reset value lives "
-                              "half a cycle; it reaches only the line unit's receive strobe (h2, h3), which "
-                              "acts only in a receive, many cycles after a start",
     # reset and idle values of state that is always loaded before anything reads it
     "esc_core_const_ed962f97": "s2 reloads from s1 at every edge, so its reset value lives one cycle; nothing "
                                "reads the synchronised pins before a START, which takes a whole SPI frame",

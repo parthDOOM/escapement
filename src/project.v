@@ -35,6 +35,21 @@ module tt_um_escapement (
   // select 27 reads 0), cycle for cycle.
   localparam integer TRIPWIRES = 1;
 
+  // ------------------------------------------------------------------ reset
+  // rst_n enters the chip asynchronously to clk: the board's microcontroller releases it
+  // whenever its firmware gets there. Every register and latch bank takes its reset from
+  // rst_n_s instead, which falls with rst_n at once (no clock needed) but rises only on a
+  // clock edge, two flip-flops after rst_n does. The release then reaches the whole chip
+  // from one flip-flop on a known edge, and the flow times its spread across the reset tree
+  // like any other path in the clock period. Fed straight from the pin, the release was
+  // timed from the 20% input delay assumed for every input, which left the latch banks a
+  // partial period at best (docs/06 D-63).
+  reg  [1:0] rst_q;
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) rst_q <= 2'b00;
+    else        rst_q <= {rst_q[0], 1'b1};
+  wire rst_n_s = rst_q[1];
+
   // ------------------------------------------------------------------ host
   wire         start, stop, running, fault_valid, miso;
   wire [3:0]   ctx_stop, ctx_start;            // live reload
@@ -62,7 +77,7 @@ module tt_um_escapement (
   wire [127:0] mbx_rx_data, mbx_tx_data;
 
   escapement_host #(.PAGES(PAGES)) u_host (
-      .clk(clk), .rst_n(rst_n),
+      .clk(clk), .rst_n(rst_n_s),
       .cs_n_pin(ui_in[0]), .sck_pin(ui_in[1]), .mosi_pin(ui_in[2]), .miso(miso),
       .start(start), .stop(stop), .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
@@ -93,7 +108,7 @@ module tt_um_escapement (
   wire       store_we   = (host_mem_we & ~running & ~host_mem_space) | imem_wgnt;
   escapement_pstore #(.PAGES(PAGES), .MACROS(STORE_MACROS)) u_sram (
       .clk  (clk),
-      .rst_n(rst_n),
+      .rst_n(rst_n_s),
       .addr (store_addr),
       .re   (store_re),
       .we   (store_we),
@@ -112,7 +127,7 @@ module tt_um_escapement (
   // With esc_core.sby (a free slot comes within 4 cycles while a context is not RUNNING) and
   // esc_host.sby (a waiting word holds still), a live word is written intact without
   // touching any running context's fetch.
-  always @(*) if (rst_n) begin
+  always @(*) if (rst_n_s) begin
     assume (!core_imem_free || !core_imem_re);
     if (running && imem_wgnt) assert (!core_imem_re);                               // G1
     if (imem_wgnt && (running || !host_mem_re))                                    // G2
@@ -135,7 +150,7 @@ module tt_um_escapement (
   assign      host_tape_gnt = host_tape_req & ~tape_busy;
   escapement_sram u_tape (
       .clk  (clk),
-      .rst_n(rst_n),
+      .rst_n(rst_n_s),
       .addr (tape_busy ? core_tape_addr : host_mem_addr),
       .re   (tape_busy ? core_tape_re : host_tape_gnt),  // D-29: one read per host word
       .we   (tape_busy ? core_tape_we : host_tape_we),
@@ -146,14 +161,14 @@ module tt_um_escapement (
   // rising-edge synchroniser samples them; the core re-times this through two more flops
   // (h2, h3), so the line unit's both-edge decoder sees each pin at two points per tick
   reg [12:0] pin_h;
-  always @(negedge clk or negedge rst_n)
-    if (!rst_n) pin_h <= 13'd0;
+  always @(negedge clk or negedge rst_n_s)
+    if (!rst_n_s) pin_h <= 13'd0;
     else        pin_h <= {ui_in[7:3], uio_in};
 
   // ------------------------------------------------------------------ core
   /* verilator lint_off PINCONNECTEMPTY */
   esc_core #(.TRIPWIRES(TRIPWIRES)) u_core (
-      .clk(clk), .rst_n(rst_n), .start(start), .stop(stop),
+      .clk(clk), .rst_n(rst_n_s), .start(start), .stop(stop),
       .ctx_stop(ctx_stop), .ctx_start(ctx_start),
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),

@@ -558,6 +558,19 @@ pipeline changes and a late closure fight. What it would buy is small: both-edge
 already doubles the input resolution where it matters (D-57), and every protocol in the
 library already runs at 50 MHz or below.
 
+**D-63 A reset synchroniser (3.1).** Until version 3.1, `rst_n` went from the pin straight to
+the reset input of every register and latch bank. The board releases it at no particular
+point in the clock cycle, so the release reached flip-flops on either side of a clock edge
+and was not truly timed: the constraints treated it as any other input, launched 4 ns (20%
+of the period) after a rising edge. That assumption only just held. The latch banks close on
+the falling edge, and span's layout routed the reset to context 3 through 6.3 ns of buffers,
+so a clock high for 40% of the period missed by 0.77 ns at the slow corner. H4 had passed by
+0.82 ns. Two flip-flops in `project.v` now take the reset: they clear as soon as `rst_n`
+falls, without a clock, and release it on the second rising edge after `rst_n` rises. The
+whole chip then leaves reset from one flip-flop on a known edge, and the flow times the
+spread across the reset tree as an ordinary path. The cost is two flip-flops and two cycles
+before the chip answers after reset. Every test already waits five or more.
+
 ## Measured and rejected
 
 - **The tape at the bottom left in version 3.** It anchored the line unit in version 2
