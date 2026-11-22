@@ -295,7 +295,9 @@ layout (`v16s`) does not have the collision, so the proof takes two steps instea
 `esc_line` against `esc_line` after synthesis's FSM pass, then the netlist against the RTL
 with that module ([verification](04-VERIFICATION.md#rtl-to-netlist-equivalence)). Every
 committed layout must also pass LibreLane's disconnected-pin check, which is what caught
-the bug.
+the bug. The defect came back twice, at 60% density in version 3 (D-61) and at 61% in
+version 3.1 (D-65), and each time the check stopped the flow and a nearby density placed
+without the collision.
 
 **D-46 Pair mode, not a faster barrel (v1.7).** A context commits one instruction every 4
 ticks; single-cycle programmable I/O commits every cycle. Issuing every cycle does not fit
@@ -552,11 +554,16 @@ check, LVS and the netlist proofs all catch. The adopted harden meets every crit
 the shuttle's precheck: setup +1.480 ns at the slow corner, hold +0.180 ns
 at the fast corner, no DRC, LVS or antenna violation.
 
-**D-62 The clock stays at 50 MHz.** The shuttle allows 60 MHz. At 8 × 4 the slow corner
-would need about 3 ns more, against under 2 ns of slack at 20 ns, so the gain would mean
-pipeline changes and a late closure fight. What it would buy is small: both-edge sampling
-already doubles the input resolution where it matters (D-57), and every protocol in the
-library already runs at 50 MHz or below.
+**D-62 The rating stays at 50 MHz.** The shuttle allows 60 MHz. In version 3.0 the slow
+corner would have needed about 3 ns more, against under 2 ns of slack at 20 ns, so the gain
+would have meant pipeline changes and a late closure fight. Version 3.1's layout (D-65)
+passes setup at the slow corner down to 16.6 ns, so 60 MHz is now possible, and a later
+version may be rated for it. Not this one: at 16.7 ns less than 0.2 ns is in hand, and the
+Tiny Tapeout multiplexer and pads add delays that the flow does not model. What
+a faster clock would buy is small: both-edge sampling already doubles the input resolution
+where it matters (D-57), and every protocol in the library already runs at 50 MHz or below.
+
+## Version 3.1: span, the electrical rules and the reset
 
 **D-63 A reset synchroniser (3.1).** Until version 3.1, `rst_n` went from the pin straight to
 the reset input of every register and latch bank. The board releases it at no particular
@@ -571,6 +578,79 @@ whole chip then leaves reset from one flip-flop on a known edge, and the flow ti
 spread across the reset tree as an ordinary path. The cost is two flip-flops and two cycles
 before the chip answers after reset. Every test already waits five or more.
 
+**D-64 Span: a 512-word program on a context whose partner is off (3.1).** A page of 256
+words is enough for most programs, but a Modbus RTU device with all of its common functions
+needs 419 words. Pair mode (D-46) already lets a context whose partner, context
+k ^ 2, is not enabled take the partner's issue slots. Span lets it take the partner's page as
+well. The context's program counter and link register grow to 9 bits, and bit 8 selects the
+partner's page, so a spanning program has 512 words and runs straight on from word 255 to
+word 256. Three choices keep the change contained. Span is opt-in per context (configuration
+byte 15), so a program that does not ask for it behaves exactly as on version 3.0, its
+execution digest included, and running past word 255 still faults. It is independent of pair
+mode, because both need only that the partner is off: a context can take the slots, the page,
+or both, and a slow protocol that needs space need not double its issue rate and its power
+to get it. And it needs no new page field, since the host already sets a page for every
+context, enabled or not, and a disabled partner's page is otherwise idle. The silicon cost is
+one more bit in each context's program counter and link register and a multiplexer on the
+fetch page. Span came out of an audit of what the chip's structure limits, which weighed two
+other changes. A larger tape would let Ethernet carry full-size frames, but the tape's 8-bit
+addressing runs through the instruction set, so it would have meant a new instruction
+layout, a macro swap and a new floorplan closure for one protocol's frame size. A faster
+rated clock had no program that needed it (D-62). `modbus_full` is the first spanning
+program. On the FPGA bench its smallest lead was 9 ticks, the bound its
+certificate gives.
+
+**D-65 The electrical rules met at every corner (3.1).** Version 3.0 was signed off with
+electrical-rule violations left unrepaired: 15 pins over the maximum slew at the slow corner
+(the worst 3.62 ns against the library's 2.51 ns), one pin over its maximum capacitance, and
+155 clock-tree buffers over the fanout limit. The timing figures were computed with those
+slews, but a pin beyond its limit is outside the range over which the library was
+characterised, so the margins rested on an extrapolation. A series of trial hardens, each
+measured against the last, traced the violations to five causes, and each fix below answers
+one of them.
+
+- **The resizer underestimated every wire.** It took the wire capacitance from the
+  technology LEF, 0.092 fF/µm; extraction of the 3.0 layout gave a median of 0.185 fF/µm over
+  the 7,243 nets of 100 µm or more. The flow now uses twice the LEF value at every corner, and
+  every step that sets wire parasitics loads all three corners instead of the typical one.
+- **Detailed routing lengthens nets after the last repair.** Nothing repairs after detailed
+  routing, and the nets that failed in 3.0 had been planned at 250 to 280 µm and routed to
+  0.7 to 1.3 mm. The repair after global routing now keeps 40% margins on slew and
+  capacitance instead of 30%, buffers wires longer than 250 µm instead of 300 µm, and global
+  routing derates each layer's capacity by 20% instead of 30%. Metal3 had run at 67 to 70%
+  of its derated capacity, and the re-routes after each repair had detoured around its busy
+  edges.
+- **Repair judged slew at the fast corner only.** OpenROAD's design repair checks slew at the
+  first corner the flow defines, which LibreLane makes the fast one. Measured on every pin of
+  three finished layouts, slow-corner slew is 2.24 to 2.46 times fast-corner slew. With a
+  40% margin, repair acted only above 1.50 ns at the fast corner, about 3.5 ns at the slow
+  one, already past the 2.51 ns limit, so nothing protected the slow corner, and whether a
+  layout passed depended on whether a weak gate happened to get a long route. The placement
+  and routing constraints (`escapement_pnr.sdc`, not the sign-off ones) now set a maximum
+  transition of 1.0 ns. Repair then acts above 0.6 ns at the fast corner, about 1.4 ns at the
+  slow one, which leaves room for detailed routing to lengthen a net.
+- **The memories' input pins are stricter than the cells'.** They allow 0.595 ns at the slow
+  corner, and fast-corner repair could not see the misses. Every switching input of both
+  memories now has its own buffer, driving a net that repair may not touch. A 2× buffer
+  still missed by 3 ps on the longest of those nets, which carry 80 to 137 fF, so the buffers
+  are 4×. Simulation, the proofs and the equivalence check see a wire.
+- **The clock tree drove its leaves with 8× buffers.** Clock-tree synthesis sized each leaf
+  buffer for a load it never had. Letting it size them to their real load (the sink buffer
+  capacitance derate at 100%) gave 1× leaves, cut the clock tree's power by 6.6%, and took the
+  fanout flags from 176 to 17.
+
+The 17 flags left are the roots of gated clocks, each driving 16 loads against the
+library's limit of 8 while passing slew and capacitance with room. They are accepted: the
+fanout limit stands in for those two checks, and splitting the roots (sink clustering at 8)
+raised the clock tree's power by 32% and left new slew failures elsewhere. The placement
+density moved from 61% to 61.7%. With the reset synchroniser in place, 61% hit OpenROAD's
+lost clock-gate input again (D-45), 61.5% left five slew pins before the fixes for the fast
+corner and the memory inputs, and 61.3% missed setup at the slow corner by 0.42 ns. The
+adopted layout has no slew or capacitance violation at any corner, meets setup down to
+16.6 ns and hold by 0.098 ns at the fast corner, passes the 40% and 60% duty-cycle checks at
+20 ns, and is clean for DRC, LVS and antennas, with 38,514 cells, 3.4% more than version 3.0,
+and a flow power estimate of 7.36 mW against 7.66 mW.
+
 ## Measured and rejected
 
 - **The tape at the bottom left in version 3.** It anchored the line unit in version 2
@@ -581,6 +661,15 @@ before the chip answers after reset. Every test already waits five or more.
 - **The layout art beside the program store (version 3).** The precheck passed, but setup
   fell to +0.60 ns and fast-corner hold to −0.26 ns. D-61.
 - **A 60 MHz clock.** D-62.
+- **More placement draws without a fix (3.1).** Before the fixes for the fast-corner repair
+  and the memory inputs, some trial layouts had no slow-corner slew failure and others had up
+  to nine, each time on a different net and always a single-size complex gate on a long
+  wire. A new density or seed changes which net fails, not whether one can. D-65.
+- **Clock sinks clustered eight to a buffer (3.1).** It removed the fanout flags but raised
+  the clock tree's power by 32% and left two slew failures elsewhere. D-65.
+- **Fixed clock-buffer spacing (3.1).** At 100 to 200 µm it also cleared the fanout flags, but
+  every run then left a slow-corner slew net elsewhere, and with a tighter global-route slew
+  margin and 200 µm wires it added 1,857 cells for the same result. D-65.
 - **Five macros at 8×4 (four 256×32 pages and the tape).** Either the line unit lands at the
   east end (setup −2.2 ns) or, with the pages as a block on the right, global routing
   overflows (1,063). D-50.

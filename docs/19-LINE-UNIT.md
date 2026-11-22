@@ -328,3 +328,13 @@ The real kernel also found bugs in the bridge that its first stand-in for the ke
 had hidden: USB/IP returns no data for OUT transfers, and the bridge could stall when
 keys arrived while it was idle. Both are fixed, and the test now reads replies exactly
 as `vhci_hcd` does.
+
+## On a real USB port
+
+The same firmware runs on the FPGA build of the chip, clocked at 24 MHz by the bench's Pico
+W, with its two data pins wired to a laptop's USB port through two 27 Ω resistors. Windows
+enumerated it as a keyboard with the product string `Escapement`, and in six runs out of six
+the chip typed exactly the line it was given, up to 151 characters, into a window on the
+laptop. The 1.5 kΩ pull-up that announces a low-speed device hangs from a Pico pin, so the
+keyboard appears only once the firmware is running. The circuit, the runs and the commands are
+in [the bench README](../fpga/tangprimer25k/README.md#usb-keyboard-2026-11-22).

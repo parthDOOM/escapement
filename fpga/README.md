@@ -12,7 +12,7 @@ an FPGA design, and both keep the chip's behaviour:
   gives its word from the next cycle and holds it, a write cycle reads nothing, and a write
   wins over a read.
 
-In simulation the FPGA build passes 11 of the 12 chip tests and all 9 firmware-through-the-pins
+In simulation the FPGA build of version 3 passes 11 of the 12 chip tests and all 9 firmware-through-the-pins
 tests, each against the reference model's execution digest. The twelfth chip test,
 `test_store_reads_only_for_the_host_while_stopped`, watches the enable pin of the IHP macro
 inside the program store, which the block-RAM model does not have. To rerun: copy `src/`,
@@ -23,18 +23,18 @@ replace `escapement_sram.v` with `fpga/escapement_sram_fpga.v`, empty
 
 ## Size
 
-Yosys synthesis of the whole chip for three FPGA families (`fpga/estimate.sh`, OSS CAD
-Suite 2026-10-04 as pinned in `scripts/versions.txt`):
+Yosys synthesis of the whole chip, version 3.1, for three FPGA families (`fpga/estimate.sh`,
+OSS CAD Suite 2026-10-04 as pinned in `scripts/versions.txt`):
 
 | Family | Logic | Flip-flops | Block RAM | Boards that fit |
 | --- | ---: | ---: | --- | --- |
-| Xilinx 7-series | 9,948 LUTs | 5,342 | 1 RAMB36 and 1 RAMB18 | Artix-7 35T and larger (Digilent Basys 3, Arty A7, Nexys A7, Cmod A7-35T); Spartan-7 25 (Arty S7-25) |
-| Lattice ECP5 | 14,541 LUT4 (516 CCU2C counted as two each) | 5,091 | 3 DP16KD | LFE5U-25F and larger (ULX3S, OrangeCrab 25F) |
-| Lattice iCE40 | 13,354 LUT4 | 5,093 | 10 RAM40 | none: the UP5K (5,280) and HX8K (7,680) are too small |
+| Xilinx 7-series | 9,988 LUTs | 5,361 | 1 RAMB36 and 1 RAMB18 | Artix-7 35T and larger (Digilent Basys 3, Arty A7, Nexys A7, Cmod A7-35T); Spartan-7 25 (Arty S7-25) |
+| Lattice ECP5 | 14,641 LUT4 (523 CCU2C counted as two each) | 5,109 | 3 DP16KD | LFE5U-25F and larger (ULX3S, OrangeCrab 25F) |
+| Lattice iCE40 | 13,242 LUT4 | 5,111 | 10 RAM40 | none: the UP5K (5,280) and HX8K (7,680) are too small |
 
 `synth_xilinx` keeps the module hierarchy unless told to flatten, so about 250 flip-flops
 that the other two families merge or remove across module boundaries survive there (the
-hierarchy-kept Gowin synthesis of the bench shows the same, 5,298). In all three the 13
+hierarchy-kept Gowin synthesis of the bench shows the same, 5,317). In all three the 13
 falling-edge flip-flops of the half-tick pin sampler map to the family's own falling-edge
 cell (`FDCE_1`, `SB_DFFNR`, an ECP5 slice with its clock inverted), so the clock stays on
 the global network.
@@ -51,12 +51,12 @@ openFPGALoader -b ulx3s fpga/build/ulx3s/escapement.bit
 
 | Board | Logic | Flip-flops | Block RAM | Clock after routing |
 | --- | ---: | ---: | ---: | ---: |
-| Radiona ULX3S 25F (LFE5U-25F) | 14,469 of 24,288 LUT4 (59%) | 5,091 (20%) | 3 of 56 | 41.6 MHz |
-| Radiona ULX3S 85F (LFE5U-85F) | 14,469 of 83,640 (17%) | 5,091 (6%) | 3 of 208 | 39.3 MHz |
+| Radiona ULX3S 25F (LFE5U-25F) | 14,504 of 24,288 LUT4 (60%) | 5,109 (21%) | 3 of 56 | 42.2 MHz |
+| Radiona ULX3S 85F (LFE5U-85F) | 14,504 of 83,640 (17%) | 5,109 (6%) | 3 of 208 | 41.6 MHz |
 
 Both meet 25 MHz, and so 24 MHz for the USB firmware, with no place-and-route warnings
-(OSS CAD Suite 2026-10-04: Yosys 0.69+190, nextpnr 0.11.1-47); each build takes under a
-minute and a half. The design does not fit the 12F's rated 12k LUTs. nextpnr still builds
+(OSS CAD Suite 2026-10-04: Yosys 0.69+190, nextpnr 0.11.1-47); each build takes about
+two minutes. The design does not fit the 12F's rated 12k LUTs. nextpnr still builds
 for it, because the 12F is a 25F die, but use a 25F or larger.
 
 The ULX3S bitstream is built and timed but has not been run on a board; the bench below is
@@ -85,10 +85,12 @@ MOSI, and reads MISO, IRQ and RUN. Every pin is 3.3 V; connect the grounds.
 
 [`tangprimer25k/`](tangprimer25k/README.md) is a working bench: a Raspberry Pi Pico W runs
 the repository's bring-up script against the chip on a Sipeed Tang Primer 25K Dock (Gowin
-GW5A-25). On 2026-11-19 the version 3 RTL, commit `fa0491a`, whose Verilog is the one
-hardened for silicon, ran all 79 programs through the bring-up script, each matching the model
-and its timing certificate. That bitstream failed two of the build's own clock checks: the half-tick sampler's
-falling-edge register is clocked through an inverter that leaves the FPGA's global clock
-network, so it was packed by hand for the run. The scripts, the wiring, the results and
-that limit are in the bench's README, and the [bench page](https://parthdoom.github.io/escapement/fpga/)
+GW5A-25). On 2026-11-22 the version 3.1 RTL, whose Verilog is the one hardened for
+silicon, passed every stage, and all 85 programs with a bench bundle, 80 from the library
+and 5 written for the bench, matched the model and their timing certificates. The bitstream
+builds unaided: the half-tick sampler's falling-edge registers map to the FPGA's own
+falling-edge flip-flops, and the clock reaches every sink on the global network. The same
+bench ran 10BASE-T Ethernet with a laptop in both directions and answered its ping, debugged
+an RP2040 over SWD, and was a USB keyboard on the laptop's port. The scripts, the wiring, the
+results and the limits are in the bench's README, and the [bench page](https://parthdoom.github.io/escapement/fpga/)
 draws every wire.

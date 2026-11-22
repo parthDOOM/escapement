@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { css, fit, useResize, useThemeTick } from "../lib/util";
 
-// docs/15-POWER.md: the first v1.1 netlist, and version 3 as built (at 25 MHz)
-const ROWS: [string, number, number][] = [["Sending UART", 8.61, 4.42], ["Logic analyser", 8.45, 3.97], ["Stopped", 7.99, 3.38]];
+// docs/15-POWER.md: the first v1.1 netlist, and version 3.1 as built (at 25 MHz)
+const ROWS: [string, number, number][] = [["Sending UART", 8.61, 4.42], ["Logic analyser", 8.45, 3.95], ["Stopped", 7.99, 3.36]];
 const MAX = 9;
 
 export function Power() {
@@ -21,7 +21,7 @@ export function Power() {
           </div>
         ))}
       </div>
-      <figcaption>Grey: the first netlist, version 1.1 before clock gating. Brass: version 3 as built.</figcaption>
+      <figcaption>Grey: the first netlist, version 1.1 before clock gating. Brass: version 3.1 as built.</figcaption>
     </figure>
   );
 }
@@ -44,16 +44,18 @@ const VERSIONS = [
     what: "Decode, operands and pin writes a stage earlier: signed off at 20 ns, so the chip is rated up to 50 MHz. 10BASE-T transmit runs inside the rating." },
   { v: "v3", date: "14 Nov", cells: 37230, util: 61.9,
     what: "Eight by four tiles, with what versions 1.7 and 2 built: pair mode and live reload, a 1,024-word store in four pages and proof tripwires. Version 3 adds line-unit receive, a half-tick input sampler and a bus timing monitor. Still signed off at 20 ns." },
+  { v: "v3.1", date: "22 Nov", cells: 38514, util: 62.6,
+    what: "Span: a program can run on into its idle partner's page. A reset synchroniser, and a layout that meets every electrical rule at every corner. Signed off at 20 ns; the slow corner passes down to 16.6 ns." },
 ];
 
 /** Cells of each adopted layout on a labelled axis (the changes are a few thousand cells
- *  on 24,000 to 37,000, which bars from zero hide), with the eight versions in matching columns
+ *  on 24,000 to 38,500, which bars from zero hide), with the nine versions in matching columns
  *  below; on a phone the columns become a vertical timeline. */
 export function History() {
   const ref = useRef<HTMLCanvasElement>(null);
   const [sel, setSel] = useState(VERSIONS.length - 1);
   const theme = useThemeTick();
-  const LO = 22000, HI = 38000;
+  const LO = 22000, HI = 40000;
   const draw = () => {
     const c = ref.current;
     if (!c) return;
@@ -113,7 +115,7 @@ export function History() {
       </ol>
       <figcaption>Standard cells and utilisation of each adopted layout; the axis starts at 22,000 cells. Every
         6 × 4 run, adopted or rejected, is logged with its reason in <code>asic/reports/area.csv</code>, and
-        version 3's adopted layout is its last row.</figcaption>
+        version 3.1's adopted layout is its last row.</figcaption>
     </figure>
   );
 }

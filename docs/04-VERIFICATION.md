@@ -27,20 +27,20 @@ check, each able to catch what the others miss:
 | Equivalence checking | The hardened netlist equals the RTL for every input sequence | `formal/equiv.sh` |
 | Continuous integration | Every check above reruns on each change it depends on | `.github/workflows`, [results page](https://parthdoom.github.io/escapement/#results) |
 
-The numbers in this chapter come from the final continuous-integration runs on version 3
+The numbers in this chapter come from the final continuous-integration runs on version 3.1
 unless a section says otherwise. The final runs at a glance:
 
 | Check | Result |
 | --- | --- |
-| Formal proofs | 100 of 100 tasks pass; 15 planted bugs each make their proof fail |
+| Formal proofs | 110 of 110 tasks pass; 15 planted bugs each make their proof fail |
 | Netlist against RTL | Sequentially equivalent, 336 output bits compared |
 | Lockstep co-simulation | 191 random programs and 74 firmware cases, on two builds of the RTL: no difference |
-| Timing certificates | 80 of 80 programs certified; the measured lead equals the bound in 59 of 74 contexts and is never below it |
-| Mutation testing | 1,010 planted RTL faults: 892 caught, 57 proved harmless, 61 argued harmless, none surviving |
-| Outside judges | decoders written by other people agree with 73 of the 80 programs; every control fails |
-| Planted firmware bugs | 721 timing bugs in 77 programs: 178 refuted with a reproducer, 16 not proven, 527 certified, none certified that can fault |
+| Timing certificates | 81 of 81 programs certified; the measured lead equals the bound in 59 of 74 contexts and is never below it |
+| Mutation testing | 1,017 planted RTL faults: 902 caught, 57 proved harmless, 58 argued harmless, none surviving |
+| Outside judges | decoders written by other people agree with 73 of the 81 programs; every control fails |
+| Planted firmware bugs | 729 timing bugs in 78 programs: 178 refuted with a reproducer, 18 not proven, 533 certified, none certified that can fault |
 | Pads and board | every firmware case still passes with its pins up to three ticks slower each way |
-| Test suites | 1,559 software tests; 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
+| Test suites | 1,615 software tests (5 skipped where a tool is absent); 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
 
 ## How the checks grew
 
@@ -214,6 +214,12 @@ The task has teeth. Measuring the lead from the current tick instead of the next
 with a trace, and computing the tests for the context committing now instead of next fails
 the induction step.
 
+Span (version 3.1) changed what B7 decides. A branch target with bit 8 set, which names the
+partner's page, is legal only for a context that spans, so the registered legality now
+depends on the committing context's configuration as well as on the instruction. A tenth
+lemma, B7s, states that the registered span flag equals that context's configuration bit,
+and B7 is stated with it.
+
 ### The line unit
 
 The line unit does a packet's bit-level work on its own, so it needs its own guarantees.
@@ -273,7 +279,12 @@ stated scope: j itself uses none of the shared units (the capture unit, the line
 the bus monitor), since another context may own or configure those, and the global digest
 and first-fault record are not compared. This proof shaped version 3 directly: with a bus
 monitor that any context could read, the induction failed, and the monitor was given an
-owner ([bus monitor](22-BUS-MONITOR.md)).
+owner ([bus monitor](22-BUS-MONITOR.md)). Span widened what j fetches: a spanning j reads its
+partner's page whenever its program counter's bit 8 is set. The invariant that ties each of
+j's fetches to j's own words therefore covers the whole store address, page and word, in
+both cores, and a spanning context's live reload counts both of its pages. The partner is
+off by definition, so the words j fetches there are still words no other running context
+uses.
 
 ### Proof tripwires
 
@@ -361,20 +372,20 @@ therefore proved in one task. The output-enable parts of P3 and P5 both rest on 
 example, and together with H3 and H4 they prove in two minutes, while alone P5's part did
 not finish in two hours and P3's ran past the three-hour limit on a CI runner.
 
-In the final CI run, on 4-vCPU runners, the 39 core tasks and the ten other proofs and
-covers pass in one job of 72 minutes. The bounded check from reset, split into 47 tasks
-covering 67 assertion lines to depth 20 (`formal/split_bmc.py`, the boolector solver, three
-at a time), passes in 79 minutes in a second job; as one task it had not finished after
+In the final CI run, on 4-vCPU runners, the 44 core tasks and the ten other proofs and
+covers pass in one job of 91 minutes. The bounded check from reset, split into 52 tasks
+covering 72 assertion lines to depth 20 (`formal/split_bmc.py`, the boolector solver, three
+at a time), passes in 87 minutes in a second job; as one task it had not finished after
 16.8 hours. A third job runs the tripwire, line unit and non-interference proofs (four
 tasks) and then the planted bugs. The core proof has grown with the design, from 27 tasks
-in version 1.4 to 39 in version 3; as one task (`sby -f esc_core.sby pdr`) it took 34
+in version 1.4 to 39 in version 3 and 44 in version 3.1; as one task (`sby -f esc_core.sby pdr`) it took 34
 minutes on one core for version 1.3.
 
 ## RTL to netlist equivalence
 
 The proofs above are about the RTL, but the chip is built from the netlist that synthesis,
 placement and routing produce. `make equiv` proves that the two are the same machine: the
-signed-off netlist of version 3 (SHA-256 `fa1f6601eb894419…`, the same from the CI harden
+signed-off netlist of version 3.1 (SHA-256 `1342fef1bc2f9f99…`, the same from the CI harden
 and the local one) is sequentially equivalent to the RTL in `src/` for every input sequence
 after reset.
 
@@ -398,9 +409,9 @@ the RTL reproduced this, and the same flow without the FSM pass proved in 198 s,
 recoding was the whole cause. The proof therefore takes two steps:
 
 1. `esc_line` alone is sequentially equivalent to `esc_line` after synthesis's FSM pass
-   (the same miter at module level: 22 outputs, 156 bits; 9 s);
+   (the same miter at module level: 22 outputs, 156 bits; 10 s);
 2. the netlist is sequentially equivalent to the RTL with that `esc_line` in place
-   (336 bits; 317 s).
+   (336 bits; 349 s).
 
 A module that is equivalent at every output from reset, for every input sequence, changes
 nothing around it (every flip-flop and latch bank resets asynchronously, so nothing it
@@ -485,8 +496,8 @@ reasons, so the harness guards against each way that could happen:
 The line unit lockstep also counts its own replayed edges and the stray tape reads it makes,
 and fails a run that replays fewer edges than it generated.
 
-**Where the mutants come from.** The campaign has 1,010 mutants across the whole RTL,
-including the line unit, the bus monitor and the program store. 940 are generated
+**Where the mutants come from.** The campaign has 1,017 mutants across the whole RTL,
+including the line unit, the bus monitor and the program store. 947 are generated
 (`test/mutation/generate.py`). Every synthesisable line outside the verification-only
 blocks is scanned for classic fault sites: a comparison or logic operator swapped, an
 inversion dropped, an arithmetic operator swapped, a constant changed, an `if` condition
@@ -527,18 +538,19 @@ The other 70 are written by hand, each aimed at one feature:
   dropped polynomial term in the digest, a missing GETI wait, broken tape forwarding,
   capture rule changes and clock-gate enable errors.
 
-**Result: 1,010 mutants, none surviving.**
+**Result: 1,017 mutants, none surviving.**
 
 | Outcome | Mutants |
 | --- | ---: |
-| Killed by the lockstep co-simulation | 431 |
+| Killed by the lockstep co-simulation | 434 |
 | Killed by the line unit lockstep | 278 |
-| Killed by the host interface tests | 92 |
-| Killed by the core unit tests | 57 |
+| Killed by the host interface tests | 96 |
+| Killed by the core unit tests | 58 |
 | Killed by the bus monitor tests | 24 |
-| Killed by the chip tests | 10 |
+| Killed by the chip tests | 11 |
+| Killed by the firmware tests through the pins | 1 |
 | Proved equivalent (`formal/equiv.sh`): no chip output can differ | 57 |
-| Excluded, each with its written argument in `run_mutants.py` | 61 |
+| Excluded, each with its written argument in `run_mutants.py` | 58 |
 
 Most exclusions change a reset or start value that nothing reads before it is loaded again,
 such as the core's operand registers, line unit fields read only in a mode whose entry sets
@@ -587,6 +599,20 @@ harness and the tests as they are today.
   two survivors whose equivalence proofs ran out of time: `s1` at reset and `cq` at a
   start. Both are reloaded long before anything reads them, and both are argued in
   `run_mutants.py`.
+- **Version 3.1: a power bug that no output shows.** A mutant that enabled the tape
+  macro on every cycle after reset passed every suite. It changes no output, only the
+  macro's read energy, and the chip test for the memories' enables (D-29) watched the
+  program store alone; in the 8 × 4 build the tape is the only macro of its kind, so
+  nothing watched it. The test now checks both macros: never enabled on an idle cycle,
+  enabled for the host's own reads, and neither enabled for the other's. It fails on that
+  mutant in every one of 1,999 idle cycles.
+- **Version 3.1: a debug select retargeted.** Span widened debug select 7 to carry the
+  ninth bit of PC and link, and a curated mutant written for the old layout no longer
+  applied, which the harness reports as an error rather than a kill. It was rewritten for
+  the new layout. Span's longer program-counter line also gave the generator a new mutant,
+  a first-fault record whose tick keeps its old value, which no test killed. The unit test
+  that forces a late head to check the tripwires now also reads the first-fault record it
+  leaves: the cause, the context and the tick of the edge that saw it.
 
 ## Timing certificates
 
@@ -706,7 +732,7 @@ closer to its deadline than escert's worst case would fail it.
 The table also runs every shipped program on the simulator in the demo board's environment,
 with nothing on the Pmods. That is the environment in which bring-up stage 5 checks the same
 bounds on the chip and writes `proof.json` ([bring-up](16-BRING-UP.md#stage-5-firmware-digests)).
-There, of 92 contexts in 80 programs, 70 queue events; 48 measure exactly their bound and
+There, of 93 contexts in 81 programs, 71 queue events; 49 measure exactly their bound and
 none is below it. The other 22 are looser (`i2c_ctrl` 33 against 2, for example), because
 the inputs that produce the worst case, such as a device on the bus, are absent.
 
@@ -753,7 +779,7 @@ answer:
 - **A crash** of the checker or the simulator on a mutant is reported as ERROR and fails
   the run, without losing the other results.
 
-On the final tree the campaign planted 721 mutants in the 77 programs that have mutation
+On the final tree the campaign planted 729 mutants in the 78 programs that have mutation
 sites: every program but the logic analyser, which has none, and the two combined images,
 whose programs are mutated on their own. The four OLED Pong programs are mutated inside
 their four-page image, beside the unmutated other three, so the search attacks the whole
@@ -762,22 +788,23 @@ system.
 | escert's answer | Mutants |
 | --- | ---: |
 | REFUTED: a fault, reproduced on the simulator with concrete inputs | 178 |
-| NOT_PROVEN: a fault not excluded, and none found by the searches | 16 |
-| CHECKED: no admission fault for any input | 527 |
+| NOT_PROVEN: a fault not excluded, and none found by the searches | 18 |
+| CHECKED: no admission fault for any input | 533 |
 | CHECKED, yet a search or a bench made it fault | **0** |
 
 Of the 178 refuted, 148 fell to the random search, 14 to the long search whose host never
 pauses and 16 to a bench, 11 of those to the aimed benches.
 
-**NOT_PROVEN is never counted as safe.** Of the 16, 8 are located exactly: escert holds a
+**NOT_PROVEN is never counted as safe.** Of the 18, 9 are located exactly: escert holds a
 state at the flagged instruction in which every deadline breaks a rule (escert reports the
 first such state, not every state there). Seven of these fault on their bench built at its
 own clock or tape, another program than the one judged. The eighth is escert being
 cautious: `usbpd_tx` with the first half of a 1 bit cut to a quarter still queues its
 edges faster than the line sends them, so the queue never drains as in escert's state,
-and on the bench the flagged instruction always has a lead of 98 ticks or more. Five more fault
-on their bench built at that bench's clock. The other three have a bound that straddles a rule
-and no fault found anywhere; they are escert being cautious or faults on a path no search
+and on the bench the flagged instruction always has a lead of 98 ticks or more. No search
+or bench made the ninth, in `modbus_full`, fault. Five more fault on their bench built at that
+bench's clock. The other four, one of them also in `modbus_full`, have a bound that straddles a
+rule and no fault found anywhere; they are escert being cautious or faults on a path no search
 drove, and the campaign does not tell which.
 
 The aimed benches came from this list. In the earlier run, a mutant escert located exactly
@@ -1036,6 +1063,14 @@ at power-up (the real one sent 0x00, the firmware starts at word 0); the GPS cap
 starts inside a burst, so the firmware, like the receiver model, finds the framing a
 sentence later; the Wiegand reader's notes say 36 bits, and it sends 34.
 
+On the FPGA bench ([`fpga/tangprimer25k`](../fpga/tangprimer25k/README.md)), the chip's RTL
+meets live equipment instead of recordings. With a laptop's Ethernet port, `eth_tx` sent 20
+of 20 frames that the laptop counted without a receive error, `eth_rx` received the laptop's
+own traffic with good checksums, and `eth_trx` answered its ARP requests and pings. With an
+RP2040's debug port, `swd_idcode` read both cores' identification registers, and an outside
+analyser decoded the same values off the wire. With a laptop's USB port, `usb_hid`
+enumerated as a keyboard and typed exactly the line it was given, six times out of six.
+
 ## Outside judges
 
 The bus models that check the firmware were written here, from the same specifications as
@@ -1093,9 +1128,12 @@ so it now also compares every bit the master read, and the MAX7219 judge skipped
 blanked digits of the set-up.
 
 In the final run all 61 judges in `judges.py` and all 14 in `test_sigrok_judge.py` agree,
-and all 75 controls fail. Together they judge 73 of the 80 programs. The other seven:
+and all 75 controls fail. Together they judge 73 of the 81 programs. The other eight:
 
 - DShot: the only decoder we found carries no licence, so we do not run it.
+- `modbus_full` has no co-simulation case of its own: its tests run every test of
+  `modbus_rtu`, which the Modbus judge does read, and then its extra functions against the
+  Modbus client model (`test_modbus.py`).
 - VGA Pong and the chime (`westminster`) have no co-simulation case to record, and the
   seven-segment display's multiplexed digits are not a protocol any decoder reads.
 - `i2c_timing` and `logic_analyzer` only measure or record a line the test itself drives.
@@ -1173,9 +1211,9 @@ inputs it samples are its buttons.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings and receivers generated from their tables, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,559 | Pass (the sigrok tests need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings and receivers generated from their tables, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,615 | Pass, 5 skipped where an optional tool is absent (the sigrok tests need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 12 | Pass |
-| Chip level on the final gate-level netlist (`make gl-test`) | 12 | Pass; with SDF timing at the three corners, 11 each |
+| Chip level on the final gate-level netlist (`make gl-test`) | 12 | Pass; with SDF timing at 20 ns at the three corners, 12 each |
 | Co-simulation and line unit lockstep on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make cosim-parallel line-test`) | all | Pass |
 | Co-simulation (`make cosim`): 200 random programs (191 fit a page), 74 firmware cases with bus models, directed tests | all | Pass |
 | Host interface (`make host-test`) | 25 | Pass |
@@ -1209,8 +1247,8 @@ and the SDF-annotated runs replay the chip tests with those delays.
   bus) the stretch never outlasted the controller's own low time; its Fast-mode margin is
   measured against our controller model only.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
-- **FPGA, not silicon.** No chip exists yet. The design runs on an FPGA bench (79 of the
-  80 programs matching the model and their certificates; the 14-second `westminster` chime
+- **FPGA, not silicon.** No chip exists yet. The design runs on an FPGA bench (80 of the
+  81 programs matching the model and their certificates; the 14-second `westminster` chime
   has no bench bundle; [the bench](../fpga/tangprimer25k/README.md)), with
   plain flip-flops for the clock gates and latch banks and block RAM for the SRAM macros;
   those stay covered by the gate-level suites and the equivalence proof.
@@ -1232,7 +1270,7 @@ workflow on master, with its commit and log, failures included.
 | `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in 40 shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors; the shards are dealt by each mutant's time in earlier runs (`test/mutation/costs.json`), the canaries run once beside them, and the summary requires the canaries and exactly one result per mutant |
 | `fw-mutants` | a push to any branch that changes the firmware, `escert`, the simulator, the assembler or the bus models | the firmware mutation campaign (`make fw-mutants`) in 24 shards: every planted timing bug against `escert`, and each certified one attacked on the simulator |
 | `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
-| `equivalence` | each successful `gds` run on master | that run's netlist against the RTL of its commit (`formal/equiv.sh`) |
+| `equivalence` | each successful `gds` run on master, and by hand on a branch before its merge | that run's netlist against the RTL of its commit (`formal/equiv.sh`) |
 
 Each job writes a summary (`scripts/ci_summary.py`); the site's build collects the
 summaries of the latest master runs (`site/tools/ci_results.py`) and rebuilds after each of

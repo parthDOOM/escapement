@@ -24,7 +24,7 @@ four queued events.
 
 The chip is rated up to 50 MHz (D-5). Programs that take their timing from `CLK_KHZ`
 rebuild for another clock by defining it before the include, for example
-`.equ nec_tx.CLK_KHZ, 50000` then `.include "nec_tx.asm"`. Of the 80 programs, 66 rebuild and certify at 33, 33.333, 40 and 50 MHz; four are tied to one clock by their protocol (10BASE-T transmit at 40 MHz, USB low speed at 24 MHz, VGA at its 25 MHz pixel clock); three need a whole number of ticks per bit (`eth_rx` at 40 or 50 MHz, XY2-100 from 40 to 50 MHz in 2 MHz steps, FlexRay at 2.5 Mbit/s from 25 to 50 MHz in 2.5 MHz steps); and seven count in ticks or follow another device's clock. Rerun
+`.equ nec_tx.CLK_KHZ, 50000` then `.include "nec_tx.asm"`. Of the 81 programs, 67 rebuild and certify at 33, 33.333, 40 and 50 MHz; four are tied to one clock by their protocol (10BASE-T transmit at 40 MHz, USB low speed at 24 MHz, VGA at its 25 MHz pixel clock); three need a whole number of ticks per bit (`eth_rx` at 40 or 50 MHz, XY2-100 from 40 to 50 MHz in 2 MHz steps, FlexRay at 2.5 Mbit/s from 25 to 50 MHz in 2.5 MHz steps); and seven count in ticks or follow another device's clock. Rerun
 `python -m escert` after any rebuild: a delay that fits at one clock can outgrow a
 16-bit compare, ADDT's 24 bits or the 2^16-tick gap escert can bound at a faster one.
 
@@ -207,6 +207,17 @@ two that claim the same context, pin or tape word. Programs that talk to each ot
 through the tape, so agree on the shared words' addresses in one place and check them, as
 `test_oled_pong.py` does for the four files of [OLED Pong](23-OLED-PONG.md).
 
+**20. Span two pages when one program outgrows one.** `.span ctx` lets context `ctx` use 512
+words: its own page and the page of its partner, context `ctx ^ 2`, which the program must
+leave disabled. The assembler then accepts addresses up to 511 and branch targets with bit 8
+set, and `escasm.paged()` puts words 256 to 511 on the next page and makes it the partner's.
+Nothing else changes: the program runs straight on from word 255 to 256, and `escert`
+follows its branches across the boundary and certifies it like any other. Prefer one page
+where the program fits, since spanning costs the partner context. `modbus_full` serves the
+whole Modbus data model (functions 01 to 06, 15, 16 and 23, four tables) in 419 words on
+context 0 with context 2 off; `modbus_rtu` is the same server with holding registers only,
+in one page.
+
 ## Budgeting a protocol
 
 - One instruction takes 4 ticks (2 paired): a 3-instruction bit loop (`EMITX`, `ADDT`,
@@ -218,6 +229,7 @@ through the tape, so agree on the shared words' addresses in one place and check
   with fixed scratch words (`can_tx`).
 - A page holds 256 words. Programs assembled into one image share a page, so `can_tx`
   (157 words) and `can_rx` (179) do not fit in one image; assembled separately and placed
-  on two pages with `escasm.paged()`, they run side by side (idiom 19).
+  on two pages with `escasm.paged()`, they run side by side (idiom 19). One program longer
+  than a page spans two, at the cost of its partner context (idiom 20).
 - Four contexts run independently. A slow protocol in one context never changes another
   context's timing, so concurrent images certify per context.

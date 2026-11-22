@@ -2,7 +2,7 @@
 project:
   title:        "Escapement"      # Project title
   author:       "parthDOOM"       # Your name
-  discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
+  discord:      "huh4207630"      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
   description:  "Programmable protocol engine with reject-not-late timed I/O (Jane Street protocol emulator competition)"      # One line description of what your project does
   language:     "SystemVerilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
   clock_hz:     25000000       # Clock frequency in Hz (or 0 if not applicable)

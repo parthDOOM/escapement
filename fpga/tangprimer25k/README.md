@@ -46,6 +46,11 @@ the core, which it did not before. A first run the same evening, on a bitstream 
 this change and packed by hand (`results/2026-11-21/`, whose `chip.MANIFEST` says so), also
 passed 85 of 85.
 
+On 22 November the bitstream was rebuilt with the reset synchroniser (D-63), and the same
+run passed 85 of 85 again (`results/2026-11-22/`). That build then answered a laptop's ping
+over 10BASE-T and enumerated on its USB port as a keyboard (Ethernet and USB keyboard,
+below).
+
 ## Earlier result, 2026-11-19 (version 3, every program)
 
 The same bitstream as on 15 November (`chip.fs` sha256 a495ad2e..., `results/2026-11-19/chip.MANIFEST`):
@@ -172,17 +177,21 @@ input. `chip-pnr.log` is the place-and-route log of that bitstream.
 | `clkskew.py` | nextpnr post-route check: clock delay to every sink |
 | `pinid.v`, `pinid.py` | wiring check: the FPGA sends each signal's index on its pin; the Pico decodes every GPIO |
 | `barepico.py` | the demo board's `tt` object on plain MicroPython GPIO, for `bringup.py` |
-| `ethbench.py` | 10BASE-T at 40 MHz with a laptop (Ethernet, below): `eth_tx` sending numbered frames, `eth_rx` receiving the laptop's, and the receive line check |
+| `ethbench.py` | 10BASE-T at 40 MHz with a laptop (Ethernet, below): `eth_tx` sending numbered frames, `eth_rx` receiving the laptop's, the receive line check, and `eth_trx` answering ARP, ping and UDP echo |
 | `eth_link.asm`, `eth_rx_bench.asm` | the receive bench: `eth_rx` in context 0, link pulses from timed pin events in context 1 |
 | `eth_edges.asm` | the receive line check: the capture unit on RXP, with the same link pulses |
 | `eth_bundles.py` | their bundles (`build.sh bundles` runs it) |
+| `udpecho.py` | UDP echo from the laptop while `ethbench.ping()` runs: numbered datagrams of bytes drawn for the run, each checked on its return |
 | `ethdemo.ps1` | the transmit demo, end to end: the laptop's counters and a pktmon capture, PASS or FAIL |
 | `test_pinid.py`, `test_barepico.py` | software tests: pinid.v simulated through pinid.py; bring-up through barepico's wiring on the simulated chip |
 | `test_ethbench.py` | software test: `ethbench.py` on the simulated chip, every frame decoded from TD+ and TD- and checked with its CRC; the receive bench and the line check against a simulated link partner |
 | `swdbench.py`, `test_swdbench.py` | the SWD bench (`swd_idcode` debugging a second Pico) and its test through the bare Pico against the RP2040 model |
 | `swdjudge.py` | the SWD bench judged by an outside analyser and sigrok's `swd` decoder (runs on Windows; sigrok-cli in WSL) |
+| `usbbench.py`, `test_usbbench.py` | the USB keyboard bench (`usb_hid` at 24 MHz on a laptop's USB port, below) and its test through the bare Pico against the USB host model |
 | `bench.ps1` | Windows helper: build, deploy, load, run (the Dock's USB goes to WSL with usbipd-win) |
 | `hierarchy.sh`, `hierarchy.py` | block-level LUT, flip-flop and bus counts of the FPGA build |
+| `results/2026-11-22/` | version 3.1 with the reset synchroniser: the bring-up log and telemetry, the bitstream's and bundles' MANIFESTs, the place-and-route log and the block hierarchy (`hierarchy.json`); the Ethernet transmit, receive (at three bias levels), line-check and ping logs (the laptop's MAC address replaced by LAPTOP-MAC); the USB keyboard runs (`usb-keyboard.log`) |
+| `results/2026-11-21/` | the first version 3.1 (span) runs: the wiring check, and two bring-up runs with their logs, telemetry and MANIFESTs, one on a bitstream packed by hand (this folder) and one on the bitstream `build.sh` now builds unaided (`clean-build/`) |
 | `results/2026-11-19/` | the version 3 run with every program: the wiring check, the bring-up log, the telemetry, the MANIFESTs (the bitstream's copied from 2026-11-15, the same build) |
 | `results/2026-11-15/` | the earlier version 3 run: the bring-up log, the bitstream's and bundles' MANIFESTs, the clock skew report |
 | `results/2026-11-17/` | the Ethernet transmit demo (`ethdemo.ps1 -SaveTo`): its log, and the laptop's capture of the 20 frames (`eth-tx.pcapng`, EtherType 0x88B5 only; the capture header's machine fields removed); the SWD session against an RP2040 (`swd.log`), and the same session judged by an outside analyser and sigrok (`swd-judge/`) |
@@ -375,14 +384,14 @@ for the reason under the table.
 So the GW5A's 3.3 V input switches between about 1.0 and 1.2 V. Its datasheet guarantees only
 below 0.8 V and above 2.0 V, so another board may need another bias. The point also moved on
 this board: the same pin and circuit wanted 0.94 V on 16 November and 1.12 V on 22 November.
-Between the two runs the FPGA build changed how the falling-edge input sampler is mapped
-(Result, 21 November). Temperature and the breadboard were not measured, so the shift is not
-put on one cause. The line check shows which way to move the bias; the receive count shows
-when to stop.
+Between those limits a pin's switching point is held to no value and drifts with temperature
+and supply. The FPGA build changed in between, but it could not have moved the point: every
+sample is taken after the pin's input buffer. The line check shows which way to move the
+bias; the receive count shows when to stop.
 
 `eth_rx` needs the chip's line unit, and the chip has one. So `eth_rx_bench.asm` runs `eth_rx`
 in context 0 and `eth_link.asm` in context 1: link pulses made of timed pin events (`EMIT`),
-100 ns long and 16 ms apart, which keep the laptop's link up so that it sends. After each
+16 ms apart, which keep the laptop's link up so that it sends. After each
 frame, `eth_rx` arms again only once the Pico has popped the frame's words, and the Pico's link
 takes about 0.7 s for a 342-byte frame. A frame that arrives meanwhile is missed, never
 corrupted.
@@ -392,11 +401,21 @@ falling-edge register is the one this FPGA build does not time (the result above
 every frame here. The bundle `eth_rx_bench_one` samples once a tick instead, but it was tried
 only on the unfixed line.
 
-**The link flaps on the receive bench.** About 0.6 s up and 2.3 s down. During this, the chip
-read its own state: context 1's timer advanced exactly 1 s every second, so the link pulses
-never stopped. The laptop's power-saving settings made no difference. The cause is not known.
-With `eth_tx`, the same laptop held the link after the first seconds. Each up interval is long
-enough for the laptop to send several frames, so receiving works regardless.
+**The link flapped with timed-event pulses, and a low lead fixed it.** On the receive bench the
+laptop's link went about 0.6 s up and 2.3 s down. During this, the chip read its own state:
+context 1's timer advanced exactly 1 s every second, so the link pulses never stopped, and the
+laptop's power-saving settings made no difference. With `eth_tx`, whose pulses come from the
+line unit, the same laptop held the link. Each up interval was long enough for the laptop to
+send several frames, so receiving worked regardless. On 22 November, after the breadboard was
+reseated, the flap got worse: `eth_trx`'s link was up 1 s and down 2 s or never came up, and
+`eth_rx_bench` got no link in 40 s, while `eth_tx` still held it. In simulation the two kinds
+of pulse are the same at the pins: 100 ns of TD+ high and TD- low, from released pins and back.
+So the difference is in the analogue circuit, which was not measured. A build of `eth_trx`
+whose pulses first drive both pins low for 100 ns held the link from its first second to the
+end of the run, about three minutes. `eth_link` and `eth_trx` now send that shape. Why the lead
+helps is not known. In that first run the laptop counted none of the chip's ARP replies. In a
+later run, checked by hand and not logged, the link no longer flapped and the chip answered 99
+of 100 pings; only the 59th went unanswered.
 
 ### What this is, and is not
 
@@ -409,7 +428,8 @@ ARP, IGMP, IPv6), and they arrived byte for byte. But taking part in a network n
 - **Both directions in one load.** `eth_tx` and `eth_rx` each take the chip's one line unit for
   as long as they run. A program that sends and receives must reconfigure the unit between
   frames. 10BASE-T is half duplex, so that is allowed: `eth_trx.asm` does it, and with
-  `ethbench.ping()` it answers ARP and ping, in simulation and on the bench (below).
+  `ethbench.ping()` it answers ARP, ping and UDP echo (port 7) in simulation, and ARP and
+  ping on the bench (below).
 - **A faster host link.** The bit-banged SPI drains a large frame in about 0.7 s. That is fine
   for a ping, but not for real traffic.
 
@@ -422,10 +442,17 @@ each; the first took 1,968 ms because it waited for the ARP exchange. The time i
 the host link: each request crosses the bit-banged SPI into the Pico and each reply crosses
 back. The last three of the ten failed when the link dropped and the laptop restarted its
 address (a DHCP Discover from 0.0.0.0, then an ARP probe of its own address), the flap
-described above. Over the run the chip received 100 frames, 1 with a bad FCS, and no tripwire
-fired. The build was version 3.1 with the reset synchroniser (D-63), and the same session
+described above, which this run's pulses still had. Over the run the chip received 100
+frames, 1 with a bad FCS, and no tripwire fired. The build was version 3.1 with the reset synchroniser (D-63), and the same session
 passed transmit (20 of 20 frames counted by the laptop, no receive error) and receive (25 of
 25 good FCS). Logs: `results/2026-11-22/` (the laptop's MAC address replaced by LAPTOP-MAC).
+
+The same load also answers UDP echo (port 7, RFC 862), and `udpecho.py` sends it from the
+laptop. The chip's part is the one it plays for a ping, which the bench has shown: `eth_trx`
+receives the frame, hands it to the Pico and sends the reply the Pico gives back. Only the
+Pico's reply code is new, and `test_ethbench.py` checks it end to end on the simulated chip,
+with the reply decoded from TD+ and TD- and checked with its CRC. It has not yet run on the
+bench.
 
 ### The line check
 
@@ -438,13 +465,18 @@ an open coupling capacitor lets only the edges through. With the laptop's Energy
 Ethernet on, the lows came out about 48 ns shorter than the highs in one capture, but no edge
 was missed, and `eth_rx` decoded every frame.
 
-On the version 3.1 build (22 November) every capture had odd run lengths, 1 and 3 ticks high
-and 3 and 5 low, and the check reported the highs 29 to 38 ns short at 0.93, 1.04 and 1.12 V
-alike, including the bias that then decoded 25 of 25 frames. One edge direction comes out a
-tick late against the other. The falling-edge sampler's new mapping (Result, 21 November) is
-the likely reason, since the check's limits were set on the old one, but this is not proved.
-On that build the check still finds missed edges and gives the direction to move the bias;
-the receive count from `ethbench.listen()` decides when the line is good. The laptop takes 5
+On 22 November every capture had odd run lengths, 1 and 3 ticks high and 3 and 5 low, and
+the check read the highs 29 to 38 ns short at 0.93, 1.04 and 1.12 V alike, including the
+bias that then decoded 25 of 25 frames. That is the check's resolution, not the line. It
+times runs in whole ticks of 25 ns, and over the 15 µs or so of one frame's start that fills
+the tape, the laptop's edges keep nearly one phase against the chip's clock: within the
+100 ppm 802.3 allows, the two drift apart by under 2 ns. A skew of a few ns then moves every
+run by the same tick. On the simulator `eth_rx` decodes every frame with the highs 10 ns
+short and loses most at 15 ns, so the line that gave 25 of 25 was skewed by well under that,
+and read as 38. Nor is it the chip: the capture unit takes RXP through one register for both
+edge directions, and the falling-edge sampler feeds only the line unit. The check still finds
+missed edges and gives the direction to move the bias, which took the count from 13 of 38 to
+25 of 25 that day; the receive count from `ethbench.listen()` says when to stop. The laptop takes 5
 to 9 s to bring the link up, so the check now waits up to 60 s for a frame; its earlier 15 s
 could end before the first one.
 
@@ -458,6 +490,9 @@ With `chip.fs` loaded and the files deployed:
                                             # (as administrator, with a pktmon capture)
     .\bench.ps1 ethedges                    # the receive line check
     .\bench.ps1 ethrx -Opts "seconds=60"    # receive: every frame for 60 s, with its FCS
+    .\bench.ps1 ethping -Opts "seconds=150" # answer ARP, ping and UDP echo for 169.254.0.42
+    ping -n 10 169.254.0.42                 # from the laptop, while ethping runs
+    python udpecho.py 20                    # UDP echo from the laptop, while ethping runs
 
 For transmit, Wireshark (display filter `eth.type == 0x88b5`) shows each frame. Each one is
 broadcast, from 02:00:00:00:00:01, with EtherType 0x88B5 (IEEE local experimental) and the text
@@ -528,6 +563,84 @@ The target is powered from its own USB. If it runs MicroPython too, two Picos an
 
 Afterwards plug wires 26 and 27 back in; `.\bench.ps1 pinid` (with `pinid.fs` loaded) then
 finds all 26 wires again.
+
+## USB keyboard, 2026-11-22
+
+`firmware/usb_hid.asm` makes the chip a USB 1.1 low-speed keyboard (1.5 Mb/s). On this bench
+the chip's two data pins go to a laptop's USB port through two resistors, Windows enumerates
+the chip as a keyboard, and the chip types a line of text into a window. The chip has no USB
+hardware. Its line unit does the bit work (NRZI coding, bit stuffing, the CRCs, SYNC and the
+end-of-packet), and the firmware does everything above it: the enumeration requests, the
+descriptors, the address change and the key reports ([19-LINE-UNIT](../../docs/19-LINE-UNIT.md#a-usb-keyboard)).
+Every reply leaves the pins exactly 75 ticks after the end of the computer's packet, and
+`escert` proves it on time on every path through the program where the computer keeps to USB's
+timing. The bench Pico W pushes the key reports
+into the chip's mailbox and does nothing else on the bus.
+
+| Run | What the chip typed | Windows | Result |
+| --- | --- | --- | --- |
+| 1 to 5 | `escapement usb_hid` and a six-digit number drawn on the laptop for that run: 26 characters, 52 key reports (each key pressed, then released) | a "USB Input Device", status OK, with the product string `Escapement` read from the chip | PASS, 5 of 5 |
+| 6 | the same, followed by `the quick brown fox jumps over the lazy dog 0123456789. escapement types this through usb_hid on the fpga bench, 22 nov 2026`: 151 characters, 302 key reports | the same | PASS |
+
+`bench.ps1 usb` judges each run from the laptop's side. It draws the number, opens a window to
+take the line, and watches Windows' device list for the chip (`USB\VID_1209&PID_0001`) while
+the Pico starts it. The run passes only if the window receives exactly the line the chip was
+given, so a dropped, doubled or wrong key fails it, and so does a keyboard that never
+enumerates. Windows listed the chip 7 to 9 s after the run began, a time that includes loading
+the program over the bit-banged host link. Log: `results/2026-11-22/usb-keyboard.log`. The
+build was version 3.1 with the reset synchroniser, the same bitstream as the Ethernet results
+above.
+
+**The clock.** Low-speed USB allows 25 ns of jitter on each data edge, so `usb_hid` runs at
+24 MHz, where a bit is exactly 16 ticks (D-37). The Pico's PWM divides its system clock by a
+whole number, so `usbbench` first sets the system clock to 144 MHz, which the RP2040's PLL
+makes exactly from its 12 MHz crystal, and divides by 6 with a 50% duty.
+
+**The circuit.**
+
+| From | Through | To |
+| --- | --- | --- |
+| USB D+ (green) | 27 Ω | J6 top row, col 6 (uio[0]) |
+| USB D− (white or grey) | 27 Ω | J6 top row, col 5 (uio[1]) |
+| USB D−, on the cable side of its 27 Ω | 1.5 kΩ | the Pico W's GP9 (the Dock end of wire 22) |
+| USB GND (black) | | the Pico W's pin 38 (GND) |
+| USB VBUS (red) | | nothing: taped off |
+
+The cable is an ordinary USB cable cut open at its far end; its plug goes into the laptop.
+Unplug wires 22 and 23 (the Pico's GP9 and GP18) from J6's col 6 and col 5 first. Wire 22 then
+supplies the pull-up, and wire 23 stays loose. The 27 Ω resistors are the series resistance
+a low-speed driver normally has, and both boards keep their own USB power, so the 5 V line
+from the laptop is not used.
+
+The 1.5 kΩ resistor from D− to 3.3 V is how a low-speed device tells the computer that it has
+been plugged in. Tied to a fixed 3.3 V, it would announce the keyboard as soon as the Dock had
+power, while the chip was still stopped, and Windows gives up on a device that does not answer
+its first requests. So the pull-up hangs from a Pico pin instead. `usbbench` drives GP9 high
+once `usb_hid` is running, which is the moment Windows sees the keyboard plugged in, and drives
+it low again at the end, so the keyboard is unplugged cleanly before the chip stops.
+
+![The USB bench: the laptop, the Dock and the bench Pico W, and the breadboard with the USB cable's two data lines and their resistors](../../docs/img/usb-bench.jpg)
+
+![The USB bench close up: the cut USB cable (bottom), the breadboard with the two 27 Ω resistors and the 1.5 kΩ pull-up, and the wires to the Dock's J6 and the Pico](../../docs/img/usb-board.jpg)
+
+In simulation `test_usbbench.py` runs the same bench path: `usbbench` on the bare Pico's wiring,
+`usb_hid` on the simulated chip at 24 MHz, and the USB host model of `sw/escmodels/usb.py` on
+D+ and D−, which enumerates the keyboard as Linux does and checks every packet's timing and
+CRC. It also checks that a keyboard nobody polls is reported as not enumerated, and that a
+system clock the PWM cannot divide to 24 MHz is refused. The firmware's own tests and the run
+on a real Linux kernel are in [19-LINE-UNIT](../../docs/19-LINE-UNIT.md#on-a-real-linux-kernel).
+
+This is USB 1.1 at low speed, which is what keyboards, mice and most simple devices use. Full
+speed (12 Mb/s) would need 4 ticks a bit at 48 MHz and has not been tried. VID:PID 1209:0001
+is the pid.codes test ID, for test environments only.
+
+    .\bench.ps1 load chip
+    .\bench.ps1 deploy
+    .\bench.ps1 usb                          # a line with a fresh number, PASS or FAIL
+    .\bench.ps1 usb "and some more text"     # letters, digits, space and . , - = ; /
+
+When the window titled "escapement keyboard" opens, it should have the focus: the chip types
+into whichever window has it. Plug wires 22 and 23 back into J6 for bring-up.
 
 ## Why the clock is on L3
 

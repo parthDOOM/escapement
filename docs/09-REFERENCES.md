@@ -13,7 +13,10 @@
 | [Tiny Tapeout local hardening guide](https://www.tinytapeout.com/guides/local-hardening/) | Local flow setup |
 | [Tiny Tapeout demo board](https://tinytapeout.com/specs/pcb-etr/) | RP2350 host, Pmod headers |
 | [Tiny Tapeout GPIO specification](https://www.tinytapeout.com/specs/gpio/) | Pin conventions |
-| [OpenROAD issue #9816](https://github.com/The-OpenROAD-Project/OpenROAD/issues/9816) | A clock gate disconnected in clock-tree synthesis, fixed upstream but not in the flow's release (D-45, D-61) |
+| [OpenROAD issue #9816](https://github.com/The-OpenROAD-Project/OpenROAD/issues/9816) | A clock gate disconnected in clock-tree synthesis, fixed upstream but not in the flow's release (D-45, D-61, D-65) |
+| [OpenROAD issue #11977](https://github.com/The-OpenROAD-Project/OpenROAD/issues/11977) | A crash of the resizer inside timing-driven global placement, on the flow's own OpenROAD commit; the same bug as this design's occasional placement crashes, with its reproducer ([24-TOOL-BUGS](24-TOOL-BUGS.md)) |
+| [OpenSTA issue #398](https://github.com/The-OpenROAD-Project/OpenSTA/issues/398) | An out-of-bounds access on the same rebuffering call chain, on an IHP design with SRAM ([24-TOOL-BUGS](24-TOOL-BUGS.md)) |
+| Icarus Verilog [#509](https://github.com/steveicarus/iverilog/issues/509), [#746](https://github.com/steveicarus/iverilog/issues/746), [#889](https://github.com/steveicarus/iverilog/issues/889), [#945](https://github.com/steveicarus/iverilog/issues/945) and [PR #1694](https://github.com/steveicarus/iverilog/pull/1694) | The SDF annotation gaps that `test/sdf_prep.py` works around ([24-TOOL-BUGS](24-TOOL-BUGS.md)) |
 
 ## PDK and macros
 

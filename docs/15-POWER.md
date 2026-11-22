@@ -11,22 +11,24 @@ parasitics estimated from placement; the scripts are in `scripts/` and the runs 
 repeated.
 
 The measurements in sections 1 to 3 were taken on versions 1.1 to 1.6, on the 6 × 4
-layouts, as each change was made. The current design, version 3 at 8 × 4, was measured the
-same way on its adopted layout (`scripts/power-workload.sh`, the same three workloads and
-the same 8,000-cycle windows):
+layouts, as each change was made. The current design, version 3.1 at 8 × 4, was measured
+the same way on its signed-off layout (`scripts/power-workload.sh`, the same three workloads
+and the same 8,000-cycle windows):
 
-| Version 3 | uart_tx (sending) | logic analyser (capturing) | idle (stopped) | static estimate |
+| Version 3.1 | uart_tx (sending) | logic analyser (capturing) | idle (stopped) | static estimate |
 | --- | ---: | ---: | ---: | ---: |
-| flip-flops and latches | 2.50 mW | 2.46 mW | 2.41 mW | |
-| clock tree | 0.98 mW | 0.98 mW | 0.97 mW | |
-| logic | 0.64 mW | 0.53 mW | 0.00 mW | |
+| flip-flops and latches | 2.49 mW | 2.45 mW | 2.40 mW | |
+| clock tree | 0.97 mW | 0.97 mW | 0.96 mW | |
+| logic | 0.66 mW | 0.54 mW | 0.00 mW | |
 | SRAM macros (counted edge by edge) | 0.30 mW | 0.0015 mW | 0 | |
-| **total** | **4.42 mW** | **3.97 mW** | **3.38 mW** | 3.58 mW |
+| **total** | **4.42 mW** | **3.95 mW** | **3.36 mW** | 3.43 mW |
 
-Against version 1.6 (3.60, 3.29 and 2.93 mW) that is 0.45 to 0.82 mW more, 15 to 23%. Most
-of it is the clocked storage the later versions added: pair mode, live reload, the four
-pages, the proof tripwires, the bus timing monitor and the half-tick sampler bring the
-sequential cells to 5,380, against 4,838 in version 1.6 (2,391 flip-flops, 2,365 latches
+Version 3.0 measured 4.42, 3.97 and 3.38 mW: span, the reset synchroniser and the layout
+that meets every electrical rule left the power within 0.02 mW. Against version 1.6 (3.60,
+3.29 and 2.93 mW) it is 0.43 to 0.82 mW more, 15 to 23%. Most of that is the clocked storage
+the later versions added: pair mode, live reload, the four pages, the proof tripwires, the
+bus timing monitor and the half-tick sampler bring the sequential cells to 5,398, against
+4,838 in version 1.6 (2,391 flip-flops, 2,365 latches
 and 82 clock-gate latches). The program store adds the rest of the busy workload's
 difference. It is one 1024 × 32 macro, whose read costs 48.3 pJ against 26.0 pJ for a
 256 × 32, so the same 2,000 fetches in the `uart_tx` window cost 302 µW instead of 162 µW.
@@ -155,6 +157,7 @@ estimate, which LibreLane prints in its power report.
 | **v1.6: decode and operands a stage earlier, 50 MHz layout** | **30,752** | **63.3%** | **2,148** | 3.09 mW | **3.60 mW** | **3.29 mW** | **2.93 mW** |
 | change, before → v1.6 | −5% | | −52% | −59% | **−58%** | **−61%** | **−63%** |
 | version 3 (8 × 4) | 32,676 | 56.2% | 257 | 3.58 mW | 4.42 mW | 3.97 mW | 3.38 mW |
+| version 3.1: span, reset synchroniser, electrical rules | 34,511 | 57.4% | 246 | 3.43 mW | 4.42 mW | 3.95 mW | 3.36 mW |
 
 n/m = not measured. The workload columns use the exact SRAM count below. Version 1.6 costs
 0.40–0.42 mW (13–16%) in every workload, nearly all of it in the flip-flop and clock rows.

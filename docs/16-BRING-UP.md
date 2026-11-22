@@ -110,7 +110,7 @@ compare.
 [1] clock and reset ...
 [1] PASS  PWM 25000000 Hz (RP 100000000 Hz), uo = 11111000 in and after reset, uio released
 [2] host link ...
-[2] PASS  STATUS 0a 00 0f 00 x 201; one pin write ... ns; SCK half period about ... ns (fast) and ... ns (slow)
+[2] PASS  STATUS 0b 00 0f 00 x 201; one pin write ... ns; SCK half period about ... ns (fast) and ... ns (slow)
 [3] memories ...
 [3] PASS  data lines at 2 addresses, 4 patterns x 256 words, in the four program pages and the tape; spaces independent; tape reads during a run while the core uses the port
 [4] pins and clock rate ...
@@ -124,7 +124,7 @@ compare.
     ...
     uart_tx.asm            halt   ok    digest 0x63114ed9 model 0x63114ed9; min lead 0:9 (cert 9)
     usb_hid.asm            steady ok    digest 0x0cafaeb5 = model at tick 35926; min lead 0:none (cert 1)
-[5] PASS  79 of 79 firmware match the model and their certificates
+[5] PASS  80 of 80 firmware match the model and their certificates
 [6] UART smoke test (optional) ...
     uart_tx.asm: RP UART received 55 4b 21 0a
 [6] PASS  1 UART smoke test(s) received exactly the model's bytes
@@ -172,8 +172,10 @@ tt-micropython-firmware's byte functions and samples MISO just before each SCK r
 
 1. Times 500 raw pin writes. The SCK high phase is one pin write and must be at least 4
    core clocks (160 ns); the script requires 320 ns.
-2. Reads STATUS right after reset. The answer is known exactly: `08 00 0f 00` (version 8,
-   all contexts IDLE, all TX mailboxes empty, no IRQ).
+2. Reads STATUS right after reset. The answer is known exactly: `0b 00 0f 00` (protocol
+   version 11, all contexts IDLE, all TX mailboxes empty, no IRQ). The chip answers two clock
+   cycles after `rst_n` rises, when its reset synchroniser lets go (D-63); the script waits
+   far longer than that.
 3. Sends an unknown command (0x99), which must set host error, then CLEAR_ERR, which must
    clear it. This proves MOSI reaches the chip.
 4. Reads `READ_DBG` values that are known after reset: the digest `0xFFFFFFFF` and
@@ -187,7 +189,7 @@ tt-micropython-firmware's byte functions and samples MISO just before each SCK r
 | MISO is always 0 | No answer at all | Scope the clk pin (25 MHz square wave); check `rst_n` is high; check CS_n and SCK toggle at the chip; check `uo[0]` |
 | MISO is always 1 | `uo[0]` stuck high or undriven | Scope `uo[0]`; compare with stage 1 |
 | one bit late / one bit early | Sampling phase | Logic analyser on all four lines: MISO must change within 4 clocks after an SCK rise, and the RP must sample before the next rise |
-| protocol version 5 to 9 / a different design | An older Escapement (v1.0 to v1.7; 9 is v1.7, without program pages) or another design is answering | Check stage 0's selection |
+| protocol version 5 to 10 / a different design | An older Escapement (v1.0 to v3.0; 9 is v1.7, without program pages, and 10 is v2 or v3.0, without span) or another design is answering | Check stage 0's selection |
 | did not decode STATUS / unknown command did not set host error | MOSI stuck high / low | Scope `ui[2]` at the chip |
 | N of M frames wrong | Intermittent | Errors only at the fast rate: SCK phase or MISO slew is marginal; at both rates: noise, ground or a loose connection |
 
@@ -266,15 +268,17 @@ assembler), run first on bank A and then on bank B:
 | bank B levels ... Outputs Bi (uo[n]) never read 1 / 0 | A bank B output is dead or held | Scope `uo[n]`. Stuck low is already caught by stage 1 |
 | after STOP, bank B outputs ... read 0 | A released bank B output is not high | Scope the pin across the STOP frame |
 | wrong bank B levels ... Input Bi stuck, follows pad Bj | A bank B input path fault, or an input DIP switch is on | Switch the DIP switches off; scope `ui[i+3]` |
-| Logical pins 5..7 read 1 | The context did not switch to bank B | WRITE_CFG byte 10 did not arrive: check that stage 2 reported version 8 |
+| Logical pins 5..7 read 1 | The context did not switch to bank B | WRITE_CFG byte 10 did not arrive: check that stage 2 reported version 11 |
 | streaming capture overflowed | The ring filled although every record was acknowledged | TAPE_ACK is not reaching the capture unit: READ_DBG sel 20 shows its `rptr` |
 | streaming capture: uio[0] levels ..., records lost | Edges missing | Compare with a stopped capture (logic_analyzer.asm without STREAM) of the same edges |
 
 ### Stage 5: firmware digests
 
-For each bundle: STOP, load all 256 program words (zero-filled, as in the model), verify,
-load all 256 tape words (zero-filled plus the image's `.tape` words), verify, WRITE_CFG,
-START. Then, by kind:
+For each bundle: STOP, load all 256 program words of page 0 (zero-filled, as in the model;
+a spanning program also fills page 1, selected with IMEM_PAGE), verify, load all 256 tape
+words (zero-filled plus the image's `.tape` words), verify, send the whole WRITE_CFG frame,
+with the pair, page and span bytes, so that no earlier program's settings stay in force,
+and START. Then, by kind:
 
 - `halt`: poll STATUS until no context is RUNNING, read the state, the digest and the
   first fault, and compare them with the model.
@@ -358,7 +362,12 @@ bench programs match the simulator's digest or final state and stay within their
 certificates, among them `modbus_full`, the first program that spans two pages. The run of
 19 November, on version 3, refused one bench program, `eth_trx`, as it should have: it had no
 certificate, and its findings were a real fault. With that fixed, the program is CHECKED and
-passed on 21 November. The README there lists what a bench run does not show.
+passed on 21 November. The run was repeated on 22 November with the reset synchroniser
+(D-63) in the build, with the same 85 of 85. The same bench also runs programs against real
+equipment: 10BASE-T Ethernet with a laptop in both directions, answering its ARP requests
+and pings; Arm SWD reading the debug ports of an RP2040; and a USB keyboard that the laptop
+enumerates and that types a line into it, six times out of six. The README there has these
+results and lists what a bench run does not show.
 
 The simulated board imitates the parts of tt-micropython-firmware the script uses,
 including microcotb's `Logic` type, which has no `&` with an integer.
@@ -403,3 +412,9 @@ On 2026-10-17:
   <https://github.com/micropython/micropython>, and
   <https://docs.micropython.org/en/latest/reference/mpremote.html>.
 - Tiny Tapeout clock specification: <https://www.tinytapeout.com/specs/clock/>.
+
+Rechecked on 2026-11-22: v3.1.1 is still the latest release, and the one commit on main since
+(`15ba5ce`, 2026-11-12) adds three shuttles to the release workflow and changes no source.
+That workflow's `TT_RUNS_SUPPORTED` lists the shuttles whose index a release carries, and
+`ttihp27a` is not yet among them, so stage 0 needs a release made after this shuttle's index
+is published ("not in this board's shuttle index" until then).

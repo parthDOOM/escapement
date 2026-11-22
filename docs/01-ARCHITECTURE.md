@@ -140,6 +140,15 @@ page, for example two contexts running cooperating halves of one program. Every
 instruction encoding and branch target is the same with or without pages; only the
 store's address is wider.
 
+A program longer than one page can **span** two. A context whose partner (the context it
+would pair with) is switched off may take the partner's page as well as its slots. Its
+program counter and link register then have 9 bits: bit 8 selects the partner's page, so
+the program has 512 words and runs straight on from word 255 to word 256, and branch
+targets reach the whole range. Span is enabled per context and is independent of pair
+mode, so a context can take its partner's page, its slots or both. A context that does not
+span behaves exactly as before, its execution digest included (D-64). `modbus_full`, a
+419-word Modbus RTU device, is the library's spanning program.
+
 The store is a single-port IHP SRAM macro. It is read only in cycles where a running
 context actually fetches, so it costs no read energy while the contexts wait.
 
@@ -436,7 +445,8 @@ protocols. Versions 1.5 and 1.6 moved timing decisions a cycle earlier to reach 
 Version 1.7 added pair mode and live reload, with the non-interference proof. Version 2
 moved to a larger 8×4-tile die and added program pages and proof tripwires. Version 3
 added the line unit's three receive strobes, the half-tick sampler and the bus timing
-monitor. [07-STORY](07-STORY.md) tells this story with the reasons behind each step, and
+monitor. Version 3.1 let a program span two pages, released reset through a two-flip-flop
+synchroniser, and met every electrical rule of the layout. [07-STORY](07-STORY.md) tells this story with the reasons behind each step, and
 [06-DECISIONS](06-DECISIONS.md) records every decision and the alternatives that were
 rejected.
 

@@ -20,6 +20,7 @@ const SECTIONS = [
   ["trace", "Traceability"],
   ["ethernet", "Ethernet"],
   ["swd", "SWD"],
+  ["usb", "USB"],
   ["limits", "Limits"],
 ] as const;
 
@@ -74,7 +75,7 @@ function Page({ d }: { d: Fpga }) {
       <section className="hero fpga-hero">
         <div className="wrap hero-grid">
           <div>
-            <p className="eyebrow">Hardware bench · v3 · {d.date}</p>
+            <p className="eyebrow">Hardware bench · v3.1 · {d.date}</p>
             <h1>On the <em>bench</em></h1>
             <p className="claim">The chip's RTL on an FPGA, driven pin for pin by the bring-up script it was written
               for. {d.verdict === "PASSED" ? "Every stage passes." : unc.length && ok + unc.length === d.firmware.length
@@ -82,7 +83,7 @@ function Page({ d }: { d: Fpga }) {
                   "an unfinished bench program with no timing certificate, is the one stage 5 refuses to pass."
                 : "See the results below."}</p>
             <p className="lede">A Raspberry Pi Pico W plays the Tiny Tapeout demo board and a Sipeed Tang Primer 25K
-              plays the chip. Version 3 of the RTL, the same Verilog that was hardened for silicon, runs through
+              plays the chip. Version 3.1 of the RTL, the same Verilog that was hardened for silicon, runs through
               six bring-up stages and all {d.firmware.length} firmware runs, each compared with the reference
               model.</p>
             <div className="facts">
@@ -202,7 +203,7 @@ function Page({ d }: { d: Fpga }) {
               <h3>One design, two forms</h3>
               <p>The same RTL as a GW5A bitstream and as the IHP SG13CMOS5L layout. The FPGA column counts each block
                 with its boundaries kept ({n(d.hierarchy.total.lut4)} LUT4 in all); the bitstream itself, flattened
-                and optimised across blocks, uses {n(lut[0])}. The silicon column is the signed-off version 3 layout.</p>
+                and optimised across blocks, uses {n(lut[0])}. The silicon column is the signed-off version 3.1 layout.</p>
               <p>A full gate-level drawing of either is a wall of boxes: tens of thousands of cells. The die views on
                 the <a href="../silicon/">layout page</a> show the real layout down to the transistors.</p>
               <p className="note">nextpnr reports {d.pnr.hold_flags} hold flags, all at block RAM address pins. A lone
@@ -293,15 +294,16 @@ function Page({ d }: { d: Fpga }) {
       <section id="ethernet" className="band">
         <div className="wrap">
           <div className="sec-head">
-            <p className="eyebrow">Ethernet · 2026-11-16</p>
+            <p className="eyebrow">Ethernet · 16 to 22 November 2026</p>
             <h2>10BASE-T with a laptop</h2>
             <p className="lede">The same bitstream at 40 MHz, with only resistors, capacitors and a patch cable cut
-              open at one end between the Dock and a laptop's Ethernet port. Each direction is its own program
-              load.</p>
+              open at one end between the Dock and a laptop's Ethernet port: first each direction as its own
+              program load, then both in one, answering the laptop's ping.</p>
           </div>
           <div className="facts" style={{ marginBottom: "2rem" }}>
             <div><b>20 of 20</b><span>test frames from <code>eth_tx</code> arrived intact</span></div>
             <div><b>20 of 20</b><span>of the laptop's own frames into <code>eth_rx</code>, each with a good FCS</span></div>
+            <div><b>99 of 100</b><span>pings answered by <code>eth_trx</code>, with the Pico as the IP stack</span></div>
             <div><b>0.9 ms</b><span>to push a frame over the bit-banged link</span></div>
           </div>
           <figure className="panel">
@@ -347,19 +349,23 @@ function Page({ d }: { d: Fpga }) {
                 found by experiment (below). The capture unit recorded the line's edges at the pin after each change,
                 and with the last one the chip received the laptop's DHCP, ARP and multicast traffic, every frame
                 with a good FCS.</p>
-              <p><strong>Not explained yet.</strong> On the receive bench the laptop's link comes and goes, about
-                0.6 s up and 2.3 s down. Each up interval is long enough for several frames.</p>
-              <p><strong>Frames, not yet a network.</strong> The chip does the link layer: whole frames in and out,
-                checked or sealed with their CRC-32, and the laptop's IP packets arrived byte for byte. Answering a ping
-                needs a protocol stack on the host and one program that switches the line unit between receiving and
-                sending, which is allowed because 10BASE-T is half duplex. It needs no chip change.</p>
+              <p><strong>A ping.</strong> <code>eth_trx</code> switches the one line unit between receiving and
+                sending, which 10BASE-T's half duplex allows, and the Pico acts as the protocol stack. In the logged
+                run the laptop's ping got 7 of 10 echo replies, 154 to 178 ms each, almost all of it the bit-banged
+                host link; with the fixed link pulse (below), a later run, checked by hand, got 99 of 100. No chip
+                change was needed.</p>
+              <p><strong>The link pulse.</strong> With link pulses made of timed pin events, the laptop's link came
+                and went, about 0.6 s up and 2.3 s down, though the chip's timer showed the pulses never stopping.
+                Starting each pulse with 100 ns of both pins driven low fixed it: with that lead the link holds. Why
+                the lead helps is not yet known.</p>
             </div>
           </div>
           <div className="sub-head">
             <h3>How the receive circuit got there</h3>
-            <p>Four versions, each changed for the reason given and judged by the line check: the capture unit's
-              record of the high and low times at the pin. A clean 10BASE-T line at 40 MHz shows only 50 and 100 ns
-              runs, as many low as high.</p>
+            <p>Five versions, each changed for the reason given. The first four were judged by the line check: the
+              capture unit's record of the high and low times at the pin. A clean 10BASE-T line at 40 MHz shows only
+              50 and 100 ns runs, as many low as high. The fifth was judged by the receive count, which resolves a
+              skew finer than the check's one tick.</p>
           </div>
           <div className="table-box panel">
             <table>
@@ -464,7 +470,62 @@ function Page({ d }: { d: Fpga }) {
 
       <Ruler n={18} />
 
-      <section id="limits" className="band">
+      <section id="usb" className="band">
+        <div className="wrap">
+          <div className="sec-head">
+            <p className="eyebrow">USB · 2026-11-22</p>
+            <h2>A keyboard on a laptop's USB port</h2>
+            <p className="lede">The firmware <code>usb_hid</code> makes the chip a low-speed USB keyboard. The chip has
+              no USB hardware: its two data pins go to the laptop's port through two resistors, Windows enumerates
+              it, and it types a line into a window.</p>
+          </div>
+          <div className="facts" style={{ marginBottom: "2rem" }}>
+            <div><b>6 of 6</b><span>runs typed exactly the line the chip was given</span></div>
+            <div><b>151</b><span>characters in the longest line, 302 key reports</span></div>
+            <div><b>4.69</b><span>bit times from the computer's packet to every reply, inside USB's 2 to 6.5</span></div>
+            <div><b>24 MHz</b><span>the chip's clock: 16 ticks a bit, the Pico's 144 MHz divided by 6</span></div>
+          </div>
+          <div className="cols">
+            <figure className="panel photo">
+              <img src="../img/usb-bench.jpg" width={1400} height={914} loading="lazy"
+                alt="The USB bench: the laptop, the Tang Primer 25K Dock and the bench Pico W, and the breadboard with the USB cable's two data lines and their resistors." />
+              <figcaption>The USB bench: a USB cable cut open at its far end, its plug in the laptop.</figcaption>
+            </figure>
+            <figure className="panel photo">
+              <img src="../img/usb-board.jpg" width={1400} height={1050} loading="lazy"
+                alt="The USB bench close up: the cut USB cable, the breadboard with the two 27 ohm resistors and the 1.5 kilohm pull-up, and the wires to the Dock's J6 socket and the Pico." />
+              <figcaption>Close up: a 27 Ω resistor on each data line and the 1.5 kΩ pull-up on D−.</figcaption>
+            </figure>
+          </div>
+          <div className="cols" style={{ marginTop: "2rem" }}>
+            <div className="prose">
+              <p><strong>The bit work in hardware, the rest in firmware.</strong> The line unit does NRZI coding, bit
+                stuffing, the CRCs, SYNC and the end of packet. <code>usb_hid</code> does everything above it: the
+                enumeration requests, the descriptors, the address change and the key reports. The bench Pico W only
+                pushes key reports into the chip's mailbox. Windows read the chip's descriptors and its product
+                string, <code>Escapement</code>, and listed a USB input device.</p>
+              <p><strong>Judged from the laptop.</strong> Each run types a line carrying a number drawn on the laptop
+                for that run, and passes only if a window receives exactly that line: a dropped, doubled or wrong key
+                fails it, and so does a keyboard that never enumerates.</p>
+            </div>
+            <div className="prose">
+              <p><strong>Plugged in on cue.</strong> A low-speed device announces itself with 1.5 kΩ from D− to
+                3.3 V. Here the resistor hangs from a Pico pin, driven high once <code>usb_hid</code> is running and
+                low at the end, so Windows never sees a keyboard that cannot yet answer.</p>
+              <p><strong>In simulation too.</strong> The same bench path runs on the simulated chip against a USB
+                host model that enumerates the keyboard as Linux does and checks every packet's timing and CRC; the
+                firmware also enumerates on a real Linux kernel over USB/IP.</p>
+            </div>
+          </div>
+          <p className="note" style={{ marginTop: "1.5rem" }}>Low speed (1.5 Mb/s) is what keyboards and mice use;
+            full speed has not been tried. VID:PID 1209:0001 is the pid.codes test ID. The circuit, the log and the
+            commands are in <a href={`${REPO}/tree/master/fpga/tangprimer25k#usb-keyboard-2026-11-22`}>fpga/tangprimer25k</a>.</p>
+        </div>
+      </section>
+
+      <Ruler n={19} />
+
+      <section id="limits">
         <div className="wrap">
           <div className="sec-head">
             <p className="eyebrow">Limits</p>
@@ -507,6 +568,9 @@ const ETH_STEPS: [string, string, string, boolean][] = [
   ["bias 0.94 V (1 kΩ || 1.5 kΩ down)",
     "One step further down, with the swing about the same (430 Ω).",
     "Only 50 and 100 ns runs, as many low as high; 20 of 20 frames with a good FCS. The pin switches near 1 V.", true],
+  ["bias 1.12 V (two 10 kΩ across the 1.5 kΩ up)",
+    "On 22 November the 0.94 V bias gave 13 good frames of 38, with the highs short: the pin now switched higher. One 10 kΩ across the pull-up (1.04 V) gave 41 of 47; the divider stays near 400 Ω, so the swing is unchanged.",
+    "25 of 25 frames with a good FCS.", true],
 ];
 
 /** The judged SWD session (fpga/tangprimer25k/results/2026-11-17/swd-judge/swdjudge.log):

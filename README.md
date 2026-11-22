@@ -14,7 +14,7 @@ one firmware at a time.
 
 UART, SPI, I2C, CAN, PS/2, WS2812, 1-Wire, JTAG, ARM SWD, low-speed USB, 10BASE-T
 Ethernet, HDMI-CEC, DALI, SENT, DShot and many more are firmware: the repository holds
-80 programs, and none of those protocols is in the hardware. What the hardware adds is
+81 programs, and none of those protocols is in the hardware. What the hardware adds is
 time and the work that firmware cannot do bit by bit: a line unit for the bits of packet
 protocols, a capture unit that records timestamped pin changes, and a bus timing monitor
 that checks other devices against their datasheets.
@@ -44,26 +44,27 @@ flowchart LR
 
 ## Where to read
 
-| | |
+| Document | What it covers |
 | --- | --- |
 | [The write-up](docs/00-WRITEUP.md) | The design, why it is built this way, and how each claim is checked |
 | [The site](https://parthdoom.github.io/escapement/) | The firmware running in your browser, the die, the proofs' latest runs and the FPGA bench |
 | [Verification](docs/04-VERIFICATION.md) | Every method, every result, and how to rerun them |
-| [How it was built](docs/07-STORY.md) | The project's history, from the first question to version 3 |
+| [How it was built](docs/07-STORY.md) | The project's history, from the first question to version 3.1 |
 
 The rest of the documentation is in [docs/](docs/): architecture, instruction set, the
 normative machine semantics, host protocol, physical design, power, bring-up, the line
-unit, the bus monitor and the decision log.
+unit, the bus monitor, the decision log, and the [tool bugs](docs/24-TOOL-BUGS.md) the design
+has met.
 
-## Status
+## Results
 
-| | |
+| Aspect | Result |
 | --- | --- |
-| Layout | 8 × 4 tiles (1724.16 × 710.64 µm), 37,230 standard cells and two SRAM macros, 61.9% utilisation. Signed off at 20 ns at every corner, so the chip is rated for clocks up to 50 MHz (25 MHz by default); worst setup slack +1.480 ns, worst hold slack +0.180 ns. LVS, DRC and antenna clean, and the `ttihp27a` shuttle's precheck passes. The CI harden and the local one produce the same netlist, bit for bit ([physical design](docs/03-PHYSICAL-DESIGN.md)) |
-| Proofs | "Never late" is proved unbounded with the program memory a free input, so for every program; the sign-off netlist is proved equivalent to the RTL. In CI on the final commit all 100 proof tasks pass: the 39 unbounded core proofs (PDR, one per assertion group), six more proofs and four cover checks, the bounded check from reset (47 tasks, 67 assertion lines, depth 20), and the tripwire, line unit and non-interference proofs (four tasks); 15 planted bugs each make their proof fail. ([verification](docs/04-VERIFICATION.md)) |
-| Tests | 1,559 software tests; 12 chip tests on the RTL and on the final gate-level netlist; 9 firmware tests through the pins; 191 random programs and 74 firmware cases co-simulated against the RTL on two builds; the line unit against its model over 3.8 million edges; 80 of 80 timing certificates; 1,010 planted RTL faults, 892 caught, 57 proved harmless, 61 argued, none surviving; decoders written by other people (sigrok's, IRMP, Wireshark's, rtl_433, rc-switch) agree with 73 of the 80 programs, each judge with a control that must fail; 721 timing bugs planted in the firmware, none certified that can fault; every firmware case still passes with its pins up to three ticks slower each way. |
-| Hardware | Version 3's RTL on a Sipeed Tang Primer 25K, driven by a Raspberry Pi Pico W running the bring-up script, runs 79 of the 80 programs (all but the 14-second `westminster` chime, which has no bench bundle), and every one matches the reference model and stays within its timing certificate (19 November); the same bitstream talks 10BASE-T Ethernet with a laptop both ways, and debugs a real RP2040 over SWD while an outside logic analyser and sigrok's decoder confirm every access ([the bench](https://parthdoom.github.io/escapement/fpga/)) |
-| Power | 4.42 mW sending UART and 3.38 mW stopped, at 25 MHz and the typical corner ([power](docs/15-POWER.md)) |
+| Layout | 8 × 4 tiles (1724.16 × 710.64 µm), 38,514 standard cells and two SRAM macros, 62.6% utilisation. Signed off at 20 ns at every corner, so the chip is rated for clocks up to 50 MHz (25 MHz by default); worst setup slack into a flip-flop +3.499 ns, worst hold slack +0.098 ns; the slow corner passes setup down to 16.6 ns, so 60 MHz is possible but not rated. Every electrical rule met at every corner: no slew or capacitance violation, and 17 fanout flags on the roots of gated clocks, accepted. LVS, DRC and antenna clean, and the `ttihp27a` shuttle's precheck passes. The CI harden and the local one produce the same netlist, bit for bit ([physical design](docs/03-PHYSICAL-DESIGN.md)) |
+| Proofs | "Never late" is proved unbounded with the program memory a free input, so for every program; the sign-off netlist is proved equivalent to the RTL. In CI on the final commit all 110 proof tasks pass: the 44 unbounded core proofs (PDR, one per assertion group), six more proofs and four cover checks, the bounded check from reset (52 tasks, 72 assertion lines, depth 20), and the tripwire, line unit and non-interference proofs (four tasks); 15 planted bugs each make their proof fail. ([verification](docs/04-VERIFICATION.md)) |
+| Tests | 1,615 software tests; 12 chip tests on the RTL and on the final gate-level netlist; 9 firmware tests through the pins; 191 random programs and 74 firmware cases co-simulated against the RTL on two builds; the line unit against its model over 3.8 million edges; 81 of 81 timing certificates; 1,017 planted RTL faults, 902 caught, 57 proved harmless, 58 argued, none surviving; decoders written by other people (sigrok's, IRMP, Wireshark's, rtl_433, rc-switch) agree with 73 of the 81 programs, each judge with a control that must fail; 729 timing bugs planted in the firmware, none certified that can fault; every firmware case still passes with its pins up to three ticks slower each way. |
+| Hardware | Version 3.1's RTL on a Sipeed Tang Primer 25K, driven by a Raspberry Pi Pico W running the bring-up script, runs 80 of the 81 programs (all but the 14-second `westminster` chime, which has no bench bundle) and 5 bench programs, and every one matches the reference model and stays within its timing certificate, `modbus_full` spanning two pages among them (21 and 22 November). The same bitstream talks 10BASE-T Ethernet with a laptop both ways and answers its ping, debugs a real RP2040 over SWD while an outside logic analyser and sigrok's decoder confirm every access, and enumerates on a laptop's USB port as a keyboard that types exactly the line it is given ([the bench](https://parthdoom.github.io/escapement/fpga/)) |
+| Power | 4.42 mW sending UART and 3.36 mW stopped, at 25 MHz and the typical corner ([power](docs/15-POWER.md)) |
 
 ## Quick start
 

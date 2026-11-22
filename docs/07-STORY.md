@@ -165,6 +165,16 @@ both memories into one column on the east side, so the logic is a single rectang
 macro in its horizontal paths. A decorative layout-art macro, which stranded rows in that
 floorplan, was removed.
 
+Version 3.1 is a small step in silicon. A context whose partner is switched off can now
+**span** both of their pages, enough for a Modbus device with its whole data model, and the
+reset is released through a two-flip-flop synchroniser after a duty-cycle check found the
+raw reset reaching some latches too late. The larger change was in the layout: version 3.0
+had been signed off with slew, capacitance and fanout violations left standing, and a
+series of measured trial hardens traced them to the repair step's picture of the wires and
+of the slow corner. Version 3.1 meets every electrical rule at every corner. On the FPGA
+bench the same RTL answered a laptop's ping over 10BASE-T and enumerated on its USB port as a
+keyboard.
+
 ## What stayed the same
 
 Through all of this the central promise did not change, and neither did the working

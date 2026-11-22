@@ -50,7 +50,8 @@ commit, which the simulation and equivalence jobs check out directly.
 | `formal.yaml` | Three jobs side by side: the property proofs (`make formal-props`) and the unbounded core proof as parallel PDR tasks (`make formal-pdr`); the bounded core check from reset, one task per assertion group (`make formal-bmc`); the v2 proofs (tripwires, the line unit from reset, non-interference: `make formal-v2`) and the teeth (`make formal-teeth`) |
 | `mutation.yaml` | The mutation campaign in 40 shards dealt by each mutant's measured cost, after a baseline of every suite on the unmutated RTL, with the canaries in a job of their own |
 | `gds.yaml` | The Tiny Tapeout harden (LibreLane), then the precheck and the gate-level test on the hardened netlist |
-| `equivalence.yaml` | After a successful harden on master: that netlist against the RTL of its commit |
+| `equivalence.yaml` | After a successful harden on master: that netlist against the RTL of its commit. Run by hand on a branch, it proves that branch's latest hardened netlist before a merge |
+| `fw-mutants.yaml` | On every push that changes the firmware, the assembler, the simulator, the bus models or `escert`: timing bugs planted in every shipped program, in 24 shards; `escert` must refute every one that can fault, and a mutant it certifies is attacked on the simulator ([04-VERIFICATION](04-VERIFICATION.md#planted-timing-bugs)) |
 | `docs.yaml` | The Tiny Tapeout datasheet build from `info.yaml` and `docs/info.md` |
 | `site.yaml` | The project site and its results page, on master: when the site, the software or the firmware change, and after each of the workflows above |
 
@@ -86,8 +87,23 @@ python3 scripts/ci_budget.py runs/NAME                # predicted CI time of tha
 Detailed routing in OpenROAD gives the same result at any thread count, so a local run
 predicts the CI result, and `ci_budget.py` turns its routing CPU time into an estimate of CI
 wall time. The final netlist of a local harden and of the CI harden can be compared
-directly: for the signed-off version 3 layout both have SHA-256 `fa1f6601eb894419…`
+directly: for the signed-off version 3.1 layout both have SHA-256 `1342fef1bc2f9f99…`
 ([03-PHYSICAL-DESIGN](03-PHYSICAL-DESIGN.md#sign-off-results)).
+
+Two defects of the flow's OpenROAD (commit `dcf36133`) show up on this design, and neither
+can pass unnoticed. Clock-tree synthesis can drop a clock gate's input when two gates' banks
+share a centre (issue #9816); LibreLane's disconnected-pin check stops the flow, and a nearby
+placement density avoids it (D-45). Timing-driven global placement can crash, either with a
+segmentation fault in the timing engine or with a delay too large for the resizer's
+fixed-point type (RSZ-1008), in the resizer pass that runs inside placement. Both are the
+same bug: one placement input gave either symptom at the same point, and it matches
+OpenROAD issue #11977, reported on the same commit and still open, in which the resizer
+follows timing-path records freed by its own buffer insertion. Replaying global placement
+alone from the final layout's input, it crashed 8 times in 8 when repair was allowed to
+rebuffer the memories' input nets, with one thread as with four, and never in 24 runs that
+kept those nets untouched, as the committed settings do. It still happens now and then on a
+full run; a rerun of the same job passes. [24-TOOL-BUGS](24-TOOL-BUGS.md) has both, with the
+reproducer, and the other tool defects this design has met.
 
 ## Analysis scripts
 

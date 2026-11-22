@@ -18,8 +18,8 @@ class Guard extends Component<{ children: React.ReactNode }, { err: string | nul
   }
 }
 
-// The layout in depth, moved here from the chip's page: the transistor close-up and the eight
-// adopted layouts from v1.0 to v3. The chip's page keeps the die, its sign-off numbers and power.
+// The layout in depth, moved here from the chip's page: the transistor close-up and the nine
+// adopted layouts from v1.0 to v3.1. The chip's page keeps the die, its sign-off numbers and power.
 export default function SiliconApp() {
   return (
     <>
@@ -27,9 +27,9 @@ export default function SiliconApp() {
       <main id="top">
         <section className="hero page-hero">
           <div className="wrap">
-            <p className="eyebrow">Physical design · v3 · IHP SG13CMOS5L 130 nm · 8×4 tiles</p>
+            <p className="eyebrow">Physical design · v3.1 · IHP SG13CMOS5L 130 nm · 8×4 tiles</p>
             <h1>The <em>layout</em></h1>
-            <p className="lede">The die as it goes to silicon, cut down to its transistors, and the seven layouts that
+            <p className="lede">The die as it goes to silicon, cut down to its transistors, and the eight layouts that
               led to it. The whole die, its sign-off numbers and its power are on <a href={asset("#silicon")}>the
               chip's page</a>.</p>
           </div>
@@ -55,9 +55,10 @@ export default function SiliconApp() {
                   its pin writes a stage earlier: it is laid out for a 20 ns clock and rated up to 50 MHz. The move to
                   eight by four tiles came with a 1,024-word program store; version 3 puts both memories in one column
                   on the east side, so the logic is a single rectangle with no macro across its horizontal paths, and is
-                  still laid out for 20 ns.</p>
+                  still laid out for 20 ns. Version 3.1 corrects the repair step's picture of the wires and of the
+                  slow corner, and meets every electrical rule at every corner.</p>
                 <p>To save power, register banks that are not being written do not see the clock: about 90 clock gates
-                  stand in front of the banks among the 5,380 storage cells, and each memory is selected only on the
+                  stand in front of the banks among the 5,398 storage cells, and each memory is selected only on the
                   cycles that read it.</p>
               </div>
             </div>
@@ -68,7 +69,7 @@ export default function SiliconApp() {
           <div className="wrap">
             <div className="sec-head">
               <p className="eyebrow">History</p>
-              <h2>Eight layouts, one story</h2>
+              <h2>Nine layouts, one story</h2>
             </div>
             <History />
             <p className="more"><a href={`${REPO}/blob/master/docs/03-PHYSICAL-DESIGN.md`}>Physical design in full:

@@ -6,8 +6,9 @@ directory; start with ../README.md.
 ## How it works
 
 Escapement is a programmable protocol engine. Four hardware contexts run firmware from a
-1,024-word program SRAM, in four pages of 256 words, and schedule changes on the protocol
-pins at absolute clock ticks. Every scheduled event is checked when it is queued: if its
+1,024-word program SRAM, in four pages of 256 words (a context whose partner is switched
+off can run one 512-word program across both of their pages), and schedule changes on the
+protocol pins at absolute clock ticks. Every scheduled event is checked when it is queued: if its
 deadline can still be met it happens on exactly that tick, and if not, the context stops
 with a visible fault instead of producing a late edge.
 
@@ -22,7 +23,7 @@ and sample them at exact ticks (SAMPLE). A second 256-word SRAM, the tape, holds
 data and timestamped captures of the pins, so the chip also works as a logic analyser that
 can replay what it recorded. UART, SPI, I2C, CAN, PS/2, WS2812, 1-Wire, JTAG, ARM SWD,
 infrared remotes, HDMI-CEC, DALI, SENT, DShot and many more are firmware: the repository
-holds 80 programs.
+holds 81 programs.
 
 Three units do work that firmware cannot do per bit:
 

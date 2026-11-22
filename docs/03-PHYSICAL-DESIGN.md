@@ -12,7 +12,7 @@ alternatives that were measured and rejected, are in [06-DECISIONS](06-DECISIONS
 ## What limits this layout
 
 The die is larger than the design needs: the standard cells and the two memories fill
-61.9% of the core. The limit is wiring, not area. A Tiny Tapeout block in
+62.6% of the core. The limit is wiring, not area. A Tiny Tapeout block in
 this process has four signal layers below the top metal, and only one of them, Metal3,
 runs horizontally at a useful pitch for signals. On a die more than twice as wide as it
 is tall, nearly all routing congestion is horizontal, so every layout decision in this
@@ -67,11 +67,12 @@ so it was removed (D-61).
 
 ## Placement and the clock tree
 
-- **Density 61%, timing-driven.** Global placement weights the nets on critical paths, so
+- **Density 61.7%, timing-driven.** Global placement weights the nets on critical paths, so
   the core's commit logic packs together instead of spreading over hundreds of
   micrometres; on the first 8 × 4 floorplans this alone was worth 2.16 ns of setup (D-52).
-  The density is one point above the 60% that the earlier floorplans used, for the reason
-  in the next item.
+  The density was chosen among nearby values: 60% and 61% each produced a placement that
+  triggers the clock-tree defect in the next item, and 61.3% missed setup at the slow
+  corner (D-65).
 - **Clock-gate sinks clustered within 50 µm.** The design has about 90 clock gates, one
   per rarely written register bank, and the clock-tree tool treats each gate's input as a
   macro-like sink. With its default clustering diameter of 833 µm it grouped gates far
@@ -80,10 +81,13 @@ so it was removed (D-61).
   #9816, fixed upstream but not in the flow's release): when two gates' banks have the
   same centre, clock-tree synthesis moves both gates there and loses one gate's clock
   input. The flow's disconnected-pin check, LVS and the netlist proofs all catch it, and
-  the 61% density is a placement on which it does not occur (D-45, D-61).
+  the 61.7% density is a placement on which it does not occur (D-45, D-65).
 - **Clock buffers** are the library's 8×, 4×, 2× and 1× buffers, with an 8× root and no
   non-default routing rule for clock nets: with one subtree per clock gate, double
-  spacing would cost more routing than it saves.
+  spacing would cost more routing than it saves. Each leaf buffer is sized for the load it
+  actually drives, which makes most leaves 1× buffers where the tool's default picked 8×.
+  That cut the clock tree's power by 6.6% and left 17 fanout flags, all at the roots of
+  gated clocks (Sign-off results, below).
 
 ## Routing
 
@@ -98,11 +102,34 @@ never saw; in an early layout they shorted signal wires to power in about 4,000 
 which only LVS detected. Filler cells carry Metal1 only on their rails, and every logic
 cell's Metal1 is fully described in its LEF, which was checked against the GDS for every
 cell the design uses ([`scripts/m1_fill_overlap.py`](../scripts/m1_fill_overlap.py)). The
-design therefore has no decap capacitance; the worst IR drop at 20 ns is 0.30 mV.
+design therefore has no decap capacitance; the worst IR drop at 20 ns is 0.35 mV.
 
-Wires longer than 300 µm are buffered during design repair, before and again after global
-routing, with 30% margins on slew and capacitance for the detours that detailed routing
-adds.
+**Design repair** keeps every pin within the library's limits on slew, capacitance and
+fanout, by buffering and resizing, once after placement and again after global routing.
+Nothing repairs after detailed routing, which lengthens some nets beyond the global
+route's estimate, so the second repair works with margins, and four settings make its
+picture of each wire accurate:
+
+- **Wire capacitance from extraction.** The resizer's wire model uses twice the
+  capacitance in the technology LEF, because extraction of the version 3.0 layout measured a
+  median of 0.185 fF/µm on long nets against the LEF's 0.092. Every step that sets wire
+  parasitics loads all three corners.
+- **Margins for the detours.** After global routing, repair keeps 40% margins on slew and
+  capacitance and buffers any wire longer than 250 µm, and global routing derates each
+  layer's capacity by 20%.
+- **A slew limit for repair only.** OpenROAD's repair judges slew at the first corner the
+  flow defines, which LibreLane makes the fast one, while slow-corner slew is 2.24 to 2.46
+  times fast-corner slew on every pin measured. Against the library's 2.51 ns limit, repair
+  would act only on pins already past the limit at the slow corner. The placement and
+  routing constraints therefore set a maximum transition of 1.0 ns, which makes repair
+  buffer a net while it is still about 1.4 ns at the slow corner. Sign-off keeps the
+  library's limits.
+- **Buffers before the memories.** The memories' input pins allow only 0.595 ns at the slow
+  corner; how they are driven is under SRAM integration, below.
+
+These came out of the work that met the electrical rules for version 3.1 (D-65): version
+3.0 was signed off with 15 slow-corner slew violations, one capacitance violation and 155
+fanout flags.
 
 ## Timing constraints
 
@@ -114,6 +141,13 @@ setup and 0.05 ns for hold. A hold check launches and captures on the same clock
 jitter cancels, skew is propagated with clock reconvergence pessimism removal, and
 on-chip variation stays covered by the 5% timing derate. Applying the full setup
 uncertainty to hold had put about 4,000 unnecessary delay cells on register self-loops.
+The placement and routing constraints add only the 1.0 ns slew limit for design repair
+described under Routing.
+
+The reset input is timed like the other inputs, arriving 4 ns (20% of the period) after a
+rising edge, but it no longer reaches the registers directly. Two flip-flops take it and
+release the chip's internal reset on the second rising edge after `rst_n` rises (D-63), so
+the release spreads through the reset tree as an ordinary timed path from one flip-flop.
 
 **Two hold repairs.** Hold is repaired after clock-tree synthesis with a 0.1 ns margin,
 and again after global routing with a 0.3 ns margin, where the routed clock feeds are
@@ -134,28 +168,30 @@ flip-flop separately.
 
 ## Sign-off results
 
-The figures are from the harden of commit `a127bcd` with [`scripts/local-harden.sh`](../scripts/local-harden.sh). The CI harden of the same source produced an identical netlist.
+The figures are from the CI harden of commit `11b0115` and the local harden of the same
+source with [`scripts/local-harden.sh`](../scripts/local-harden.sh), which produced an
+identical netlist.
 
-| | |
+| Aspect | Result |
 | --- | --- |
 | Die | 1724.16 × 710.64 µm, 8 × 4 tiles; core area 1,208,170 µm² |
-| Standard cells | 37,230 (558,712 µm²), of which 5,380 flip-flops, latches and clock-gate latches |
+| Standard cells | 38,514 (566,971 µm²), of which 5,398 flip-flops, latches and clock-gate latches, and 88 buffers before the memories' inputs |
 | Macros | `RM_IHPSG13_1P_1024x32_c2_bm_bist` (program store) and `RM_IHPSG13_1P_256x32_c2_bm_bist` (tape), 189,671 µm² together |
-| Utilisation | 61.9% |
+| Utilisation | 62.6% |
 | Clock | Placed, routed and signed off at 20 ns: rated up to 50 MHz, 25 MHz by default (D-5) |
-| Setup | No violations at any corner. Worst path into a flip-flop: +1.480 ns at the slow corner |
-| Hold | No violations. Worst slack: +0.180 ns at the fast corner (+0.361 ns typical, +0.611 ns slow) |
-| Hold buffers | 259 |
-| Electrical rules | Not all met, and not repaired. Max slew: 15 pins at the slow corner (worst 3.62 ns against a 2.51 ns limit; one is the tape's `A_DIN[11]`, the only one at the typical corner), 0 fast. Max capacitance: one pin at every corner, the program store's `A_DOUT[18]` (67 fF against 64 fF). Max fanout: 155 at every corner, all of them clock-tree buffers driving 10 to 19 sinks against the limit of 8 that design repair uses. The setup and hold figures above are computed with these slews. The lists are in the release's sign-off reports (`sta/*/checks.rpt`) |
-| Routing | 2.32 m of wire, 279,368 vias; global-route overflow 0; detailed-route DRC 0 |
+| Setup | No violations at any corner. Worst path into a flip-flop: +3.499 ns at the slow corner, from the tape memory's output (+6.507 ns typical, +6.307 ns fast). Paths into latches are covered by the headroom sweep below: setup passes at every corner down to 16.6 ns |
+| Hold | No violations. Worst slack: +0.098 ns at the fast corner (+0.261 ns typical, +0.477 ns slow) |
+| Hold buffers | 12 |
+| Electrical rules | Met. Max slew and max capacitance: no violation at any corner. Max fanout: 17 flags at every corner, all of them roots of gated clocks driving 16 loads against the library's limit of 8; each passes slew and capacitance, and they are accepted (D-65) |
+| Routing | 2.20 m of wire, 289,954 vias; global-route overflow 0; detailed-route DRC 0 |
 | LVS | Clean (0 errors, 0 net or device differences) |
 | DRC | Clean (KLayout SG13CMOS5L deck in the Tiny Tapeout precheck) |
-| Antenna | 0 violations (98 diodes) |
-| IR drop | 0.30 mV worst, at 20 ns |
-| Power | 7.66 mW (the flow's estimate at 20 ns, typical corner); workload measurements in [15-POWER](15-POWER.md) |
+| Antenna | 0 violations (28 diodes) |
+| IR drop | 0.35 mV worst, at 20 ns |
+| Power | 7.36 mW (the flow's estimate at 20 ns, typical corner); workload measurements in [15-POWER](15-POWER.md) |
 | Precheck | The `ttihp27a` shuttle's precheck passes, every row |
-| Gate level | Pin-level tests 9 of 9; SDF-annotated simulation 11 of 11 at each corner; the netlist is proved equivalent to the RTL ([04-VERIFICATION](04-VERIFICATION.md#rtl-to-netlist-equivalence)) |
-| Reproduction | The CI harden's netlist and the local one have the same SHA-256 (`fa1f6601eb894419…`) |
+| Gate level | The 9 firmware tests through the pins pass on this netlist, and the 12 chip tests pass with SDF timing at 20 ns at all three corners; Icarus leaves out four interconnect delays of 2 to 4 ps ([24-TOOL-BUGS](24-TOOL-BUGS.md#sdf-annotation-in-icarus-verilog-13)). The netlist is proved equivalent to the RTL ([04-VERIFICATION](04-VERIFICATION.md#rtl-to-netlist-equivalence)) |
+| Reproduction | The CI harden's netlist and the local one have the same SHA-256 (`1342fef1bc2f9f99…`) |
 
 The corners are `nom_slow_1p08V_125C`, `nom_typ_1p20V_25C` and `nom_fast_1p32V_m40C`.
 
@@ -166,15 +202,17 @@ analysis on a finished layout with its extracted parasitics, shortening the cloc
 (and the I/O delays with it) until setup fails, latch inputs included. It gives the
 fastest clock each corner supports:
 
-| Corner | Shortest passing period | Clock | Fails at | Version 1.6 |
-| --- | ---: | ---: | ---: | ---: |
-| Slow, 1.08 V, 125 °C | 18.6 ns | 53.8 MHz | 18.5 ns | 50.8 MHz |
-| Typical, 1.20 V, 25 °C | 11.6 ns | 86.2 MHz | 11.5 ns | 80.6 MHz |
-| Fast, 1.32 V, −40 °C | 7.7 ns | 129.9 MHz | 7.6 ns | 120.5 MHz |
+| Corner | Shortest passing period | Clock | Fails at | Version 3.0 | Version 1.6 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Slow, 1.08 V, 125 °C | 16.6 ns | 60.2 MHz | 16.5 ns | 53.8 MHz | 50.8 MHz |
+| Typical, 1.20 V, 25 °C | 10.3 ns | 97.1 MHz | 10.2 ns | 86.2 MHz | 80.6 MHz |
+| Fast, 1.32 V, −40 °C | 6.8 ns | 147.1 MHz | 6.7 ns | 129.9 MHz | 120.5 MHz |
 
-The sweep reads the signed-off netlist (SHA-256 `fa1f6601eb894419…`, the CI harden's). Hold
-slack stays at its sign-off value at every passing point: 0.611, 0.361 and 0.180 ns. At the
-slow corner the 20 ns rating keeps 1.4 ns, 7% of the period, in hand.
+The sweep reads the signed-off netlist (SHA-256 `1342fef1bc2f9f99…`, the CI harden's). Hold
+slack stays at its sign-off value at every passing point: 0.477, 0.261 and 0.098 ns. At the
+slow corner the 20 ns rating keeps 3.4 ns, 17% of the period, in hand. The gain over
+version 3.0 comes mostly from the repair settings under Routing: long nets that were left slow
+at the slow corner are now buffered, and a buffered net is also a faster one.
 
 The chip is rated at 50 MHz because it is placed, routed and signed off at 20 ns. A clock
 that is high for 40% or 60% of the period, instead of half, also passes setup, hold and
@@ -209,6 +247,14 @@ the published SG13CMOS5L recipe of the Loom project, adapted to these macros:
    sign-off DRC is the KLayout deck in the precheck.
 5. The macros' BIST and bit-mask pins are tied off. Simulation uses the vendored
    behavioural models.
+6. Every switching input of both macros is driven by its own 4× buffer
+   (`escapement_mbuf` in [`src/escapement_sram.v`](../src/escapement_sram.v)), and the net
+   from the buffer to the pin is marked don't-touch for the resizer. The macro pins allow
+   0.595 ns of slew at the slow corner, far less than a standard cell's 2.51 ns, and repair
+   judges slew at the fast corner, where these pins pass, so a pin fed from across the core
+   could miss at the slow corner unseen. The longest of these nets carry 80 to 137 fF; a 2×
+   buffer still missed by 3 ps there. The buffers exist only in synthesis
+   (`ESC_MACRO_BUFFERS`): simulation, the formal proofs and the equivalence check see a wire.
 
 ## How the layout got here
 
@@ -221,5 +267,10 @@ Version 2 moved to 8 × 4 tiles; a measured analysis of nine hardens showed that
 width spread the line unit far from the core, and the tape at the bottom left together
 with timing-driven placement closed timing (D-51, D-52). Version 3's monitor reopened the
 same problem from the other side, and the east-column floorplan above closed it (D-61).
-Every harden, adopted or rejected, is recorded with its reason in
+Version 3.1 kept that floorplan and changed how the flow repairs: version 3.0 had been
+signed off with electrical-rule violations, and a series of trial hardens traced them to
+the resizer's wire model, the detours of detailed routing, repair that only looked at the
+fast corner, and the memories' strict input pins. With all four addressed, the 3.1 layout
+meets every electrical rule at every corner and closes 2 ns faster at the slow corner
+(D-65). Every harden, adopted or rejected, is recorded with its reason in
 [`asic/reports/area.csv`](../asic/reports/area.csv).
