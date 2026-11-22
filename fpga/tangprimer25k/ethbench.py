@@ -506,7 +506,7 @@ def listen(seconds=30, count=0, bundles="bundles", io=None, out=print, bundle="e
     return got
 
 
-def edges(seconds=15, bundles="bundles", io=None, out=print, bundle="eth_edges"):
+def edges(seconds=60, bundles="bundles", io=None, out=print, bundle="eth_edges"):
     """The receive line check: set up the chip at 40 MHz with eth_edges.asm (link pulses,
     the capture unit on RXP), capture the edges of the link partner's first frame, and
     print the high and low times with a verdict. Returns line_check()'s dict, or None."""

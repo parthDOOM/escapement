@@ -1,0 +1,5 @@
+# line check, bias ~1.12 V (1.5k || 10k || 10k up)
+﻿eth: chip at 40.000 MHz (RP system clock 160 MHz); eth_edges running, link pulses every 16 ms; burst delay 0
+eth: RXP high runs (ticks:count) 1:45 3:81, mean 57 ns
+eth: RXP low runs  (ticks:count) 3:45 5:31, mean 95 ns
+eth: 0 run(s) over 5 ticks; decodable, no missed edge, but the highs are 38 ns short: less margin; the bias is below the pin's switching point: raise it

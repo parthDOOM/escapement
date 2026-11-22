@@ -36,6 +36,7 @@ if (-not $env:MPREMOTE -and -not (Get-Command $Mp -ErrorAction SilentlyContinue)
     }
 }
 $Build = Join-Path $Here "build"
+$EthImport = "import gc; import bringup; gc.collect(); import ethbench; gc.collect()"
 
 function Invoke-Wsl([string]$script) {
     $env_ = if ($env:OSS_CAD_SUITE) { "source '$($env:OSS_CAD_SUITE)/environment' >/dev/null 2>&1; " } else { "" }
@@ -112,10 +113,13 @@ switch ($Cmd) {
         $o = "io=barepico.open_io(sys_hz=125000000)"; if ($Opts) { $o += ", " + $Opts }
         Invoke-Mp @("exec", "import barepico, bringup; bringup.run($o)")
     }
-    "eth" { Invoke-Mp @("exec", "import ethbench; ethbench.run($Opts)") }
-    "ethrx" { Invoke-Mp @("exec", "import ethbench; ethbench.listen($Opts)") }
-    "ethedges" { Invoke-Mp @("exec", "import ethbench; ethbench.edges($Opts)") }
-    "ethping" { Invoke-Mp @("exec", "import ethbench; ethbench.ping($Opts)") }
+    # bringup.py is compiled on the Pico; imported first, with a collection after it and after
+    # ethbench, the heap keeps a block large enough for ethbench's GPIO tables (22 Nov: an
+    # 8,000-byte table failed with a plain "import ethbench", 15 KB largest block against 44 KB)
+    "eth" { Invoke-Mp @("exec", "$EthImport; ethbench.run($Opts)") }
+    "ethrx" { Invoke-Mp @("exec", "$EthImport; ethbench.listen($Opts)") }
+    "ethedges" { Invoke-Mp @("exec", "$EthImport; ethbench.edges($Opts)") }
+    "ethping" { Invoke-Mp @("exec", "$EthImport; ethbench.ping($Opts)") }
     "swd" { Invoke-Mp @("exec", "import swdbench; swdbench.run($Opts)") }
     "proof" {
         New-Item -ItemType Directory -Force $Build | Out-Null

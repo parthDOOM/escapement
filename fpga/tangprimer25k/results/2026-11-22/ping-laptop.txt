@@ -1,0 +1,17 @@
+# laptop (Windows), during eth-ping-chip.log: ping -n 10 -w 3000 169.254.0.42
+Pinging 169.254.0.42 with 32 bytes of data:
+Reply from 169.254.0.42: bytes=32 time=1968ms TTL=64
+Reply from 169.254.0.42: bytes=32 time=175ms TTL=64
+Reply from 169.254.0.42: bytes=32 time=155ms TTL=64
+Reply from 169.254.0.42: bytes=32 time=162ms TTL=64
+Reply from 169.254.0.42: bytes=32 time=154ms TTL=64
+Reply from 169.254.0.42: bytes=32 time=157ms TTL=64
+Reply from 169.254.0.42: bytes=32 time=178ms TTL=64
+Request timed out.
+General failure.
+Reply from 169.254.172.139: Destination host unreachable.
+
+Ping statistics for 169.254.0.42:
+    Packets: Sent = 10, Received = 8, Lost = 2 (20% loss),
+Approximate round trip times in milli-seconds:
+    Minimum = 154ms, Maximum = 1968ms, Average = 421ms

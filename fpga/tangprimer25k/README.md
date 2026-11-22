@@ -11,7 +11,42 @@ so the script runs unchanged.
 | Chip | Sipeed Tang Primer 25K Dock (GW5A-LV25MG121NC1/I0), loaded over its onboard USB debugger |
 | Build | `fpga/escapement_board.v` with `ESC_NO_CG` and `fpga/escapement_sram_fpga.v`, as in `fpga/README.md` |
 
-## Result, 2026-11-19 (version 3, every program)
+## Result, 2026-11-21 (version 3.1, span)
+
+Version 3.1 adds span: a context whose partner is switched off can run one program of up to
+512 words across both of their program pages. This run loaded the RTL of commit c49c1c0 and
+firmware bundles built from the same tree.
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| wiring check | PASS: all 26 signals on the expected GPIOs | `results/2026-11-21/pinid.txt` |
+| 0 board and project | PASS | `results/2026-11-21/clean-build/bringup.log` |
+| 1 clock and reset | PASS: 25 MHz from the Pico, outputs correct in and after reset | same |
+| 2 host link | PASS: STATUS reports protocol version 11, fast and slow SCK | same |
+| 3 memories | PASS: 4 patterns x 256 words in each of the four program pages and the tape, tape reads during a run | same |
+| 4 pins and clock rate | PASS: every uio, input and bank B pin; chip clock 24.9938 MHz | same |
+| 5 firmware | PASS: 85 of 85 bundles match the model's digest or final state and their certificates: 80 library programs and 5 bench programs | same, and `proof.json` |
+
+Two programs ran here for the first time. `modbus_full` is the first that spans two pages: a
+419-word Modbus RTU device on context 0, with context 2 switched off to lend it its page, and
+its smallest lead on the board was 9 ticks, the bound its certificate gives. `eth_trx`, the
+one program the run of 19 November refused, now passes with its fix (below): its smallest
+lead was 29 ticks against a certified 13.
+
+The bitstream was built by `build.sh` with every one of its checks passing: the clock is on
+the global network all the way to its 5,111 clock pins with no measured skew, setup passes at
+25 MHz (58.16 MHz possible), and nextpnr reports no hold violation (the bitstream of
+19 November had 8, all at block RAM address pins; see below). Earlier bitstreams failed two of these checks and were
+packed by hand. The cause was the half-tick input sampler, a bank of falling-edge
+flip-flops: Yosys's Gowin flow for the GW5A legalizes every flip-flop to a rising-edge clock
+and puts an inverter for this bank in a LUT, which takes the bank's clock off the global
+network. `build.sh` now maps the falling-edge flip-flops onto the FPGA's own `DFFNC` cells
+first, so their clock stays global, and nextpnr then times the sampler's half-cycle path into
+the core, which it did not before. A first run the same evening, on a bitstream built before
+this change and packed by hand (`results/2026-11-21/`, whose `chip.MANIFEST` says so), also
+passed 85 of 85.
+
+## Earlier result, 2026-11-19 (version 3, every program)
 
 The same bitstream as on 15 November (`chip.fs` sha256 a495ad2e..., `results/2026-11-19/chip.MANIFEST`):
 the RTL has changed since only in its comments. The firmware bundles were built from the tree of
@@ -44,8 +79,8 @@ in 10 µs slices, as listening does, so the link pulses keep their 16 ms through
 before, they stopped for as long as the host took, and a link partner drops the link after 50
 to 150 ms without them. With two precision fixes in escert
 ([verification](../../docs/04-VERIFICATION.md#planted-timing-bugs)) the program is CHECKED
-with a minimum lead of 13 ticks, and `test_ethbench.py` runs both slow hosts. This bench run
-predates the fix; the next one will load it.
+with a minimum lead of 13 ticks, and `test_ethbench.py` runs both slow hosts. This run
+predates the fix; the run of 21 November loaded it, and it passed.
 
 Getting to this run took three tries, and each fixed something:
 
@@ -83,8 +118,8 @@ The run also has limits, and they are recorded:
   0.05 ns the build allows (`results/2026-11-15/clkskew.txt`). nextpnr times the rest
   of the design and passes setup at 25 MHz (57.39 MHz possible), but it treats the
   inverted clock as its own domain and does not time the half-cycle path from the sampler
-  into the core. The fix is to map the bank onto the FPGA's falling-edge flip-flops. The
-  chip's own layout does not have this problem: its sampler is signed off at every corner
+  into the core. Mapping the bank onto the FPGA's falling-edge flip-flops fixed this on
+  21 November (above). The chip's own layout does not have this problem: its sampler is signed off at every corner
   with the rest of the design ([03-PHYSICAL-DESIGN](../../docs/03-PHYSICAL-DESIGN.md)).
 - **The new receivers ran with nothing on their pins.** `eth_rx`, `spi_sniff` and
   `i2c_timing` run and stay in step with the model, but this run had no Ethernet line, no
@@ -309,12 +344,12 @@ neither: the laptop's transmit pair reaches one FPGA pin through a coupling capa
 bias network, and the pin's own input threshold acts as the comparator.
 
     laptop TX+  orange-white ──┬──┤├ 100 nF ──[100 Ω]──┬── J6 top col 4 (uio[2], RXP)
-                            [100 Ω]                    ├──[1.5 kΩ]── J6 col 1 (3V3)
+                            [100 Ω]                    ├──[1.5 kΩ ∥ 10 kΩ ∥ 10 kΩ]── J6 col 1 (3V3)
     laptop TX-  orange ────────┴──┤├ 100 nF ── GND     └──[1 kΩ ∥ 1.5 kΩ]── GND
     GND: J4 bottom row, col 2
 
 Unplug wire 24 (the Pico's GP19) from J6 top col 4 first. The 100 Ω across the pair terminates
-it. The divider holds the idle pin at about 0.94 V, which reads high; the laptop's signal
+it. The divider holds the idle pin at about 1.12 V, which reads high; the laptop's signal
 swings around that, and the pin's input diodes clip the bottom of the swing. J6 column 1 is the
 one 3V3 hole the bench uses, for the bias resistor alone.
 
@@ -324,9 +359,10 @@ comparator and the transformer.
 
 #### How the receive circuit got there
 
-The circuit went through four versions. Each was judged by the line check (below): the
-capture unit's record of the high and low times at the pin. A clean line at 40 MHz shows only
-50 and 100 ns runs, as many low as high.
+The circuit went through five versions. The first four were judged by the line check (below):
+the capture unit's record of the high and low times at the pin. A clean line at 40 MHz shows
+only 50 and 100 ns runs, as many low as high. The fifth was judged by the receive count itself,
+for the reason under the table.
 
 | Version | Why | What the pin showed |
 | --- | --- | --- |
@@ -334,9 +370,15 @@ capture unit's record of the high and low times at the pin. A clean line at 40 M
 | 100 Ω series, bias 2.0 V | 0.86 of the swing instead of 0.375, to cross the switching point wherever it is. The pin's input diodes clip the excess. | Frames arrived, and `eth_rx` locked onto them (the first bytes decoded were the broadcast address), then lost sync. The preamble's lows were 25 ns and its highs 75 ns, so the bias was far above the switching point. |
 | bias 1.32 V (1.5 kΩ up, 1 kΩ down) | Move the idle level toward the switching point. The divider is still 600 Ω, so the swing does not change. | Lows of 25 to 50 ns, and some missed altogether (175 ns highs), so every FCS was bad. |
 | bias 0.94 V (1 kΩ ∥ 1.5 kΩ down) | One step further down, with the swing about the same (430 Ω). | Only 50 and 100 ns runs, as many low as high. 20 of 20 frames came with a good FCS. |
+| bias 1.12 V (two 10 kΩ across the 1.5 kΩ up), 22 November | On the version 3.1 build the 0.94 V bias (measured 0.93 V) gave 13 good frames of 38, and the line check found the highs short: the bias now sat below the switching point. One 10 kΩ across the pull-up (1.04 V) gave 41 of 47. The divider stays near 400 Ω, so the swing is unchanged. | 25 of 25 frames with a good FCS. |
 
-So the GW5A's 3.3 V input switches near 1 V. Its datasheet guarantees only below 0.8 V and
-above 2.0 V, so another board may need another bias. The line check shows which way to move it.
+So the GW5A's 3.3 V input switches between about 1.0 and 1.2 V. Its datasheet guarantees only
+below 0.8 V and above 2.0 V, so another board may need another bias. The point also moved on
+this board: the same pin and circuit wanted 0.94 V on 16 November and 1.12 V on 22 November.
+Between the two runs the FPGA build changed how the falling-edge input sampler is mapped
+(Result, 21 November). Temperature and the breadboard were not measured, so the shift is not
+put on one cause. The line check shows which way to move the bias; the receive count shows
+when to stop.
 
 `eth_rx` needs the chip's line unit, and the chip has one. So `eth_rx_bench.asm` runs `eth_rx`
 in context 0 and `eth_link.asm` in context 1: link pulses made of timed pin events (`EMIT`),
@@ -367,13 +409,23 @@ ARP, IGMP, IPv6), and they arrived byte for byte. But taking part in a network n
 - **Both directions in one load.** `eth_tx` and `eth_rx` each take the chip's one line unit for
   as long as they run. A program that sends and receives must reconfigure the unit between
   frames. 10BASE-T is half duplex, so that is allowed: `eth_trx.asm` does it, and with
-  `ethbench.ping()` answers ARP and ping in simulation. On the bench it waits for the receive
-  line to be rebuilt.
+  `ethbench.ping()` it answers ARP and ping, in simulation and on the bench (below).
 - **A faster host link.** The bit-banged SPI drains a large frame in about 0.7 s. That is fine
   for a ping, but not for real traffic.
 
-Answering a laptop's ping is the natural next step. No chip change is needed for it, only that
-program and host software.
+### Ping, 2026-11-22
+
+The chip answers a laptop's ping. `ethbench.ping()` loads `eth_trx` at 40 MHz and has the Pico
+act as the protocol stack for 169.254.0.42, a link-local address beside the laptop's own. The
+laptop's `ping -n 10 169.254.0.42` got the ARP reply and then 7 echo replies, 154 to 178 ms
+each; the first took 1,968 ms because it waited for the ARP exchange. The time is almost all
+the host link: each request crosses the bit-banged SPI into the Pico and each reply crosses
+back. The last three of the ten failed when the link dropped and the laptop restarted its
+address (a DHCP Discover from 0.0.0.0, then an ARP probe of its own address), the flap
+described above. Over the run the chip received 100 frames, 1 with a bad FCS, and no tripwire
+fired. The build was version 3.1 with the reset synchroniser (D-63), and the same session
+passed transmit (20 of 20 frames counted by the laptop, no receive error) and receive (25 of
+25 good FCS). Logs: `results/2026-11-22/` (the laptop's MAC address replaced by LAPTOP-MAC).
 
 ### The line check
 
@@ -385,6 +437,16 @@ check names the likely fix: a bias above the pin's switching point makes the low
 an open coupling capacitor lets only the edges through. With the laptop's Energy-Efficient
 Ethernet on, the lows came out about 48 ns shorter than the highs in one capture, but no edge
 was missed, and `eth_rx` decoded every frame.
+
+On the version 3.1 build (22 November) every capture had odd run lengths, 1 and 3 ticks high
+and 3 and 5 low, and the check reported the highs 29 to 38 ns short at 0.93, 1.04 and 1.12 V
+alike, including the bias that then decoded 25 of 25 frames. One edge direction comes out a
+tick late against the other. The falling-edge sampler's new mapping (Result, 21 November) is
+the likely reason, since the check's limits were set on the old one, but this is not proved.
+On that build the check still finds missed edges and gives the direction to move the bias;
+the receive count from `ethbench.listen()` decides when the line is good. The laptop takes 5
+to 9 s to bring the link up, so the check now waits up to 60 s for a frame; its earlier 15 s
+could end before the first one.
 
 ### Commands
 
@@ -472,11 +534,20 @@ finds all 26 wires again.
 The clock enters on ball L3 (J3 pin 9), a clock-capable pin. nextpnr-0.11.1-47 cannot put the
 neighbouring L4 (GCLKT_4) on the GW5A-25's global clock network: a build with the clock there fell
 back to general routing, with 5.5 ns of clock skew and 191 hold violations. From L3 the clock goes
-through a BUFG to all 4,600 sinks with 0.000 ns measured skew (`clkskew.py`).
+through a BUFG to all 5,111 clock pins with 0.000 ns measured skew (`clkskew.py`).
 
-nextpnr still flags hold at the block RAM address pins (40 flags). A single counter feeding a block
+nextpnr has flagged hold at the block RAM address pins: 40 flags when this was first measured,
+8 in the bitstream of 19 November, none in those of 21 November. A single counter feeding a block
 RAM gets the same 40 flags, also with the clock on the Dock's own oscillator pin, which the router
-puts entirely on global resources: it comes from the tool's block RAM timing model, not the design.
+puts entirely on global resources: they come from the tool's block RAM timing model, not the design.
 `build.sh chip` therefore allows timing failures only after its own checks pass (clock on the
 global network, skew at most 0.05 ns, setup at 25 MHz, no hold flag anywhere else), and bring-up
 stage 3 exercises both block RAMs on the board.
+
+Two more pins sit on clock-capable balls: `rst_n` on L4 (GCLKT_4) and `ui_in[3]` on C11
+(GCLKT_13). For a net from such a ball, nextpnr first tries the dedicated clock wiring, which
+reaches flip-flop clock, enable and reset pins but not LUT inputs. Both signals also feed logic,
+so the build log warns "Failed to route net ... using dedicated routing" for those few
+connections (5 for `rst_n`, 2 for `ui_in[3]`), and the general router then routes them like any
+other signal. The warnings are expected, and bring-up checks both signals on the board: stage 1
+the reset, stage 4 every bank B input, `ui_in[3]` among them.

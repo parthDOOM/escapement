@@ -352,12 +352,13 @@ Tang Primer 25K, with a Raspberry Pi Pico W as the host on the chip's pins
 ([`fpga/tangprimer25k`](../fpga/tangprimer25k/README.md)). The FPGA build replaces the IHP
 SRAM macros with block RAM of the same timing contract, and the clock gates and latch
 banks with plain flip-flops, so it checks the logic, the host protocol, the firmware and
-the script itself, not the hardened netlist, the silicon's pads, memories or timing. On version 3 (2026-11-19) stages 0 to 4 pass, and in stage 5 all 79
-programs match the simulator's digest or final state and stay within their certificates.
-Stage 5 still failed, as it should, on one bench program, `eth_trx`, which had no certificate.
-Its findings were a real fault, since fixed, and the program is now CHECKED; the next bench run
-loads the fixed version. The README there lists what that run does not show, including two of
-the FPGA build's own checks that the version 3 bitstream failed.
+the script itself, not the hardened netlist, the silicon's pads, memories or timing. On
+version 3.1 (2026-11-21) every stage passes: in stage 5 all 80 library programs and the 5
+bench programs match the simulator's digest or final state and stay within their
+certificates, among them `modbus_full`, the first program that spans two pages. The run of
+19 November, on version 3, refused one bench program, `eth_trx`, as it should have: it had no
+certificate, and its findings were a real fault. With that fixed, the program is CHECKED and
+passed on 21 November. The README there lists what a bench run does not show.
 
 The simulated board imitates the parts of tt-micropython-firmware the script uses,
 including microcotb's `Logic` type, which has no `&` with an integer.

@@ -1,0 +1,104 @@
+# ethbench.ping(seconds=150), bias ~1.12 V; the laptop's side is ping-laptop.txt
+﻿eth: chip at 40.000 MHz (RP system clock 160 MHz); eth_trx running, link pulses every 16 ms; burst delay 0
+eth: answering ARP and ping for 169.254.0.42 as 02:00:00:00:00:01
+rx 1: LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 2: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 3: LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 4: LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 5: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 6: LAPTOP-MAC -> 33:33:00:00:00:0c  type 0x86dd  IPv6 next header 17
+rx 7: LAPTOP-MAC -> 33:33:00:01:00:03  type 0x86dd  IPv6 next header 17
+rx 8: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 9: LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 10: LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 11: LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 12: LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 13: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 169.254.172.139
+rx 14: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 169.254.172.139 -> 169.254.255.255 proto 17 UDP 137 -> 137
+rx 15: LAPTOP-MAC -> 33:33:00:01:00:03  type 0x86dd  IPv6 next header 17
+rx 16: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 169.254.172.139 -> 169.254.255.255 proto 17 UDP 137 -> 137
+rx 17: LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 54126 -> 1900
+rx 18: LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 19: LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 55025 -> 1900
+rx 20: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 169.254.172.139
+rx 21: LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 22: LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 55025 -> 1900
+rx 23: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.0.42, from 169.254.172.139  -> ARP reply
+rx 24: LAPTOP-MAC -> 02:00:00:00:00:01  type 0x0800  IPv4 169.254.172.139 -> 169.254.0.42 proto 1  -> echo reply
+rx 25: LAPTOP-MAC -> 02:00:00:00:00:01  type 0x0800  IPv4 169.254.172.139 -> 169.254.0.42 proto 1  -> echo reply
+rx 26: LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 55025 -> 1900
+rx 27: LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 54126 -> 1900
+rx 28: LAPTOP-MAC -> 02:00:00:00:00:01  type 0x0800  IPv4 169.254.172.139 -> 169.254.0.42 proto 1  -> echo reply
+rx 29: LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 30: LAPTOP-MAC -> 02:00:00:00:00:01  type 0x0800  IPv4 169.254.172.139 -> 169.254.0.42 proto 1  -> echo reply
+rx 31: LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 32: LAPTOP-MAC -> 02:00:00:00:00:01  type 0x0800  IPv4 169.254.172.139 -> 169.254.0.42 proto 1  -> echo reply
+rx 33: LAPTOP-MAC -> 02:00:00:00:00:01  type 0x0800  IPv4 169.254.172.139 -> 169.254.0.42 proto 1  -> echo reply
+rx 34: LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 35: LAPTOP-MAC -> 02:00:00:00:00:01  type 0x0800  IPv4 169.254.172.139 -> 169.254.0.42 proto 1  -> echo reply
+rx 36: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 37: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 38: LAPTOP-MAC -> 01:00:5e:00:00:16  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.22 proto 2
+rx 39: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 40: LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 41: LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 42: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 43: LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 44: LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 45: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 46: LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 47: LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 48: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 49: 346 bytes, FCS BAD
+rx 50: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 51: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 52: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 53: LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 54: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 55: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 56: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 57: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 58: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 59: LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 60: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 61: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 62: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 63: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 64: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 65: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 66: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 67: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 68: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 69: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 70: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 71: LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 72: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 73: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 74: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 75: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 76: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 77: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 78: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 79: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 80: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 81: LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 82: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 83: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 84: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 85: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 86: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 87: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 88: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 89: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 90: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 91: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 92: LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 93: LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 94: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 95: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 96: LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 97: LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 98: LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 99: LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 62185 -> 1900
+rx 100: LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 62181 -> 1900
+eth: received 100, bad FCS 1, ARP replies 1, echo replies 7, sent 8; tripwires clear

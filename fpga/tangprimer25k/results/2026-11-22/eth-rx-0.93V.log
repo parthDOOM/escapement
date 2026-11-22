@@ -1,0 +1,41 @@
+# receive 60 s, bias 0.93 V
+﻿eth: chip at 40.000 MHz (RP system clock 160 MHz); eth_rx_bench running, link pulses every 16 ms; burst delay 0
+rx 1: 60 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0xef87
+rx 2: 90 bytes + FCS, FCS BAD  bf:fe:f7:df:56:b5 -> bb:bb:ff:ff:ff:d7  type 0xf7dd
+rx 3: 60 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 4: 157 bytes + FCS, FCS BAD  bf:fe:f7:df:56:b5 -> bb:bb:ff:ff:ff:ef  type 0xf7dd
+rx 5: 60 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 6: 112 bytes + FCS, FCS BAD  LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 7: 112 bytes + FCS, FCS BAD  LAPTOP-MAC -> fd:ff:5f:ff:ff:fb  type 0xefff
+rx 8: 60 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0xeff7
+rx 9: 87 bytes + FCS, FCS BAD  bf:fe:f7:df:56:b5 -> bb:bb:ff:fd:ff:fb  type 0xf7dd
+rx 10: 110 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0xefff
+rx 11: 112 bytes + FCS, FCS BAD  LAPTOP-MAC -> fd:ff:5f:ff:ff:fb  type 0xefff
+rx 12: 157 bytes + FCS, FCS BAD  bf:fe:f7:df:56:b5 -> bb:bb:ff:ff:ff:ef  type 0xf7dd
+rx 13: 212 bytes + FCS, FCS BAD  LAPTOP-MAC -> fd:ff:5f:7f:ff:fa  type 0xefff
+rx 14: 60 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0xeff7
+rx 15: 110 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0xefff
+rx 16: 212 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 53626 -> 1900
+rx 17: 179 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 58178 -> 1900
+rx 18: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 19: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 20: 342 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 21: 90 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 22: 342 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0xccff
+rx 23: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 24: 342 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0xe8ff
+rx 25: 90 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 26: 335 bytes + FCS, FCS BAD  fd:bf:ee:bf:ff:ed -> d7:ff:fe:db:aa:f6  type 0xfeee
+rx 27: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 28: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 29: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 30: 121 bytes + FCS, FCS BAD  f5:bf:ff:b6:aa:bd -> dd:fd:ef:ff:df:ff  type 0xeff6
+rx 31: 89 bytes + FCS, FCS BAD  LAPTOP-MAC -> 99:19:00:00:00:0b  type 0xc36e
+rx 32: 122 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 33: 60 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0xeff7
+rx 34: 342 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0xefff
+rx 35: 342 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0xefff
+rx 36: 335 bytes + FCS, FCS BAD  fd:bf:ee:bf:ff:ed -> d7:ff:fe:db:aa:f6  type 0xfeed
+rx 37: 342 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0xefff
+rx 38: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+eth: 38 frame(s) received, 13 with a good FCS, tripwires clear

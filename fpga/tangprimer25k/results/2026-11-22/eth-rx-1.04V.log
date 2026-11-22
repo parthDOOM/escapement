@@ -1,0 +1,50 @@
+# receive 45 s, bias ~1.04 V
+﻿eth: chip at 40.000 MHz (RP system clock 160 MHz); eth_rx_bench running, link pulses every 16 ms; burst delay 0
+rx 1: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 2: 90 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 3: 122 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 4: 60 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 5: 157 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:00:00:0c  type 0x86dd  IPv6 next header 17
+rx 6: 60 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 7: 112 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 8: 161 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 9: 179 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 57127 -> 1900
+rx 10: 110 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 11: 87 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:01:00:03  type 0x86dd  IPv6 next header 17
+rx 12: 110 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 169.254.172.139 -> 169.254.255.255 proto 17 UDP 137 -> 137
+rx 13: 112 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 14: 157 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:00:00:0c  type 0x86dd  IPv6 next header 17
+rx 15: 110 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 169.254.172.139 -> 169.254.255.255 proto 17 UDP 137 -> 137
+rx 16: 60 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 169.254.172.139
+rx 17: 110 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 169.254.172.139 -> 169.254.255.255 proto 17 UDP 137 -> 137
+rx 18: 212 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 53429 -> 1900
+rx 19: 342 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 20: 342 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 21: 90 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 22: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 23: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 24: 342 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 25: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 26: 342 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 27: 60 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 28: 90 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 29: 342 bytes + FCS, FCS BAD  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 0.0.0.0 -> 255.255.255.255 proto 17 UDP 68 -> 67
+rx 30: 90 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:00:00:16  type 0x86dd  IPv6 next header 0
+rx 31: 122 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 32: 87 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:01:00:03  type 0x86dd  IPv6 next header 17
+rx 33: 157 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:00:00:0c  type 0x86dd  IPv6 next header 17
+rx 34: 212 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 64768 -> 1900
+rx 35: 60 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 0.0.0.0
+rx 36: 112 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 37: 161 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 38: 122 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:01:00:02  type 0x86dd  IPv6 next header 17
+rx 39: 110 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 169.254.172.139 -> 169.254.255.255 proto 17 UDP 137 -> 137
+rx 40: 87 bytes + FCS, FCS good  LAPTOP-MAC -> 33:33:00:01:00:03  type 0x86dd  IPv6 next header 17
+rx 41: 110 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0800  IPv4 169.254.172.139 -> 169.254.255.255 proto 17 UDP 137 -> 137
+rx 42: 112 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 43: 157 bytes + FCS, FCS BAD  LAPTOP-MAC -> 33:33:00:00:00:0c  type 0x86dd  IPv6 next header 17
+rx 44: 82 bytes + FCS, FCS BAD  LAPTOP-MAC -> 01:00:5e:00:00:fb  type 0x0800  IPv4 169.254.172.139 -> 224.0.0.251 proto 17 UDP 5353 -> 5353
+rx 45: 60 bytes + FCS, FCS good  LAPTOP-MAC -> ff:ff:ff:ff:ff:ff  type 0x0806  ARP who-has 169.254.172.139, from 169.254.172.139
+rx 46: 179 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 58610 -> 1900
+rx 47: 212 bytes + FCS, FCS good  LAPTOP-MAC -> 01:00:5e:7f:ff:fa  type 0x0800  IPv4 169.254.172.139 -> 239.255.255.250 proto 17 UDP 49781 -> 1900
+eth: 47 frame(s) received, 41 with a good FCS, tripwires clear

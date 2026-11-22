@@ -1,0 +1,24 @@
+# transmit 20 frames after 10 s of link pulses; the laptop's ReceivedBroadcastPackets rose by 20, ReceivedPacketErrors by 0
+﻿eth: chip at 40.000 MHz (RP system clock 160 MHz); eth_tx running, link pulses every 16 ms; burst delay 0
+eth: link pulses only for 10000 ms, for the link partner
+frame 1: 60 bytes on the wire, status 0x40004b93 (SEND, OK), upload 0.9 ms
+frame 2: 60 bytes on the wire, status 0x4000af73 (SEND, OK), upload 0.9 ms
+frame 3: 60 bytes on the wire, status 0x400017cc (SEND, OK), upload 0.9 ms
+frame 4: 60 bytes on the wire, status 0x4000dd03 (SEND, OK), upload 0.9 ms
+frame 5: 60 bytes on the wire, status 0x400065bc (SEND, OK), upload 0.9 ms
+frame 6: 60 bytes on the wire, status 0x4000815c (SEND, OK), upload 0.9 ms
+frame 7: 60 bytes on the wire, status 0x400039e3 (SEND, OK), upload 0.9 ms
+frame 8: 60 bytes on the wire, status 0x4000e43b (SEND, OK), upload 0.9 ms
+frame 9: 60 bytes on the wire, status 0x40005c84 (SEND, OK), upload 0.9 ms
+frame 10: 60 bytes on the wire, status 0x4000b42c (SEND, OK), upload 0.9 ms
+frame 11: 60 bytes on the wire, status 0x400036f4 (SEND, OK), upload 0.9 ms
+frame 12: 60 bytes on the wire, status 0x4000f540 (SEND, OK), upload 0.9 ms
+frame 13: 60 bytes on the wire, status 0x40007798 (SEND, OK), upload 0.9 ms
+frame 14: 60 bytes on the wire, status 0x400016fa (SEND, OK), upload 0.9 ms
+frame 15: 60 bytes on the wire, status 0x40009422 (SEND, OK), upload 0.9 ms
+frame 16: 60 bytes on the wire, status 0x40005796 (SEND, OK), upload 0.9 ms
+frame 17: 60 bytes on the wire, status 0x4000d54e (SEND, OK), upload 0.9 ms
+frame 18: 60 bytes on the wire, status 0x4000e547 (SEND, OK), upload 0.9 ms
+frame 19: 60 bytes on the wire, status 0x4000679f (SEND, OK), upload 0.9 ms
+frame 20: 60 bytes on the wire, status 0x400050cc (SEND, OK), upload 0.9 ms
+eth: 20 frame(s) sent, tripwires clear. Wireshark: eth.type == 0x88b5. The chip keeps sending link pulses until the Pico resets it.
