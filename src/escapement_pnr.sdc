@@ -23,3 +23,14 @@ foreach c $esc_latches {
     }
 }
 set_false_path -setup -to $esc_latch_d
+
+# Slew, for repair only (3.1, 11-22). The library allows 2.507 ns at every corner, and
+# repair_design judges slew at the first corner the flow defines, which LibreLane always
+# makes fast (its corners are defined in Tcl array order; config.json, escapement_mbuf, has
+# the same finding for the SRAM pins). Slow-corner slew is 2.24 to 2.46 times the fast
+# value on every pin measured, so repair acted only on edges that would be 3.4 to 3.7 ns at
+# the slow corner, and any minimum-size gate left on a long route could fail sign-off there.
+# Limited to 1.0 ns here, repair acts at 0.6 ns fast after global routing (40% margin) and
+# 0.8 ns before it: about 1.4 and 1.9 ns at the slow corner. Sign-off (escapement.sdc) keeps
+# the library limit.
+set_max_transition 1.0 [current_design]

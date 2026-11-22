@@ -67,10 +67,13 @@ module escapement_sram (
 endmodule
 
 // One buffer per bit in front of a macro input (see above). Synthesis (VERILOG_DEFINES
-// ESC_MACRO_BUFFERS in src/config.json) places a sg13cmos5l_buf_2 per bit; simulation,
+// ESC_MACRO_BUFFERS in src/config.json) places a sg13cmos5l_buf_4 per bit; simulation,
 // formal and equivalence see a wire, which is all a buffer is. The nets it drives are
 // named macro_in_* and are don't-touch in place and route (RSZ_DONT_TOUCH_RX), so the
-// resizer neither removes a buffer nor puts another on the short net after it.
+// resizer neither removes a buffer nor puts another on the net after it. That net is not
+// always short: placement can leave a buffer 600 um from the macro (137 fF in one 3.1 layout),
+// and a buf_2 then reached the slow-corner pin limit, 0.595 ns, within 3 ps. A buf_4 has
+// about half the drive resistance (3.1, 11-22).
 module escapement_mbuf #(
     parameter integer W = 1
 ) (
@@ -81,7 +84,7 @@ module escapement_mbuf #(
   genvar i;
   generate
     for (i = 0; i < W; i = i + 1) begin : g_buf
-      sg13cmos5l_buf_2 u_buf (.A(a[i]), .X(x[i]));
+      sg13cmos5l_buf_4 u_buf (.A(a[i]), .X(x[i]));
     end
   endgenerate
 `else
