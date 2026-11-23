@@ -64,7 +64,7 @@ export function ProofTable() {
           <tr><td>Firmware cases with every pin up to three ticks slower each way (pads and board)</td><td className="num">76</td><td>pass</td></tr>
           <tr><td>Chip tests on the final gate-level netlist</td><td className="num">12</td><td>pass</td></tr>
           <tr><td>Firmware through the pins on the final netlist; SDF-annotated chip tests at three corners</td><td className="num">9 · 12 × 3</td><td>pass</td></tr>
-          <tr><td>Netlist against RTL, sequential equivalence (two steps)</td><td className="num">336 bits</td><td>proved</td></tr>
+          <tr><td>Netlist against RTL, sequential equivalence (two steps)</td><td className="num">337 bits</td><td>proved</td></tr>
         </tbody>
       </table>
     </div>

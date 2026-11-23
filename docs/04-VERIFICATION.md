@@ -33,7 +33,7 @@ unless a section says otherwise. The final runs at a glance:
 | Check | Result |
 | --- | --- |
 | Formal proofs | 110 of 110 tasks pass; 15 planted bugs each make their proof fail |
-| Netlist against RTL | Sequentially equivalent, 336 output bits compared |
+| Netlist against RTL | Sequentially equivalent, 337 output bits compared |
 | Lockstep co-simulation | 191 random programs and 76 firmware cases, on two builds of the RTL: no difference |
 | Timing certificates | 82 of 82 programs certified; the measured lead equals the bound in 59 of 76 contexts and is never below it |
 | Mutation testing | 1,017 planted RTL faults: 902 caught, 57 proved harmless, 58 argued harmless, none surviving |
@@ -391,8 +391,8 @@ after reset.
 
 Both designs are flattened and placed side by side in a **miter**, a circuit that feeds
 them the same pins, the same SRAM read data and the same clock, and compares every chip
-output and every input of the SRAM macros (address, data and enables, 336 bits in all) on
-every step. ABC's `dprove` searches 19 steps for a difference, then matches the RTL's
+output, every input of the SRAM macros (address, data and enables) and the reset
+synchroniser's output, 337 bits in all, on every step. ABC's `dprove` searches 19 steps for a difference, then matches the RTL's
 registers with the netlist's by signal correspondence and closes the proof by induction.
 Nothing is matched by name, so the netlist's renamed registers need no mapping, nor do the
 registers that reset to one in the RTL and that synthesis builds as reset-to-zero
@@ -411,19 +411,41 @@ recoding was the whole cause. The proof therefore takes two steps:
 1. `esc_line` alone is sequentially equivalent to `esc_line` after synthesis's FSM pass
    (the same miter at module level: 22 outputs, 156 bits; 10 s);
 2. the netlist is sequentially equivalent to the RTL with that `esc_line` in place
-   (336 bits; 349 s).
+   (337 bits; 294 s).
 
 A module that is equivalent at every output from reset, for every input sequence, changes
 nothing around it (every flip-flop and latch bank resets asynchronously, so nothing it
 outputs during reset is kept), so together the netlist is equivalent to the RTL.
-`formal/equiv.sh` runs both steps, about six minutes in all. With a second RTL tree instead
+`formal/equiv.sh` runs both steps, about six minutes in all.
+
+**The reset is cut at the synchroniser.** Since version 3.1 every register and latch bank
+takes its asynchronous reset from `rst_n_s`, the output of the two-flip-flop synchroniser
+(D-63), instead of from the pin. With that net inside the miter, signal correspondence
+matched almost none of the registers, and the first proof of the 3.1 netlist in CI ended
+undecided after 2 h 21 min, with no difference found. The proof therefore cuts the net at
+the synchroniser's second flip-flop in both designs: the flip-flop's output becomes one
+more compared output, and everything `rst_n_s` resets reads a shared free input instead,
+held low during the miter's reset like `rst_n`. The synchroniser depends only on `rst_n`,
+never on its own output, and the free input can do everything the real net can and more,
+so the cut loses nothing. With it, the 3.1 netlist proves in 294 s (D-68). The cut is made
+on copies of `project.v` and of the netlist, at the flip-flop: cutting the `rst_n_s` wire
+with yosys's `expose -cut` instead followed the wire's aliases (`wire rst_n_s = rst_q[1]`,
+the netlist's reset buffers) and compared the free input with itself, which a planted
+one-flop synchroniser exposed by passing. That first CI run also showed a gap in the
+workflow: a run by hand on the
+branch, reported as the proof of this netlist, had been dispatched while the head commit's
+harden was still running and took the previous commit's netlist, from before the
+synchroniser. The workflow now takes only a harden whose commit has the same `src/` as the
+commit it checks, and fails if there is none. With a second RTL tree instead
 of a netlist, as the mutation campaign uses it, it runs the one direct proof. Telling
 synthesis not to recode would have kept one step, but it changes the netlist, and the
 layout it gave was cut short by an OpenROAD clock-tree bug that disconnects a clock gate
 (D-45).
 
-**The check has teeth.** When the two-step proof was built, faults injected into the
-version 1.6 netlist were found by the proof itself: the output stage of `uio_oe[0]` with two
+**The check has teeth.** On the 3.1 netlist, the synchroniser's second flip-flop loading 1
+directly (a one-flop synchroniser) fails at step 5, and the MISO shift register's bit 6 fed
+from bit 5's input fails at step 17. When the two-step proof was built, faults injected into
+the version 1.6 netlist were found by the proof itself: the output stage of `uio_oe[0]` with two
 of its gate's inputs swapped failed at the first compared step, and the MISO shift
 register's bit 6 wired to bit 5's input failed at step 17. Step 1 has its own: the CONFIG
 step counter made to skip a step on the recoded side fails at step 9.
@@ -1276,7 +1298,7 @@ workflow on master, with its commit and log, failures included.
 | `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in 40 shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors; the shards are dealt by each mutant's time in earlier runs (`test/mutation/costs.json`), the canaries run once beside them, and the summary requires the canaries and exactly one result per mutant |
 | `fw-mutants` | a push to any branch that changes the firmware, `escert`, the simulator, the assembler or the bus models | the firmware mutation campaign (`make fw-mutants`) in 24 shards: every planted timing bug against `escert`, and each certified one attacked on the simulator |
 | `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
-| `equivalence` | each successful `gds` run on master, and by hand on a branch before its merge | that run's netlist against the RTL of its commit (`formal/equiv.sh`) |
+| `equivalence` | each successful `gds` run on master, and by hand on a branch before its merge | that run's netlist against the RTL of its commit; by hand, the newest harden on the branch with the same `src/` (`formal/equiv.sh`) |
 
 Each job writes a summary (`scripts/ci_summary.py`); the site's build collects the
 summaries of the latest master runs (`site/tools/ci_results.py`) and rebuilds after each of

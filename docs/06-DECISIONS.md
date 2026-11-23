@@ -1,13 +1,19 @@
 # Design decisions
 
 The choices that shaped Escapement, with the reasoning and evidence for each. The
-numbers are stable identifiers cited throughout the code.
+numbers are stable identifiers cited throughout the code; a number that is missing belonged
+to a decision that was withdrawn or folded into a later one, and none is cited.
 
 ## Architecture
 
-**D-1 Languages.** RTL in synthesisable Verilog/SystemVerilog. The assembler,
-instruction-set simulator, certificate checker and tests in Python. One encoding file,
-`isa/isa.yaml`, shared by all of them.
+**D-1 Languages.** RTL in synthesisable Verilog/SystemVerilog, the language the Tiny
+Tapeout flow (Yosys, LibreLane) and every open simulator and formal tool used here read.
+The assembler, instruction-set simulator, certificate checker and tests in Python, because
+the chip tests are cocotb, which is Python: the models, the firmware tools and the tests
+then share one language, and the simulator also runs in a browser (Pyodide) on the site.
+One encoding file, `isa/isa.yaml`, so the encodings are written once: the assembler and the
+simulator read it, and the RTL's decoder constants, copied from it by hand, are checked
+against the simulator's decode for all 256 opcodes and by lockstep co-simulation.
 
 **D-2 Program memory: one 1P 256×32 SRAM macro.** A 256-word store in flip-flops would
 take about 698,500 µm², 76% of the die; the macro takes 49,488 µm² (5.4%), about 14×
@@ -21,7 +27,10 @@ enough: a serial bit loop is three instructions. (v1.7 lets a context take an id
 partner's slot as well, D-46.)
 
 **D-4 No protocol hardware (versions 1.0 to 1.3).** No serialisers, CRC engines or
-oscillators. The only acceleration is `EMITX` (drive a pin from the bit shifted out of
+oscillators. Hardware for one protocol serves only that protocol, and the competition asks
+first for protocols the chip was not designed for; with every protocol in firmware, a new
+one is a new program, and the timing of all of them rests on the one mechanism of D-9. The
+only acceleration is `EMITX` (drive a pin from the bit shifted out of
 `sh`) and `EMITR` (drive pins from a register), which make data-dependent waveforms
 branch-free. CRC-15 and bit stuffing for CAN run in firmware at 250 kbit/s. Version 1.4
 adds one exception, and keeps it protocol-neutral: a configurable line unit for the bit
@@ -48,19 +57,37 @@ some cycles shorter than the request.
 
 **D-9 Event model.** Per-context FIFOs of DRIVE, EXPECT and SAMPLE entries with absolute
 deadlines, strict ordering within half the counter range, and visible rejection. An
-event is never applied late.
+event is never applied late. Each part answers one need. An absolute deadline means the
+same thing however long the program took to compute it, so computing time never moves an
+edge. A FIFO per context keeps the contexts' timing independent. Strict ordering means an
+event needs comparing only with the current tick and the queue's tail, so admission is a
+fixed, small check. Half the counter range keeps the comparison of two 32-bit ticks
+unambiguous across the counter's wrap. And rejection at admission, with a fault that names
+the rule, turns a deadline that cannot be met into a visible event before it can become a
+late edge.
 
 **D-10 Host link.** Eight `uio` pins for protocols (five more from v1.2, D-31); the host
 uses SPI mode 0,
 oversampled in the core clock domain (SCK ≤ f_clk / 8), so the design has one clock
-domain. Two-entry mailboxes per context and direction. Memories are written only while
-the core is stopped.
+domain: each SCK phase lasts at least four clocks, enough for the two-flop synchronisers,
+and no clock-domain crossing needs its own verification. Two-entry mailboxes per context
+and direction, so the host can write one word ahead of the program that reads it and the
+two do not have to meet word by word. Memories are written only while the core is
+stopped, because each is a single-port SRAM that the running core reads; the later
+exceptions, the host reading the tape during a run (D-32) and live reload (D-48), each use
+only cycles the core leaves free.
 
 **D-11 Timing certificates.** A separate checker (`sw/escert`) analyses firmware as a
 timed automaton and returns CHECKED, REFUTED with a witness, or NOT_PROVEN, with bounds
-that the chip's own telemetry can contradict.
+that the chip's own telemetry can contradict. The hardware guarantees that an edge is never
+late, but a program that cannot keep its schedule is refused, at run time; the certificate
+answers in advance whether any input can make that happen. It is software, so it costs no
+silicon, and its bounds are numbers the chip measures, so each can be checked on the RTL,
+the netlist and the bench.
 
-**D-13 Allocation.** 6×4 Tiny Tapeout tiles, 1289.28 × 710.64 µm.
+**D-13 Allocation.** 6×4 Tiny Tapeout tiles, 1289.28 × 710.64 µm, the largest size the
+competition allowed until 9 November 2026. Superseded when 8×4 was confirmed: version 2
+moved to 8 × 4 tiles, 1724.16 × 710.64 µm (D-49 to D-51).
 
 **D-14 Open-drain level semantics.** On an open-drain pin the value bit is the bus level:
 0 drives low, 1 releases. No encodable state drives an open-drain pin high, and
@@ -72,11 +99,18 @@ of waits on a full FIFO. These cross-check the certificates on RTL, gates and si
 **D-16 Protocol coverage.** UART (115,200 baud tested; the rate is one constant), SPI
 modes 0 to 3, I2C controller (Fast mode) and target (Standard and Fast mode), plus protocols the
 hardware was never designed for: WS2812, 1-Wire, CAN 2.0A, PS/2 and JTAG, all in
-firmware. By version 1.4 there are 31 programs, from ARM SWD and NEC infrared to HDMI-CEC,
+firmware. UART, SPI and I2C are the competition's starting set; the others were chosen
+because each tests the timing model differently: WS2812 by sub-microsecond pulse widths,
+1-Wire by open-drain time slots the device answers in, CAN by bit stuffing, a CRC and
+arbitration, PS/2 by making the clock itself as the keyboard, the reverse of the usual
+host-clocked bus, JTAG by a long synchronous shift. By version 1.4 there are 31 programs, from ARM SWD and NEC infrared to HDMI-CEC,
 DALI, SENT, DShot600 and a USB keyboard ([verification](04-VERIFICATION.md#protocol-coverage)).
 
 **D-18 Reference host.** The RP2350 on the Tiny Tapeout demo board, running MicroPython.
-External parts such as I2C pull-ups go on a Pmod.
+External parts such as I2C pull-ups go on a Pmod. The demo board is the hardware every
+chip of the shuttle arrives on, and its firmware is MicroPython, so the bring-up script
+runs where the chip will be with nothing else to buy, and the same script drives the FPGA
+bench through a small shim.
 
 ## Version 1.1: the tape, the digest and GETI
 
@@ -399,7 +433,12 @@ is real. Long wires are buffered at 500 µm, which cut slow-corner slew warnings
 
 **D-49 Scope of the release.** Pair mode (D-46), live reload with its non-interference
 proof (D-48), program pages (four pages in one 1,024-word store) and proof tripwires,
-frozen on 2026-11-12 and verified twice from that commit. The edge-anchored wait and the
+frozen on 2026-11-12 and verified twice from that commit. The larger die paid for the
+pages and the tripwires. The pages give each context a full 256-word program of its own,
+assembled on its own at address 0, where the four had shared one 256-word store and had to
+be linked together. The tripwires build twelve of the proved properties into the silicon
+as sticky flags, so a defect or a wrong assumption about the board shows on a real chip as
+a named, broken property rather than as an unexplained failure. The edge-anchored wait and the
 symmetric receiver come after this release is done end to end: a feature waits, a check
 never does.
 
@@ -650,6 +689,28 @@ adopted layout has no slew or capacitance violation at any corner, meets setup d
 16.6 ns and hold by 0.098 ns at the fast corner, passes the 40% and 60% duty-cycle checks at
 20 ns, and is clean for DRC, LVS and antennas, with 38,514 cells, 3.4% more than version 3.0,
 and a flow power estimate of 7.36 mW against 7.66 mW.
+
+**D-68 The netlist proof cuts the reset at the synchroniser (3.1).** With the synchroniser
+of D-63, every register's asynchronous reset comes from a flip-flop's output instead of a
+pin, and the equivalence proof stopped closing: signal correspondence matched almost none of
+the registers, and the proof of the 3.1 netlist ended undecided after 2 h 21 min with no
+difference found. Two ways out were weighed. Holding `rst_n` high after the miter's first
+reset would let the proof close but would leave out a reset during a run, which the chip
+must survive. Cutting the net keeps it: in both designs the synchroniser's second
+flip-flop drives a new output, compared like any chip output, and `rst_n_s`, which resets
+everything else, becomes a shared free input, held low during the miter's reset. Nothing
+feeds back from that net into the synchroniser, and the free input can do anything the real
+net can, so the cut proves at least as much as the whole. The cut is made at the flip-flop,
+on copies of `project.v` and of the netlist. The first version used yosys's `expose -cut` on
+the `rst_n_s` wire, and it proved the netlist in 273 s, but a planted one-flop synchroniser
+passed too: `rst_n_s` is an alias of the flip-flop's output in the RTL and reaches the loads
+through buffers in the netlist, and the cut followed the aliases, so the "compared" output
+was the free input itself on both sides. With the cut at the flip-flop the 3.1 netlist
+proves in 294 s, the one-flop synchroniser fails at step 5, and a MISO shift-register bit
+fed from its neighbour fails at step 17. The same episode changed the workflow: run by
+hand, it now takes only a harden whose commit has the same `src/` as the one it checks,
+after a run dispatched before the head's harden had finished proved the previous commit's
+netlist and was taken for the proof of the new one.
 
 ## The DOOM console
 
