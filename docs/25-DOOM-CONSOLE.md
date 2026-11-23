@@ -149,6 +149,41 @@ level's data. The console adds its queues, its picture and the USB serial driver
 music synthesiser left out, the zone has about 54 KB, and while a level was played on the
 bench at least 23,944 bytes of it were always free.
 
+## Changes to rp2040-doom
+
+The port is changed in place, not forked into a new design. Everything the console needs is
+behind one compile-time switch, `DOOM_CONSOLE`, in a build target of its own,
+`doom_tiny_console`, so the port's VGA and I2S targets build and behave as before. Apart from
+the new backend, `src/pico/i_console.c`, the change is about 300 lines in 11 files:
+
+| Area | Change | Why |
+| --- | --- | --- |
+| Clock | 250 MHz instead of 270 | A multiple of 25 MHz: a PWM output divides it by ten to make the chip's clock |
+| Video | The per-line compositor (frame buffer, then status bar and menus) moved out of the VGA scanline loop into a function of its own, which both paths call | The panel's picture is made by exactly the code that makes the VGA picture |
+| Video | No scanvideo. Core 1 renders its share as before; the console's poll runs in the low-priority interrupt the VGA path used, raised every millisecond by a hardware alarm | The feeder runs on time whatever the renderer is doing, and never waits for it |
+| Sound | Mixed at 11,025 Hz into three buffers of 128 samples (12 ms each), all refilled on each pass; the backend holds a buffer while the chip's queue is full | The rate is the chip's, so nothing is resampled, and the held buffer paces the mixer as the I2S output did |
+| Sound | No music | Its OPL synthesiser runs at 49,716 Hz, and its state and songs would take zone memory |
+| Input | Keys and mouse read from USB serial in place of the UART. Keys enter as USB usage codes, which are SDL's scancodes, through the port's own key path; mouse motion is summed and posted once a tic | The game sees the same events as from a keyboard and mouse of its own |
+| Network | The port's I2C link to a second Pico replaced by its host-build stand-in | Its pins, GP18 and GP19, are wired to the chip on the bench; a network game plays alone |
+| Saving | Off, as a build option | Writing flash would stall the console's poll, which runs from flash on core 1 |
+| Memory | The game's data moved to 0x10048000 in flash; the default alarm pool kept for USB serial, whose worker interrupt moves from 31 to 26 | The console's code passes 256 KB; the SDK claims user interrupts from 31 down on each core, and the two cores share one vector table |
+
+Two fixes are to the game itself. The first frame was rendered before the title loop had set
+the game state, which starts at the value for a level, so the renderer read a player that did
+not exist yet: address 0, harmless ROM on the RP2040, but a crash in the laptop build of the
+same code, where the console is tested. It now waits for the player. And a build without
+saving failed to link, because loading uses a flag declared only for saving.
+
+Putting the game on the Pico needed one more tool. The game and its compressed data go into
+one UF2 file, and the RP2040's boot ROM decides which 4 KB flash sector to erase from a block's
+position in the file rather than from its address ([pico-bootrom-rp2040 issue
+19](https://github.com/raspberrypi/pico-bootrom-rp2040/issues/19)). It is right only when the
+blocks come in whole sectors, as the SDK's own tool writes them. The first merged file did
+not, and the game booted to find its data's header erased. The merge tool now pads every
+sector it touches. Finding that took a crash reporter: a hard fault or a panic is written to
+the watchdog's scratch registers, which survive a reset, and the next boot prints it over USB
+instead of starting the game.
+
 ## On the bench
 
 The bench is the one described under [the FPGA bench](../fpga/tangprimer25k/README.md): the
@@ -204,3 +239,22 @@ edges of game tics until the host mixed one tic ahead, as a game's mixer does. T
 first left the words of a stream that ended in a NACK in the mailbox, where they were read as
 commands; it now drains them. On the bench the sound first reached the laptop at a fifth of its
 range, which the gain of four fixed without changing the circuit.
+
+## Credits
+
+The game the console plays is other people's work:
+
+- **DOOM** is id Software's. The shareware episode and its data are theirs; id Software
+  released the engine's source code, which is under the GNU GPL.
+- **[Chocolate Doom](https://github.com/chocolate-doom/chocolate-doom)**, by Simon Howard and
+  its contributors, is the source port that rp2040-doom is derived from.
+- **[rp2040-doom](https://github.com/kilograham/rp2040-doom)**, by Graham Sanderson, is the
+  port the console runs. Its compressed data format, which fits the shareware episode in the
+  Pico's 2 MB of flash, its renderer split across both cores, its sound mixer and the per-line
+  compositor that the panel's picture comes from are all used as they are; the console changes
+  only what is listed under [Changes to rp2040-doom](#changes-to-rp2040-doom). It is licensed
+  under the GNU GPL, version 2.
+- **[pico-sdk](https://github.com/raspberrypi/pico-sdk)** and
+  **[pico-extras](https://github.com/raspberrypi/pico-extras)**, by Raspberry Pi, provide the
+  Pico's drivers, its USB serial and the audio buffer pools the mixer fills.
+- The picture's dithering is Bill Atkinson's, from the original Apple Macintosh.
