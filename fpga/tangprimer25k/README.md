@@ -642,6 +642,52 @@ is the pid.codes test ID, for test environments only.
 When the window titled "escapement keyboard" opens, it should have the focus: the chip types
 into whichever window has it. Plug wires 22 and 23 back into J6 for bring-up.
 
+## DOOM console, 2026-11-23
+
+![DOOM on the bench: the OLED showing the game, the sound circuit above it, and the jumpers to the Dock](../../docs/img/doom-console.jpg)
+
+The bench Pico W runs the shareware DOOM (rp2040-doom, with a backend that sends its output
+to the chip) and the chip is its input/output processor: `i2c_burst` streams the frames to an
+SSD1306, `pwm_audio` plays the sound into a laptop's headset jack, `i2c_timing` watches the
+I2C bus, and `logic_analyzer` can record the sound pin, one program per context and page
+([25-DOOM-CONSOLE](../../docs/25-DOOM-CONSOLE.md)). The Pico drives the chip's host link
+from a PIO program at SCK = 3.125 MHz, the chip's 25 MHz clock divided by eight (the protocol's
+limit), and the 32 jumpers of the bring-up wiring stay as they are.
+
+| Measure | Result |
+| --- | --- |
+| Host link alone, the Pico at 250 MHz | 35,413 words a second pushed, 400 blocks of 256 words summed back by the chip, none lost and no host error |
+| Panel | 12.4 frames a second, every I2C transaction acknowledged |
+| Sound | 11,040 samples a second; the Pico, reading the pin, sees the 88 kHz carrier, its duty moving with the sound |
+| Host link, in play | 2,760 words a second; 2,342 frames and 523,797 words in a three-minute run, none lost or dropped |
+
+The game ran its demo loop and was played from the laptop's keyboard and mouse. Log:
+`results/2026-11-23/doom-console.txt`, the Pico's status lines over 60 s of the run.
+
+**The circuit.** Everything taps the breadboard rows of the bring-up wiring, so no jumper
+moves: the Pico leaves its own pins on those rows as inputs without pulls.
+
+| From | Through | To |
+| --- | --- | --- |
+| OLED SCL | | the row of the Pico W's GP19 (wire 24, uio[2]) |
+| OLED SDA | | the row of the Pico W's GP20 (wire 25, uio[3]) |
+| OLED VCC | | J6 col 1 (3.3 V) |
+| OLED GND | | J4 bottom row, col 2 |
+| the row of the Pico W's GP26 (wire 28, uio[6]) | 1 kΩ | node A |
+| node A | 33 nF (three 100 nF in series) | GND: a low-pass filter at 4.8 kHz |
+| node A | 10 kΩ | node M |
+| node M | 1.5 kΩ | GND |
+| node M | | the headset plug's sleeve (the microphone contact) |
+| GND, the Pico W's pin 38 | | the plug's second ring (ground); its tip and first ring are taped off |
+
+The OLED module carries its own I2C pull-ups. The sound reaches the laptop as a headset
+microphone, at about 270 mV peak to peak at full scale; Windows' "Listen to this device"
+plays it through the speakers.
+
+**Order.** Load the chip's bitstream into the Dock first (`.\bench.ps1 load chip`), then
+start the Pico. Handling the boards can lose the bitstream, which lives in the FPGA's
+configuration RAM; the Pico then reads a STATUS of 0x00 and stops before the game starts.
+
 ## Why the clock is on L3
 
 The clock enters on ball L3 (J3 pin 9), a clock-capable pin. nextpnr-0.11.1-47 cannot put the

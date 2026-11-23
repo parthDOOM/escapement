@@ -43,6 +43,7 @@
 | [brushlesswhoop.com, DSHOT: the missing handbook](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/) | DShot600 timing, frame and CRC, bidirectional DShot (`dshot_tx`, the ESC model) |
 | [NXP AN4219, SENT/SPC driver for MPC5510](https://www.nxp.com/docs/en/application-note/AN4219.pdf) and [Microchip, recommended J2716 CRC](https://onlinedocs.microchip.com/oxy/GUID-04B5982F-17EC-4A6E-B7FE-72DF0A5463B9-en-US-3/GUID-23F22D39-15E3-4B81-A752-CC095EE469F1.html) | SENT pulse format, CRC-4 seed and table (`sent_tx`, the SENT receiver model) |
 | [Microchip, DALI bus communication](https://onlinedocs.microchip.com/oxy/GUID-0CDBB4BA-5972-4F58-98B2-3F0408F3E10B-en-US-1/GUID-910C4B97-3A38-4F04-A78A-DF74EE1A3612.html) | DALI Manchester coding, half-bit time, forward-to-backward settling time (`dali`, the controller model) |
-| Solomon Systech, SSD1306 datasheet | The OLED controller's I2C commands and display memory (OLED Pong, [23-OLED-PONG](23-OLED-PONG.md)) |
+| Solomon Systech, SSD1306 datasheet | The OLED controller's I2C commands and display memory (OLED Pong, [23-OLED-PONG](23-OLED-PONG.md); the DOOM console's horizontal addressing, [25-DOOM-CONSOLE](25-DOOM-CONSOLE.md)) |
+| [rp2040-doom](https://github.com/kilograham/rp2040-doom), Graham Sanderson's port of Chocolate Doom to the RP2040 | The game the DOOM console runs on its host, a Pico W ([25-DOOM-CONSOLE](25-DOOM-CONSOLE.md)) |
 | [sigrok-dumps](https://github.com/sigrokproject/sigrok-dumps) | Logic-analyser recordings of real devices that `esclearn` learns protocols from ([20-LEARN](20-LEARN.md)) |
 | [RP2040 datasheet, chapter 3 (PIO)](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf) | Prior art in deterministic I/O processors |

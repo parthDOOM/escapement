@@ -7,9 +7,14 @@
 ;
 ; Host protocol (mailboxes): POP a command word, run one write transaction, PUSH one result.
 ;   command [31] = 0: command bytes: [25:24] n = 1..3, then [23:16], [15:8], [7:0], in that order
-;           [31] = 1: tape burst: [23:16] a prefix byte, then the tape words [7:0] first ..
-;                     [15:8] last (inclusive), each as 4 bytes, most significant first.
+;           [31] = 1, [30] = 0: tape burst: [23:16] a prefix byte, then the tape words [7:0]
+;                     first .. [15:8] last (inclusive), each as 4 bytes, most significant first.
 ;                     All 256 words are one 128x64 frame: 1025 bytes, about 24 ms at 400 kHz.
+;           [31] = 1, [30] = 1: stream: [23:16] a prefix byte, then [15:0] words (0 sends the
+;                     prefix alone) taken from the mailbox as they come, each as 4 bytes, most
+;                     significant first: a frame the host renders while the chip runs, since the
+;                     host cannot write the tape then. A word not yet sent holds SCL low, which
+;                     only lengthens a low phase (I2C sets no maximum); each byte re-anchors.
 ;   result  [31] = 1 if a byte was NACKed: the transaction stops with a STOP right after it;
 ;           [15:0] the number of bytes after the address that the target ACKed.
 ; A stuck SCL (no rise within 100 us) raises IRQ 0xEE, releases the bus and halts.
@@ -20,12 +25,15 @@
 ; one change: write_byte returns the ACK in Z (1 = ACK) instead of shifting it into a register,
 ; so a burst can count 1025 bytes and stop at the first NACK.
 ; The tape word is read again (LDT) for each of its four bytes: write_byte needs r0, r1, sh and
-; lc, and r3 holds the burst's place ([7:0] the word, [15:8] the last word).
+; lc, and r3 holds the burst's place ([7:0] the word, [15:8] the last word). A streamed word is
+; kept the same way, in tape word STW, with r3 = the words left << 8 (so r3[7:0], LDT's base,
+; is 0).
 
 .default CTX,     0         ; module parameters
 .default SCL_PIN, 2
 .default SDA_PIN, 3
 .default ADDR,    0x3C
+.default STW,     0xFF      ; tape: the word being streamed
 .equ SCL,     1 << SCL_PIN
 .equ SDA,     1 << SDA_PIN
 .equ BOTH,    SCL | SDA
@@ -98,6 +106,9 @@ burst:
     CALL  write_byte
     JNZ   nack
     ADDI  r2, 1
+    MOV   r0, r3
+    SHL   r0, 2              ; C = bit 30
+    JC    stream
     SHL   r3, 16
     SHR   r3, 16             ; r3 = [15:8] last, [7:0] this word
 word:
@@ -129,10 +140,59 @@ word:
     JZ    stop
     ADDI  r3, 1
     JMP   word
+    ; ---- stream: [15:0] words from the mailbox, 4 bytes each
+stream:
+    SHL   r3, 16
+    SHR   r3, 8              ; r3 = the words left << 8; Z: none
+    JZ    stop
+sword:
+    POP   r0                 ; the next word, when the host sends it (SCL held low meanwhile)
+    STT   r0, r3, STW
+    SHR   r0, 24
+    CALL  write_byte
+    JNZ   snack
+    ADDI  r2, 1
+    LDT   r0, r3, STW
+    SHR   r0, 16
+    CALL  write_byte
+    JNZ   snack
+    ADDI  r2, 1
+    LDT   r0, r3, STW
+    SHR   r0, 8
+    CALL  write_byte
+    JNZ   snack
+    ADDI  r2, 1
+    LDT   r0, r3, STW
+    CALL  write_byte
+    JNZ   snack
+    ADDI  r2, 1
+    MOVI  r1, 256
+    SUB   r3, r1             ; one word fewer; Z: the last was sent
+    JNZ   sword
+    JMP   stop
 nack:
     MOVHI r2, 0x8000         ; [31] NACK, [15:0] kept: the bytes ACKed before it
 stop:
-    ; ---- STOP: SDA low while SCL low, release SCL, then release SDA
+    CALL  bus_stop
+    PUSH  r2
+    JMP   loop
+    ; ---- a stream NACKed: STOP, then take the words the host still sends for it, so the
+    ; mailbox stays in step with the commands (r3 counts the word already taken)
+snack:
+    MOVHI r2, 0x8000         ; [31] NACK, [15:0] the bytes ACKed before it
+    CALL  bus_stop
+sdrop:
+    MOVI  r1, 256
+    SUB   r3, r1
+    JZ    sdone
+    POP   r0
+    JMP   sdrop
+sdone:
+    PUSH  r2
+    JMP   loop
+
+; bus_stop: STOP: SDA low while SCL low, release SCL, then release SDA. Uses r0.
+bus_stop:
     WAITT                    ; the scheduled SCL fall has happened
     RDTIME r0
     ADDI  r0, RA
@@ -149,8 +209,7 @@ stop:
     ADDI  r0, T_HI           ; tSU;STO 0.8 us
     SETT  r0
     EMIT  SDA, SDA, SDA
-    PUSH  r2
-    JMP   loop
+    RET
 
 ; write_byte: send r0[7:0] MSB first, then the 9th clock; Z = 1 if the target ACKed.
 ; On entry tmr = the tick SCL falls (scheduled); on exit likewise for the next bit.

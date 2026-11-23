@@ -41,10 +41,11 @@ and a non-interference proof shows that one program can be replaced while the ot
 without moving any of their edges. A line unit, a capture unit and a bus timing monitor
 supply the per-bit work and the observation that firmware cannot do itself. The design
 occupies $1724\times711\,\mu$m, is signed off at 20\,ns at all three corners with every
-electrical rule met, and draws 4.42\,mW while sending a UART at 25\,MHz. Eighty-one
+electrical rule met, and draws 4.42\,mW while sending a UART at 25\,MHz. Eighty-two
 programs, from UART and I2C to a USB keyboard and 10BASE-T Ethernet, run on it. On an FPGA
-driven by the chip's own bring-up script the same RTL passes every program that has a bench
-bundle, answers a laptop's ping over 10BASE-T and enumerates on its USB port as a keyboard.
+the same RTL passes 80 of them through the chip's own bring-up script, answers a laptop's
+ping over 10BASE-T, enumerates on its USB port as a keyboard, and drives the display and
+sound for DOOM running on its host.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -453,7 +454,7 @@ authors who could not read each other's code, so that a misreading of the specif
 shows up as a disagreement rather than as two identical bugs. A co-simulation in
 cocotb \cite{cocotb} on Icarus Verilog \cite{iverilog} runs both side by side and
 compares every commit, every register, every pin, the queues and the memories on every
-tick. In the final run it compared 191 random programs (19,850 commits; 9 more were too long for a program page) and 74 firmware cases, each against independent bus models, on both the behavioural RTL and the standard-cell build, and found no difference. The same simulator runs in the project's web page under Pyodide
+tick. In the final run it compared 191 random programs (19,850 commits; 9 more were too long for a program page) and 76 firmware cases, each against independent bus models, on both the behavioural RTL and the standard-cell build, and found no difference. The same simulator runs in the project's web page under Pyodide
 \cite{pyodide}, so what a reader runs in the browser is the model the RTL is held to.
 
 On every clock edge where something happens, the chip folds what happened into a 32-bit
@@ -469,7 +470,7 @@ it runs, the minimum lead of each context, so the certificate and the silicon ch
 other. In the VGA Pong firmware, for example, the certificate proves that every edge of
 the video signal is queued at least 1{,}597 ticks early in the sync context and 8 ticks
 early in the picture context, and the simulator, the RTL, the gate-level netlist and the
-FPGA all measure exactly 1{,}597 and 8. All 81 programs are certified for every input. Across the 74 co-simulated firmware cases, 74 contexts have a finite bound, and the lead measured on the RTL equals the bound in 59 of them and exceeds it in the other 15; it is never below.
+FPGA all measure exactly 1{,}597 and 8. All 82 programs are certified for every input. Across the 76 co-simulated firmware cases, 76 contexts have a finite bound, and the lead measured on the RTL equals the bound in 59 of them and exceeds it in the other 17; it is never below.
 
 \subsection{Checking the checks}
 
@@ -493,7 +494,7 @@ tick short, a bug that lockstep comparison cannot see because the two agreed.
 For every program whose protocol someone else's software can read, that software reads
 the pins of the simulated run and must decode what the test asked for: sigrok's decoders
 \cite{sigrok}, the IRMP infrared library, Wireshark's dissectors, the rtl\_433 receiver and
-rc-switch's receiver code. They agree with 73 of the 81 programs, and each judge has a
+rc-switch's receiver code. They agree with 74 of the 82 programs, and each judge has a
 control: the same recording with one pulse inverted must fail it. The same runs are repeated with every pin delayed by up to three
 ticks each way, more than the pads and the board add, and every protocol still works.
 
@@ -509,14 +510,14 @@ Method & Result \\
 \midrule
 Formal properties & 110 of 110 tasks pass, 52 of them bounded to depth 20; 15 planted bugs caught \\
 Netlist vs.\ RTL & Sequentially equivalent (336 output bits) \\
-Lockstep co-simulation & 191 random programs, 74 firmware cases, two builds: no difference \\
-Timing certificates & 81 of 81 certified; measured lead equals the bound in 59 of 74 contexts, never below \\
+Lockstep co-simulation & 191 random programs, 76 firmware cases, two builds: no difference \\
+Timing certificates & 82 of 82 certified; measured lead equals the bound in 59 of 76 contexts, never below \\
 Mutation testing & 1,017 faults: 902 caught, 57 proved harmless, 58 argued, 0 surviving \\
-Outside judges & decoders by others agree with 73 of 81 programs; every control fails \\
+Outside judges & decoders by others agree with 74 of 82 programs; every control fails \\
 Planted firmware bugs & 729 timing bugs: 178 refuted, 18 not proven, 533 certified, 0 certified that fault \\
 Slower pins & every firmware case passes with up to three ticks of delay each way \\
-Test suites & 1,615 software, 12 chip (RTL and netlist), 9 through the pins \\
-FPGA bench & 80 of 81 programs match the model and their certificates (21 and 22 Nov.; the 14\,s chime has no bench bundle); a laptop's ping over 10BASE-T; SWD on a real RP2040, judged by sigrok; a USB keyboard on a laptop \\
+Test suites & 1,632 software, 12 chip (RTL and netlist), 9 through the pins \\
+FPGA bench & 80 of 82 programs match the model and their certificates (21 and 22 Nov.; the 14\,s chime has no bench bundle, and the PWM sound program ran as the DOOM console's sound); a laptop's ping over 10BASE-T; SWD on a real RP2040, judged by sigrok; a USB keyboard on a laptop; DOOM, with no word lost on the host link \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -659,8 +660,9 @@ tests the link, every memory and every pin, then loads every firmware, runs it, 
 compares the chip's digest, state and measured leads with the model's prediction and the
 certificate.
 
-The RTL that was hardened for silicon runs 80 of the 81 programs through the bring-up
-script (all but a 14-second chime, which has no bench bundle), and each matches the model
+The RTL that was hardened for silicon runs 80 of the 82 programs through the bring-up
+script (all but a 14-second chime, which has no bench bundle, and the PWM sound program of
+Section~\ref{sec:apps}, which has run on the bench as DOOM's sound), and each matches the model
 and stays within its timing certificate, a program spanning two pages among them. The
 build uses 15{,}540 of 23{,}040 LUTs, 5{,}109 flip-flops and 3 of 56 block RAMs, and routes
 to 58.0\,MHz against the 25\,MHz it runs at, with the clock on the global network to every
@@ -699,9 +701,9 @@ drawn on the laptop for that run, so only a working keyboard could have typed it
 \section{What it does}
 \label{sec:apps}
 
-Eighty-one programs run on the chip, among them UART, SPI, I2C, CAN, PS/2, WS2812,
+Eighty-two programs run on the chip, among them UART, SPI, I2C, CAN, PS/2, WS2812,
 1-Wire, JTAG, ARM SWD, DMX512, HDMI-CEC, DALI, SENT, DShot, low-speed USB and 10BASE-T
-Ethernet; none of these protocols is in the hardware. Four examples show the reach of
+Ethernet; none of these protocols is in the hardware. Five examples show the reach of
 the mechanisms.
 
 \textbf{A USB keyboard.} A 187-instruction firmware enumerates on a real Linux kernel
@@ -735,6 +737,29 @@ certificate proves that no edge is late. On the FPGA bench the same game runs on
 SSD1306 OLED as four programs, one per context and page: a display driver that speaks I2C,
 a text layer, the game and a menu. They communicate only through queues on the tape, and
 every I2C edge stays certified.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.55\columnwidth]{fig/doom-crop.jpg}
+\caption{DOOM's title screen on the SSD1306, sent by the chip's RTL on the FPGA bench while
+a Pico W runs the game.}
+\label{fig:doom}
+\end{figure}
+
+\textbf{DOOM, with the chip as its input/output processor.} A Raspberry Pi Pico W runs the
+shareware DOOM \cite{rp2040doom} and hands every frame and every sound to the chip as words
+on the host link (Fig.~\ref{fig:doom}). One context streams each frame, averaged from
+$320\times200$ to $128\times64$ and dithered, to the OLED over I2C; a second plays the
+sound as pulse-width modulation, 8-bit samples at 11{,}025 a second on an 88\,kHz carrier,
+into a laptop's headset jack through a low-pass filter; a third checks the I2C bus against
+Fast-mode limits; and a fourth can record the sound pin. The game sets its own pace and the
+protocols set theirs. A mailbox holds two words and STATUS shows only whether it is full,
+so the host pushes at most one word per context per STATUS read, which makes the link
+lossless by construction: in a three-minute run on the bench, 523{,}797 words went over it
+and none was lost. Two pieces of firmware were added for it with no hardware change: the
+PWM sound program, with every edge certified, and a stream mode that lets the I2C writer
+send a frame from the mailbox while the host renders the next. A late word only holds SCL
+low, which I2C allows.
 
 \textbf{Protocols without new hardware.} Version 3's hardware was complete on 14 November.
 Since then the OLED Pong, an I2C burst writer and nine more protocols have been added

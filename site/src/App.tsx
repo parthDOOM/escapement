@@ -84,8 +84,8 @@ export default function App() {
                 <a className="icon-btn" href="#inside">How it works</a>
               </div>
               <p className="hero-hw"><a href={asset("fpga/")}>Runs on hardware: version 3.1 on an FPGA, driven by a
-                Pico W, runs 80 of the 81 programs (all but a 14-second chime), each matching the model and its
-                certificate, answers a laptop's ping and types into it as a USB keyboard (22 Nov) →</a></p>
+                Pico W, runs 80 of the 82 programs, each matching the model and its certificate, answers a laptop's ping,
+                types into it as a USB keyboard, and plays DOOM on an OLED with the Pico as its host (23 Nov) →</a></p>
               <div className="facts">
                 <div><b>40 ns</b><span>one tick at 25 MHz, rated to 50</span></div>
                 <div><b>4</b><span>programs running at once</span></div>

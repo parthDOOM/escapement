@@ -4,6 +4,7 @@ import Ruler from "../components/Ruler";
 import EthCircuit from "./EthCircuit";
 import SwdCircuit from "./SwdCircuit";
 import UsbCircuit from "./UsbCircuit";
+import DoomCircuit from "./DoomCircuit";
 import Pinout from "../components/Pinout";
 import { useJson } from "../lib/util";
 import WiringDiagram, { ROLE } from "./WiringDiagram";
@@ -22,6 +23,7 @@ const SECTIONS = [
   ["ethernet", "Ethernet"],
   ["swd", "SWD"],
   ["usb", "USB"],
+  ["doom", "DOOM"],
   ["limits", "Limits"],
 ] as const;
 
@@ -534,7 +536,63 @@ function Page({ d }: { d: Fpga }) {
 
       <Ruler n={19} />
 
-      <section id="limits">
+      <section id="doom">
+        <div className="wrap">
+          <div className="sec-head">
+            <p className="eyebrow">DOOM · 2026-11-23</p>
+            <h2>DOOM, with the chip as its input/output processor</h2>
+            <p className="lede">A Pico W runs the shareware DOOM and sends every frame and every sound to the chip as words
+              on the host link. One context streams the frames to an OLED over I2C, a second plays the sound as PWM into a
+              laptop's headset jack, a third checks the I2C bus against Fast-mode limits, and a fourth can record the
+              sound pin.</p>
+          </div>
+          <div className="facts" style={{ marginBottom: "2rem" }}>
+            <div><b>0 of 523,797</b><span>words lost on the host link in a three-minute run</span></div>
+            <div><b>12.4</b><span>frames a second on the 128×64 panel, 1,025 bytes each at 400 kHz</span></div>
+            <div><b>11,040</b><span>samples a second played by <code>pwm_audio</code>, 8 bits on an 88 kHz carrier</span></div>
+            <div><b>3.0×</b><span>the link's measured capacity over what the game needs at full speed</span></div>
+          </div>
+          <div className="cols">
+            <figure className="panel photo">
+              <img src="../img/doom-bench.jpg" width={1050} height={1400} loading="lazy"
+                alt="DOOM on the bench: the OLED on the breadboard showing a dithered frame of the game, the resistors and capacitors of the sound circuit above it, and the bundle of jumpers to the Tang Primer 25K Dock at the bottom right." />
+              <figcaption>The OLED shows the game; the parts above it make the chip's PWM into sound for the laptop's
+                headset jack.</figcaption>
+            </figure>
+            <div className="prose">
+              <p><strong>The game on the Pico, the signals on the chip.</strong> rp2040-doom runs on the Pico W as it
+                would on its own, except that its VGA and I2S output go to a backend that turns each frame into a
+                128×64 picture and each sound buffer into 8-bit samples, and feeds both to the chip's mailboxes every
+                millisecond. The keyboard and mouse come from a window on the laptop, over USB serial.</p>
+              <p><strong>A picture from 320×200.</strong> Each frame is averaged five columns to two and 25 rows to
+                eight, stretched from its 2nd to its 98th percentile of brightness, and dithered to black and white
+                with Atkinson's method, which keeps dark areas black. <code>i2c_burst</code>'s stream mode sends the
+                1,024 bytes straight from the mailbox; a word that is late holds SCL low, which I2C allows.</p>
+              <p><strong>Sound that cannot be late.</strong> <code>pwm_audio</code> plays each sample as eight PWM
+                periods with every edge at an absolute deadline, and certifies. A ring of 128 words on the tape absorbs
+                the host's timing: a full ring leaves the word in the mailbox, which holds the host back, and an empty
+                one plays silence and counts it.</p>
+              <p><strong>Lossless by construction.</strong> A mailbox holds two words and STATUS shows only whether it
+                is full, so the Pico pushes at most one word per context per STATUS read. A lost word would raise the
+                host error flag and stop the game; in the run it never did.</p>
+            </div>
+          </div>
+          <figure className="panel" style={{ marginTop: "2rem" }}>
+            <div className="scroll-x"><DoomCircuit /></div>
+            <figcaption>The sound circuit. The 1 kΩ and 33 nF make a low-pass filter at 4.8 kHz, which passes the
+              sound and cuts the carrier by 25 dB; the 10 kΩ and 1.5 kΩ bring the 3.3 V swing down to a microphone's
+              level. It is DC-coupled: the 1.5 kΩ is the load a laptop expects from an electret microphone, so it
+              recognises a headset, and Windows plays the input through its speakers.</figcaption>
+          </figure>
+          <p className="note" style={{ marginTop: "1.5rem" }}>The game side, rp2040-doom with the console's backend, is
+            GPL-licensed and uses id Software's game data, so it is kept outside this repository. The firmware, the
+            models, the tests and the load model are in the repository: <a href={`${REPO}/blob/master/docs/25-DOOM-CONSOLE.md`}>docs/25-DOOM-CONSOLE.md</a>.</p>
+        </div>
+      </section>
+
+      <Ruler n={20} />
+
+      <section id="limits" className="band">
         <div className="wrap">
           <div className="sec-head">
             <p className="eyebrow">Limits</p>

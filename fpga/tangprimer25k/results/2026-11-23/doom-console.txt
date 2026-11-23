@@ -1,0 +1,38 @@
+DOOM console on the FPGA bench, 2026-11-23 (docs/25-DOOM-CONSOLE.md).
+Host: a Pico W at 250 MHz running rp2040-doom with the console backend; chip: version 3.1's RTL on the
+Tang Primer 25K (chip.fs sha256 6cd77342...), clocked at 25 MHz from the Pico. SSD1306 on uio[2] (SCL) and
+uio[3] (SDA); pwm_audio's uio[6] through 1 kohm / 33 nF / 10 kohm / 1.5 kohm into a laptop's headset jack.
+The game ran its demo loop. The Pico prints one status line every 2 s (counts since boot) and the zone
+low-water line when it falls; 60 s of its serial output, unedited:
+
+doom-console: sound: 11541 mixer buffers, samples 17..212 (36 clipped), 369244 words to the chip (queue 68, dropped 0); uio[6] high 46%, 174 edges/ms | panel: 1649 frames, 1664 bursts, 0 errors, lost 0
+doom-console: sound: 11717 mixer buffers, samples 32..229 (36 clipped), 374877 words to the chip (queue 67, dropped 0); uio[6] high 47%, 174 edges/ms | panel: 1674 frames, 1689 bursts, 0 errors, lost 0
+doom-console: sound: 11893 mixer buffers, samples 46..198 (36 clipped), 380492 words to the chip (queue 84, dropped 0); uio[6] high 36%, 173 edges/ms | panel: 1699 frames, 1714 bursts, 0 errors, lost 0
+doom-console: sound: 12069 mixer buffers, samples 30..213 (36 clipped), 386127 words to the chip (queue 81, dropped 0); uio[6] high 47%, 174 edges/ms | panel: 1724 frames, 1739 bursts, 0 errors, lost 0
+doom-console: sound: 12244 mixer buffers, samples 30..210 (36 clipped), 391727 words to the chip (queue 81, dropped 0); uio[6] high 35%, 175 edges/ms | panel: 1749 frames, 1764 bursts, 0 errors, lost 0
+doom-console: sound: 12418 mixer buffers, samples 42..229 (36 clipped), 397295 words to the chip (queue 81, dropped 0); uio[6] high 47%, 176 edges/ms | panel: 1774 frames, 1789 bursts, 0 errors, lost 0
+doom-console: sound: 12593 mixer buffers, samples 57..225 (36 clipped), 402914 words to the chip (queue 62, dropped 0); uio[6] high 51%, 176 edges/ms | panel: 1799 frames, 1814 bursts, 0 errors, lost 0
+doom-console: sound: 12767 mixer buffers, samples 59..199 (36 clipped), 408472 words to the chip (queue 72, dropped 0); uio[6] high 40%, 174 edges/ms | panel: 1824 frames, 1839 bursts, 0 errors, lost 0
+doom-console: sound: 12937 mixer buffers, samples 0..244 (36 clipped), 413919 words to the chip (queue 65, dropped 0); uio[6] high 52%, 173 edges/ms | panel: 1848 frames, 1863 bursts, 0 errors, lost 0
+doom-console: sound: 13111 mixer buffers, samples 34..220 (36 clipped), 419497 words to the chip (queue 55, dropped 0); uio[6] high 47%, 175 edges/ms | panel: 1873 frames, 1888 bursts, 0 errors, lost 0
+doom-console: sound: 13276 mixer buffers, samples 53..193 (36 clipped), 424767 words to the chip (queue 65, dropped 0); uio[6] high 48%, 176 edges/ms | panel: 1897 frames, 1912 bursts, 0 errors, lost 0
+doom-console: sound: 13442 mixer buffers, samples 128..128 (36 clipped), 430079 words to the chip (queue 65, dropped 0); uio[6] high 48%, 174 edges/ms | panel: 1921 frames, 1936 bursts, 0 errors, lost 0
+doom-console: sound: 13608 mixer buffers, samples 128..128 (36 clipped), 435368 words to the chip (queue 88, dropped 0); uio[6] high 48%, 176 edges/ms | panel: 1945 frames, 1960 bursts, 0 errors, lost 0
+doom-console: sound: 13778 mixer buffers, samples 128..128 (36 clipped), 440830 words to the chip (queue 66, dropped 0); uio[6] high 47%, 176 edges/ms | panel: 1970 frames, 1985 bursts, 0 errors, lost 0
+doom-console: sound: 13949 mixer buffers, samples 128..128 (36 clipped), 446284 words to the chip (queue 84, dropped 0); uio[6] high 48%, 177 edges/ms | panel: 1995 frames, 2010 bursts, 0 errors, lost 0
+doom-console: sound: 14121 mixer buffers, samples 128..128 (36 clipped), 451786 words to the chip (queue 86, dropped 0); uio[6] high 48%, 175 edges/ms | panel: 2020 frames, 2035 bursts, 0 errors, lost 0
+doom-console: zone low-water 24916 of 54404 bytes free
+doom-console: sound: 14294 mixer buffers, samples 128..128 (36 clipped), 457321 words to the chip (queue 87, dropped 0); uio[6] high 47%, 171 edges/ms | panel: 2045 frames, 2060 bursts, 0 errors, lost 0
+doom-console: sound: 14459 mixer buffers, samples 128..128 (36 clipped), 462607 words to the chip (queue 81, dropped 0); uio[6] high 48%, 176 edges/ms | panel: 2069 frames, 2084 bursts, 0 errors, lost 0
+doom-console: sound: 14625 mixer buffers, samples 128..128 (36 clipped), 467922 words to the chip (queue 78, dropped 0); uio[6] high 48%, 176 edges/ms | panel: 2093 frames, 2108 bursts, 0 errors, lost 0
+doom-console: sound: 14794 mixer buffers, samples 128..128 (36 clipped), 473317 words to the chip (queue 91, dropped 0); uio[6] high 48%, 170 edges/ms | panel: 2117 frames, 2132 bursts, 0 errors, lost 0
+doom-console: zone low-water 24236 of 54404 bytes free
+doom-console: sound: 14969 mixer buffers, samples 42..216 (36 clipped), 478932 words to the chip (queue 76, dropped 0); uio[6] high 45%, 169 edges/ms | panel: 2142 frames, 2157 bursts, 0 errors, lost 0
+doom-console: sound: 15143 mixer buffers, samples 29..230 (36 clipped), 484516 words to the chip (queue 60, dropped 0); uio[6] high 54%, 174 edges/ms | panel: 2167 frames, 2182 bursts, 0 errors, lost 0
+doom-console: sound: 15317 mixer buffers, samples 6..225 (36 clipped), 490072 words to the chip (queue 72, dropped 0); uio[6] high 47%, 174 edges/ms | panel: 2192 frames, 2207 bursts, 0 errors, lost 0
+doom-console: sound: 15493 mixer buffers, samples 89..167 (36 clipped), 495686 words to the chip (queue 90, dropped 0); uio[6] high 47%, 175 edges/ms | panel: 2217 frames, 2232 bursts, 0 errors, lost 0
+doom-console: sound: 15670 mixer buffers, samples 9..244 (36 clipped), 501375 words to the chip (queue 65, dropped 0); uio[6] high 43%, 176 edges/ms | panel: 2242 frames, 2257 bursts, 0 errors, lost 0
+doom-console: sound: 15846 mixer buffers, samples 67..167 (36 clipped), 507013 words to the chip (queue 59, dropped 0); uio[6] high 47%, 175 edges/ms | panel: 2267 frames, 2282 bursts, 0 errors, lost 0
+doom-console: sound: 16022 mixer buffers, samples 22..227 (36 clipped), 512637 words to the chip (queue 67, dropped 0); uio[6] high 47%, 174 edges/ms | panel: 2292 frames, 2307 bursts, 0 errors, lost 0
+doom-console: sound: 16197 mixer buffers, samples 22..250 (36 clipped), 518235 words to the chip (queue 69, dropped 0); uio[6] high 46%, 173 edges/ms | panel: 2317 frames, 2332 bursts, 0 errors, lost 0
+doom-console: sound: 16371 mixer buffers, samples 29..217 (36 clipped), 523797 words to the chip (queue 75, dropped 0); uio[6] high 46%, 174 edges/ms | panel: 2342 frames, 2357 bursts, 0 errors, lost 0

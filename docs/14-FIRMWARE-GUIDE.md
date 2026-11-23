@@ -24,7 +24,7 @@ four queued events.
 
 The chip is rated up to 50 MHz (D-5). Programs that take their timing from `CLK_KHZ`
 rebuild for another clock by defining it before the include, for example
-`.equ nec_tx.CLK_KHZ, 50000` then `.include "nec_tx.asm"`. Of the 81 programs, 67 rebuild and certify at 33, 33.333, 40 and 50 MHz; four are tied to one clock by their protocol (10BASE-T transmit at 40 MHz, USB low speed at 24 MHz, VGA at its 25 MHz pixel clock); three need a whole number of ticks per bit (`eth_rx` at 40 or 50 MHz, XY2-100 from 40 to 50 MHz in 2 MHz steps, FlexRay at 2.5 Mbit/s from 25 to 50 MHz in 2.5 MHz steps); and seven count in ticks or follow another device's clock. Rerun
+`.equ nec_tx.CLK_KHZ, 50000` then `.include "nec_tx.asm"`. Of the 82 programs, 68 rebuild and certify at 33, 33.333, 40 and 50 MHz; four are tied to one clock by their protocol (10BASE-T transmit at 40 MHz, USB low speed at 24 MHz, VGA at its 25 MHz pixel clock); three need a whole number of ticks per bit (`eth_rx` at 40 or 50 MHz, XY2-100 from 40 to 50 MHz in 2 MHz steps, FlexRay at 2.5 Mbit/s from 25 to 50 MHz in 2.5 MHz steps); and seven count in ticks or follow another device's clock. Rerun
 `python -m escert` after any rebuild: a delay that fits at one clock can outgrow a
 16-bit compare, ADDT's 24 bits or the 2^16-tick gap escert can bound at a faster one.
 
@@ -126,7 +126,8 @@ next: ADDT  FAR
 **11. Keep the host out of the timed context.** A `POP` waits for the host, so a timed
 loop may only pop where `RXREADY` has just seen a word: only the context itself pops its
 mailbox, so the word is still there, and escert certifies that `POP` as not
-waiting (`servo` takes one update a frame this way). Even so, a frame built while values
+waiting (`servo` takes one update a frame this way, and `pwm_audio` one word of four
+samples a sample, into a ring on the tape). Even so, a frame built while values
 arrive can mix two of them. Give the host its own context: it
 takes words from the mailbox and stores them in the tape; the timed context reads the tape
 once per frame and waits on nothing but its own events. One `STT` is atomic, so a frame
@@ -137,7 +138,8 @@ buffer, so that no frame still reads it (`dshot_tx`, four motors from one contex
 **12. Time a data-dependent length by its bits.** `ADDTR` with a computed value has no
 certificate. Test each bit of the value and `ADDT` its weight instead (`TSTI r1, 1`,
 `JZ`, `ADDT UT`, then 2, 4, 8): every path adds a constant, and escert stays exact
-(`sent_tx`'s nibble pulses and its pause pulse).
+(`sent_tx`'s nibble pulses and its pause pulse, `pwm_audio`'s high time of 8 + *s* ticks
+for an 8-bit sample *s*).
 
 **13. Leave on failure; do not return a flag.** A subroutine that checks a timing window
 and returns Z for success merges both outcomes at its return site, and escert loses which

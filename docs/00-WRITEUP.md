@@ -7,11 +7,12 @@ scheduled: if its deadline can still be met it happens on exactly that tick, and
 the program stops with a fault that names the reason. A late edge is not one of the
 possible outcomes. That property is proved formally for every program, for all time, and
 the gate-level netlist that goes to fabrication is proved equivalent to the RTL the proof
-is about. Around this one guarantee sit 81 firmware programs, from UART and I2C to a USB
+is about. Around this one guarantee sit 82 firmware programs, from UART and I2C to a USB
 keyboard and 10BASE-T Ethernet, a line unit that does the per-bit work of packet
 protocols, a capture unit that turns the chip into a logic analyser, and a bus timing
 monitor that checks other devices against their datasheets. On an FPGA build of the same
-RTL, the chip has answered a laptop's ping over 10BASE-T and typed into it as a USB keyboard.
+RTL, the chip has answered a laptop's ping over 10BASE-T, typed into it as a USB keyboard, and,
+with a Pico W running DOOM as its host, put the game on an OLED and played its sound.
 
 ## 1. A promise about time
 
@@ -221,7 +222,7 @@ twice: in the RTL and in a Python instruction-set simulator that shares nothing 
 the instruction encodings. A shared decoder could make two models agree on the same bug,
 so execution, timing rules and faults are written separately. A co-simulation runs both
 side by side and compares every commit, every register, every pin, the queues and the
-memories on every tick. In the final run it compared 191 random programs and 74 firmware
+memories on every tick. In the final run it compared 191 random programs and 76 firmware
 cases, each against independent bus models, on both the behavioural RTL and the
 standard-cell build, and found no difference.
 
@@ -236,9 +237,9 @@ measures the same quantity while it runs, the minimum lead of every context, so 
 certificate and the silicon check each other. In the VGA Pong firmware, for example, the
 certificate proves that every edge of the video signal is queued at least 1,597 ticks
 early in the sync context and 8 ticks early in the picture context, and the simulator, the
-RTL, the gate-level netlist and the FPGA all measure exactly 1,597 and 8. All 81 programs
+RTL, the gate-level netlist and the FPGA all measure exactly 1,597 and 8. All 82 programs
 are certified for every input, and in the co-simulated cases the lead the RTL measures
-equals the bound in 59 of 74 contexts and exceeds it in the rest; it is never below.
+equals the bound in 59 of 76 contexts and exceeds it in the rest; it is never below.
 
 **Planted timing bugs.** A checker that accepted everything would pass that test too, so
 escert is attacked the way the RTL's tests are. A campaign plants the timing bugs firmware
@@ -271,7 +272,7 @@ the firmware was refused, not run with a late edge.
 **Outside judges.** For every program whose protocol someone else's software can read,
 that software reads the pins of its simulated run and must decode what the test asked for:
 sigrok's decoders, the IRMP infrared library, Wireshark's dissectors, the rtl_433 receiver
-and rc-switch's receiver code. They agree with 73 of the 81 programs, and each judge has a
+and rc-switch's receiver code. They agree with 74 of the 82 programs, and each judge has a
 control: the same recording with one pulse inverted must fail it. The same runs are
 repeated with every pin delayed by up to three ticks each way, more than a real chip's pads
 and board add, and every protocol still works.
@@ -312,8 +313,9 @@ digest, state and measured leads with the model's prediction and the certificate
 
 ![The bench: a Raspberry Pi Pico W wired to a Sipeed Tang Primer 25K Dock](img/bench-setup.jpg)
 
-Version 3.1's RTL, the same Verilog that was hardened for silicon, runs 80 of the 81
-programs, all but the 14-second `westminster` chime, which has no bench bundle, and every
+Version 3.1's RTL, the same Verilog that was hardened for silicon, runs 80 of the 82
+programs, all but the 14-second `westminster` chime, which has no bench bundle, and
+`pwm_audio`, which has run on the bench as the DOOM console's sound (section 9), and every
 one matches the reference model and stays within its timing certificate, `modbus_full`
 spanning two pages among them (21 and 22 November)
 ([the bench](https://parthdoom.github.io/escapement/fpga/)).
@@ -343,7 +345,7 @@ keyboard that really worked could have typed it
 
 ## 9. What it does
 
-The same small set of mechanisms covers a wide range of work, and three examples show its
+The same small set of mechanisms covers a wide range of work, and four examples show its
 reach.
 
 **Record it, speak it.** Point the chip at a transmitter it has never seen, such as an
@@ -365,6 +367,21 @@ menu, which talk only through queues on the tape ([23-OLED-PONG](23-OLED-PONG.md
 ![A frame of VGA Pong as a monitor sees it](img/vga-pong.png)
 
 ![The OLED on the bench, showing the PONG title screen](img/bench-oled.jpg)
+
+**DOOM, with the chip as its input/output processor.** A Raspberry Pi Pico W runs the
+shareware DOOM and hands every frame and every sound to the chip as words on the host link.
+One context streams the frames to the OLED over I2C, a second plays the sound as
+pulse-width modulation into a laptop's headset jack, a third checks the I2C bus against
+Fast-mode limits, and a fourth can record the sound pin. The game sets its own pace and the
+protocols set theirs; between them the host pushes only into mailboxes with room, and on the
+bench 523,797 words went over the link in a three-minute run with none lost. Two pieces of
+firmware were added for it, again with no hardware change: `pwm_audio`, which plays 8-bit
+samples at 11,025 a second with every edge certified, and a stream mode for the I2C burst
+writer, which sends a frame from the mailbox while the host renders the next. Each has a
+model, a certificate, lockstep runs on both builds, the pad audit and an outside judge
+([25-DOOM-CONSOLE](25-DOOM-CONSOLE.md)).
+
+![DOOM on the OLED, the chip's RTL on the FPGA bench driving it](img/doom-console.jpg)
 
 **Protocols without new hardware.** Version 3's hardware was complete on 14 November.
 Since then OLED Pong, an I2C burst writer and nine more protocols have been added, none
@@ -411,7 +428,7 @@ integration and can be rerun:
 | The programs speak the protocol, not our model of it | decoders written by other people, each with a control that must fail | `make judges` |
 | The protocols survive pad and board delays | every case with its pins up to three ticks slower each way | `make pad-audit` |
 | The layout meets 20 ns and every electrical rule at every corner | the CI harden's sign-off reports, summarised in [physical design](03-PHYSICAL-DESIGN.md#sign-off-results) | `make harden` |
-| It runs on real pins | the FPGA bench: six bring-up stages, every program, and Ethernet, SWD and USB with real equipment | [the bench](../fpga/tangprimer25k/README.md) |
+| It runs on real pins | the FPGA bench: six bring-up stages, every program, Ethernet, SWD and USB with real equipment, and the DOOM console | [the bench](../fpga/tangprimer25k/README.md) |
 
 [Verification](04-VERIFICATION.md) gives each result in full, the workflow that produces it
 and how long it takes; the [results page](https://parthdoom.github.io/escapement/#results)

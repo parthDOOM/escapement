@@ -651,6 +651,29 @@ adopted layout has no slew or capacitance violation at any corner, meets setup d
 20 ns, and is clean for DRC, LVS and antennas, with 38,514 cells, 3.4% more than version 3.0,
 and a flow power estimate of 7.36 mW against 7.66 mW.
 
+## The DOOM console
+
+**D-66 The game on the host, the chip as its input/output processor.** DOOM needs far more
+memory than the chip has, so it runs on a host and the chip makes its signals
+([25-DOOM-CONSOLE](25-DOOM-CONSOLE.md)). Two hosts were possible: a laptop running a
+portable DOOM and sending frames through the Pico, or the Pico W itself running rp2040-doom.
+The Pico was chosen, because then the bench is self-contained and the chip serves the same
+small host it serves in bring-up; its 264 KB of RAM was the risk, and on the bench the game's
+memory zone never had less than 23,944 bytes free. The keyboard and mouse come from a window
+on the laptop over USB serial to the Pico. Reading them through the chip would have needed a
+keyboard and mouse that speak to its pins and a context free to serve them, and all four
+contexts already make the picture and the sound or watch them.
+
+**D-67 Frames stream through the mailbox.** `i2c_burst` sent frames from the tape, but the
+host may write the tape only while the chip is stopped, and the game draws while the chip
+runs. A stream command makes the controller take the frame's words from its mailbox as they
+arrive. A word that is late holds SCL low, which only lengthens a low phase (I2C sets no
+maximum), so a slow host costs time and never an edge. The host feeds every context the same
+way: one STATUS read, then at most one word to each context with room, because a mailbox
+holds two words, STATUS shows only whether it is full, and a push into a full mailbox is
+lost. A lost word would raise the host error flag; in the bench run, 523,797 words went over
+the link and none was lost.
+
 ## Measured and rejected
 
 - **The tape at the bottom left in version 3.** It anchored the line unit in version 2

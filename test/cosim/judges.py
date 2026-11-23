@@ -38,7 +38,7 @@ sys.path[:0] = [str(REPO / "sw"), str(HERE)]
 
 from esciss import Machine  # noqa: E402
 from esciss.machine import no_board_b  # noqa: E402
-from fw_cases import FIRMWARE_CASES, FW_EQU, fw_image  # noqa: E402
+from fw_cases import FIRMWARE_CASES, FW_EQU, PWM_SAMPLES, fw_image  # noqa: E402
 
 SIGROK = shutil.which("sigrok-cli")
 # Decoders newer than 0.7.2 (ir_sirc, ir_irmp, sbus_futaba) and community ones (dcc,
@@ -530,6 +530,13 @@ def _burst():
                       (0x3C, [0x00, 0x22, 2]), (0x3C, [0x00, 2]), (0x3C, [0x40] + data)])
 
 
+def _stream():
+    import fw_cases as F
+    data = [(w >> s) & 0xFF for w in F.STREAM_WORDS for s in (24, 16, 8, 0)]
+    return i2c_lines([(0x3C, [0x00, 0x20, 0x00]), (0x3C, [0x00, 0x21, 40]), (0x3C, [0x00, 51]),
+                      (0x3C, [0x00, 0x22, 2]), (0x3C, [0x00, 2]), (0x3C, [0x40] + data)])
+
+
 def _dmx_ok(lines):
     """DMX512 as UART frames at 250 kbit/s (8N2): after the break, the start code 0 and the
     511 slots the tape holds. (libsigrokdecode 0.5.3's dmx512 decoder misreads frames sent
@@ -654,6 +661,36 @@ def _sbus_want() -> list[str]:
     return out
 
 
+def _pwm_audio_ok(lines):
+    """pwm_audio: sigrok's pwm decoder prints each period's duty cycle and length. At 25 MHz a
+    period is 283 or 284 ticks (it prints 11.3 and 11.4 us), so each duty cycle times its period
+    must be a whole number of high ticks: OFFS (8) plus the sample. From the first period that
+    is not the starting silence, every eight periods (the first 283 ticks, the lengths
+    alternating) must carry one sample, and the samples must be the case's, in order."""
+    t = text(lines)
+    highs, periods = [], []
+    for d, per in zip(t[0::2], t[1::2]):
+        p = {"11.3 μs": 283, "11.4 μs": 284}.get(per)
+        if p is None or not d.endswith("%"):
+            return False
+        h = float(d[:-1]) * p / 100
+        if abs(h - round(h)) > 0.01:
+            return False
+        highs.append(round(h) - 8)
+        periods.append(p)
+    a = next((i for i, h in enumerate(highs) if h != 128), None)
+    want = PWM_SAMPLES
+    if a is None or len(highs) < a + 8 * len(want):
+        return False
+    got = []
+    for k in range(len(want)):
+        g = highs[a + 8 * k:a + 8 * k + 8]
+        if len(set(g)) != 1 or periods[a + 8 * k:a + 8 * k + 8] != [283, 284] * 4:
+            return False
+        got.append(g[0])
+    return got == want
+
+
 def _freq_ok(lines):
     """freq_meter: every whole period 10.0 us at 30 % duty (250 ticks, 75 high at 25 MHz), the
     chip's 2000 and 600 ticks per 8 periods; at least the two gates' 16 periods."""
@@ -683,6 +720,7 @@ JUDGES: list[Judge] = [
           "eeprom24xx=byte-write:page-write:random-read:seq-random-read:cur-addr-read:seq-cur-addr-read:data:warnings",
           "target: its replies, after a page roll-over"),
     Judge("i2c_burst", *I2C, eq(_burst()), "sda", I2C_ANN),
+    Judge("i2c_stream", *I2C, eq(_stream()), "sda", I2C_ANN, "the stream mode: words from the mailbox"),
     Judge("oled_pong", *I2C, oled_title_ok, "sda", I2C_WRITES,
           "the decoded writes, on an SSD1306, draw only the title's pixels"),
     Judge("oled_game", *I2C, oled_game_ok, "sda", I2C_WRITES,
@@ -827,6 +865,8 @@ JUDGES: list[Judge] = [
           "timing: each channel's pulses, one channel at a time", tool=_servo_tool, by="timing"),
     Judge("quadrature", ["graycode:d0=a:d1=b"], {"a": 0, "b": 1}, _quad_ok, "a", "graycode=count",
           "receiver: the count the decoder reads off A and B, against the 20 the chip reported"),
+    Judge("pwm_audio", ["pwm:data=a"], {"a": 6}, _pwm_audio_ok, "a", "",
+          "every period's duty cycle: the 32 samples, eight equal periods each, on 283 + 284 ticks"),
     Judge("freq_meter", ["pwm:data=f"], {"f": 3}, _freq_ok, "f", "",
           "receiver: every period and duty cycle, against the chip's 2000 and 600 ticks per 8 periods"),
     Judge("lin_tx", ["uart:rx=lin:baudrate=19200", "lin"], {"lin": 0},

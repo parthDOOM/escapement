@@ -367,6 +367,26 @@ def case_dshot():
     return Board(*escs, host), host, check
 
 
+PWM_SAMPLES = [0x5A, 0, 255, 1, 254, 128, 0x33, 0xCC] + [(37 * i + 11) & 0xFF for i in range(24)]
+
+
+def case_pwm_audio():
+    """PWM audio: 32 samples (the extremes among them), four to a word, pushed one word every
+    5,000 ticks (the program drains a word a sample, 2,268 ticks, so the mailbox never fills);
+    the receiver decodes each sample from its eight periods and times every edge."""
+    from escmodels.pwm_audio import PwmAudioReceiver
+    rx = PwmAudioReceiver(6)
+    s = PWM_SAMPLES
+    words = [s[i] << 24 | s[i + 1] << 16 | s[i + 2] << 8 | s[i + 3] for i in range(0, len(s), 4)]
+    host = HostScript([(3000 + 5000 * i, 1, w) for i, w in enumerate(words)])
+
+    def check(board, h):
+        got = rx.samples
+        ok = s[0] in got and got[got.index(s[0]):got.index(s[0]) + len(s)] == s
+        return ([] if ok else [f"pwm_audio {got[:12]}"]) + rx.errors() + board.errors()
+    return Board(rx, host), host, check
+
+
 def case_sent():
     """SENT sensor frames back to back; a new value from the host mid-run."""
     from escmodels import SentReceiver
@@ -1186,6 +1206,34 @@ def case_servo():
     return Board(pins, host, pullups=0), host, check
 
 
+STREAM_WORDS = [0x0123ABCD, 0xFEDC5432, 0x80FF0177]
+
+
+def case_i2c_stream():
+    """The I2C bulk writer's stream mode at 25 MHz: a 12-column window on page 2, then a stream
+    of three words the host sends while the chip runs, one every 3,000 ticks (the bus takes a
+    word in about 2,250, so the mailbox never fills and SCL waits for each): exactly those 12
+    bytes land, and they come from the mailbox (the tape holds nothing of them)."""
+    from escmodels.ssd1306 import Ssd1306
+    oled = Ssd1306(2, 3, 0x3C)
+
+    def cmd(*b):
+        return len(b) << 24 | sum(x << (16 - 8 * i) for i, x in enumerate(b))
+    words = STREAM_WORDS
+    pushes = [(100, 0, cmd(0x00, 0x20, 0x00)), (3100, 0, cmd(0x00, 0x21, 40)), (6100, 0, cmd(0x00, 51)),
+              (9100, 0, cmd(0x00, 0x22, 2)), (12100, 0, cmd(0x00, 2)), (15100, 0, 3 << 30 | 0x40 << 16 | 3)]
+    pushes += [(18100 + 3000 * i, 0, w) for i, w in enumerate(words)]
+    host = HostScript(pushes, drain=[0], poll=1000)
+
+    def check(board, h):
+        ram = oled.state()[0]
+        want = [(w >> s) & 0xFF for w in words for s in (24, 16, 8, 0)]
+        ok = (h.received[0] == [3, 3, 2, 3, 2, 13] and ram[2][40:52] == want
+              and sum(1 for p in ram for b in p if b) == sum(1 for b in want if b))
+        return ([] if ok else [f"i2c_stream {h.received[0]} {ram[2][40:52]}"]) + board.errors()
+    return Board(oled, host), host, check
+
+
 def case_i2c_burst():
     """The I2C bulk writer at 25 MHz against the SSD1306 model (UM10204 Fast-mode checks):
     a 12-column window on page 2 set up by command words, then tape words 10 to 12 in one
@@ -1346,6 +1394,7 @@ FIRMWARE_CASES = {
     # motor, sensor, consumer and lighting buses (firmware only)
     "dshot": ("dshot_tx.asm", 12500, case_dshot),
     "sent": ("sent_tx.asm", 36000, case_sent),
+    "pwm_audio": ("pwm_audio.asm", 120_000, case_pwm_audio),
     "cec": ("cec.asm", 46000, case_cec),
     "dali": ("dali.asm", 33000, case_dali),
     # v1.6: the line unit's extended configuration
@@ -1406,6 +1455,7 @@ FIRMWARE_CASES = {
     "ws2812_lu": ("ws2812_lu.asm", 8000, case_ws2812_lu),
     "servo": ("servo.asm", 75000, case_servo),
     "i2c_burst": ("i2c_burst.asm", 80_000, case_i2c_burst),
+    "i2c_stream": ("i2c_burst.asm", 60_000, case_i2c_stream),
     "oled_pong": (OLED, 900_000, case_oled_pong),       # a page per context (escasm.paged)
     "oled_game": (OLED_GAME, 450_000, case_oled_game),
 }

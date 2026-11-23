@@ -3,8 +3,10 @@
 
 Command words (host -> context 0 RX mailbox), one I2C write transaction each:
   [31] = 0: command bytes: [25:24] n = 1..3, then [23:16], [15:8], [7:0] sent in that order;
-  [31] = 1: tape burst: [23:16] a prefix byte (the SSD1306's 0x40 control byte), then tape
-            words [7:0] first .. [15:8] last, each as 4 bytes, most significant first.
+  [31] = 1, [30] = 0: tape burst: [23:16] a prefix byte (the SSD1306's 0x40 control byte), then
+            tape words [7:0] first .. [15:8] last, each as 4 bytes, most significant first;
+  [31] = 1, [30] = 1: stream: [23:16] a prefix byte, then [15:0] words taken from the mailbox
+            as the host sends them, 4 bytes each (a frame rendered while the chip runs).
 Result word (TX mailbox): [31] = 1 if a byte was NACKed (the transaction stops there),
 [15:0] the number of bytes after the address the target ACKed."""
 
@@ -13,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from escasm import assemble
-from escmodels import Board, HostScript
+from escmodels import Board, HostFeed, HostScript
 from escmodels.ssd1306 import Ssd1306
 from esciss import Machine
 
@@ -34,6 +36,10 @@ def burst(first, last, prefix=0x40):
     return 1 << 31 | prefix << 16 | last << 8 | first
 
 
+def stream(n, prefix=0x40):
+    return 3 << 30 | prefix << 16 | n
+
+
 def image(tape=None, **equ):
     src = "".join(f".equ i2c_burst.{k}, {v}\n" for k, v in {"CLK_KHZ": KHZ, **equ}.items())
     im = assemble(src + '.include "i2c_burst.asm"\n', base_dir=FW)
@@ -47,6 +53,17 @@ def run(pushes, ms, tape=None, addr=0x3C, **kw):
     host = HostScript(pushes, drain=[0], poll=1000)
     board = Board(oled, host)
     m = Machine(image(tape), board=board)
+    host.machine = m
+    m.run(int(ms * MS), stop_when_idle=False)
+    return m, oled, host, board
+
+
+def run_feed(words, ms, gap=1, stretch=0, **equ):
+    """The words through a host that pushes only into room, `gap` ticks per push at most."""
+    oled = Ssd1306(2, 3, 0x3C, stretch_ticks=stretch)
+    host = HostFeed({0: words}, gap=gap, drain=[0], poll=1000, start=100)
+    board = Board(oled, host)
+    m = Machine(image(**equ), board=board)
     host.machine = m
     m.run(int(ms * MS), stop_when_idle=False)
     return m, oled, host, board
@@ -157,6 +174,53 @@ def test_clock_stretching_is_honoured():
     m, o, host, board = run([(100, 0, burst(0, 3))], 2, pattern(), stretch=60)
     assert host.received[0] == [17] and o.frame_bytes()[:16] == as_bytes(pattern()[:4])
     assert not o.violations
+
+
+def test_stream_frame_from_the_mailbox():
+    """Horizontal mode, then one stream of 256 words the host sends while the chip runs, through
+    the 2-word mailbox: display RAM equals the words, byte for byte, 1025 bytes ACKed, Fast-mode
+    timing met, and the tape is not the source (it holds nothing of the frame)."""
+    frame = pattern()
+    m, o, host, board = run_feed(HORIZONTAL + [stream(256)] + frame, 40)
+    assert host.received[0] == [3, 3, 2, 3, 2, 1025], host.received[0]
+    assert o.frame_bytes() == as_bytes(frame)
+    assert not o.violations and not board.errors() and not m.ff.valid, (o.violations, board.errors())
+
+
+def test_stream_waits_for_a_slow_host_with_scl_low():
+    """Words 40 us apart, slower than the bus takes them (a word is 36 bit times, 90 us at 400
+    kHz, so a 400 us gap is a real stall): SCL stays low while the next word is missing, every
+    byte still arrives, and no Fast-mode limit is broken (a long low phase is allowed)."""
+    frame = pattern(8)
+    m, o, host, board = run_feed([stream(8)] + frame, 8, gap=10_000)
+    assert host.received[0] == [33], host.received[0]
+    wr = [x[1] for x in o.transactions[0] if isinstance(x, tuple) and x[0] == "w"]
+    assert wr == [0x40] + as_bytes(frame) and o.transactions[0][-1] == "P"
+    assert not o.violations and not board.errors() and not m.ff.valid, (o.violations, board.errors())
+
+
+def test_stream_of_no_words_sends_the_prefix_alone():
+    m, o, host, board = run_feed([stream(0, prefix=0x5A)], 1)
+    assert host.received[0] == [1]
+    wr = [x[1] for x in o.transactions[0] if isinstance(x, tuple) and x[0] == "w"]
+    assert wr == [0x5A] and o.transactions[0][-1] == "P" and not o.violations
+
+
+def test_stream_stops_at_a_nack_and_the_next_command_is_served():
+    """The panel NACKs a streamed byte: STOP right after it, result [31] set and 5 bytes ACKed;
+    the stream still takes the words promised for it, so the command after them is served as a
+    command, not read out of a stream's leftovers."""
+    oled = Ssd1306(2, 3, 0x3C, nack_after=5)
+    host = HostFeed({0: [stream(4)] + pattern(4) + [cmd(0x00, 0xAF)]}, drain=[0], poll=1000, start=100)
+    board = Board(oled, host)
+    m = Machine(image(), board=board)
+    host.machine = m
+    m.run(3 * MS, stop_when_idle=False)
+    assert host.received[0][0] == 0x80000005 and len(host.received[0]) == 2, host.received[0]
+    w = [x for x in oled.transactions[0] if isinstance(x, tuple) and x[0] == "w"]
+    assert len(w) == 6 and oled.transactions[0][-1] == "P" and not oled.violations
+    second = [x for x in oled.transactions[1] if isinstance(x, tuple) and x[0] == "w"]
+    assert len(oled.transactions) == 2 and second[:1] == [("w", 0x00)], oled.transactions[1]
 
 
 def test_certificate():

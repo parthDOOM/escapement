@@ -175,6 +175,12 @@ of the slow corner. Version 3.1 meets every electrical rule at every corner. On 
 bench the same RTL answered a laptop's ping over 10BASE-T and enumerated on its USB port as a
 keyboard.
 
+Then the chip was asked to serve a real program rather than a protocol test. The bench
+Pico ran DOOM and handed every frame and sound to the chip, which drove an OLED and a laptop's
+headset jack through four contexts at once. It needed two pieces of firmware and no hardware:
+a PWM sound player and a stream mode for the I2C writer, so a frame could go out of the
+mailbox while the Pico drew the next ([25-DOOM-CONSOLE](25-DOOM-CONSOLE.md)).
+
 ## What stayed the same
 
 Through all of this the central promise did not change, and neither did the working

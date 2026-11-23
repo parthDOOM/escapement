@@ -29,7 +29,7 @@ export function Res({ x, y, len = 56, vertical = false, label, sub, side = "abov
 }
 
 /** A capacitor: two plates across a horizontal wire at x (gap 10), or a vertical one. */
-function Cap({ x, y, vertical = false, label, side = "above" }:
+export function Cap({ x, y, vertical = false, label, side = "above" }:
   { x: number; y: number; vertical?: boolean; label: string; side?: "above" | "below" | "right" }) {
   const p = 13;
   return (
