@@ -3,6 +3,7 @@ import Header from "../components/Header";
 import Ruler from "../components/Ruler";
 import EthCircuit from "./EthCircuit";
 import SwdCircuit from "./SwdCircuit";
+import UsbCircuit from "./UsbCircuit";
 import Pinout from "../components/Pinout";
 import { useJson } from "../lib/util";
 import WiringDiagram, { ROLE } from "./WiringDiagram";
@@ -485,6 +486,14 @@ function Page({ d }: { d: Fpga }) {
             <div><b>4.69</b><span>bit times from the computer's packet to every reply, inside USB's 2 to 6.5</span></div>
             <div><b>24 MHz</b><span>the chip's clock: 16 ticks a bit, the Pico's 144 MHz divided by 6</span></div>
           </div>
+          <figure className="panel" style={{ marginBottom: "2rem" }}>
+            <div className="scroll-x"><UsbCircuit /></div>
+            <figcaption>The wiring. Each data line goes through 27 Ω, the series resistance a low-speed driver
+              normally has, to an ordinary USB cable cut open at its far end. The 1.5 kΩ on D− is how a low-speed
+              device tells the computer it is there; it hangs from a Pico pin, so the keyboard plugs in only once
+              <code> usb_hid</code> is running. The Pico W's own wires to those two Dock holes are unplugged for this
+              run.</figcaption>
+          </figure>
           <div className="cols">
             <figure className="panel photo">
               <img src="../img/usb-bench.jpg" width={1400} height={914} loading="lazy"

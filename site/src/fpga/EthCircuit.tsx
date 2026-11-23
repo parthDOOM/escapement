@@ -10,7 +10,7 @@ const GREEN = "var(--ok)";
 const ORANGE = "var(--m3)";
 
 /** A resistor box between (x1, y) and (x2, y), or between (x, y1) and (x, y2) when vertical. */
-function Res({ x, y, len = 56, vertical = false, label, sub, side = "above" }:
+export function Res({ x, y, len = 56, vertical = false, label, sub, side = "above" }:
   { x: number; y: number; len?: number; vertical?: boolean; label: string; sub?: string; side?: "above" | "below" | "left" | "right" }) {
   const w = 12;
   const box = vertical
@@ -59,7 +59,7 @@ export function DockPin({ y, sig, where }: { y: number; sig: string; where: stri
 }
 
 /** A cable conductor's end on the laptop side. */
-function CablePin({ y, c, stripe, name, role }: { y: number; c: string; stripe: boolean; name: string; role: string }) {
+export function CablePin({ y, c, stripe, name, role }: { y: number; c: string; stripe: boolean; name: string; role: string }) {
   return (
     <g>
       <line x1={800} y1={y} x2={836} y2={y} stroke={c} strokeWidth={5} strokeLinecap="round" />

@@ -190,7 +190,7 @@ identical netlist.
 | IR drop | 0.35 mV worst, at 20 ns |
 | Power | 7.36 mW (the flow's estimate at 20 ns, typical corner); workload measurements in [15-POWER](15-POWER.md) |
 | Precheck | The `ttihp27a` shuttle's precheck passes, every row |
-| Gate level | The 9 firmware tests through the pins pass on this netlist, and the 12 chip tests pass with SDF timing at 20 ns at all three corners; Icarus leaves out four interconnect delays of 2 to 4 ps ([24-TOOL-BUGS](24-TOOL-BUGS.md#sdf-annotation-in-icarus-verilog-13)). The netlist is proved equivalent to the RTL ([04-VERIFICATION](04-VERIFICATION.md#rtl-to-netlist-equivalence)) |
+| Gate level | The 9 firmware tests through the pins pass on this netlist, and the 12 chip tests pass with SDF timing at 20 ns at all three corners; Icarus leaves out four interconnect delays of 2 to 4 ps ([24-TOOL-BUGS](24-TOOL-BUGS.md#sdf-annotation-in-icarus-verilog-13)). As a control, the digest test on the slow-corner SDF at 8 ns fails (the core faults before it halts), so the delays are live; at 12 ns it still passes, as on version 2, because the simulation exercises only this program's paths and lets the latches borrow time freely, where timing analysis is worst-case. The netlist is proved equivalent to the RTL ([04-VERIFICATION](04-VERIFICATION.md#rtl-to-netlist-equivalence)) |
 | Reproduction | The CI harden's netlist and the local one have the same SHA-256 (`1342fef1bc2f9f99…`) |
 
 The corners are `nom_slow_1p08V_125C`, `nom_typ_1p20V_25C` and `nom_fast_1p32V_m40C`.

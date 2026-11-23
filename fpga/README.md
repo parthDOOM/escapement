@@ -12,7 +12,7 @@ an FPGA design, and both keep the chip's behaviour:
   gives its word from the next cycle and holds it, a write cycle reads nothing, and a write
   wins over a read.
 
-In simulation the FPGA build of version 3 passes 11 of the 12 chip tests and all 9 firmware-through-the-pins
+In simulation the FPGA build of version 3.1 passes 11 of the 12 chip tests and all 9 firmware-through-the-pins
 tests, each against the reference model's execution digest. The twelfth chip test,
 `test_store_reads_only_for_the_host_while_stopped`, watches the enable pin of the IHP macro
 inside the program store, which the block-RAM model does not have. To rerun: copy `src/`,
