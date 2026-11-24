@@ -5,6 +5,11 @@ idea came first, what was tried and dropped, and why each version added what it 
 The decisions themselves, with the alternatives that lost, are recorded one by one in
 [06-DECISIONS](06-DECISIONS.md).
 
+I came to this from the firmware side. More than once I have watched a protocol driven from
+software miss its timing, with nothing to say so until the device at the other end
+misbehaved, and when the Jane Street competition offered a way to put a chip into
+fabrication, that failure was the one I wanted to design out.
+
 ## The question
 
 The [Jane Street protocol emulator competition](https://blog.janestreet.com/protocol-emulator-asic-competition/)
@@ -180,6 +185,14 @@ Pico ran DOOM and handed every frame and sound to the chip, which drove an OLED 
 headset jack through four contexts at once. It needed two pieces of firmware and no hardware:
 a PWM sound player and a stream mode for the I2C writer, so a frame could go out of the
 mailbox while the Pico drew the next ([25-DOOM-CONSOLE](25-DOOM-CONSOLE.md)).
+
+The last bench runs closed two gaps between what the simulator had shown and what the pins
+had. The refusal, the idea the chip started from, had only ever been seen in simulation;
+on 24 November two programs that ask for a late edge and an unowned pin were refused on the
+FPGA build where the certificate checker had said they would be. And learning, until then
+checked against recordings in software, ran on the chip's own capture: it recorded a 433 MHz
+remote's frames, and the transmitter and receiver generated from what it learned ran on the
+same chip.
 
 ## What stayed the same
 

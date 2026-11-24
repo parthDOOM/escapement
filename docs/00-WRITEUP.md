@@ -11,7 +11,11 @@ is about. Around this one guarantee sit 82 firmware programs, from UART and I2C 
 keyboard and 10BASE-T Ethernet, and three units for what firmware cannot do bit by bit: a
 line unit, a capture unit and a bus timing monitor. On an FPGA build of the same RTL, the
 chip has answered a laptop's ping, typed into it as a USB keyboard, and been DOOM's display
-and sound processor.
+and sound processor. There it has also refused the late and unowned edges its certificate
+checker foretold, and learned a remote's protocol from its own capture.
+
+I built it because I have chased late edges through my own code, and the competition was
+the chance to make a chip on which they cannot happen.
 
 ## 1. A promise about time
 
@@ -320,6 +324,11 @@ And with no USB hardware, `usb_hid` enumerated on a laptop's USB port through tw
 and typed the line it was given, a number drawn on the laptop for each run, exactly, in six
 runs out of six ([the USB bench](../fpga/tangprimer25k/README.md#usb-keyboard-2026-11-22)).
 
+The refusal has run on real pins too: two programs that `escert` refutes, one with an edge
+due before it can be queued and one driving a pin it does not own, were refused at the
+instruction and tick the model named, and neither edge reached a pin
+([the refusal bench](../fpga/tangprimer25k/README.md#the-chip-refuses)).
+
 ## 9. What it does
 
 The same small set of mechanisms covers a wide range of work, and four examples show its
@@ -330,7 +339,9 @@ infrared remote. The capture unit records the waveform, `esclearn` works out the
 timing table, `escgen` turns the table into certified firmware, and the chip then sends new
 messages in that protocol, such as a button the remote never sent. The same table gives a
 receiver, which reads frames that were never recorded, and a recording that fits no model
-is refused with the reason ([20-LEARN](20-LEARN.md)).
+is refused with the reason ([20-LEARN](20-LEARN.md)). On the bench the chip learned a 433 MHz
+socket remote this way from its own capture, then sent an address the remote never had
+([the learning bench](../fpga/tangprimer25k/README.md#learned-on-the-bench)).
 
 **Pong, on two screens.** Two contexts drive a VGA monitor at 640 × 480 and 60 Hz from five
 bank B pins: one makes the syncs, the other draws a framebuffer from the tape and runs the
@@ -398,7 +409,7 @@ integration and can be rerun:
 | The programs speak the protocol, not our model of it | decoders written by other people, each with a control that must fail | `make judges` |
 | The protocols survive pad and board delays | every case with its pins up to three ticks slower each way | `make pad-audit` |
 | The layout meets 20 ns and every electrical rule at every corner | the CI harden's sign-off reports, summarised in [physical design](03-PHYSICAL-DESIGN.md#sign-off-results) | `make harden` |
-| It runs on real pins | the FPGA bench: six bring-up stages, every program, Ethernet, SWD and USB with real equipment, and the DOOM console | [the bench](../fpga/tangprimer25k/README.md) |
+| It runs on real pins | the FPGA bench: six bring-up stages, every program, Ethernet, SWD and USB with real equipment, the DOOM console, the refusal, and a protocol learned on the chip | [the bench](../fpga/tangprimer25k/README.md) |
 
 [Verification](04-VERIFICATION.md) gives each result in full, the workflow that produces it
 and how long it takes; the [results page](https://parthdoom.github.io/escapement/#results)

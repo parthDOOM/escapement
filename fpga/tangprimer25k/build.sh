@@ -5,7 +5,8 @@
 #   fpga/tangprimer25k/build.sh pinid     # wiring-check bitstream (pinid.v), light
 #   fpga/tangprimer25k/build.sh chip      # the whole chip: fpga/escapement_board.v with ESC_NO_CG and
 #                                         # fpga/escapement_sram_fpga.v, clk from the Pico at 25 MHz
-#   fpga/tangprimer25k/build.sh bundles   # firmware bundles for the Pico (sw/rp2350/make_bundle.py)
+#   fpga/tangprimer25k/build.sh bundles   # firmware bundles for the Pico (sw/rp2350/make_bundle.py),
+#                                         # and the refusal bench's in build/refused/
 #
 # Tools: yosys, nextpnr-himbaechel (Gowin) and gowin_pack on PATH, or OSS_CAD_SUITE pointing at an
 # OSS CAD Suite folder. Work files go to $WORK (default /tmp/esc-tp25k); outputs, each with a
@@ -43,6 +44,9 @@ case $target in
     PYTHONPATH=$R/sw PYTHONUTF8=1 "$PYTHON" sw/rp2350/make_bundle.py "$O" > "$W/bundles.log" 2>&1 || fail
     # the Ethernet bench's programs, which are not library programs
     PYTHONUTF8=1 "$PYTHON" "$H/eth_bundles.py" "$O" >> "$W/bundles.log" 2>&1 || fail
+    # the refusal bench's programs (latebench.py), apart: stage 5 runs every bundle in $O
+    rm -rf "$H/build/refused"
+    PYTHONUTF8=1 "$PYTHON" "$H/late_bundles.py" "$H/build/refused" >> "$W/bundles.log" 2>&1 || fail
     {
       repo_line sw/firmware sw firmware
       echo "built: $(date -Is)"
