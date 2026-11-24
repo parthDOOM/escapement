@@ -1,0 +1,26 @@
+# Learned from capture.json: pulse width, 25 bits per frame
+# Learned by esclearn (python -m esclearn). What it found:
+#   pulse width, 25 bits per frame, idle low
+#   zero: mark 290.0 us space 970.0 us; one: mark 920.0 us space 340.0 us
+#   gap 9853.0 us
+#   frame 0x02a8888
+#   frame 0x02a2888
+#   frame 0x022a888
+#   frame 0x028a888
+name: learned_on_chip
+title: "Learned from capture.json: pulse width, 25 bits per frame"
+refs: ["inferred by esclearn from capture.json (4 frames)"]
+context: 0
+pins:
+  OUT: {pin: 0, idle: 0}
+constants:
+  H0: CLK_KHZ * 7250 // 25000     # zero: mark 290.0 us; 72 seen, 270.0 us to 310.0 us
+  H1: CLK_KHZ * 23000 // 25000    # one: mark 920.0 us; 28 seen, 910.0 us to 930.0 us
+  T: CLK_KHZ * 31500 // 25000     # bit period 1260.0 us
+  GAP: CLK_KHZ * 229950 // 25000  # 9198.0 us of quiet after a frame; the last bit's space comes first
+symbols:
+  bit: [[{OUT: 1}, H0], [{OUT: data}, H1 - H0], [{OUT: 0}, T - H1]]
+  gap: [[{OUT: 0}, GAP]]
+frame: [{bits: 25, order: lsb, symbol: bit}]
+source: {kind: mailbox}
+packet: {after: [gap], ack: true}

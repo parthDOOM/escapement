@@ -1,0 +1,18 @@
+late: chip at 25.000 MHz
+late: refuse_owner.json
+late:   escert, before the run: context 0 REFUTED, OWNER at pc 3 (drives pins 0x02 not owned by ctx 0)
+late:   the chip: ADMIT OWNER, context 0, pc 3, tick 15, the context FAULTED
+late:   the model: ADMIT OWNER, context 0, pc 3, tick 15
+late:   digest 0xc7b0c24e = model
+late:   uio pins 0x03 with pull-downs during the run: none driven
+late:   proof tripwires 0x000: never late, no unowned pin driven, no faulted context driving
+late: PASS  refuse_owner.json
+late: uart_tx_late.json
+late:   escert, before the run: context 0 REFUTED, PAST at pc 8 (lead in [-14, -14])
+late:   the chip: ADMIT PAST, context 0, pc 8, tick 35, the context FAULTED
+late:   the model: ADMIT PAST, context 0, pc 8, tick 35
+late:   digest 0x56b72a7a = model
+late:   uio pins 0x01 with pull-downs during the run: none driven
+late:   proof tripwires 0x000: never late, no unowned pin driven, no faulted context driving
+late: PASS  uart_tx_late.json
+late: PASS: every program was refused where escert and the model said, and no late or unowned edge reached a pin

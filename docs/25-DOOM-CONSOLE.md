@@ -6,6 +6,11 @@
 Primer 25K Dock (bottom right) drives the OLED and plays the sound, which leaves through the
 resistors and capacitors on the breadboard for a laptop's headset jack.*
 
+I have been a lifelong fan of DOOM, and over the years I have watched it run on
+nearly anything that can compute, from MS-DOS PCs to lab-grown neurons and everything in
+between. Once the bench worked, it seemed only fair that the chip have its turn. The rest of
+this page is what that took.
+
 The DOOM console is the shareware DOOM played on a Raspberry Pi Pico W, with Escapement as its
 input/output processor. The Pico runs the game and drives no device itself: every frame it
 draws and every sound it mixes goes to the chip as words on the host link, and the chip turns

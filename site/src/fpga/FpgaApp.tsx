@@ -24,6 +24,8 @@ const SECTIONS = [
   ["swd", "SWD"],
   ["usb", "USB"],
   ["doom", "DOOM"],
+  ["refuse", "Refusal"],
+  ["learn", "Learning"],
   ["limits", "Limits"],
 ] as const;
 
@@ -545,6 +547,8 @@ function Page({ d }: { d: Fpga }) {
               on the host link. One context streams the frames to an OLED over I2C, a second plays the sound as PWM into a
               laptop's headset jack, a third checks the I2C bus against Fast-mode limits, and a fourth can record the
               sound pin.</p>
+            <p className="lede"><em>I have long been a DOOM fan, and have watched it run on nearly anything that can
+              compute, from MS-DOS PCs to lab-grown neurons. Once the bench worked, the chip had to have its turn.</em></p>
           </div>
           <div className="facts" style={{ marginBottom: "2rem" }}>
             <div><b>0 of 523,797</b><span>words lost on the host link in a three-minute run</span></div>
@@ -591,6 +595,80 @@ function Page({ d }: { d: Fpga }) {
       </section>
 
       <Ruler n={20} />
+
+      <section id="refuse" className="band">
+        <div className="wrap">
+          <div className="sec-head">
+            <p className="eyebrow">Refusal · 2026-11-24</p>
+            <h2>Asked for the impossible, the chip refuses where it was foretold</h2>
+            <p className="lede">Every other run on this bench is a program that works. Here two programs ask for what
+              the chip must not do: a UART whose bit is five ticks long, so its second edge cannot be queued before its
+              deadline, and a drive on a pin its context does not own. The certificate checker refutes both before they
+              run, and the bench checks that the chip refuses each one there, and that nothing late or unowned reaches
+              a pin.</p>
+          </div>
+          <div className="facts" style={{ marginBottom: "2rem" }}>
+            <div><b>2 of 2</b><span>refused at the instruction and tick the model predicts, with its digest</span></div>
+            <div><b>tick 35</b><span><code>uart_tx_late</code>: ADMIT, PAST at pc 8; <code>escert</code> put its lead at -14 ticks</span></div>
+            <div><b>tick 15</b><span><code>refuse_owner</code>: ADMIT, OWNER at pc 3, a drive on uio[1]</span></div>
+            <div><b>0</b><span>proof tripwires: no late FIFO head, no unowned pin driven, no faulted context driving</span></div>
+          </div>
+          <div className="cols">
+            <div className="prose">
+              <p><strong>Foretold, then run.</strong> Each bundle carries <code>escert</code>'s verdict and finding,
+                REFUTED with the pc, and the model's prediction of the run: the first-fault record, the fault tick,
+                the digest and every context's registers. The chip's own first-fault record and fault tick, read back
+                through the debug port after the run, are the model's, field for field.</p>
+            </div>
+            <div className="prose">
+              <p><strong>Nothing reaches a pin.</strong> While each run is still on (STOP would release every pin
+                anyway), the Pico swaps its pull-ups on the program's pins for pull-downs and reads them: all low, so
+                the faulted context let go of its pin and the unowned one was never driven. The chip's tripwires, its
+                own monitors for the proved properties, read zero. Log and sources:
+                <a href={`${REPO}/tree/master/fpga/tangprimer25k#the-chip-refuses`}> fpga/tangprimer25k</a>.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <Ruler n={21} />
+
+      <section id="learn">
+        <div className="wrap">
+          <div className="sec-head">
+            <p className="eyebrow">Learning · 2026-11-24</p>
+            <h2>A remote it was never programmed for, learned from its own capture</h2>
+            <p className="lede">The Pico plays the frames of a PT2262 433 MHz socket remote, from a sigrok recording,
+              onto one of the chip's pins. The chip never sees the file, only the pin: its capture unit records the
+              frames, <code>esclearn</code> learns the code from that capture, and <code>escgen</code> generates a
+              receiver and a transmitter, both certified, which then run on the same chip.</p>
+          </div>
+          <div className="facts" style={{ marginBottom: "2rem" }}>
+            <div><b>200</b><span>edges of four frames recorded by the chip, with the line's level at START</span></div>
+            <div><b>290 / 920 µs</b><span>the learned marks of a 0 and a 1, 25 bits a frame, 9.86 ms between frames</span></div>
+            <div><b>8 of 8</b><span>frames read by the learned receiver as the remote's own words</span></div>
+            <div><b>0x0A8888</b><span>an address the remote never sent, sent by the learned transmitter and read back</span></div>
+          </div>
+          <div className="cols">
+            <div className="prose">
+              <p><strong>Recorded in one go.</strong> The four frames play back to back from a PIO program at one
+                microsecond a cycle, into the whole tape, which is read once after STOP: reading between frames would
+                stretch the gaps, and the chip would learn the stretched ones. The capture decodes to all four of the
+                recording's words.</p>
+            </div>
+            <div className="prose">
+              <p><strong>Sent and judged.</strong> The transmitter sends the new address twice, as a remote repeats its
+                frames, and the Pico times every mark on the pin. The chip starts a frame 2.6 µs after it takes the word,
+                before MicroPython can start timing, so the judge reads the second frame, which the learned model
+                decodes as the address sent. The first run, with one frame, timed 24 of 25 marks, and the judge rightly
+                read nothing. Log, capture and generated programs:
+                <a href={`${REPO}/tree/master/fpga/tangprimer25k#learned-on-the-bench`}> fpga/tangprimer25k</a>.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <Ruler n={22} />
 
       <section id="limits" className="band">
         <div className="wrap">

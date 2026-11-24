@@ -188,8 +188,11 @@ input. `chip-pnr.log` is the place-and-route log of that bitstream.
 | `swdbench.py`, `test_swdbench.py` | the SWD bench (`swd_idcode` debugging a second Pico) and its test through the bare Pico against the RP2040 model |
 | `swdjudge.py` | the SWD bench judged by an outside analyser and sigrok's `swd` decoder (runs on Windows; sigrok-cli in WSL) |
 | `usbbench.py`, `test_usbbench.py` | the USB keyboard bench (`usb_hid` at 24 MHz on a laptop's USB port, below) and its test through the bare Pico against the USB host model |
+| `late_bundles.py`, `refuse_owner.asm`, `latebench.py`, `test_latebench.py` | the refusal bench (The chip refuses, below): two programs escert refutes, built into `build/refused/`, run on the chip and checked against the model, with the pins and the tripwires; its test on the simulated chip |
+| `learnhost.py`, `learnbench.py`, `test_learnbench.py` | the learning bench (Learned on the bench, below): the laptop's steps, the Pico's steps, and the whole loop on the simulated chip |
 | `bench.ps1` | Windows helper: build, deploy, load, run (the Dock's USB goes to WSL with usbipd-win) |
 | `hierarchy.sh`, `hierarchy.py` | block-level LUT, flip-flop and bus counts of the FPGA build |
+| `results/2026-11-24/` | the refusal bench (`late.log`) and the learning bench (`learn.log`, with the playback, the chip's capture, the learned table, both generated programs and the timed marks in `learn/`), after a bring-up of 86 of 86 programs; the bundles' MANIFEST and the bitstream's (built 2026-11-22) |
 | `results/2026-11-22/` | version 3.1 with the reset synchroniser: the bring-up log and telemetry, the bitstream's and bundles' MANIFESTs, the place-and-route log and the block hierarchy (`hierarchy.json`); the Ethernet transmit, receive (at three bias levels), line-check and ping logs (the laptop's MAC address replaced by LAPTOP-MAC); the USB keyboard runs (`usb-keyboard.log`) |
 | `results/2026-11-21/` | the first version 3.1 (span) runs: the wiring check, and two bring-up runs with their logs, telemetry and MANIFESTs, one on a bitstream packed by hand (this folder) and one on the bitstream `build.sh` now builds unaided (`clean-build/`) |
 | `results/2026-11-19/` | the version 3 run with every program: the wiring check, the bring-up log, the telemetry, the MANIFESTs (the bitstream's copied from 2026-11-15, the same build) |
@@ -687,6 +690,88 @@ plays it through the speakers.
 **Order.** Load the chip's bitstream into the Dock first (`.\bench.ps1 load chip`), then
 start the Pico. Handling the boards can lose the bitstream, which lives in the FPGA's
 configuration RAM; the Pico then reads a STATUS of 0x00 and stops before the game starts.
+
+## The chip refuses
+
+Every other run on this bench is a program that works. This one is two programs that ask the
+chip for something it must not do, to show the refusal happens on the FPGA build where the
+model and the certificate checker said it would, and that nothing late or unowned reaches a
+pin. `late_bundles.py` builds them into `build/refused/`, away from the bring-up's stage 5,
+which expects every bundle it finds to pass.
+
+| Bundle | What it asks for | escert, before the run | What the model predicts |
+| --- | --- | --- | --- |
+| `uart_tx_late` | `uart_tx.asm` with a bit 5 ticks long (BAUD = 5 MHz at 25 MHz): its second edge is due before it can be queued | REFUTED | ADMIT, PAST, context 0, pc 8 (first fault 0x83300008), tick 35 |
+| `refuse_owner` | `refuse_owner.asm`: context 0 owns uio[0] and asks for a DRIVE on uio[1], which no context owns | REFUTED | ADMIT, OWNER, context 0, pc 3 (0x83200003), tick 15 |
+
+`latebench.run()` (`.\bench.ps1 late`) then, for each bundle:
+
+1. checks escert's verdict and finding, carried in the bundle;
+2. loads and starts it, and compares the chip's first-fault record (READ_DBG 14), fault tick
+   (15), digest (16) and every context's state and registers with the model's;
+3. while the run is still on, swaps the Pico's pull-ups on the program's pins for pull-downs:
+   each must read 0, so the faulted context let go of its pin and the unowned pin was never
+   driven;
+4. reads the proof tripwires (READ_DBG 27), which must be 0: the chip's own monitors saw no
+   FIFO head past its deadline, no unowned pin driven and no faulted context driving.
+
+Wiring: the bring-up's, with nothing but the Pico W's GPIOs on uio[0] and uio[1]; a pull-up
+there would read as a driven pin.
+
+**Result, 2026-11-24.** Both programs were refused on the FPGA build exactly where escert and
+the model said, and neither reached a pin it should not have:
+
+| Bundle | escert, before the run | The chip | Digest | Pins, pulled down during the run | Tripwires |
+| --- | --- | --- | --- | --- | --- |
+| `refuse_owner` | REFUTED, OWNER at pc 3 | ADMIT OWNER, context 0, pc 3, tick 15: the model's | 0xc7b0c24e, the model's | uio[1:0]: none driven | 0 |
+| `uart_tx_late` | REFUTED, PAST at pc 8 (lead -14 ticks) | ADMIT PAST, context 0, pc 8, tick 35: the model's | 0x56b72a7a, the model's | uio[0]: none driven | 0 |
+
+Log: `results/2026-11-24/late.log`, after a bring-up that passed every stage with 86 of 86
+programs (`bringup.log` there). The bitstream is the one built 2026-11-22
+(`chip.MANIFEST`), whose sources hash the same as this checkout's.
+
+## Learned on the bench
+
+`esclearn` learns a protocol from a recording, and `escgen` turns what it learned into a
+certified transmitter and receiver. Here the recording is made by the chip itself, with its
+own capture unit, of a transmitter it was never programmed for: a PT2262 433 MHz socket
+remote (`sw/tests/data/sigrok/pt2262_abcd.sr`, buttons A to D, from sigrok-dumps). The Pico
+plays the remote's frames onto uio[2] from a PIO program at one microsecond a cycle; the chip
+never sees the file, only the pin.
+
+`.\bench.ps1 learn [REC.sr]` runs the whole loop, the Pico's steps in `learnbench.py` and the
+laptop's in `learnhost.py`:
+
+| Step | Where | What |
+| --- | --- | --- |
+| source | laptop | the first frame of each distinct word in the recording, as (level, microseconds) segments: four frames of 50 segments, 40.4 ms each |
+| capture | Pico + chip | `logic_analyzer` records uio[7:0] into the whole tape while the four frames play back to back; read once after STOP, so reading never stretches a gap: 201 records, the line's level at START and 200 edges |
+| learn | laptop | `esclearn` on the chip's capture; the words it decodes must include the recording's four; `escgen` writes a transmitter on uio[3] and a receiver on uio[2], escert must certify both (CHECKED), and `make_bundle.py` builds them |
+| receive | Pico + chip | the learned receiver hears the frames played again; every word it pushes must be its frame's word |
+| transmit | Pico + chip | the learned transmitter sends 0x0A8888, an address the recording never has, twice, as a remote repeats its frames; the Pico times every mark on uio[3] |
+| judge | laptop | the marks decoded with the learned model, and by rc-switch's receiver when `outside_decoders.sh` has built it |
+
+Wiring: the bring-up's, with nothing else on uio[2] (GP19) and uio[3] (GP20). The DOOM
+console's OLED sits on those two rows, so its SCL and SDA come off for this run.
+
+**Result, 2026-11-24.** The whole loop passed on the FPGA build:
+
+| Step | Result |
+| --- | --- |
+| capture | 201 records: the level at START and the 200 edges of the four frames |
+| learn | pulse width, 25 bits a frame, idle low; zero = 290 µs mark, 970 µs space; one = 920 µs mark, 340 µs space; 9.86 ms between frames. The capture decodes to the recording's four words |
+| programs | transmitter 23 words, CHECKED with a lead of at least 9 ticks; receiver 67 words, CHECKED |
+| receive | 8 of 8 frames (two rounds of four) pushed as their own word |
+| transmit | 0x0A8888 sent twice; the learned model reads 0x0A8888 from the frames the Pico timed |
+
+The chip starts a frame 64 ticks (2.6 µs) after it takes the word from its mailbox, sooner
+than MicroPython returns from the push to start timing, so the Pico times only the tail of the
+first frame (18 of its 25 marks in this run) and all of the second, which it was already
+waiting for. On the first run, with one frame, the Pico timed 24 of 25 marks and the judge
+rightly read nothing.
+
+Files: `results/2026-11-24/learn.log`, and in `learn/` the playback (`source.json`), the
+chip's capture, the learned table, both generated programs and the timed marks.
 
 ## Why the clock is on L3
 

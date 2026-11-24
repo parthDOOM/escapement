@@ -11,6 +11,8 @@
 #   .\bench.ps1 ethrx [-Opts "seconds=60"]   # 10BASE-T frames into eth_rx (the receive bench)
 #   .\bench.ps1 ethedges              # receive line check: high and low times on RXP
 #   .\bench.ps1 swd                   # swd_idcode debugs a second Pico (README.md, SWD)
+#   .\bench.ps1 late                  # programs that ask for the impossible are refused (README.md, The chip refuses)
+#   .\bench.ps1 learn [REC.sr]        # learn a transmitter from the chip's own capture, then run it (README.md, Learned on the bench)
 #   .\bench.ps1 usb ["more text"]     # the chip as a USB keyboard on this laptop types a line (README.md, USB keyboard)
 #   .\bench.ps1 repl                  # MicroPython REPL (Ctrl-] to leave)
 #
@@ -69,6 +71,8 @@ function Deploy-Files {
         @{ src = "$Here\ethbench.py"; dst = "ethbench.py" },
         @{ src = "$Here\swdbench.py"; dst = "swdbench.py" },
         @{ src = "$Here\usbbench.py"; dst = "usbbench.py" },
+        @{ src = "$Here\latebench.py"; dst = "latebench.py" },
+        @{ src = "$Here\learnbench.py"; dst = "learnbench.py" },
         @{ src = "$Repo\sw\rp2350\escapement_demo.py"; dst = "escapement_demo.py" }
     )
     $bdir = Join-Path $Build "bundles"
@@ -77,8 +81,13 @@ function Deploy-Files {
     foreach ($b in Get-ChildItem $bdir | Where-Object { $_.Extension -in ".json", ".phases", ".folds" }) {
         $files += @{ src = $b.FullName; dst = "bundles/" + $b.Name }
     }
+    # the refusal bench's programs, kept apart from the bundles stage 5 runs
+    $rdir = Join-Path $Build "refused"
+    if (Test-Path $rdir) {
+        foreach ($b in Get-ChildItem $rdir -Filter *.json) { $files += @{ src = $b.FullName; dst = "refused/" + $b.Name } }
+    }
     $port = Find-Pico
-    & $Mp connect $port exec "import os`ntry:`n os.mkdir('bundles')`nexcept OSError:`n pass"
+    & $Mp connect $port exec "import os`nfor d in ('bundles', 'refused'):`n try:`n  os.mkdir(d)`n except OSError:`n  pass"
     foreach ($f in $files) {
         & $Mp connect $port fs --no-verbose cp $f.src (":" + $f.dst)
         if ($LASTEXITCODE) { throw "copy of $($f.dst) failed" }
@@ -124,6 +133,34 @@ switch ($Cmd) {
     "ethedges" { Invoke-Mp @("exec", "$EthImport; ethbench.edges($Opts)") }
     "ethping" { Invoke-Mp @("exec", "$EthImport; ethbench.ping($Opts)") }
     "swd" { Invoke-Mp @("exec", "import swdbench; swdbench.run($Opts)") }
+    "late" { Invoke-Mp @("exec", "import latebench; latebench.run($Opts)") }
+    "learn" {
+        # README.md, "Learned on the bench": a real transmitter's recording (default: the
+        # PT2262 socket remote from sigrok-dumps) played onto uio[2]; the chip's capture of
+        # it learned here; the generated receiver and transmitter run on the chip
+        $py = (Get-Command python -ErrorAction Stop).Source
+        $L = Join-Path $Build "learn"
+        New-Item -ItemType Directory -Force $L | Out-Null
+        $rec = if ($Arg) { $Arg } else { Join-Path $Repo "sw\tests\data\sigrok\pt2262_abcd.sr" }
+        $word = "0a8888"                     # an address the recording never has
+        & $py "$Here\learnhost.py" source $rec "$L\source.json"
+        if ($LASTEXITCODE) { throw "learnhost source failed" }
+        $port = Find-Pico
+        & $Mp connect $port exec "import os`ntry:`n os.mkdir('learn')`nexcept OSError:`n pass"
+        & $Mp connect $port fs --no-verbose cp "$L\source.json" ":learn/source.json"
+        Invoke-Mp @("exec", "import gc; import bringup; gc.collect(); import learnbench; learnbench.capture()")
+        & $Mp connect $port fs --no-verbose cp ":learn/capture.json" "$L\capture.json"
+        & $py "$Here\learnhost.py" learn "$L\capture.json" $L --source-doc "$L\source.json"
+        if ($LASTEXITCODE) { throw "learnhost learn failed" }
+        foreach ($f in "learned_tx.json", "learned_rx.json") {
+            & $Mp connect $port fs --no-verbose cp "$L\$f" ":learn/$f"
+        }
+        Invoke-Mp @("exec", "import gc; import bringup; gc.collect(); import learnbench; learnbench.receive()")
+        Invoke-Mp @("exec", "import gc; import bringup; gc.collect(); import learnbench; learnbench.transmit(0x$word)")
+        & $Mp connect $port fs --no-verbose cp ":learn/sent.json" "$L\sent.json"
+        & $py "$Here\learnhost.py" judge "$L\capture.json" "$L\sent.json" $word
+        if ($LASTEXITCODE) { throw "learnhost judge failed" }
+    }
     "usb" {
         # The chip types into the focused window, which must be this one; a job watches
         # Windows' device list for the keyboard and its product string.

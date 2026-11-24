@@ -85,7 +85,8 @@ export default function App() {
               </div>
               <p className="hero-hw"><a href={asset("fpga/")}>Runs on hardware: version 3.1 on an FPGA, driven by a
                 Pico W, runs 80 of the 82 programs, each matching the model and its certificate, answers a laptop's ping,
-                types into it as a USB keyboard, and plays DOOM on an OLED with the Pico as its host (23 Nov) →</a></p>
+                types into it as a USB keyboard, plays DOOM on an OLED with the Pico as its host, refuses a late edge where its
+                certificate said, and learns a remote's protocol from its own capture (24 Nov) →</a></p>
               <div className="facts">
                 <div><b>40 ns</b><span>one tick at 25 MHz, rated to 50</span></div>
                 <div><b>4</b><span>programs running at once</span></div>
@@ -337,6 +338,8 @@ export default function App() {
                   sigrok-cli record from the chip through their existing Openbench Logic Sniffer driver.</p>
                 <p>Everything is open: RTL, firmware, assembler, simulator, certificate checker, proofs and the flow
                   configuration.</p>
+                <p><em>Why it exists: I have lost time hunting edges my own software sent late, and the Jane
+                  Street competition was the chance to build a chip that cannot send one.</em></p>
                 <ul className="links">
                   <li><a href="https://github.com/parthDOOM/escapement">Source: github.com/parthDOOM/escapement</a></li>
                   <li><a href={asset("isa/")}>Instruction set, bit by bit</a> and the <a href="https://github.com/parthDOOM/escapement/blob/master/docs/02-ISA.md">ISA reference</a></li>

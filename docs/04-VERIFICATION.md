@@ -1277,7 +1277,9 @@ and the SDF-annotated runs replay the chip tests with those delays.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
 - **FPGA, not silicon.** No chip exists yet. The design runs on an FPGA bench (80 of the
   82 programs matching the model and their certificates; the 14-second `westminster` chime
-  has no bench bundle, and `pwm_audio` has run there as the DOOM console's sound; [the bench](../fpga/tangprimer25k/README.md)), with
+  has no bench bundle, and `pwm_audio` has run there as the DOOM console's sound; two
+  programs `escert` refutes are refused there where it and the model said, with no late or
+  unowned edge reaching a pin; [the bench](../fpga/tangprimer25k/README.md)), with
   plain flip-flops for the clock gates and latch banks and block RAM for the SRAM macros;
   those stay covered by the gate-level suites and the equivalence proof.
 

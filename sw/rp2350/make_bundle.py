@@ -57,6 +57,7 @@ MAX_TICKS = 2_000_000       # model budget per firmware (80 ms of chip time)
 # found no 8 KB block left).
 PHASES_INLINE = 4096
 MAX_PERIOD = 8192           # longest repeating pattern searched for, in ticks
+SETTLE = 4                  # ticks a halt prediction waits for a faulted context's pin release
 CHUNK = 4096
 # Firmware with no periodic prediction. The seven-segment animation waits 160 ms between
 # frames, so a short repeating wait looks steady until the next frame; the tape-driven
@@ -197,6 +198,10 @@ def predict(image) -> dict:
             if m.now % 4 == 0:
                 history[m.now] = _arch(m)
             if _halted(m):
+                # A context that faults releases its pins, and the release folds into the
+                # digest an edge later; a halt keeps its pins and folds nothing more. So the
+                # prediction is taken a barrel round after the last context stopped.
+                m.run(SETTLE, stop_when_idle=False)
                 return dict(kind="halt", ticks=m.now, digest=m.dg, **snapshot(m))
         history = {t: s for t, s in history.items() if t >= m.now - MAX_PERIOD - 8}
         m.xs = [(t, x) for t, x in m.xs if t >= m.now - 3 * MAX_PERIOD]
