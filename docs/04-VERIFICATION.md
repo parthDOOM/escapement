@@ -1306,7 +1306,7 @@ last of its workflows finishes. The formal jobs and the netlist proof use the OS
 release pinned in `scripts/versions.txt`, and the netlist proof the standard-cell liberty of
 the pinned PDK.
 
-The workflows share the repository's 20 runners, which GitHub hands out in the order jobs
+The workflows share the repository's 40 runners, which GitHub hands out in the order jobs
 are queued. The checks that decide a change (`test`, `formal`, `gds`, `docs`) are queued
 first; the two mutation campaigns queue their shards from a short plan job just after them
 and fill every runner left, and a campaign skips a commit that has already passed it in
