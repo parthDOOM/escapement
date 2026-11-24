@@ -1,0 +1,64 @@
+name: Campaign plan
+description: >
+  The first job of a mutation campaign (mutation.yaml, fw-mutants.yaml), D-69. It lists the
+  shard numbers for the matrix, and if this exact commit has already passed this workflow in
+  another run (a commit tested on its branch, then fast-forwarded to master), it carries that
+  run's results-page summary over and tells the shards not to run. Pushed or dispatched by
+  hand, a campaign always runs. Being a job of its own, it also queues the shards a few
+  seconds after the gates (docs, test, formal, gds), so the gates take runners first.
+
+inputs:
+  shards:
+    description: Number of shards.
+    required: true
+  summary:
+    description: Name of the results-page summary artifact to carry over.
+    required: true
+
+outputs:
+  run:
+    description: "'true' to run the campaign, 'false' if this commit already passed it."
+    value: ${{ steps.check.outputs.run }}
+  shards:
+    description: The shard numbers, as a JSON list for the matrix.
+    value: ${{ steps.check.outputs.shards }}
+
+runs:
+  using: composite
+  steps:
+    - name: Shards, and an earlier pass of this commit
+      id: check
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        N: ${{ inputs.shards }}
+      run: |
+        echo "shards=$(python3 -c 'import json, os; print(json.dumps(list(range(int(os.environ["N"])))))')" >> "$GITHUB_OUTPUT"
+        prev=""
+        if [ "$GITHUB_EVENT_NAME" = push ]; then
+          prev=$(gh run list -R "$GITHUB_REPOSITORY" -w "$GITHUB_WORKFLOW" --commit "$GITHUB_SHA" -s success -L 20 \
+                   --json databaseId,url \
+                   -q "[.[] | select(.databaseId != $GITHUB_RUN_ID)][0] | select(. != null) | \"\(.databaseId) \(.url)\"")
+        fi
+        if [ -n "$prev" ]; then
+          echo "run=false" >> "$GITHUB_OUTPUT"
+          echo "prev=${prev%% *}" >> "$GITHUB_OUTPUT"
+          echo "This commit already passed $GITHUB_WORKFLOW in ${prev#* }; its summary is carried over." \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+        else
+          echo "run=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: The earlier run's summary
+      if: steps.check.outputs.run == 'false'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh run download "${{ steps.check.outputs.prev }}" -R "$GITHUB_REPOSITORY" -n "${{ inputs.summary }}" -D carried
+
+    - name: Carry it over
+      if: steps.check.outputs.run == 'false'
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.summary }}
+        path: carried/summary.json

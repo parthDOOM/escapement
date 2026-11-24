@@ -9,6 +9,11 @@ name: mutation
 # hardened, so a mutant of a latch bank's input reaches them. The cosim suite runs v1.6's
 # 43 bus-model cases and v3's 4 (MUTATION_COSIM_CASES): fw-g4's firmware tripled its time.
 # The result goes to the results page.
+#
+# D-69: the plan job (.github/actions/campaign-plan) queues the shards just after the gates
+# (docs, test, formal, gds), so the gates take runners first and the shards fill every
+# runner left. A commit that already passed here (on its branch, then fast-forwarded to
+# master) is not run again.
 
 on:
   push:
@@ -29,18 +34,47 @@ on:
       - '.github/workflows/mutation.yaml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+
+# a newer push to a branch replaces that branch's run; on master every run completes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/master' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 40: with 16, runners up to 2x slower than others ran 8 shards past the 355-minute limit
+  # (11-13, run 43387544767); with 32 dealt by v2's times, two v3 shards did (11-15, run
+  # 43726637327). costs.json holds that run's times: about 2.2 h a shard. More shards would
+  # not end sooner: each first runs a 40-minute baseline of the suites (D-69)
+  SHARDS: 40
+
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github
+      - id: plan
+        uses: ./.github/actions/campaign-plan
+        with:
+          shards: ${{ env.SHARDS }}
+          summary: ci-summary-mutation
+
   shard:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 355     # GitHub's limit is 360
     strategy:
       fail-fast: false
       matrix:
-        # 40: with 16, runners up to 2x slower than others ran 8 shards past the 355-minute
-        # limit (11-13, run 43387544767); with 32 dealt by v2's times, two v3 shards did
-        # (11-15, run 43726637327). costs.json holds that run's times: about 2.2 h a shard
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-                20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
       - name: checkout repo
         uses: actions/checkout@v6
@@ -76,7 +110,7 @@ jobs:
           CELLS: 'yes'
         run: |
           mkdir -p results
-          python test/mutation/run_mutants.py --shard ${{ matrix.shard }}/40 --jobs 4 --no-canary \
+          python test/mutation/run_mutants.py --shard ${{ matrix.shard }}/$SHARDS --jobs 4 --no-canary \
             --json results/mutation-${{ matrix.shard }}.json
 
       - name: Upload shard result
@@ -87,6 +121,8 @@ jobs:
           path: results/mutation-${{ matrix.shard }}.json
 
   canaries:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 355
     steps:
@@ -123,8 +159,9 @@ jobs:
         run: python test/mutation/run_mutants.py --canaries-only --jobs 4
 
   summary:
-    needs: [shard, canaries]
-    if: ${{ !cancelled() }}  # failed shards still report; a cancelled run does not
+    needs: [plan, shard, canaries]
+    # failed shards still report; a cancelled run, or one the plan skipped, does not
+    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - name: checkout repo
@@ -181,4 +218,4 @@ jobs:
         run: |
           python3 -c "import json,sys; c=json.load(open('mutation.json'))['counts']; \
             sys.exit(1 if c.get('SURVIVED',0) or c.get('BADPATCH',0) or c.get('COMPILE-ERROR',0) or \
-            json.load(open('mutation.json'))['shards'] != 40 else 0)"
+            json.load(open('mutation.json'))['shards'] != $SHARDS else 0)"

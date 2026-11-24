@@ -712,6 +712,30 @@ hand, it now takes only a harden whose commit has the same `src/` as the one it 
 after a run dispatched before the head's harden had finished proved the previous commit's
 netlist and was taken for the proof of the new one.
 
+**D-69 CI runs in order, with no runner left idle.** The workflows share the repository's 20
+runners, which GitHub hands out in the order jobs are queued, with no priorities. On the push
+that brought D-68 to master, about 75 jobs were queued at once and the 40 mutation shards
+took most runners first: the datasheet build waited 50 minutes to run for 10, the equivalence
+proof 133 minutes to run for 7, and the formal jobs up to 146 minutes, and the push took
+8.5 hours against 6.4 hours of work spread over 20 runners. Keeping runners free for short
+jobs was weighed and set aside, since a reserved runner is idle whenever nothing short is
+waiting. Instead no short job arrives late. The precheck, the gate-level test and the
+netlist's equivalence are steps of the harden's own job, run the moment the netlist exists,
+so the netlist proved is always the one just built, on every branch, which also retires the
+dispatch race of D-68. The two mutation campaigns queue their shards from a plan job a few
+seconds after the push, so the checks that decide a change take runners first and the shards
+fill every runner left. Shorter shards were weighed, so that runners would not idle while
+the last long shard of the campaign finishes, and set aside: each shard first runs a
+baseline of the suites, 40 minutes on a runner, so 80 shards would add some 1,600
+runner-minutes, nearly a quarter more work, to shorten only the campaign's last hours. The
+plan job also skips a campaign for a commit that already passed it in another run and
+carries that run's summary over: a tested branch
+is fast-forwarded to master, and the same commit used to run both campaigns twice, the two
+copies competing for the same runners. The other checks still run again on master, where
+they are short and their run is the record. A newer push to a branch cancels that branch's
+runs, and the site builds once per commit, after its last workflow, where each workflow used
+to start a build that cancelled the one before and left cancelled checks on the commit.
+
 ## The DOOM console
 
 **D-66 The game on the host, the chip as its input/output processor.** DOOM needs far more

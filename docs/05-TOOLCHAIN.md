@@ -49,11 +49,16 @@ commit, which the simulation and equivalence jobs check out directly.
 | `test.yaml` | The chip-level cocotb tests on the RTL; then, in a second job, `sw-test`, `cert`, `cosim-parallel`, `proof-table` (on the co-simulation's RTL telemetry) and `pin-test`, and the co-simulation and line unit lockstep again on the standard-cell models |
 | `formal.yaml` | Three jobs side by side: the property proofs (`make formal-props`) and the unbounded core proof as parallel PDR tasks (`make formal-pdr`); the bounded core check from reset, one task per assertion group (`make formal-bmc`); the v2 proofs (tripwires, the line unit from reset, non-interference: `make formal-v2`) and the teeth (`make formal-teeth`) |
 | `mutation.yaml` | The mutation campaign in 40 shards dealt by each mutant's measured cost, after a baseline of every suite on the unmutated RTL, with the canaries in a job of their own |
-| `gds.yaml` | The Tiny Tapeout harden (LibreLane), then the precheck and the gate-level test on the hardened netlist |
-| `equivalence.yaml` | After a successful harden on master: that netlist against the RTL of its commit. Run by hand on a branch, it proves the newest hardened netlist whose RTL is the branch head's before a merge, and fails if that harden has not finished |
+| `gds.yaml` | The Tiny Tapeout harden (LibreLane), then in the same job the precheck, the gate-level test and the hardened netlist against the RTL of its commit (`formal/equiv.sh`) |
+| `equivalence.yaml` | By hand only, after a change to the proof alone: the newest hardened netlist on the branch whose commit has the dispatched commit's `src/` against the RTL; it fails if there is none |
 | `fw-mutants.yaml` | On every push that changes the firmware, the assembler, the simulator, the bus models or `escert`: timing bugs planted in every shipped program, in 24 shards; `escert` must refute every one that can fault, and a mutant it certifies is attacked on the simulator ([04-VERIFICATION](04-VERIFICATION.md#planted-timing-bugs)) |
 | `docs.yaml` | The Tiny Tapeout datasheet build from `info.yaml` and `docs/info.md` |
-| `site.yaml` | The project site and its results page, on master: when the site, the software or the firmware change, and after each of the workflows above |
+| `site.yaml` | The project site and its results page, once per master commit, when the last of its verification workflows finishes |
+
+The checks that decide a change (`test`, `formal`, `gds`, `docs`) start first; the mutation
+campaigns queue their shards from a plan job (`.github/actions/campaign-plan`) just after
+them, fill every runner left, and skip a commit that already passed them in another run. A
+newer push to a branch cancels that branch's runs ([06-DECISIONS](06-DECISIONS.md), D-69).
 
 Every job that simulates the standard-cell models (`CELLS=yes`) builds Icarus Verilog 13
 from source. Version 12, which the Ubuntu runners ship, gives X on those models, and for one

@@ -1297,13 +1297,21 @@ workflow on master, with its commit and log, failures included.
 | `formal` | a change to `src/` or `formal/` | three jobs: the properties and covers with the unbounded core proof as one PDR task per assertion group; the bounded check from reset, one task per assertion group (`make formal-bmc`); the tripwire, line unit and non-interference proofs, then the planted bugs that must make each fail (`make formal-v2 formal-teeth`) |
 | `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in 40 shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors; the shards are dealt by each mutant's time in earlier runs (`test/mutation/costs.json`), the canaries run once beside them, and the summary requires the canaries and exactly one result per mutant |
 | `fw-mutants` | a push to any branch that changes the firmware, `escert`, the simulator, the assembler or the bus models | the firmware mutation campaign (`make fw-mutants`) in 24 shards: every planted timing bug against `escert`, and each certified one attacked on the simulator |
-| `gds` | a change to the RTL or flow | LibreLane layout, Tiny Tapeout precheck, chip tests on the gate-level netlist |
-| `equivalence` | each successful `gds` run on master, and by hand on a branch before its merge | that run's netlist against the RTL of its commit; by hand, the newest harden on the branch with the same `src/` (`formal/equiv.sh`) |
+| `gds` | a change to the RTL or flow | LibreLane layout, then in the same job the Tiny Tapeout precheck, chip tests on the gate-level netlist, and that netlist against the RTL of its commit (`formal/equiv.sh`) |
+| `equivalence` | by hand, after a change to the proof alone | the newest harden on the branch with the same `src/` against the RTL (`formal/equiv.sh`) |
 
 Each job writes a summary (`scripts/ci_summary.py`); the site's build collects the
-summaries of the latest master runs (`site/tools/ci_results.py`) and rebuilds after each of
-these workflows. The formal and equivalence jobs use the OSS CAD Suite release pinned in
-`scripts/versions.txt`, and the equivalence job the standard-cell liberty of the pinned PDK.
+summaries of the latest master runs (`site/tools/ci_results.py`), once per commit, when the
+last of its workflows finishes. The formal jobs and the netlist proof use the OSS CAD Suite
+release pinned in `scripts/versions.txt`, and the netlist proof the standard-cell liberty of
+the pinned PDK.
+
+The workflows share the repository's 20 runners, which GitHub hands out in the order jobs
+are queued. The checks that decide a change (`test`, `formal`, `gds`, `docs`) are queued
+first; the two mutation campaigns queue their shards from a short plan job just after them
+and fill every runner left, and a campaign skips a commit that has already passed it in
+another run, as when a tested branch is fast-forwarded to master. A newer push to a branch
+cancels that branch's runs; on master every run completes (D-69).
 
 ## Rerunning
 

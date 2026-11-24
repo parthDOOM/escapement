@@ -7,6 +7,15 @@ name: gds
 # v1.2-v1.6 were signed off on the pre-release pins (action 3412659, tools d66cf17, LibreLane
 # 3.1.0.dev3, PDK 2bbec755): docs/05-TOOLCHAIN.md.
 # The template's `viewer` job (GDS viewer on GitHub Pages) is not used.
+#
+# One job (D-69): the harden, then on the same runner the precheck, the gate-level test and the
+# netlist's equivalence with the RTL (formal/equiv.sh). As separate jobs they were queued when
+# the harden ended, behind whatever the mutation campaign had queued by then, and waited hours
+# for a runner; here they start the moment the netlist exists, and the netlist proved is the
+# one this job built, on every branch. Each runs even if another of the three fails, so one
+# failure does not hide the others; the job fails if any does. A change to the proof alone
+# (formal/equiv.sh) does not harden again: equivalence.yaml, run by hand, proves the netlist
+# of an earlier harden.
 
 on:
   push:
@@ -23,10 +32,15 @@ on:
       - '.github/workflows/gds.yaml'
   workflow_dispatch:
 
+# a newer push to a branch replaces that branch's run; on master every run completes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/master' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   gds:
     runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    timeout-minutes: 330
     steps:
       - name: checkout repo
         uses: actions/checkout@v6
@@ -34,29 +48,61 @@ jobs:
           submodules: recursive
 
       - name: Build GDS
+        id: build
         uses: TinyTapeout/tt-gds-action@e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6
         with:
           pdk: ihp-sg13cmos5l
           tools-ref: 0922544e6c7f6126047c3fba720b0437fa32a1b8
           librelane-version: 3.1.0.dev4
 
-  precheck:
-    needs: gds
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Run Tiny Tapeout Precheck
+      - name: Precheck
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         uses: TinyTapeout/tt-gds-action/precheck@e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6
         with:
           tools-ref: 0922544e6c7f6126047c3fba720b0437fa32a1b8
 
-  gl_test:
-    needs: gds
-    runs-on: ubuntu-24.04
-    steps:
-      - name: checkout repo
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
       - name: GL test
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         uses: TinyTapeout/tt-gds-action/gl_test@e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6
+
+      - name: Standard-cell liberty at the pinned PDK commit
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          git clone -q --filter=blob:none --no-checkout https://github.com/IHP-GmbH/IHP-Open-PDK equiv-pdk
+          cd equiv-pdk
+          git sparse-checkout set --no-cone '/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/'
+          git checkout -q 89d42ee6d2fd9b50b86a1aada6fee6673c3e6008
+
+      # yosys and ABC only, so the suite's Python does not shadow the job's
+      - uses: ./.github/actions/oss-cad-suite
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        with:
+          tools: yosys yosys-abc
+
+      - name: Equivalence
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          NET=$(find tt_submission -name 'tt_um_escapement.v' | head -1)
+          test -n "$NET"
+          PDK_ROOT="$PWD/equiv-pdk" bash formal/equiv.sh "$NET" 2>&1 | tee equiv.log
+
+      - name: Results page summary
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: python3 scripts/ci_summary.py results/summary.json equiv equiv.log
+
+      - name: Upload results page summary
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-summary-equivalence
+          path: results/summary.json
+
+      - name: Upload equivalence logs
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: equivalence-logs
+          path: |
+            equiv.log
+            formal/equiv_build/*.log

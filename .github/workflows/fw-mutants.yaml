@@ -5,7 +5,9 @@ name: fw-mutants
 # fault, and a mutant it certifies is attacked on the ISS (random inputs, then the program's
 # own co-simulation benches): a fault there is UNSOUND and fails the run. On a laptop the
 # whole campaign takes over a day, so it runs here in 24 shards, every 24th mutant each;
-# the summary merges them into the table docs/04-VERIFICATION.md reports.
+# the summary merges them into the table docs/04-VERIFICATION.md reports. As in mutation.yaml
+# (D-69), a plan job queues the shards just after the gates, and a commit that already passed
+# here is not run again.
 
 on:
   push:
@@ -21,15 +23,43 @@ on:
       - '.github/workflows/fw-mutants.yaml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+
+# a newer push to a branch replaces that branch's run; on master every run completes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/master' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+env:
+  SHARDS: 24
+
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github
+      - id: plan
+        uses: ./.github/actions/campaign-plan
+        with:
+          shards: ${{ env.SHARDS }}
+          summary: ci-summary-fw-mutants
+
   shard:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 355     # GitHub's limit is 360
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-                20, 21, 22, 23]
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v6
@@ -45,7 +75,7 @@ jobs:
       - name: Mutants
         run: |
           mkdir -p results
-          python test/mutation/fw_mutants.py --jobs 4 --shard ${{ matrix.shard }}/24 \
+          python test/mutation/fw_mutants.py --jobs 4 --shard ${{ matrix.shard }}/$SHARDS \
             --json results/fw-mutants-${{ matrix.shard }}.json
 
       - name: Upload shard result
@@ -56,8 +86,9 @@ jobs:
           path: results/fw-mutants-${{ matrix.shard }}.json
 
   summary:
-    needs: shard
-    if: ${{ !cancelled() }}  # failed shards still report; a cancelled run does not
+    needs: [plan, shard]
+    # failed shards still report; a cancelled run, or one the plan skipped, does not
+    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repo
@@ -83,7 +114,7 @@ jobs:
       - name: Merge
         run: |
           set -o pipefail
-          test "$(ls shards/fw-mutants-*.json | wc -l)" = 24
+          test "$(ls shards/fw-mutants-*.json | wc -l)" = "$SHARDS"
           python test/mutation/fw_mutants.py --merge shards/fw-mutants-*.json --json fw-mutants.json \
             | tee fw-mutants.md
           cat fw-mutants.md >> "$GITHUB_STEP_SUMMARY"

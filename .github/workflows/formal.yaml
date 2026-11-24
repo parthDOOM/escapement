@@ -16,6 +16,11 @@ on:
       - '.github/workflows/formal.yaml'
   workflow_dispatch:
 
+# a newer push to a branch replaces that branch's run; on master every run completes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/master' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   formal:
     runs-on: ubuntu-24.04

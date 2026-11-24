@@ -6,21 +6,16 @@ name: site
 # is published to GitHub Pages, and also to Netlify or Vercel when their tokens are set
 # as repository secrets (NETLIFY_AUTH_TOKEN + NETLIFY_SITE_ID, or VERCEL_TOKEN +
 # VERCEL_ORG_ID + VERCEL_PROJECT_ID).
+#
+# Built once per master commit, when the last of its verification workflows finishes (D-69):
+# every push to master runs the test workflow, so a change to the site itself is built then
+# too. Each finishing workflow starts this one, and the `when` job lets only the last of them
+# build; the others end there, skipped. Before, each started a build that cancelled the one
+# still running, which left cancelled checks on the commit and six builds where one does.
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - 'site/**'
-      - 'sw/**'
-      - 'firmware/**'
-      - 'isa/**'
-      - 'docs/02-ISA.md'
-      - 'fpga/tangprimer25k/**'
-      - '.github/workflows/site.yaml'
-  # After each verification workflow, so the results page shows its latest run
   workflow_run:
-    workflows: [gds, test, formal, equivalence, mutation, fw-mutants]
+    workflows: [gds, test, formal, mutation, fw-mutants]
     types: [completed]
     branches: [master]
   workflow_dispatch:
@@ -33,12 +28,36 @@ permissions:
 
 concurrency:
   group: site
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  build:
-    # a failed verification run is shown on the results page too; a cancelled one changes nothing
+  # Is this the last verification workflow of its commit to finish? A failed run is shown on
+  # the results page too; a cancelled one changes nothing.
+  when:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-24.04
+    outputs:
+      last: ${{ steps.last.outputs.last }}
+    steps:
+      - id: last
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != workflow_run ]; then echo "last=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          busy=$(gh run list -R "$GITHUB_REPOSITORY" --commit "$SHA" -L 100 --json workflowName,status                    -q '[.[] | select(.status != "completed")
+                            | select(.workflowName as $w | ["gds", "test", "formal", "mutation", "fw-mutants"] | index($w))]
+                       | length')
+          if [ "$busy" = 0 ]; then
+            echo "last=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "last=false" >> "$GITHUB_OUTPUT"
+            echo "$busy verification runs of $SHA still going: the last to finish builds the site" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+  build:
+    needs: when
+    if: needs.when.outputs.last == 'true'
     runs-on: ubuntu-24.04
     env:
       NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}

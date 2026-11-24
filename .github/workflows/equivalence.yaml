@@ -1,16 +1,11 @@
 name: equivalence
 
-# After every successful gds run on master, the gate-level netlist it produced is proved
-# sequentially equivalent to the RTL of the same commit (formal/equiv.sh). The result goes
-# to the results page on the site. Run by hand (workflow_dispatch), it takes the newest
-# successful gds run on the branch whose RTL is the dispatched commit's, so a branch's
-# netlist can be proved before it is merged; it fails if there is none yet.
+# By hand only: the netlist of an earlier harden against the RTL (formal/equiv.sh). Every gds
+# run proves the netlist it builds, in its own job (D-69); this is for a change to the proof
+# alone, which does not harden again. It takes the newest successful gds run on the branch
+# whose commit has the dispatched commit's src/, and fails if there is none.
 
 on:
-  workflow_run:
-    workflows: [gds]
-    types: [completed]
-    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -19,40 +14,33 @@ permissions:
 
 jobs:
   equivalence:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
     steps:
       - name: checkout repo
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
 
-      # By hand, the newest successful gds run on the branch whose commit has this commit's
-      # src/ (the RTL and the flow configuration), so a change to the proof itself can be
-      # run against the netlist it is about. Taking simply the newest finished run proved a
-      # stale netlist once: dispatched while the head's gds run was still going, it found
-      # the previous commit's run, with different RTL.
+      # The newest successful gds run on the branch whose commit has this commit's src/ (the
+      # RTL and the flow configuration). Taking simply the newest finished run proved a stale
+      # netlist once: dispatched while the head's gds run was still going, it found the
+      # previous commit's run, with different RTL (D-68).
       - name: The gds run of this RTL
         id: run
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ github.event_name }}" = workflow_run ]; then
-            echo "id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
-          else
-            gh run list -R "$GITHUB_REPOSITORY" -w gds -b "${{ github.ref_name }}" -s success -L 30 \
-              --json databaseId,headSha -q '.[] | "\(.databaseId) \(.headSha)"' > runs.txt
-            while read -r id sha; do
-              if git cat-file -e "$sha^{commit}" 2>/dev/null && git diff --quiet "$sha" HEAD -- src; then
-                echo "gds run $id (commit $sha) has this commit's src/"
-                echo "id=$id" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-            done < runs.txt
-            echo "no successful gds run on ${{ github.ref_name }} has this commit's src/ yet" >&2
-            exit 1
-          fi
+          gh run list -R "$GITHUB_REPOSITORY" -w gds -b "${{ github.ref_name }}" -s success -L 30 \
+            --json databaseId,headSha -q '.[] | "\(.databaseId) \(.headSha)"' > runs.txt
+          while read -r id sha; do
+            if git cat-file -e "$sha^{commit}" 2>/dev/null && git diff --quiet "$sha" HEAD -- src; then
+              echo "gds run $id (commit $sha) has this commit's src/"
+              echo "id=$id" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done < runs.txt
+          echo "no successful gds run on ${{ github.ref_name }} has this commit's src/ yet" >&2
+          exit 1
 
       - name: Netlist from that run
         env:
@@ -75,17 +63,6 @@ jobs:
         run: |
           set -o pipefail
           PDK_ROOT="$PWD/pdk" bash formal/equiv.sh "$(cat netlist_path)" 2>&1 | tee equiv.log
-
-      - name: Summary
-        if: always()
-        run: python3 scripts/ci_summary.py results/summary.json equiv equiv.log
-
-      - name: Upload summary
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ci-summary-equivalence
-          path: results/summary.json
 
       - name: Upload logs
         if: always()
