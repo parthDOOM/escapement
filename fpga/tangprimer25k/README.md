@@ -49,6 +49,8 @@ passed 85 of 85.
 On 22 November the bitstream was rebuilt with the reset synchroniser (D-63), and the same
 run passed 85 of 85 again (`results/2026-11-22/`). That build then answered a laptop's ping
 over 10BASE-T and enumerated on its USB port as a keyboard (Ethernet and USB keyboard,
+below). On the same bitstream, bring-up passed 86 of 86 on 24 November with `pwm_audio`
+bundled, and 94 of 94 on 25 November with the eight held-out programs added (held-out round,
 below).
 
 ## Earlier result, 2026-11-19 (version 3, every program)

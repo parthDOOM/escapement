@@ -84,14 +84,16 @@ export default function App() {
                 <a className="icon-btn" href="#inside">How it works</a>
               </div>
               <p className="hero-hw"><a href={asset("fpga/")}>Runs on hardware: version 3.1 on an FPGA, driven by a
-                Pico W, runs 80 of the 82 programs, each matching the model and its certificate, answers a laptop's ping,
+                Pico W, runs 89 of the 90 programs, each matching the model and its certificate, answers a laptop's ping,
                 types into it as a USB keyboard, plays DOOM on an OLED with the Pico as its host, refuses a late edge where its
-                certificate said, and learns a remote's protocol from its own capture (24 Nov) →</a></p>
+                certificate said, and learns a remote's protocol from its own capture →</a></p>
+              <p className="hero-hw"><a href="#heldout">Protocols it was not designed for: eight drawn at random from a sealed
+                list and written on version 3.1 as tagged, and all eight fit →</a></p>
               <div className="facts">
                 <div><b>40 ns</b><span>one tick at 25 MHz, rated to 50</span></div>
                 <div><b>4</b><span>programs running at once</span></div>
                 <div><b>13</b><span>protocol pins, two banks</span></div>
-                <div><b>81</b><span>firmware programs</span></div>
+                <div><b>90</b><span>firmware programs</span></div>
                 <div><b>4.4 mW</b><span>sending UART</span></div>
                 <div><b>0</b><span>late edges, for any program, for all time</span></div>
               </div>
@@ -226,6 +228,38 @@ export default function App() {
                 are the obvious ones; there are 55 instructions and four contexts to try others.</p>
             </div>
             <Later h={700}><Late /></Later>
+
+            <div className="sub-head learn-intro" id="heldout">
+              <p className="eyebrow">Held-out round</p>
+              <h3>Protocols it was not designed for</h3>
+              <p>Every other program is for a protocol someone chose knowing what the chip could do. Here that choice is
+                taken away: on 4 November a pool of 24 protocols with public specifications was fixed, eight were drawn from it at
+                random, and the hash of the drawn list was committed before any was written. All eight were written on
+                the chip, assembler and simulator of version 3.1 as tagged, each tested against a bus model written by a separate session from the specification and an interface, barred from the firmware, then
+                certified, run in lockstep on the RTL, read by sigrok where it has a decoder, and run on the FPGA
+                bench.</p>
+              <p>All eight fit, with stated limits, and no instruction was missing. What ran short was registers and
+                program words, not timing. The round found no bug in the chip, and one in escert, now fixed. The pool itself
+                was chosen, so this shows the chip takes protocols nobody picked to fit it, not every protocol.{" "}
+                <a href="https://github.com/parthDOOM/escapement/blob/master/heldout/RESULTS.md">Every result and
+                limit</a>, and <a href="https://github.com/parthDOOM/escapement/blob/master/heldout/README.md">the
+                seal, to check yourself</a>.</p>
+            </div>
+            <div className="table-box panel">
+              <table>
+                <thead><tr><th>Protocol</th><th className="num">Words</th><th>Certified at</th><th>Outside judge</th><th>Bench</th></tr></thead>
+                <tbody>
+                  <tr><td>MIL-STD-1553B remote terminal</td><td className="num">458, spans</td><td>40 to 50 MHz, 2 MHz steps</td><td>none exists</td><td>bring-up; no bus controller to answer</td></tr>
+                  <tr><td>S/PDIF transmitter</td><td className="num">262, spans</td><td>cells of 8 and 10 ticks; the clock is 128 × fs × the cell</td><td>sigrok spdif</td><td>captured, decoded by sigrok</td></tr>
+                  <tr><td>Microwire 93C46 EEPROM master</td><td className="num">133</td><td>16 to 50 MHz</td><td>sigrok microwire, eeprom93xx</td><td>captured, decoded by sigrok</td></tr>
+                  <tr><td>DHT22 sensor host</td><td className="num">128</td><td>4, 25 and 50 MHz</td><td>sigrok am230x</td><td>captured, every edge as the simulator made it</td></tr>
+                  <tr><td>BiSS C encoder master</td><td className="num">123</td><td>16, 25 and 50 MHz</td><td>none exists</td><td>captured, every edge as the simulator made it</td></tr>
+                  <tr><td>PS/2 host</td><td className="num">166</td><td>4, 25 and 50 MHz</td><td>sigrok ps2</td><td>captured, every edge as the simulator made it</td></tr>
+                  <tr><td>SNES pad reader</td><td className="num">28</td><td>4, 25 and 50 MHz</td><td>sigrok spi</td><td>captured, within the CD4021B's limits</td></tr>
+                  <tr><td>M-Bus slave</td><td className="num">313, spans</td><td>4 to 50 MHz</td><td>sigrok uart</td><td>live, the Pico W as bus master</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 

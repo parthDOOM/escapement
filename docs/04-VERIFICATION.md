@@ -34,13 +34,14 @@ unless a section says otherwise. The final runs at a glance:
 | --- | --- |
 | Formal proofs | 110 of 110 tasks pass; 15 planted bugs each make their proof fail |
 | Netlist against RTL | Sequentially equivalent, 337 output bits compared |
-| Lockstep co-simulation | 191 random programs and 76 firmware cases, on two builds of the RTL: no difference |
-| Timing certificates | 82 of 82 programs certified; the measured lead equals the bound in 59 of 76 contexts and is never below it |
+| Lockstep co-simulation | 191 random programs and 84 firmware cases, on two builds of the RTL: no difference |
+| Timing certificates | 90 of 90 programs certified; the measured lead equals the bound in 64 of 84 contexts and is never below it |
 | Mutation testing | 1,017 planted RTL faults: 902 caught, 57 proved harmless, 58 argued harmless, none surviving |
-| Outside judges | decoders written by other people agree with 74 of the 82 programs; every control fails |
-| Planted firmware bugs | 729 timing bugs in 78 programs: 178 refuted with a reproducer, 18 not proven, 533 certified, none certified that can fault |
+| Outside judges | decoders written by other people agree with 80 of the 90 programs; every control fails |
+| Planted firmware bugs | 823 timing bugs in 87 programs: 196 refuted with a reproducer, 23 not proven, 604 certified, none certified that can fault |
+| Held-out round | eight protocols drawn at random from a sealed list, each certified, co-simulated, judged where a decoder exists and run on the FPGA bench; all eight fit ([below](#the-held-out-round)) |
 | Pads and board | every firmware case still passes with its pins up to three ticks slower each way |
-| Test suites | 1,632 software tests (5 skipped where a tool is absent); 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
+| Test suites | 1,869 software tests (5 skipped where a tool is absent); 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
 
 ## How the checks grew
 
@@ -648,12 +649,12 @@ covering all five admission subcodes. For each context it returns one of three a
 - **REFUTED**, with a witness: inputs that the simulator replays into the fault;
 - **NOT_PROVEN**, when neither could be shown. Such firmware carries no certificate.
 
-All 82 shipped programs are CHECKED, for every input and without assumptions about bus
+All 90 shipped programs are CHECKED, for every input and without assumptions about bus
 timing. The certified minimum leads, in ticks, per context:
 
 | Lead | Contexts | Programs |
 | ---: | ---: | --- |
-| 1 | 7 | `can_tx_lu`, `eth_tx`, `spi_target`, `spi_tx`, `udp_tx`, `usb_hid` (context 0), `ws2812_lu` |
+| 1 | 8 | `can_tx_lu`, `eth_tx`, `spdif_tx`, `spi_target`, `spi_tx`, `udp_tx`, `usb_hid` (context 0), `ws2812_lu` |
 | 2 | 5 | `combo_uart_i2c` (context 0), `i2c_burst`, `i2c_ctrl`, `i2c_eeprom`, `oled_disp` |
 | 3 | 3 | `can_tx`, `jtag_idcode`, `swd_idcode` |
 | 4 | 6 | `cec`, `combo_two_banks` (context 1), `onewire`, `onewire_dev`, `ps2_device`, `sent_tx` (context 0) |
@@ -662,16 +663,20 @@ timing. The certified minimum leads, in ticks, per context:
 | 7 | 4 | `combo_two_banks` (context 2), `combo_uart_i2c` (context 2), `pwm_audio`, `spi_ctrl` |
 | 8 | 2 | `dshot_tx` (context 0), `vga_pong` (context 1) |
 | 9 | 29 | `dcc_tx`, `dcf77_tx`, `dmx512_tx`, `em4100_tag`, `ev1527_tx`, `flexray_tx`, `j1850_vpw`, `jvc_tx`, `lin_tx`, `midi_tx`, `modbus_full`, `modbus_rtu`, `nec_tx`, `nec_tx_gen`, `oregon_tx`, `panasonic_tx`, `rc5_tx`, `rc6_tx`, `samsung_tx`, `seven_seg`, `sharp_tx`, `sirc_tx`, `swim_host`, `uart_tx`, `uart_tx_gen`, `usbpd_tx`, `wiegand_tx`, `ws2801_tx`, `xy2_100` (context 0) |
+| 12 | 2 | `mbus_slave`, `ps2_host` |
 | 13 | 3 | `dali`, `lin_resp`, `qi_rx` |
+| 14 | 1 | `mil1553_rt` (context 0, at its default 50 MHz) |
+| 15 | 1 | `biss_c` |
+| 20 | 1 | `dht22` |
 | 21 | 2 | `avr_isp`, `sd_spi` |
-| 28 | 3 | `max7219`, `nrf24_tx`, `spi_flash` |
+| 28 | 5 | `max7219`, `microwire_93c46`, `nrf24_tx`, `snes_pad`, `spi_flash` |
 | 40 | 1 | `stepper` |
 | 57 | 2 | `servo`, `westminster` |
 | 206 | 2 | `combo_uart_i2c` (context 1), `uart_rx` |
 | 347 | 1 | `sbus_rx` |
 | 692 | 1 | `morse` |
 | 1,597 | 1 | `vga_pong` (context 0) |
-| no queued events | 16 | `can_rx`, `dshot_tx` (context 1), `eth_rx`, `freq_meter`, `i2c_timing`, `logic_analyzer`, `nec_rx`, `oled_menu`, `oled_pong`, `oled_text`, `quadrature`, `sent_tx` (context 1), `spi_sniff`, `usb_hid` (context 1), `wiegand_rx`, `xy2_100` (context 3) |
+| no queued events | 17 | `can_rx`, `dshot_tx` (context 1), `eth_rx`, `freq_meter`, `i2c_timing`, `logic_analyzer`, `mil1553_rt` (context 1), `nec_rx`, `oled_menu`, `oled_pong`, `oled_text`, `quadrature`, `sent_tx` (context 1), `spi_sniff`, `usb_hid` (context 1), `wiegand_rx`, `xy2_100` (context 3) |
 
 A lead of 1 is enough: the event is admitted and applied on its tick. The line unit's
 programs show 1 for a specific reason. A `SEND` that is late is dropped rather than faulted,
@@ -683,13 +688,14 @@ of at least 4 ticks on every path where the host keeps to USB timing ([line unit
 checked by the replay tests and by the chip's admission rules.
 
 **Certificates hold at other clocks.** Most programs take their timing from the clock
-frequency `CLK_KHZ` and rebuild for any clock. Of the 80, 66 rebuild and certify at 33,
+frequency `CLK_KHZ` and rebuild for any clock. Of the 90, 74 rebuild and certify at 33,
 33.333, 40 and 50 MHz; four are tied to one clock by their protocol (10BASE-T transmit at
 40 MHz, USB low speed at 24 MHz, VGA at its 25 MHz pixel clock) and refuse any other with an
-`.assert`; three need a whole number of ticks per bit and certify at every clock that gives
-one: `eth_rx` (a 100 ns bit, so 40 or 50 MHz), XY2-100 (40 to 50 MHz in 2 MHz steps) and
-FlexRay at 2.5 Mbit/s (25 to 50 MHz in 2.5 MHz steps); and seven count in ticks or follow
-another device's clock. Converting programs to `CLK_KHZ` found two
+`.assert`; four need a whole number of ticks per bit and certify at every clock that gives
+one: `eth_rx` (a 100 ns bit, so 40 or 50 MHz), XY2-100 and the held-out MIL-STD-1553B
+terminal (40 to 50 MHz in 2 MHz steps) and FlexRay at 2.5 Mbit/s (25 to 50 MHz in 2.5 MHz
+steps); and eight count in ticks or follow another device's clock, the S/PDIF transmitter,
+whose clock must be 128 × fs × its cell length, among them. Converting programs to `CLK_KHZ` found two
 clocks rounded the fast way: JTAG's TCK and SWD's SWCLK half periods were rounded down, so at
 33 MHz they ran 2% and 0.6% above their stated rates; they now round up. It also found
 programs that held at 25 MHz by tick count alone. `i2c_ctrl` now waits for each scheduled
@@ -727,6 +733,15 @@ caught a third on its first run. The planted timing bugs (below) found a fourth:
 a `SEND` wait for a running CONFIG, but the chip checks ownership first
 ([semantics](11-SEMANTICS.md), §6.2 and §7.7), so a `SEND`, RECV or CRC before the context's
 first CONFIG completes faults instead. escert now tracks whether the unit is configured.
+The held-out round found a fifth, a soundness bug: escert modelled a `CONFIG`'s timing and
+the pins it claims, but not the two faults §6.6 step 1 raises when it completes, ADMIT/OWNER
+for a configuration that drives a pin its context does not own and ADMIT/CONFIG for an
+invalid one (with one cell a bit, a bit period under 8 ticks or a sampling point S outside
+4 ≤ S < the period; with more cells, a cell under 2 ticks). A
+draft S/PDIF transmitter whose `CONFIG` faults on the simulator was certified CHECKED.
+escert now checks both at every `CONFIG`, checks a configuration block that is not constant
+at its image value and says so in the certificate, and 11 tests cover valid and invalid
+configurations (D-70).
 
 ### Certificates against measurements
 
@@ -737,14 +752,14 @@ measured it, and fails the table. The RTL's leads come from the co-simulation it
 `COSIM_PROOF_OUT=file`, `test_cosim.py` records the RTL's telemetry and digest for each
 firmware case.
 
-In the final run, the 76 co-simulation cases with their bus models and host traffic have 94
+In the final run, the 84 co-simulation cases with their bus models and host traffic have 103
 contexts:
 
 | | Contexts |
 | --- | ---: |
-| Queued events, so a lead was measured | 76 |
-| Measured lead equal to the certified bound, to the tick | 59 |
-| Measured lead above the bound (`uart_rx` 210 against 206, alone and as `combo_uart_i2c`'s second context; `ws2812` 8 against 5, `ws2812_gen` 6 against 5, `xy2_100`'s two axes 8 and 7 against 5, `morse` 908 against 692; `pwm_audio` 12 against 7; `i2c_burst` 6 against 2 in both its cases, and `oled_disp` 6 against 2 in both OLED Pong cases; on the line unit, `usb_hid` 12, `can_tx_lu` 17, `eth_tx` 13, `udp_tx` 13 and `ws2812_lu` 20, each against 1) | 17 |
+| Queued events, so a lead was measured | 84 |
+| Measured lead equal to the certified bound, to the tick | 64 |
+| Measured lead above the bound (`uart_rx` 210 against 206, alone and as `combo_uart_i2c`'s second context; `ws2812` 8 against 5, `ws2812_gen` 6 against 5, `xy2_100`'s two axes 8 and 7 against 5, `morse` 908 against 692; `pwm_audio` 12 against 7; `i2c_burst` 6 against 2 in both its cases, and `oled_disp` 6 against 2 in both OLED Pong cases; in the held-out round, `mil1553_rt` 16 against 14, `biss_c` 16 against 15 and `spdif_tx` 14 against 1; on the line unit, `usb_hid` 12, `can_tx_lu` 17, `eth_tx` 13, `udp_tx` 13 and `ws2812_lu` 20, each against 1) | 20 |
 | Measured lead below the bound | 0 |
 | RTL lead or digest different from the simulator's | 0 |
 
@@ -754,8 +769,8 @@ closer to its deadline than escert's worst case would fail it.
 The table also runs every shipped program on the simulator in the demo board's environment,
 with nothing on the Pmods. That is the environment in which bring-up stage 5 checks the same
 bounds on the chip and writes `proof.json` ([bring-up](16-BRING-UP.md#stage-5-firmware-digests)).
-There, of 94 contexts in 82 programs, 72 queue events; 49 measure exactly their bound and
-none is below it. The other 23 are looser (`i2c_ctrl` 33 against 2, for example), because
+There, of 103 contexts in 90 programs, 79 queue events; 49 measure exactly their bound and
+none is below it. The other 30 are looser (`i2c_ctrl` 33 against 2, for example), because
 the inputs that produce the worst case, such as a device on the bus, are absent.
 
 **Certificates compose.** Each context issues in barrel slots fixed by the configuration,
@@ -801,34 +816,33 @@ answer:
 - **A crash** of the checker or the simulator on a mutant is reported as ERROR and fails
   the run, without losing the other results.
 
-On the final tree the campaign planted 729 mutants in 78 programs: every program but the
-logic analyser, which has no mutation sites, the two combined images, whose programs are
-mutated on their own, and `pwm_audio`, written for the [DOOM console](25-DOOM-CONSOLE.md)
-after the campaign. It has had a shorter run of its own, three mutants per operator: of 12,
-escert refuted 1 and certified 11, none of which faults, and the bus models see 10 of the 11
-break the sound. The four OLED Pong programs are mutated inside
+On the final tree the campaign planted 823 mutants in 87 programs: every program but the
+logic analyser, which has no mutation sites, and the two combined images, whose programs are
+mutated on their own. The eight held-out programs gave 92 of them: escert refuted 16, could
+not decide 5 and certified 71, none of which faults. The four OLED Pong programs are mutated inside
 their four-page image, beside the unmutated other three, so the search attacks the whole
 system.
 
 | escert's answer | Mutants |
 | --- | ---: |
-| REFUTED: a fault, reproduced on the simulator with concrete inputs | 178 |
-| NOT_PROVEN: a fault not excluded, and none found by the searches | 18 |
-| CHECKED: no admission fault for any input | 533 |
+| REFUTED: a fault, reproduced on the simulator with concrete inputs | 196 |
+| NOT_PROVEN: a fault not excluded, and none found by the searches | 23 |
+| CHECKED: no admission fault for any input | 604 |
 | CHECKED, yet a search or a bench made it fault | **0** |
 
-Of the 178 refuted, 148 fell to the random search, 14 to the long search whose host never
-pauses and 16 to a bench, 11 of those to the aimed benches.
+Of the 196 refuted, 161 fell to the random search, 15 to the long search whose host never
+pauses and 20 to a bench, 11 of those to the aimed benches.
 
-**NOT_PROVEN is never counted as safe.** Of the 18, 9 are located exactly: escert holds a
+**NOT_PROVEN is never counted as safe.** Of the 23, 12 are located exactly: escert holds a
 state at the flagged instruction in which every deadline breaks a rule (escert reports the
-first such state, not every state there). Seven of these fault on their bench built at its
-own clock or tape, another program than the one judged. The eighth is escert being
+first such state, not every state there). Ten of these fault on their bench built at its
+own clock or tape, another program than the one judged. The eleventh is escert being
 cautious: `usbpd_tx` with the first half of a 1 bit cut to a quarter still queues its
 edges faster than the line sends them, so the queue never drains as in escert's state,
 and on the bench the flagged instruction always has a lead of 98 ticks or more. No search
-or bench made the ninth, in `modbus_full`, fault. Five more fault on their bench built at that
-bench's clock. The other four, one of them also in `modbus_full`, have a bound that straddles a
+or bench made the twelfth, in `modbus_full`, fault. Five more fault on their bench built at that
+bench's clock. The other six, one of them also in `modbus_full` and two in the held-out `dht22`
+and `mbus_slave`, have a bound that straddles a
 rule and no fault found anywhere; they are escert being cautious or faults on a path no search
 drove, and the campaign does not tell which.
 
@@ -844,8 +858,8 @@ admissible, which escert is right to accept: it proves timing, not protocol corr
 Most inverted branches are of this kind, because escert already follows both directions of
 a branch whose flag depends on inputs, so inverting one leaves the same timed paths. For a
 certified mutant with a bench, the campaign therefore also records the bench's own
-protocol check. Of the 256 certified mutants with a bench, the bus models see the
-protocol fail in 121: a frame with a bad CRC, a USB device that never enumerates, a
+protocol check. Of the 309 certified mutants with a bench, the bus models see the
+protocol fail in 151: a frame with a bad CRC, a USB device that never enumerates, a
 frame never sent. Every unmutated program passes its benches, so each failure is the
 mutant's doing. escert and the bus models catch different bugs, and the campaign shows both.
 
@@ -927,7 +941,7 @@ has made them fault.
 
 Each program runs against an independent bus model in `sw/escmodels` on the simulator
 (`sw/tests/test_firmware.py`). All but two also run in lockstep on the RTL (`test/cosim`),
-in the 76 firmware cases: `vga_pong` runs through the chip's pins on the RTL and the final
+in the 84 firmware cases: `vga_pong` runs through the chip's pins on the RTL and the final
 netlist instead, and the 14-second `westminster` tune only on the simulator.
 
 | Protocol | Firmware | Checked against |
@@ -1001,6 +1015,64 @@ netlist instead, and the 14-second `westminster` tune only on the simulator.
 | Oregon Scientific v2.1 sensor (THGR122NX): Manchester with doubled bits, the reading in BCD, the checksum computed on the chip, the message sent twice | `oregon_tx` | Weather-station model: preamble, sync, every doubled bit, the checksum, negative temperatures and low battery; planted checksum and doubling bugs caught; rtl_433 and sigrok's `ook_oregon`; lockstep at 200 kHz |
 | FlexRay static frame at 2.5 Mbit/s: TSS, FSS, a BSS before every byte, header CRC-11 and frame CRC-24 computed on the chip | `flexray_tx` | Receiver model with the specification's bit strobing: both CRCs (checked against the specification's examples), the sync and startup indicators, payload lengths; planted CRC, FSS and BSS bugs caught; sigrok's `flexray`; at every clock from 25 to 50 MHz in 2.5 MHz steps |
 | STM8 SWIM debug host: entry sequence, synchronisation, SWIM_CSR written, memory read on request | `swim_host` | STM8 target model from ST's UM0470: the entry sequence, every host bit's lengths, headers, parity and acknowledges, reads up to 8 bytes, no target; planted parity, entry and bit-length bugs caught; sigrok's `swim`; at 33 and 50 MHz |
+| MIL-STD-1553B remote terminal (held-out round): Manchester II at 1 Mbit/s, receive and transmit of 1 to 32 words, broadcast, mode codes, invalid-word checks, status response 8 to 11 µs after the command | `mil1553_rt` | Bus controller model from MIL-STD-1553B (word formats, validation, response time, crossing distortion with a 1000 ppm rate); 30 tests with three controls; at 40 to 50 MHz in 2 MHz steps |
+| S/PDIF transmitter (held-out round): biphase mark on the line unit, preambles, validity, channel status with its CRCC | `spdif_tx` | Receiver model from EBU Tech 3250 (preambles, parity, the block of 192 frames, validity on underrun); sigrok's `spdif` |
+| Microwire EEPROM master for the 93C46 (held-out round): READ, WRITE, ERASE, ERAL, WRAL, EWEN and EWDS, the busy poll | `microwire_93c46` | 93C46 model from Microchip's DS21749 (setup, hold and clock times, write protection, x16 and x8); sigrok's `microwire` and `eeprom93xx` |
+| DHT22 (AM2302) sensor host (held-out round): start signal, 40 bits timed by their own edges, checksum | `dht22` | Sensor model from the AM2302 manual at its minimum, typical, maximum and random timing; sigrok's `am230x` |
+| BiSS C encoder master, point to point (held-out round): line delay counted, processing time, CDS, CRC-6, timeouts | `biss_c` | Encoder model from iC-Haus's BiSS C description (line delay 0 to 9 µs, static and adaptive timeouts, 1 to 31 data bits) |
+| PS/2 host on the keyboard port (held-out round): request to send, both directions, parity, the slow host holding CLK low | `ps2_host` | Keyboard model from IBM's PS/2 reference (T1 to T9 at minimum, typical, maximum and random timing; Echo, Reset, Read ID, Set indicators); sigrok's `ps2` |
+| SNES controller reader (held-out round): latch and 16 clocked bits plus the 17th-bit connection test | `snes_pad` | Pad model from the CD4021B data sheet's 5 V limits (the pad's shift register); sigrok's `spi` |
+| M-Bus slave, data link layer (held-out round): SND_NKE, SND_UD, REQ_UD2 with RSP_UD, addresses 254 and 255, 8E1 at 300 to 38400 baud | `mbus_slave` | Master model from "The M-Bus: A Documentation" (telegram formats, check sum, no reply sooner than 11 bit times, faulty telegrams unanswered); sigrok's `uart` |
+
+## The held-out round
+
+Every other program is for a protocol someone chose knowing what the chip could do. The
+held-out round takes that choice away ([`heldout/`](../heldout/README.md)). On 4 November
+2026, at version 1.6, a pool of 24 protocols was fixed, each with a public specification
+and none in `firmware/` (`pool.txt`). Eight were drawn with
+`random.Random(seed).sample(range(1, 25), 8)` and a fresh 128-bit seed, passed as its hex
+string (`draw.json`; as an integer it gives a different eight), and the drawn list,
+with a 256-bit salt, was sealed: its SHA-256 was committed before any of the eight was
+written. `sealed.txt` and `draw.json`, now published, let anyone check the hash and repeat
+the draw.
+
+The eight were written on 24 November on version 3.1 (`cb47436`), with the chip, assembler
+and simulator as tagged; `src/`, `sw/esciss` and `sw/escasm` are unchanged since. Each went
+through the same steps: the firmware from the specification, with the section of every
+timing number cited; a bus model of the device on the other end, written by a separate,
+fresh session that was given the specification, the model conventions of `sw/escmodels/` and
+the model's interface (its pins, parameters and the checks it makes), and told not to read
+the firmware, the tests or the notes ([its brief](../heldout/BRIEFS.md)); simulator tests against it, each with negative controls (25 planted
+variants, all caught); a certificate; the lockstep co-simulation; an outside judge where
+sigrok has a decoder (six of eight); and the FPGA bench, where bring-up ran 94 of 94
+bundles and seven programs were judged from a logic analyser's capture in up to three ways, against
+the simulator, against the protocol's limits and by sigrok where a decoder can judge a run
+with no device, each with a control that must fail; the M-Bus slave ran live, with the Pico W
+as its master. The eighth, the 1553B
+terminal, makes no edge without a bus controller, which the bench does not have.
+
+All eight fit, each with stated limits, and no instruction was missing. The timed events
+carried every edge each specification places, and `WAITP` timed every input that is read by
+its own edges. What ran short was registers and program words: three programs span two
+pages, and with four registers the M-Bus slave keeps its state in the tape. Where a bit is
+a few instructions the protocol sets a clock floor: 40 MHz for the 1553B terminal,
+16 MHz for Microwire at its 500 kHz clock, and for S/PDIF exactly 128 × fs × the cell length,
+which is at least 8 ticks.
+
+The round found no bug in the chip. It found the `CONFIG` soundness bug in escert
+([timing certificates](#timing-certificates), D-70) and a bug in the simulated bring-up
+chip, which dropped the pair-mode bits of `WRITE_CFG` byte 10 so that paired programs ran
+unpaired in the bring-up tests. In five of the eight, the first firmware that worked on the
+simulator could not be proved as written, and was reshaped until escert could prove it.
+
+The pool itself was chosen, not drawn, and `pool.txt` has been in the repository since
+5 November while the hardware went on changing (versions 1.7 to 3.1). The round therefore
+shows that the chip takes protocols nobody picked to fit it, not that it takes any protocol.
+The seal proves that the eight did not change after the draw. That no hardware change in
+that time aimed at them rests on the drawn list having been kept private, which the seal
+cannot show.
+[`heldout/RESULTS.md`](../heldout/RESULTS.md) gives each protocol's specification, limits,
+tests, certificate, co-simulation, judge and bench result.
 
 ## Real devices
 
@@ -1118,9 +1190,11 @@ decoding. For the OLED Pong cases the decoded I2C writes are replayed into the S
 addressing, and the picture they leave must be the title, or the court the game model draws.
 For a receiver, such as `uart_rx`, `can_rx` or `spi_sniff`, the decoder reads the line the
 firmware read, and the case checks that the firmware reported the same frames.
-`sw/tests/test_sigrok_judge.py` holds 14 more judges written earlier, for programs whose
-tests live in `sw/tests` (USB Power Delivery, LIN responder, RC-6, EM4100, DCF77, SD card,
-1-Wire device, AVR programmer, Qi, SPI flash, MAX7219, stepper, nRF24L01+ and Morse).
+`sw/tests/test_sigrok_judge.py` holds 20 more judges, for programs whose tests live in
+`sw/tests`: 14 written earlier (USB Power Delivery, LIN responder, RC-6, EM4100, DCF77, SD
+card, 1-Wire device, AVR programmer, Qi, SPI flash, MAX7219, stepper, nRF24L01+ and Morse)
+and six in the [held-out round](#the-held-out-round) (S/PDIF, Microwire, DHT22, PS/2 host,
+SNES pad and M-Bus).
 
 **Beyond sigrok 0.7.2.** Many protocols have no decoder in that release, so the judges also
 use readers that are not sigrok-cli's own, each fetched at a pinned commit by
@@ -1155,10 +1229,12 @@ little, and both now compare more: the 1-Wire judge read only the network layer'
 so it now also compares every bit the master read, and the MAX7219 judge skipped the seven
 blanked digits of the set-up.
 
-In the final run all 63 judges in `judges.py` and all 14 in `test_sigrok_judge.py` agree,
-and all 77 controls fail. Together they judge 74 of the 82 programs. The other eight:
+In the final run all 63 judges in `judges.py` and all 20 in `test_sigrok_judge.py` agree,
+and all 83 controls fail. Together they judge 80 of the 90 programs. The other ten:
 
 - DShot: the only decoder we found carries no licence, so we do not run it.
+- The held-out MIL-STD-1553B terminal and BiSS C master: sigrok has no decoder for either
+  (`ssi32` is a Bosch SPI message protocol, not the encoder interface).
 - `modbus_full` has no co-simulation case of its own: its tests run every test of
   `modbus_rtu`, which the Modbus judge does read, and then its extra functions against the
   Modbus client model (`test_modbus.py`).
@@ -1222,7 +1298,7 @@ passes at k when its protocol check passes, its board reports no error and no co
 faults. A check that measures an exact time allows for the delay: `usb_hid`'s replies must
 start exactly 75 ticks after the host's end of packet, plus the round trip.
 
-All 76 cases pass with three ticks each way, so no program needs a slower setting for real
+All 84 cases pass with three ticks each way, so no program needs a slower setting for real
 pads. The closest is `spi_target` in SPI mode 3 at its rated 416 kHz (a 60-tick SCK period
 at 25 MHz). Each MISO bit reaches the pad 36 to 51 ticks after the rising edge before it, so it
 is set up at least 9 ticks ahead of the rising edge that samples it: room for the 2 ticks of
@@ -1239,18 +1315,18 @@ inputs it samples are its buttons.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings and receivers generated from their tables, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the DOOM console's load model, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,632 | Pass, 5 skipped where an optional tool is absent (the sigrok tests need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings and receivers generated from their tables, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the DOOM console's load model, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,869 | Pass, 5 skipped where an optional tool is absent (the sigrok tests need `sigrok-cli`, which CI installs) |
 | Chip level on the RTL (`make test`) | 12 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 12 | Pass; with SDF timing at 20 ns at the three corners, 12 each |
 | Co-simulation and line unit lockstep on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make cosim-parallel line-test`) | all | Pass |
-| Co-simulation (`make cosim`): 200 random programs (191 fit a page), 76 firmware cases with bus models, directed tests | all | Pass |
+| Co-simulation (`make cosim`): 200 random programs (191 fit a page), 84 firmware cases with bus models, directed tests | all | Pass |
 | Host interface (`make host-test`) | 25 | Pass |
 | Core unit tests (`make unit-test`) | 40 | Pass |
 | Bus monitor (`make mon-test`) | 1 | Pass |
 | Line unit lockstep (`make line-test`) | 19 runs, 3.8 million edges | Pass |
 | Newer firmware (SWD, SPI target, NEC, NEC rebuilt for 33 and for 50 MHz, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 9 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
-| Outside judges: decoders written by others on the co-simulation cases (`make judges`), each with its control; 14 more are in the software tests | 61 | Pass; every control fails |
+| Outside judges: decoders written by others on the co-simulation cases (`make judges`), each with its control; 20 more are in the software tests | 63 | Pass; every control fails |
 | Pads and board: every co-simulation case with its pins delayed 0 to 3 ticks each way (`make pad-audit`) | 74 × 4 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 
@@ -1275,9 +1351,9 @@ and the SDF-annotated runs replay the chip tests with those delays.
   bus) the stretch never outlasted the controller's own low time; its Fast-mode margin is
   measured against our controller model only.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
-- **FPGA, not silicon.** No chip exists yet. The design runs on an FPGA bench (80 of the
-  82 programs matching the model and their certificates; the 14-second `westminster` chime
-  has no bench bundle, and `pwm_audio` has run there as the DOOM console's sound; two
+- **FPGA, not silicon.** The design runs on an FPGA bench (89 of the
+  90 programs matching the model and their certificates; the 14-second `westminster` chime
+  has no bench bundle; two
   programs `escert` refutes are refused there where it and the model said, with no late or
   unowned edge reaching a pin; [the bench](../fpga/tangprimer25k/README.md)), with
   plain flip-flops for the clock gates and latch banks and block RAM for the SRAM macros;

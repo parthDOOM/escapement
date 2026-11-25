@@ -738,6 +738,23 @@ record. A newer push to a branch cancels that branch's runs, and the site builds
 commit, after its last workflow, where each workflow used to start a build that cancelled
 the one before and left cancelled checks on the commit.
 
+## The held-out round
+
+**D-70 escert checks every CONFIG as the chip will (3.1).** A `CONFIG` that completes is
+checked by the chip before the line unit takes it (§6.6 step 1 of the
+[semantics](11-SEMANTICS.md)): ADMIT/OWNER if the configuration drives a pin its context
+does not own, ADMIT/CONFIG if it is invalid: with one cell a bit, a period under 8 ticks or a
+sampling point S outside 4 ≤ S < the period; with more cells, a cell under 2 ticks. When escert learned the line unit in version
+1.4 it modelled a `CONFIG`'s timing, its ownership of the unit and the pins it claims, but
+not those two faults, and no test certified a bad configuration, so the gap stayed unseen
+until the held-out round's S/PDIF transmitter: a draft whose `CONFIG` faults on the
+simulator at tick 24 was certified CHECKED. escert now checks both faults at every
+`CONFIG`, from the configuration block's value when it can be read as constant and otherwise
+from its value in the image, and the certificate then says so. Eleven tests cover valid and invalid configurations; on every
+invalid one the escert of version 3.1 found nothing while the simulator faults. The fix is
+to the checker only: the chip already refused those configurations, so no certified program
+could ever have run late, only been refused where its certificate said it would not be.
+
 ## The DOOM console
 
 **D-66 The game on the host, the chip as its input/output processor.** DOOM needs far more

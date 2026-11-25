@@ -112,7 +112,7 @@ a stage earlier too, and was signed off at 20 ns: the chip has been rated for 50
 
 ## On hardware
 
-There was no chip yet, so on 8 November version 1.6 went onto an FPGA: the chip's own RTL,
+On 8 November version 1.6 went onto an FPGA: the chip's own RTL,
 built for a Sipeed Tang Primer 25K, driven by a Raspberry Pi Pico W playing the host. A
 staged bring-up script, rehearsed earlier against a simulated board with planted faults,
 ran every firmware and compared each one's telemetry with its certificate. It passed.
@@ -193,6 +193,16 @@ FPGA build where the certificate checker had said they would be. And learning, u
 checked against recordings in software, ran on the chip's own capture: it recorded a 433 MHz
 remote's frames, and the transmitter and receiver generated from what it learned ran on the
 same chip.
+
+The last test was of the claim itself. Every program until then was for a protocol someone
+had chosen knowing what the chip could do. On 4 November, with version 1.6, a pool of 24
+protocols had been fixed and eight drawn from it at random, the drawn list sealed by a hash
+committed before any was written. The seal was opened on 24 November, once version 3.1 was
+tagged, and the eight were written on its chip, assembler and simulator unchanged: a MIL-STD-1553B terminal, an S/PDIF
+transmitter, a Microwire EEPROM master, a DHT22 host, a BiSS C master, a PS/2 host, a SNES
+pad reader and an M-Bus slave. All eight fit. The chip had no bug to show; the certificate
+checker had one, a `CONFIG` it never checked the way the chip does, and it was fixed
+([heldout/RESULTS](../heldout/RESULTS.md)).
 
 ## What stayed the same
 

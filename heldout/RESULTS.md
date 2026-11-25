@@ -10,14 +10,22 @@ a string, which gives pool numbers 19, 9, 14, 24, 1, 21, 16 and 6. The drawn lis
 could not change afterwards.
 
 All eight were written on 24 November 2026 on version 3.1 (commit `cb47436`): the chip, its
-assembler, its instruction-set simulator and its certificate checker stayed as they were at
-that commit. Each protocol went through the same steps.
+assembler and its instruction-set simulator stayed as they were at that commit. The
+certificate checker was changed once, to fix the soundness bug the round found (Toolchain
+findings, below). Each protocol went through the same steps.
 
 1. **Firmware**, written from the protocol's public specification, with the section of every
    timing number cited in the program's header.
 2. **A bus model** of the device on the other end of the wire (`sw/escmodels/`), written
-   separately, from the specification alone, without sight of the firmware. It fails loudly
-   on any timing the specification forbids, so a firmware bug cannot pass quietly.
+   by a separate, fresh session. It was given the specification, the conventions of
+   `sw/escmodels/` and the model's interface (its pins, its parameters and the checks it
+   makes), and told not to read the firmware, the tests or the notes. It fails loudly on any
+   timing the specification forbids, so a firmware bug cannot pass quietly. The interface
+   came from the firmware's side, so that side chose what each model checks, though not how.
+   The rules were instructions, not enforced, and what each session read is its own report;
+   both sides came from the same kind of AI assistant, so a misreading they share is
+   possible, which the outside judges (step 6) guard against where one exists. Each brief, and
+   what was recorded when its model was delivered, is in [`BRIEFS.md`](BRIEFS.md).
 3. **Tests on the instruction-set simulator (ISS)** against that model, each with negative
    controls: the same test with one timing moved outside the specification, or one bit wrong,
    which must fail.
