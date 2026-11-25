@@ -6,6 +6,7 @@ from .i2c import I2cTarget  # noqa: F401
 from .i2c_ctrl import I2cController  # noqa: F401
 from .can import CanBus, CanSource, crc15, encode_frame, frame_bits  # noqa: F401
 from .ps2 import Ps2Host  # noqa: F401
+from .ps2kbd import Ps2Keyboard  # noqa: F401
 from .jtag import JtagTap  # noqa: F401
 from .spi import SpiTarget  # noqa: F401
 from .ws2812 import Ws2812Decoder  # noqa: F401
@@ -26,3 +27,10 @@ from .wiegand import WiegandReceiver, WiegandSender  # noqa: F401
 from .modbus import ModbusClient, adu, crc16  # noqa: F401
 from .sbus import SbusSource  # noqa: F401
 from .eth import EthSource, wire_bits  # noqa: F401
+from .mil1553 import Bc1553  # noqa: F401
+from .spdif import SpdifRx  # noqa: F401
+from .eeprom93 import Eeprom93  # noqa: F401
+from .dht22 import Dht22  # noqa: F401
+from .biss import BissSlave  # noqa: F401
+from .snes import SnesPad  # noqa: F401
+from .mbus import MbusMaster  # noqa: F401
