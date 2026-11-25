@@ -1,0 +1,9 @@
+heldoutjudge: analyser COM12, bench COM8; programs: spdif_tx, dht22, snes_pad, biss_c, ps2_host, microwire_93c46, mbus_slave
+spdif_tx         PASS  2 valid samples in 375 sub-frames; 2 valid samples in 378 sub-frames
+dht22            PASS  replies ['0xffff0001']
+snes_pad         PASS  replies ['0x0']
+biss_c           PASS  replies ['0x2', '0x0']
+ps2_host         PASS  replies ['0x80000002']
+microwire_93c46  PASS  first half (CS, SK) captured; move channel 0 to uio[2] and run --mw-half B
+mbus_slave       PASS  20 characters sent, 28 answered, reply delays [22.0, 22.0] bit times
+heldoutjudge: PASS: 7 of 7

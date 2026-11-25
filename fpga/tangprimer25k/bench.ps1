@@ -73,6 +73,7 @@ function Deploy-Files {
         @{ src = "$Here\usbbench.py"; dst = "usbbench.py" },
         @{ src = "$Here\latebench.py"; dst = "latebench.py" },
         @{ src = "$Here\learnbench.py"; dst = "learnbench.py" },
+        @{ src = "$Here\heldoutbench.py"; dst = "heldoutbench.py" },
         @{ src = "$Repo\sw\rp2350\escapement_demo.py"; dst = "escapement_demo.py" }
     )
     $bdir = Join-Path $Build "bundles"

@@ -187,6 +187,7 @@ input. `chip-pnr.log` is the place-and-route log of that bitstream.
 | `test_ethbench.py` | software test: `ethbench.py` on the simulated chip, every frame decoded from TD+ and TD- and checked with its CRC; the receive bench and the line check against a simulated link partner |
 | `swdbench.py`, `test_swdbench.py` | the SWD bench (`swd_idcode` debugging a second Pico) and its test through the bare Pico against the RP2040 model |
 | `swdjudge.py` | the SWD bench judged by an outside analyser and sigrok's `swd` decoder (runs on Windows; sigrok-cli in WSL) |
+| `heldoutbench.py`, `heldoutjudge.py`, `test_heldoutbench.py` | the held-out round's programs on the bench (below): the Pico W's side, including an M-Bus master; the judge of the two-channel analyser's captures (Windows, with sigrok-cli in WSL); and their tests against the simulated chip and on captures made from the ISS |
 | `usbbench.py`, `test_usbbench.py` | the USB keyboard bench (`usb_hid` at 24 MHz on a laptop's USB port, below) and its test through the bare Pico against the USB host model |
 | `late_bundles.py`, `refuse_owner.asm`, `latebench.py`, `test_latebench.py` | the refusal bench (The chip refuses, below): two programs escert refutes, built into `build/refused/`, run on the chip and checked against the model, with the pins and the tripwires; its test on the simulated chip |
 | `learnhost.py`, `learnbench.py`, `test_learnbench.py` | the learning bench (Learned on the bench, below): the laptop's steps, the Pico's steps, and the whole loop on the simulated chip |
@@ -772,6 +773,98 @@ rightly read nothing.
 
 Files: `results/2026-11-24/learn.log`, and in `learn/` the playback (`source.json`), the
 chip's capture, the learned table, both generated programs and the timed marks.
+
+## Held-out round on the bench, 2026-11-25
+
+The held-out round ([`heldout/RESULTS.md`](../../heldout/RESULTS.md)) wrote eight protocols
+drawn at random from a sealed list. Here each one runs on the chip with no device on the other
+end of its bus: only the two boards, and a second Pico as a logic analyser (for M-Bus, the
+Pico W also acts as the bus master). All eight passed: seven by their captures, and the 1553B
+terminal, which makes no edge without a bus controller, by bring-up alone.
+
+First, bring-up passed all six stages, and in stage 5 the eight held-out programs matched the
+model with the rest, 94 of 94. Then [`heldoutjudge.py`](heldoutjudge.py) ran each program
+while the analyser recorded two of its pins, and judged each capture in up to three ways:
+
+- **Against the ISS.** The instruction-set simulator runs the same program image with the same
+  host words, the pins pulled up as the Pico W pulls them. Every edge the analyser saw after
+  the trigger must be one the ISS made, at the same time within two samples plus 100 ppm (the
+  two crystals), and none may be missing.
+- **Against the protocol's limits**, from the specification each program cites, such as the
+  CD4021B's minimum pulse widths for the SNES pad.
+- **By sigrok**, where a decoder can judge a run with no device.
+
+Every capture also has a control, the same capture with one pulse inverted, which each judge
+must refuse.
+
+| Program | Channel 0 | Channel 1 | Result |
+| --- | --- | --- | --- |
+| `spdif_tx` | uio[0], the line | uio[1], a marker the Pico drives | sigrok `spdif`: two pushed words came out as valid samples, in order, among some 380 silent sub-frames flagged not valid; unit interval 320 ns |
+| `dht22` | uio[0], DQ | | ISS; the start signal low for 1 ms, then released; the reply "no response" |
+| `snes_pad` | uio[0], latch | uio[1], clock | ISS; a 12 us latch, 17 clocks of 6 us phases within the CD4021B's 5 V limits; the reply 0 (no pad) |
+| `biss_c` | uio[0], MA | uio[1], SL | ISS; MA at 250 kHz, 13 clocks with no ACK, MA left high; the replies "no ACK" and 0 |
+| `ps2_host` | uio[0], CLK | uio[1], DATA | ISS; the request to send (CLK low 105 us, DATA low at 100 us), the 15 ms wait for a keyboard, the 100 us inhibit that ends it; the reply "no device clock" |
+| `microwire_93c46` | uio[0], CS, then uio[2], DI | uio[1], SK | ISS for each capture; sigrok `microwire` and `eeprom93xx` on the two captures of each command merged on SK: EWEN, WRITE 0x05 0x1234, READ 0x05 (0xFFFF, the pull-up) |
+| `mbus_slave` | uio[0], master to slave | uio[1], slave to master | live, with the Pico W as the master: sigrok `uart` (8E1) read 20 characters sent and 28 answered (E5h, then a 27-byte RSP_UD), no reply to another address or to a bad checksum, each reply 22.0 bit times after its telegram |
+
+`am230x` prints nothing for a start signal that no sensor answers, and sigrok has no BiSS,
+SNES or PS/2-request decoder, so those four are judged by the ISS and their limits alone. The
+1553B terminal waits for a bus controller and makes no edge here, so stage 5's digest alone
+judges it. The logs and every capture (as VCD) are in
+[`results/2026-11-25-heldout/`](results/2026-11-25-heldout); `judge-four/` also keeps the
+first S/PDIF attempt, which failed for the reason given below.
+
+The judge was restructured after that run and run again on the same afternoon, from a fresh
+chip load: all seven captured programs passed again, both Microwire halves included. Its logs
+and captures are in [`results/2026-11-25-heldout-rerun/`](results/2026-11-25-heldout-rerun).
+
+**M-Bus with the Pico W as its master.** M-Bus at logic level is 8E1 serial at 2400 baud,
+half duplex. `heldoutbench.mbus_master` bit-bangs each telegram on uio[0], the slave's
+receive line, timing every bit from the telegram's start against the microsecond timer with
+interrupts off, so that no error builds up. It leaves uio[1], the slave's reply, to the
+analyser, and collects the slave's notes to its host from the mailbox. The four telegrams are
+SND_NKE and REQ_UD2 to the slave's address, SND_NKE to another address, and REQ_UD2 with a
+wrong checksum. The physical layer, which a TSS721 transceiver would add, is not tested.
+
+**What the bench taught the judge.** Four things shaped the S/PDIF capture.
+
+- The bit-banged host link pushes a mailbox word in about 9.4 ms, far longer than a 41 us
+  S/PDIF frame. So the Pico pushes one word and then pulses uio[1] low as a marker, a pin the
+  S/PDIF program does not own, and the analyser triggers on the marker.
+- The word goes out on the line about two frames after the push, before the marker. The
+  capture therefore keeps 8,000 samples before the trigger, the most the analyser takes:
+  20,000 never triggered.
+- The analyser's rising-edge trigger fires at once on a line that rests high, so every
+  trigger here is a falling edge.
+- sigrok's `spdif` decoder never synchronises from some starting points in a running stream
+  ("Unknown Preamble", then a Python ValueError), so the judge then starts it one sub-frame
+  later.
+
+**Wiring.** The analyser has headers on only two of its inputs, GP2 and GP3, besides its debug
+port, so it has two channels.
+
+| Analyser | To |
+| --- | --- |
+| GP2 (pin 4), channel 0 | uio[0]: wire 22's net (the Pico W's GP9, J6 top row col 6) |
+| GP3 (pin 5), channel 1 | uio[1]: wire 23's net (the Pico W's GP18, J6 top row col 5) |
+| debug header GND | the Pico W's pin 38 (GND) |
+
+Each channel shares its pin's net through a breadboard, with no solder. Take the wire's end out
+of its Dock hole and put it in a free breadboard row; bridge that row back to the same Dock hole
+with a male-to-male jumper; put the analyser's wire in the row too. Microwire needs its DI line
+as well: after the first half of its captures, channel 0 moves to uio[2] (wire 24, the Pico
+W's GP19, J6 top row col 4), spliced the same way. With `pinid.fs` loaded, `.\bench.ps1 pinid`
+must still find all 26 wires through the splices.
+
+    .\bench.ps1 load chip
+    .\bench.ps1 deploy
+    python fpga\tangprimer25k\heldoutjudge.py --la COM12 --host COM8 --tc <TerminalCapture.exe> --out <dir> --mw-half A
+    (move channel 0 to uio[2], run pinid, load chip again)
+    python fpga\tangprimer25k\heldoutjudge.py --la COM12 --host COM8 --tc <TerminalCapture.exe> --out <dir> --only microwire_93c46 --mw-half B
+
+The Pico W runs at 100 MHz, from which its PWM makes the chip's 25 MHz exactly.
+[`test_heldoutbench.py`](test_heldoutbench.py) runs the Pico W's side against the simulated
+chip, and each judge on captures made from the ISS.
 
 ## Why the clock is on L3
 

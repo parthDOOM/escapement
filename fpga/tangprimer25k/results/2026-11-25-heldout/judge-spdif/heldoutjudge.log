@@ -1,0 +1,3 @@
+heldoutjudge: analyser COM12, bench COM8; programs: spdif_tx
+spdif_tx         PASS  2 valid samples in 378 sub-frames; 2 valid samples in 376 sub-frames
+heldoutjudge: PASS: 1 of 1
