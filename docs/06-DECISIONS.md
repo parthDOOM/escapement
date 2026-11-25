@@ -738,6 +738,17 @@ record. A newer push to a branch cancels that branch's runs, and the site builds
 commit, after its last workflow, where each workflow used to start a build that cancelled
 the one before and left cancelled checks on the commit.
 
+**D-71 A branch push that changes only documentation runs no tests.** The test workflow has
+no path filter, unlike the harden, the formal proofs and the two mutation campaigns: it runs
+on every push to master so that the site, built after master's last verification run, is
+rebuilt for a commit that changes only the docs or the site. On other branches that made a
+docs-only push run the whole verification, about an hour and a half of runner time, for a tree
+whose code had just passed. A first job now compares the push with the commit before it and
+lets the two test jobs run only if something outside `docs/`, `paper/` and the Markdown files
+changed; on master, on a new branch and on a manual run they always run. Nothing the tests
+read is in those paths, and the site is not among them, since its playground runs the
+simulator's code.
+
 ## The held-out round
 
 **D-70 escert checks every CONFIG as the chip will (3.1).** A `CONFIG` that completes is
