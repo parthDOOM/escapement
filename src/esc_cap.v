@@ -39,13 +39,19 @@ module esc_cap (
     output wire [31:0] head_o,
     output wire [31:0] status,      // GETC / dbg sel 17
     output wire [31:0] cfg,         // dbg sel 18
-    output reg  [7:0]  rptr,        // dbg sel 20
-    output reg  [31:0] ovf_tick     // dbg sel 19
+    output wire [7:0]  rptr,        // dbg sel 20
+    output wire [31:0] ovf_tick     // dbg sel 19
 );
-  reg       en, snap, ring, stream, bank, ovf, full, wrapped;
-  reg [7:0] mask, base, lim, ptr, prev;
-  reg [31:0] st0, st1;
+  reg       en, snap, ovf, full, wrapped;
   reg [1:0] n;
+  // v3.2: everything below that is not a flag is a clock-gated bank (esc_greg, D-29): the
+  // configuration, the pointers, the two staged records, the edge detector and the overflow
+  // tick. Each enable is exactly the condition under which the always block assigned the
+  // bank (start, then the drain, then generation, then a CAPT), and each d what it assigned,
+  // so the unit is unchanged; with no capture armed none of them sees the clock.
+  wire       ring, stream, bank;
+  wire [7:0] mask, base, lim, ptr, prev;
+  wire [31:0] st0, st1;
   wire [7:0] sync = bank ? {3'd0, psync[12:8]} : psync[7:0];   // the watched bank
 
   // step 1: drain, unless stream mode would write over the record at rptr
@@ -67,6 +73,25 @@ module esc_cap (
   wire       push     = gen & ~ovf_now;
   wire [31:0] rec     = {sync, now[23:0]};
 
+  wire       arm      = capt_we & capt_v[31];               // a CAPT that arms
+  wire       st0_rec  = push & (n_after == 2'd0);
+  esc_greg #(27) g_cfg (.clk(clk), .rst_n(rst_n), .en(start | arm),
+      .d(start ? 27'd0 : {capt_v[23:16], capt_v[15:8], capt_v[7:0], capt_v[24], capt_v[25], capt_v[26]}),
+      .q({mask, lim, base, ring, bank, stream}));
+  esc_greg #(8) g_ptr (.clk(clk), .rst_n(rst_n), .en(start | drain_c | arm),
+      .d(start ? 8'd0 : arm ? capt_v[7:0] : ptr_nxt), .q(ptr));
+  esc_greg #(8) g_rptr (.clk(clk), .rst_n(rst_n), .en(start | ack | arm),
+      .d(start ? 8'd0 : arm ? capt_v[7:0] : ack_v), .q(rptr));
+  esc_greg #(8) g_prev (.clk(clk), .rst_n(rst_n), .en(start | gen),
+      .d(start ? 8'd0 : sync), .q(prev));
+  esc_greg #(32) g_ovt (.clk(clk), .rst_n(rst_n), .en(start | (gen & ovf_now) | arm),
+      .d((start | arm) ? 32'd0 : now), .q(ovf_tick));
+  // the records are not cleared by a start (staging is empty then, n = 0)
+  esc_greg #(32) g_st0 (.clk(clk), .rst_n(rst_n), .en(drain_c | st0_rec),
+      .d(st0_rec ? rec : st1), .q(st0));
+  esc_greg #(32) g_st1 (.clk(clk), .rst_n(rst_n), .en(push & (n_after != 2'd0)),
+      .d(rec), .q(st1));
+
   assign drain  = drain_c;
   assign ptr_o  = ptr;
   assign head_o = st0;
@@ -76,35 +101,27 @@ module esc_cap (
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      en <= 1'b0; snap <= 1'b0; ring <= 1'b0; stream <= 1'b0; bank <= 1'b0;
+      en <= 1'b0; snap <= 1'b0;
       ovf <= 1'b0; full <= 1'b0; wrapped <= 1'b0;
-      mask <= 8'd0; base <= 8'd0; lim <= 8'd0; ptr <= 8'd0; rptr <= 8'd0; prev <= 8'd0;
-      st0 <= 32'd0; st1 <= 32'd0; n <= 2'd0; ovf_tick <= 32'd0;
+      n <= 2'd0;
     end else if (start) begin
-      en <= 1'b0; snap <= 1'b0; ring <= 1'b0; stream <= 1'b0; bank <= 1'b0;
+      en <= 1'b0; snap <= 1'b0;
       ovf <= 1'b0; full <= 1'b0; wrapped <= 1'b0;
-      mask <= 8'd0; base <= 8'd0; lim <= 8'd0; ptr <= 8'd0; rptr <= 8'd0; prev <= 8'd0;
-      n <= 2'd0; ovf_tick <= 32'd0;
+      n <= 2'd0;
     end else begin
-      // ---- 1 drain
+      // ---- 1 drain (st0 and ptr: g_st0, g_ptr)
       if (drain_c) begin
-        st0 <= st1;
-        ptr <= ptr_nxt;
         if (hit_lim && wrap) wrapped <= 1'b1;
         if (set_full) begin
           full <= 1'b1; en <= 1'b0;
         end
       end
-      if (ack) rptr <= ack_v;            // the host's acknowledgement (a CAPT overrides)
-      // ---- 2 generate
-      if (push) begin
-        if (n_after == 2'd0) st0 <= rec;
-        else                 st1 <= rec;
-      end
+      // (rptr: the host's acknowledgement, g_rptr; a CAPT overrides)
+      // ---- 2 generate (the records, prev and the overflow tick: g_st0, g_st1, g_prev, g_ovt)
       if (gen) begin
-        prev <= sync; snap <= 1'b0;
+        snap <= 1'b0;
         if (ovf_now) begin
-          ovf <= 1'b1; ovf_tick <= now; en <= 1'b0;
+          ovf <= 1'b1; en <= 1'b0;
         end
       end
       n <= set_full ? 2'd0 : (n_after + {1'b0, push});
@@ -114,12 +131,9 @@ module esc_cap (
       end
       // ---- 3 CAPT overrides (commits never coincide with start/stop)
       if (capt_we) begin
-        if (capt_v[31]) begin
+        if (capt_v[31]) begin             // (configuration, pointers, tick: the banks)
           en <= 1'b1; snap <= 1'b1;
-          mask <= capt_v[23:16]; lim <= capt_v[15:8]; base <= capt_v[7:0];
-          ring <= capt_v[24]; bank <= capt_v[25]; stream <= capt_v[26];
-          ptr <= capt_v[7:0]; rptr <= capt_v[7:0];
-          ovf <= 1'b0; full <= 1'b0; wrapped <= 1'b0; ovf_tick <= 32'd0;
+          ovf <= 1'b0; full <= 1'b0; wrapped <= 1'b0;
           n <= 2'd0;
         end else begin
           en <= 1'b0; snap <= 1'b0;

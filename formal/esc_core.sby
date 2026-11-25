@@ -10,6 +10,13 @@
 #   tw    : v2 (S-C) UNBOUNDED, by k-induction: the twelve tripwire properties (each proved
 #           by the tasks above) imply that the tripwire bank stays 0 (tw_zero); the other
 #           assertions are removed
+#   park  : v3.2 UNBOUNDED, by k-induction: a parked fetch (a waiting context's) takes the
+#           word the store would have returned (park_*, with one store address and its word
+#           modelled); the other assertions are removed, the ahead lemmas assumed as everywhere
+#   park_cover : reachability of the park properties' preconditions
+#   park_bmc : the park properties bounded from reset (depth 24): the induction's base case
+#           is only 6 steps, too short for a write to land while a WAIT is in flight, so
+#           the p-guard tooth (teeth.sh) is scored here
 [tasks]
 bmc
 cover
@@ -17,6 +24,9 @@ pdr
 kind
 ahead
 tw
+park
+park_cover
+park_bmc
 
 [options]
 bmc: mode bmc
@@ -30,6 +40,12 @@ ahead: mode prove
 ahead: depth 8
 tw: mode prove
 tw: depth 2
+park: mode prove
+park: depth 6
+park_cover: mode cover
+park_cover: depth 40
+park_bmc: mode bmc
+park_bmc: depth 24
 
 [engines]
 bmc: smtbmc yices
@@ -38,15 +54,25 @@ pdr: abc pdr
 kind: smtbmc yices
 ahead: smtbmc yices
 tw: smtbmc yices
+park: smtbmc yices
+park_cover: smtbmc yices
+park_bmc: smtbmc yices
 
 [script]
 ahead: read -define ESC_AHEAD_CHECK
 tw: read -define ESC_TW_CHECK
+park: read -define ESC_PARK_CHECK
+park_cover: read -define ESC_PARK_CHECK
+park_bmc: read -define ESC_PARK_CHECK
 ~pdr: read -formal -DFORMAL -DFORMAL_ANYNOW esc_greg.v esc_ctx.v esc_cap.v esc_mon.v esc_line.v esc_core.v
 pdr: read -formal -DFORMAL -DESC_CORE_PDR esc_greg.v esc_ctx.v esc_cap.v esc_mon.v esc_line.v esc_core.v
 prep -top esc_core
 ahead: chformal -assert -remove n:$assert$*
 tw: chformal -assert -remove c:* c:tw_zero %d
+park: chformal -assert -remove c:* c:park_* %d
+park_bmc: chformal -assert -remove c:* c:park_* %d
+park_cover: chformal -assert -remove
+park_cover: chformal -cover -remove c:* c:park_cv* %d
 # PDR needs defined initial values: every flop is async-reset and step 0 is assumed to be
 # in reset, so the pre-reset contents are irrelevant; the unbounded run reaches the 2^32
 # wrap without FORMAL_ANYNOW.

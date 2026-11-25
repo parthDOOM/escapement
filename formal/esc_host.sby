@@ -15,12 +15,13 @@ prove: abc pdr
 cover: smtbmc yices
 
 [script]
-read -formal -DFORMAL escapement_host.v esc_host_env.v
+read -formal -DFORMAL esc_greg.v escapement_host.v esc_host_env.v
 prep -top esc_host_env
 prove: async2sync
 prove: setundef -undriven -anyseq
 prove: setundef -init -zero
 
 [files]
+../src/esc_greg.v
 ../src/escapement_host.v
 esc_host_env.v

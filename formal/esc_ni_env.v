@@ -39,7 +39,10 @@ module esc_ni_env (
     input wire [31:0]  rd_a, rd_b,
     input wire [3:0]   cstop_a, cstop_b, cstart_a, cstart_b, irqc_a, irqc_b,
     input wire [3:0]   push_a, push_b, pop_a, pop_b,
-    input wire [127:0] pdata_a, pdata_b
+    input wire [127:0] pdata_a, pdata_b,
+    // v3.2: live program writes, per copy (their timing follows the other contexts' reloads)
+    input wire         wr_a, wr_b,
+    input wire [1:0]   wp_a, wp_b
 );
   (* anyconst *) reg [1:0]  j;
   (* anyconst *) reg [3:0]  ctx_enable, ctx_bank, ctx_pair;
@@ -71,12 +74,12 @@ module esc_ni_env (
   wire [8:0]    cpa, cpb;
   wire [31:0]   cia, cib;
 
-`define NI_CORE(N, RD, CSTOP, CSTART, IRQC, PUSH, PDATA, POP, IA, RE, O, P, FQ, CV, CC, CP, CI, CO, CA, FC, LU) \
+`define NI_CORE(N, RD, CSTOP, CSTART, IRQC, PUSH, PDATA, POP, IA, RE, O, P, FQ, CV, CC, CP, CI, CO, CA, FC, LU, WR, WP, PK) \
   esc_core N ( \
       .clk(clk), .rst_n(rst_n), .start(start), .stop(stop), .ctx_stop(CSTOP), .ctx_start(CSTART), \
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs), .pin_owned(pin_owned), .pin_owner(pin_owner), \
       .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair), .ctx_page(ctx_page), .ctx_span(ctx_span), \
-      .imem_addr(IA), .imem_re(RE), .imem_free(), .imem_rdata(RD), \
+      .imem_addr(IA), .imem_re(RE), .imem_free(), .imem_wr(WR), .imem_wpage(WP), .imem_rdata(RD), \
       .uio_in(uio_in), .uio_out(), .uio_oe(), .ib_in(ib_in), .pin_h(pin_h), .ob_out(), \
       .running(), .ctx_state(), .irq_pending(), .fault_valid(), .irq_clear(IRQC), \
       .mbx_rx_push(PUSH), .mbx_rx_data(PDATA), .mbx_rx_full(), .mbx_tx_pop(POP), .mbx_tx_data(), \
@@ -88,12 +91,20 @@ module esc_ni_env (
       .dbg_sel_ctx(dbg_sel_ctx), .dbg_sel(dbg_sel), .dbg_rdata(), \
       .tape_addr(), .tape_re(), .tape_we(), .tape_wdata(), .tape_rdata(tape_rdata), .tape_busy(), \
       .tape_host_we(tape_host_we), .tape_ack(tape_ack), .tape_ack_v(tape_ack_v), \
-      .f_ctx_obs(O), .f_pins(P), .f_fq(FQ), .f_ctx_all(CA), .f_core(FC), .f_lu(LU));
+      .f_ctx_obs(O), .f_pins(P), .f_fq(FQ), .f_ctx_all(CA), .f_core(FC), .f_lu(LU), .f_park(PK));
   wire [3471:0] caa, cab;
   wire [344:0]  fca, fcb;
   wire [32:0]   lua, lub;
-  `NI_CORE(u_a, rd_a, cstop_a, cstart_a, irqc_a, push_a, pdata_a, pop_a, ia, rea, oa, pa, fqa, cva, cca, cpa, cia, coa, caa, fca, lua)
-  `NI_CORE(u_b, rd_b, cstop_bj, cstart_bj, irqc_bj, push_bj, pdata_bj, pop_bj, ib, reb, ob, pb, fqb, cvb, ccb, cpb, cib, cob, cab, fcb, lub)
+  wire [144:0]  pka, pkb;
+  `NI_CORE(u_a, rd_a, cstop_a, cstart_a, irqc_a, push_a, pdata_a, pop_a, ia, rea, oa, pa, fqa, cva, cca, cpa, cia, coa, caa, fca, lua, wr_a, wp_a, pka)
+  `NI_CORE(u_b, rd_b, cstop_bj, cstart_bj, irqc_bj, push_bj, pdata_bj, pop_bj, ib, reb, ob, pb, fqb, cvb, ccb, cpb, cib, cob, cab, fcb, lub, wr_b, wp_b, pkb)
+  // v3.2: a live write goes into another context's page, never one j fetches from (j's words
+  // are the same in both copies: the precondition above, now with the writes in view)
+  wire [1:0] pg_j = ctx_page[2*j +: 2], pg_jp = ctx_page[2*(j ^ 2'd2) +: 2];
+  always @(*) begin
+    if (wr_a) assume (wp_a != pg_j && !(span_j && wp_a == pg_jp));
+    if (wr_b) assume (wp_b != pg_j && !(span_j && wp_b == pg_jp));
+  end
 
   // The program store: a word fetched for j at the same address in both copies is the same
   // word (j's words are the same in both); every other read is free in each copy.
@@ -236,6 +247,13 @@ module esc_ni_env (
     ni_ok_insn = w[31:24] != 8'h36 && w[31:24] != 8'h37 && w[31:24] != 8'h2D
               && w[31:24] != 8'h3C && w[31:24] != 8'h3D && w[31:24] != 8'h3E;
   endfunction
+  // v3.2 park fields (esc_core.v f_park)
+  wire [1:0] a_nq_e = pka[144:143], b_nq_e = pkb[144:143];
+  wire [1:0] a_p1_fq = pka[142:141], b_p1_fq = pkb[142:141];
+  wire       a_p1_hit = pka[140], b_p1_hit = pkb[140];
+  wire [3:0] a_wq1 = pka[139:136], b_wq1 = pkb[139:136], a_wq0 = pka[135:132], b_wq0 = pkb[135:132];
+  wire [3:0] a_park = pka[131:128], b_park = pkb[131:128];
+  wire [31:0] a_hold_j = pka[32*j +: 32], b_hold_j = pkb[32*j +: 32];
   wire j_p1 = a_run && own(a_sq + 2'd2, pair_on) == j;
   wire j_p2 = a_run && a_nq == j;
   wire j_p3 = a_run && a_cq == j;
@@ -247,7 +265,15 @@ module esc_ni_env (
     // the program-store assumption's records (fj_*, fa_*: last cycle's fetch was j's, at this
     // address) agree with the stage that holds that fetch now
     // (3.1: the whole store address, as esc_core forms it: PC bit 8 picks the partner's page)
-    if (j_p1 && a_p1v) inv_fetch: assert (fj_a && fj_b
+    // v3.2: j's park state is the same in both copies (no write ever reaches j's pages), and
+    // a fetch of j's either read the store in both or took the same held word in both
+    inv_park:  assert (a_park[j] == b_park[j] && a_hold_j == b_hold_j
+                       && !a_wq0[j] && !a_wq1[j] && !b_wq0[j] && !b_wq1[j]);
+    // ... and j's held word is one of j's program words (a WAIT that passed inv_op3), so a
+    // parked fetch hands the X stage a word the exclusions hold for (inv_op2)
+    if (a_park[j] || (j_p1 && a_p1_hit)) inv_hold: assert (ni_ok_insn(a_hold_j));
+    if (j_p1) inv_hit: assert (a_p1_hit == b_p1_hit && (!a_p1_hit || (a_p1v && a_p1_fq == j && b_p1_fq == j)));
+    if (j_p1 && a_p1v && !a_p1_hit) inv_fetch: assert (fj_a && fj_b
         && fa_a == {a_p1_spc[8] ? ctx_page[2*(j ^ 2'd2) +: 2] : ctx_page[2*j +: 2], a_p1_spc[7:0]}
         && fa_b == {b_p1_spc[8] ? ctx_page[2*(j ^ 2'd2) +: 2] : ctx_page[2*j +: 2], b_p1_spc[7:0]});
     // the exclusions hold for j's words in flight too (the assumption above applies at fetch)

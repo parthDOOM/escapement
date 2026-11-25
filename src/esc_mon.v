@@ -85,10 +85,14 @@ module esc_mon #(
   wire [CW-1:0] cfg_q;
   esc_greg #(CW) g_cq (.clk(clk), .rst_n(rst_n), .en(wr), .d(cfg_d), .q(cfg_q));
 
-  reg           en    [0:RULES-1];
-  reg           armed [0:RULES-1];
-  reg [W-1:0]   cnt   [0:RULES-1];
-  reg [7:0]     nv    [0:RULES-1];
+  // v3.2: each rule's state (enable, armed, interval counter, violation count) is a
+  // clock-gated bank (esc_greg, D-29), open only at an edge that can change it: a start, a
+  // write of the rule, a clear, or a run edge while the rule is armed or sees its from-edge.
+  // A rule that is off, or on and waiting for its from-edge, sees no clock.
+  wire          en    [0:RULES-1];
+  wire          armed [0:RULES-1];
+  wire [W-1:0]  cnt   [0:RULES-1];
+  wire [7:0]    nv    [0:RULES-1];
 
   wire [RULES-1:0] early, late;
   genvar g;
@@ -111,24 +115,33 @@ module esc_mon #(
     assign early[g] = run & armed[g] & t_ev & (mn != {W{1'b0}}) & (cnt[g] < mn);
     assign late[g]  = run & armed[g] & ~t_ev & (mx != {W{1'b0}}) & (cnt[g] == mx);
     assign counts[8*g +: 8] = nv[g];
-    always @(posedge clk or negedge rst_n) begin
-      if (!rst_n) begin
-        en[g] <= 1'b0; armed[g] <= 1'b0; cnt[g] <= {W{1'b0}}; nv[g] <= 8'd0;
-      end else if (start) begin
-        en[g] <= 1'b0; armed[g] <= 1'b0; cnt[g] <= {W{1'b0}}; nv[g] <= 8'd0;
+    reg          en_d, armed_d;
+    reg [W-1:0]  cnt_d;
+    reg [7:0]    nv_d;
+    always @(*) begin
+      en_d = en[g]; armed_d = armed[g]; cnt_d = cnt[g]; nv_d = nv[g];
+      if (start) begin
+        en_d = 1'b0; armed_d = 1'b0; cnt_d = {W{1'b0}}; nv_d = 8'd0;
       end else begin
         if (run) begin
-          if (f_ev) begin armed[g] <= 1'b1; cnt[g] <= {{(W-1){1'b0}}, 1'b1}; end
-          else if (armed[g] & (t_ev | late[g])) armed[g] <= 1'b0;
-          else if (armed[g] & (cnt[g] != {W{1'b1}})) cnt[g] <= cnt[g] + 1'b1;
-          if ((early[g] | late[g]) && nv[g] != 8'hFF) nv[g] <= nv[g] + 8'd1;
+          if (f_ev) begin armed_d = 1'b1; cnt_d = {{(W-1){1'b0}}, 1'b1}; end
+          else if (armed[g] & (t_ev | late[g])) armed_d = 1'b0;
+          else if (armed[g] & (cnt[g] != {W{1'b1}})) cnt_d = cnt[g] + 1'b1;
+          if ((early[g] | late[g]) && nv[g] != 8'hFF) nv_d = nv[g] + 8'd1;
         end
-        if (clr) nv[g] <= 8'd0;
+        if (clr) nv_d = 8'd0;
         if (cw) begin                              // (the rest of the rule: g_cfg)
-          en[g] <= mon_a[31]; armed[g] <= 1'b0; cnt[g] <= {W{1'b0}};
+          en_d = mon_a[31]; armed_d = 1'b0; cnt_d = {W{1'b0}};
         end
       end
     end
+    wire          st_en = start | cw | clr | (run & (f_ev | armed[g]));
+    wire          en_q, armed_q;
+    wire [W-1:0]  cnt_q;
+    wire [7:0]    nv_q;
+    esc_greg #(2 + W + 8) g_st (.clk(clk), .rst_n(rst_n), .en(st_en),
+        .d({en_d, armed_d, cnt_d, nv_d}), .q({en_q, armed_q, cnt_q, nv_q}));
+    assign en[g] = en_q; assign armed[g] = armed_q; assign cnt[g] = cnt_q; assign nv[g] = nv_q;
 `ifdef ESC_MON_CHECK
     // M1 an armed rule is enabled and has counted at least the tick after its from-edge
     always @(*) if (rst_n && armed[g]) assert (en[g] && cnt[g] != {W{1'b0}});

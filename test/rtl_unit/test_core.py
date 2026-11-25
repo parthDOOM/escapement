@@ -1280,6 +1280,38 @@ async def test_program_store_reads_on_demand(dut):
         assert int(dut.imem_re.value) == 0
 
 
+# --------------------------------------------------------------------------- v3.2 park
+@cocotb.test()
+async def test_waiting_context_parks(dut):
+    """v3.2 (A): a context whose instruction waits is parked. Its fetches of the waiting word
+    read nothing (the held word goes into the pipeline), so a WAITT reads the program store
+    once, not in every slot, and every commit is the one the unparked machine makes (the
+    commit trace is test_waitt_waitp's, the store reads are a power claim: docs/15)."""
+    env = await new_env(dut)
+    re = []
+    await env.load_and_start(".entry 0, s\ns: ADDT 60\nWAITT\nRDTIME r0\nHALT")
+    await env.run(80, stim=lambda t: re.append(int(dut.imem_re.value)))
+    # fetches at t = 0 mod 4: ADDT (0), WAITT (4), then WAITT parked (8..60), RDTIME (64), HALT (68)
+    assert [t for t, r in enumerate(re) if r] == [0, 4, 64, 68], re
+    assert env.commit_summary() == [(3, 0, 0, C)] + [(t, 0, 1, W) for t in range(7, 60, 4)] + \
+        [(63, 0, 1, C), (67, 0, 2, C), (71, 0, 3, C)], env.commit_summary()
+    assert env.commit_at(67)["r0"] == 67
+
+    # two contexts waiting side by side keep their own held words
+    re.clear()
+    await env.load_and_start(".entry 0, a\n.entry 1, b\n"
+                             "a: ADDT 40\nWAITT\nRDTIME r0\nHALT\n"
+                             "b: ADDT 52\nWAITT\nRDTIME r1\nHALT")
+    await env.run(72, stim=lambda t: re.append(int(dut.imem_re.value)))
+    assert [t for t, r in enumerate(re) if r] == [0, 1, 4, 5, 44, 48, 53, 57], re
+    s = env.commit_summary()
+    assert [c for c in s if c[1] == 0] == [(3, 0, 0, C)] + [(t, 0, 1, W) for t in range(7, 40, 4)] + \
+        [(43, 0, 1, C), (47, 0, 2, C), (51, 0, 3, C)], s
+    assert [c for c in s if c[1] == 1] == [(4, 1, 4, C)] + [(t, 1, 5, W) for t in range(8, 49, 4)] + \
+        [(52, 1, 5, C), (56, 1, 6, C), (60, 1, 7, C)], s
+    assert env.commit_at(47)["r0"] == 47 and env.commit_at(56)["r1"] == 56
+
+
 # --------------------------------------------------------------------------- sec. 9 Stop, 10.1
 @cocotb.test()
 async def test_digest_frozen_by_stop(dut):

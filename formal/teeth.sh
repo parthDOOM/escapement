@@ -20,6 +20,8 @@
 #   m-dq         v3 M7: the rule latches' shared write word drops a bit      esc_mon.sby kind
 #   m-own-read   v3: GETM 0/1 read the monitor for any context                esc_ni_ind.sby kind (scored on the induction failure, below)
 #   m-own-mon    v3: a MON of another context than the monitor's owner completes  split_bmc.py, depth 12
+#   p-guard      v3.2 A: a context parked while a live write may be in flight  esc_core.sby park_bmc
+#   e-stage      v3.2 E: the held X select loaded from the wrong stage (p2v)   esc_core.sby ahead
 # Prints one line per tooth; exit status 1 if any tooth did not bite.
 set -u
 cd "$(dirname "$0")/.."
@@ -65,12 +67,14 @@ tooth cfg-sel   esc_line.v "s/sel <= 4'd1 << op_ctx;/sel <= 4'd1;/" "sel <= 4'd1
 tooth cfg-early esc_line.v "s/    else if (!lu_hold) {own_bad_q, v_norm_q, v_ext_q, w3x_q} <=/    else if (!lu_hold \&\& el == 12'd0) {own_bad_q, v_norm_q, v_ext_q, w3x_q} <=/" "!lu_hold && el == 12'd0) {own_bad_q" esc_line.sby bmc 3600
 tooth ni-stop   esc_core.v 's/& ~ctx_stop\[cctx\];/\& ~(|ctx_stop);/' '& ~(|ctx_stop);' esc_ni_ind.sby base 10800
 tooth c6-grant  project.v 's/assign     imem_wgnt = imem_wpend & (core_imem_free | ~running);/assign     imem_wgnt = imem_wpend;/' 'imem_wgnt = imem_wpend;' esc_top.sby prove 600
-tooth c6-page   escapement_host.v "s/if (wslot) mem_page <= rx_byte\[1:0\]; else host_err <= 1'b1;/mem_page <= rx_byte[1:0];/" '^ *mem_page <= rx_byte\[1:0\];$' esc_host.sby prove 1800
+tooth c6-page   escapement_host.v "s/C_IMEM_PAGE: if (idx == 5'd1 \&\& wslot) mem_page <= rx_byte\[1:0\];/C_IMEM_PAGE: if (idx == 5'd1) mem_page <= rx_byte[1:0];/" "C_IMEM_PAGE: if (idx == 5'd1) mem_page <= rx_byte" esc_host.sby prove 1800
 tooth m-keep    esc_mon.v 's/wr    = ~start \& mon_we \& ~mon_a\[16\];/wr    = ~start \& mon_we;/' 'wr    = ~start & mon_we;' esc_mon.sby kind 600
 # m-dq: the latch banks' shared write word drops a bit (only M7, esc_lreg's contract, sees it: the logic
 # proofs model each bank as the enable flip-flop it replaces)
 tooth m-dq      esc_mon.v "s/\.d(cfg_d), \.q(cfg_q)/.d({cfg_d[CW-1:1], 1'b0}), .q(cfg_q)/" "cfg_d\[CW-1:1\], 1'b0" esc_mon.sby kind 600
-tooth m-count   esc_mon.v "s/cnt\[g\] <= {{(W-1){1'b0}}, 1'b1}; end/cnt[g] <= {W{1'b0}}; end/" 'cnt\[g\] <= {W{1.b0}}; end' esc_mon.sby kind 600
+tooth m-count   esc_mon.v "s/cnt_d = {{(W-1){1'b0}}, 1'b1}; end/cnt_d = {W{1'b0}}; end/" 'cnt_d = {W{1.b0}}; end' esc_mon.sby kind 600
+tooth p-guard   esc_core.v 's/cm_wait & cm_sel\[gk\] & ~(wr_hit\[gk\] | wq0\[gk\] | wq1\[gk\]);/cm_wait \& cm_sel[gk] \& ~(wr_hit[gk] | wq0[gk]);/' 'cm_sel\[gk\] & ~(wr_hit\[gk\] | wq0\[gk\]);' esc_core.sby park_bmc 3600
+tooth e-stage   esc_core.v 's/if (p1v) nq_e <= own(sq + 2.d2, pair_on);/if (p2v) nq_e <= own(sq + 2'"'"'d2, pair_on);/' 'if (p2v) nq_e <= own' esc_core.sby ahead 3600
 
 # bmc-s3: the bounded check's own tooth (split_bmc.py at depth 8): the two v1.7 S3 bugs of 11-10
 # put back (d_lee loaded with 0 at a restart; CTX_START taken for a disabled or running context)

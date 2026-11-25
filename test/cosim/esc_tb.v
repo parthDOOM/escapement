@@ -130,6 +130,7 @@ module esc_tb (
       .ctx_enable(ctx_enable), .entry_pcs(entry_pcs),
       .pin_owned(pin_owned), .pin_owner(pin_owner), .pin_od(pin_od), .ctx_bank(ctx_bank), .ctx_pair(ctx_pair),
       .ctx_page(ctx_page), .ctx_span(ctx_span), .imem_addr(imem_addr), .imem_re(imem_re), .imem_rdata(imem_rdata),
+      .imem_wr(load_we & ~load_space & running), .imem_wpage(load_addr[9:8]),   // v3.2: a live write
       .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe), .ib_in(ib_in), .pin_h(pin_h), .ob_out(ob_out),
       .running(running), .ctx_state(ctx_state),
       .irq_pending(irq_pending), .fault_valid(fault_valid), .irq_clear(irq_clear),

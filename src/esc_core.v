@@ -60,6 +60,8 @@ module esc_core #(
     output wire [9:0]   imem_addr,     // {page, PC}
     output wire         imem_re,       // D-29: this slot's fetch will be used (else no read)
     output wire         imem_free,     // no fetch in this cycle (a host program write may go)
+    input  wire         imem_wr,       // v3.2: a program word is written during the run, this cycle
+    input  wire [1:0]   imem_wpage,    //       ... into this page
     input  wire [31:0]  imem_rdata,
     // pins
     input  wire [7:0]   uio_in,
@@ -121,7 +123,8 @@ module esc_core #(
     // tape load (layout: the concatenation at the end of this file)
     output wire [3471:0] f_ctx_all,
     output wire [344:0]  f_core,
-    output wire [32:0]   f_lu             // {lu_el, lu_port, lu_rel, lu_drv, lu_mode, lu_bank}
+    output wire [32:0]   f_lu,            // {lu_el, lu_port, lu_rel, lu_drv, lu_mode, lu_bank}
+    output wire [144:0]  f_park           // v3.2: {nq_e, p1_fq, p1_hit, wq1, wq0, c_park, c_hold}
 `endif
 );
 
@@ -217,7 +220,7 @@ module esc_core #(
   wire [31:0] cap_head, cap_status, cap_cfg, cap_ovf_tick;
   wire [31:0] mon_rdata;                                     // bus timing monitor: GETM 0/1
   wire        mon_rec_load;
-  reg  [31:0] mon_tick;                                      // GETM 2: the record's tick, kept here
+  wire [31:0] mon_tick;                                      // GETM 2: the record's tick, kept here
   wire        mon_irq;
   // The monitor has an owner like the line unit: the first context whose MON commits in
   // a run, until the next START (one-hot, so the commit path reads one flop). Another
@@ -251,6 +254,11 @@ module esc_core #(
     own = pr[s ^ 2'd2] ? (s ^ 2'd2) : s;
   endfunction
   reg  [1:0]  sq, cq, nq, fq;
+  // v3.2: nq_e is nq where it selects the X stage's operands and deadlines (below) and holds
+  // through a cycle whose X slot is empty (no instruction, p2v low), when nothing reads
+  // them: those wide multiplexers then stop switching with the slot count. Equal to nq
+  // whenever p2v (ahead_be).
+  reg  [1:0]  nq_e;
   wire [1:0]  cctx    = cq;
   wire [31:0] insn    = p3_insn;
 
@@ -426,19 +434,19 @@ module esc_core #(
   // are the same in the commit cycle, and c is then now + 1 (a commit needs a run and no
   // start or stop at the edge between). Registered here; asserted equal to the definitions
   // in every commit cycle (formal, below).
-  wire [31:0] n_tmr   = c_tmr[32*nq +: 32];
+  wire [31:0] n_tmr   = c_tmr[32*nq_e +: 32];
   // The operands likewise, from p2_insn's register fields: a context's registers
   // change only at its own commit, four edges back, or (an LDT's load) at the edge after
   // it, three back. Asserted equal to the commit cycle's reads in every commit cycle
   // (formal, B8 and B9).
   wire [1:0]  n_rs    = d_op_n[I_EMITR] ? p2_insn[15:14] : p2_insn[21:20];
-  wire [31:0] opa_n   = pick(p2_insn[23:22], c_r0[32*nq +: 32], c_r1[32*nq +: 32],
-                             c_r2[32*nq +: 32], c_r3[32*nq +: 32]);
-  wire [31:0] opb_n   = pick(n_rs, c_r0[32*nq +: 32], c_r1[32*nq +: 32],
-                             c_r2[32*nq +: 32], c_r3[32*nq +: 32]);
+  wire [31:0] opa_n   = pick(p2_insn[23:22], c_r0[32*nq_e +: 32], c_r1[32*nq_e +: 32],
+                             c_r2[32*nq_e +: 32], c_r3[32*nq_e +: 32]);
+  wire [31:0] opb_n   = pick(n_rs, c_r0[32*nq_e +: 32], c_r1[32*nq_e +: 32],
+                             c_r2[32*nq_e +: 32], c_r3[32*nq_e +: 32]);
   wire [31:0] nd_now  = n_tmr - now_n;
-  wire [31:0] nd_tail = n_tmr - c_tail[32*nq +: 32];
-  wire [31:0] nd_lee  = n_tmr - c_lee[32*nq +: 32];
+  wire [31:0] nd_tail = n_tmr - c_tail[32*nq_e +: 32];
+  wire [31:0] nd_lee  = n_tmr - c_lee[32*nq_e +: 32];
   reg         ahd_now, rch_tmr, ahd_tail, ahd_lee;
   reg  [15:0] lead16;
   always @(posedge clk or negedge rst_n) begin
@@ -747,9 +755,8 @@ module esc_core #(
       .mon_we(cm_ok & d_op[I_MON]), .mon_a(opa), .mon_b(opb),
       .rsel(f_imm16[0]), .rdata(mon_rdata), .rec_load(mon_rec_load), .irq(mon_irq));
   wire _unused_mon = &{1'b0, mon_irq};
-  always @(posedge clk or negedge rst_n)
-    if (!rst_n)            mon_tick <= 32'd0;
-    else if (mon_rec_load) mon_tick <= now;
+  // v3.2: a clock-gated bank, loaded only when a record is taken (it was an enable flop)
+  esc_greg #(32) g_mtk (.clk(clk), .rst_n(rst_n), .en(mon_rec_load), .d(now), .q(mon_tick));
   always @(posedge clk or negedge rst_n)
     if (!rst_n)                                        mon_sel <= 4'd0;
     else if (start)                                    mon_sel <= 4'd0;
@@ -995,11 +1002,11 @@ module esc_core #(
   // now, would sit on the program store's address path.) A wrong guess costs a
   // bubble (p3ok), never a wrong commit. After an LDT, whose load lands an edge after it
   // commits, the slot is skipped so X never reads a register before the load.
-  wire [8:0]  x_pc   = c_pc[9*nq +: 9];
+  wire [8:0]  x_pc   = c_pc[9*nq_e +: 9];
   wire        x_ok    = p2v & (p2_spc == x_pc);
-  wire        x_z     = c_z[nq], x_c = c_c[nq];
-  wire [15:0] x_lc    = c_lc[16*nq +: 16];
-  wire [8:0]  x_lr    = c_lr[9*nq +: 9];
+  wire        x_z     = c_z[nq_e], x_c = c_c[nq_e];
+  wire [15:0] x_lc    = c_lc[16*nq_e +: 16];
+  wire [8:0]  x_lr    = c_lr[9*nq_e +: 9];
   wire        x_jump  = d_op_n[I_JMP] | d_op_n[I_CALL] | (d_op_n[I_JZ] & x_z)
                       | (d_op_n[I_JNZ] & ~x_z) | (d_op_n[I_JC] & x_c) | (d_op_n[I_JNC] & ~x_c)
                       | (d_op_n[I_DJNZ] & (x_lc != 16'd1));
@@ -1018,7 +1025,52 @@ module esc_core #(
   // A slot whose context is not RUNNING is never committed (p3v), so its instruction need
   // not be read: a program with one context leaves the program store idle 3 cycles in 4,
   // and a halted chip leaves it idle. p2_insn then reloads the held read data, unused.
-  assign imem_re = f_valid;
+  //
+  // v3.2: a waiting context is parked. A WAIT leaves the PC at the waiting instruction, so
+  // the context fetches the same word again in each of its slots until the instruction
+  // completes; the store's read was most of the chip's cost of waiting (docs/15). At a WAIT
+  // commit of context k the instruction word goes into k's hold bank (latches, written
+  // through dbg_commit_insn, the commit edge's p3_insn registered) and k is parked; a fetch
+  // of k from its own PC (not a paired guess, f_chain) then reads nothing and p2_insn takes
+  // the held word. It is the word the store would return: k's PC and page are unchanged
+  // while it is parked, and a program write during the run into a page k fetches from (its
+  // own, or its partner's when it spans) clears k's park and keeps it from being set for the
+  // three cycles after it, while an instruction k fetched before the write may still be in
+  // flight. A write into another context's page touches nothing of k's, so a live reload
+  // stays invisible to the others (esc_ni_env.v). Everything after the fetch is unchanged,
+  // so the machine is the same cycle for cycle (esc_core.sby task park).
+  reg  [3:0]  c_park;
+  reg  [3:0]  wq0, wq1;                  // a write into k's pages one and two cycles back
+  reg         p1_hit;                    // the fetch in the last cycle took the held word
+  reg  [1:0]  p1_fq;                     // ... of this context
+  wire [127:0] c_hold;
+  wire        park_hit = f_valid & ~f_chain & c_park[fq];
+  assign imem_re = f_valid & ~park_hit;
+  wire        cm_wait  = commit_valid & (outcome == OC_W);
+  wire [3:0]  park_set, park_clr, wr_hit;
+  generate
+    for (gk = 0; gk < 4; gk = gk + 1) begin : g_park
+      assign wr_hit[gk]   = imem_wr & ((imem_wpage == ctx_page[2*gk +: 2])
+                          | (span_on[gk] & (imem_wpage == ctx_page[2*(gk ^ 2) +: 2])));
+      assign park_set[gk] = cm_wait & cm_sel[gk] & ~(wr_hit[gk] | wq0[gk] | wq1[gk]);
+      // anything else that ends k's wait or moves its PC: a commit that does not wait, a
+      // stop of k or of the run, a restart, a fault, and a write into k's pages
+      assign park_clr[gk] = start | stop | wr_hit[gk] | cs_k[gk] | rs_k[gk] | fault_k[gk]
+                          | (commit_valid & cm_sel[gk] & (outcome != OC_W));
+      esc_lreg #(32) g_hold (.clk(clk), .rst_n(rst_n), .en(park_set[gk] & ~c_park[gk]),
+                             .d(p3_insn), .dq(dbg_commit_insn), .q(c_hold[32*gk +: 32]));
+    end
+  endgenerate
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) begin
+      c_park <= 4'd0; wq0 <= 4'd0; wq1 <= 4'd0; p1_hit <= 1'b0; p1_fq <= 2'd0;
+    end else begin
+      c_park <= (c_park | park_set) & ~park_clr;
+      wq0    <= wr_hit;
+      wq1    <= wq0;
+      p1_hit <= park_hit & ~start & ~stop;
+      p1_fq  <= fq;
+    end
 
   // lowest-numbered context with LATE_HEAD (for the first-fault record)
   reg [1:0] late_ctx;
@@ -1095,7 +1147,7 @@ module esc_core #(
   // ------------------------------------------------------------------ sequential
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      run <= 1'b0; now <= 32'd0; sq <= 2'd1; cq <= 2'd1; nq <= 2'd2; fq <= 2'd0;
+      run <= 1'b0; now <= 32'd0; sq <= 2'd1; cq <= 2'd1; nq <= 2'd2; nq_e <= 2'd2; fq <= 2'd0;
       p1_spc <= 9'd0; p2_spc <= 9'd0; p3ok <= 1'b1; lu_bank <= 1'b0;
       pin_val <= 13'd0; pin_oe <= 13'd0;
       s1 <= 13'd0; s2 <= 13'd0; h2 <= 13'd0; h3 <= 13'd0;
@@ -1115,7 +1167,7 @@ module esc_core #(
       h3 <= h2;                       // cycle, h3 is the pins half a period before s2's sample
 
       // instruction pipeline
-      p2_insn <= imem_rdata;
+      p2_insn <= p1_hit ? c_hold[32*p1_fq +: 32] : imem_rdata;
       p3_insn <= p2_insn;
       d_op    <= d_op_n;
       illegal <= illegal_n;
@@ -1141,12 +1193,13 @@ module esc_core #(
       if (start) begin
         sq <= START_NOW[1:0] + 2'd1;
         cq <= own(START_NOW[1:0] + 2'd1, pair_on);
-        nq <= own(START_NOW[1:0] + 2'd2, pair_on);
+        nq <= own(START_NOW[1:0] + 2'd2, pair_on);   // (nq_e: p2v is cleared here)
         fq <= own(START_NOW[1:0], pair_on);
       end else if (run && !stop) begin
         sq <= sq + 2'd1;
         cq <= own(sq + 2'd1, pair_on);
         nq <= own(sq + 2'd2, pair_on);
+        if (p1v) nq_e <= own(sq + 2'd2, pair_on);       // p2v after this edge
         fq <= own(now_n[1:0], pair_on);
       end else begin
         sq <= dbg_sel_ctx;
@@ -1373,6 +1426,9 @@ module esc_core #(
   end
   always @(*) if (rst_n && commit_valid)
     ahead_b7s: `ESC_AHEAD (f_far_sp == span_on[cctx]);
+  // v3.2 (E): the X stage's held select is nq whenever the X slot holds an instruction
+  always @(*) if (rst_n)
+    ahead_be: `ESC_AHEAD (!p2v || nq_e == nq);
   wire [1:0] f_rs = d_op[I_EMITR] ? insn[15:14] : insn[21:20];
   always @(*) if (rst_n && commit_valid) begin
     ahead_b8: `ESC_AHEAD (opa == pick(f_rd, cs_r0, cs_r1, cs_r2, cs_r3));
@@ -1401,6 +1457,7 @@ module esc_core #(
                    ahd_lee, ahd_tail, rch_tmr, ahd_now, opb, opa, illegal, d_op, p3ok, p3_insn,
                    p3v, p2_insn, p2_spc, p2v, p1_spc, p1v, s2, s1, fq, nq, cq, sq, now, run};
   assign f_lu   = {lu_el, lu_port, lu_rel, lu_drv, lu_mode, lu_bank};
+  assign f_park = {nq_e, p1_fq, p1_hit, wq1, wq0, c_park, c_hold};
 `endif
   // Live reload: a restart edge has no commit (the shared latch write flops are free for the
   // restarted context's zeros), and a cycle given to a host program write reads nothing.
@@ -1593,6 +1650,86 @@ module esc_core #(
   always @(posedge clk)                           // a commit in a partner's slot
     if (f_past_valid && rst_n && run && $past(run))
       cover (dbg_commit_valid && dbg_commit_ctx != now[1:0]);
+
+  // v3.2 park (formal/esc_park.sby, task park of esc_core.sby): a parked fetch takes the word
+  // the store would have returned. One address f_pa of the store, any, and its word f_pm,
+  // any at first, which a program write may change (to any value: the write's address and
+  // data are not the core's inputs). The store's read data, otherwise free, is that word
+  // in the cycle after a read of f_pa. Each pipeline stage keeps its fetch's address and the
+  // word at f_pa when it was fetched; the hold bank of a parked context whose PC is at f_pa
+  // holds f_pm (park_d), so the held word a parked fetch takes is the store's (park_a).
+`ifdef ESC_PARK_CHECK
+  (* anyconst *) reg [9:0] f_pa;
+  reg [31:0] f_pm;                                // the store's word at f_pa (free at first)
+  (* anyseq *) reg f_pw; (* anyseq *) reg [31:0] f_pwd;
+  always @(posedge clk) if (imem_wr && imem_wpage == f_pa[9:8] && f_pw) f_pm <= f_pwd;
+  // the top writes a program word during a run only in a cycle with no fetch (project.v G1)
+  always @(*) if (rst_n && run) assume (!imem_wr || free_q);
+  reg        f_prd;                                // the last cycle read f_pa
+  reg [31:0] f_prdm;
+  always @(posedge clk) begin f_prd <= rst_n && imem_re && imem_addr == f_pa; f_prdm <= f_pm; end
+  always @(*) if (f_past_valid && f_prd) assume (imem_rdata == f_prdm);
+  function [9:0] paddr(input [1:0] k, input [35:0] pc);      // the address k fetches its PC from
+    paddr = {pc[9*k + 8] ? ctx_page[2*(k ^ 2'd2) +: 2] : ctx_page[2*k +: 2], pc[9*k +: 8]};
+  endfunction
+  reg [9:0]  f_a1, f_a2, f_a3;
+  reg [31:0] f_m1, f_m2, f_m3, f_h1;
+  reg        f_v1, f_v2, f_v3;
+  reg        f_x2, f_x3;                          // a write into the fetch's page since it
+  reg [1:0]  f_k2, f_k3;                          // the context of stage 2 and 3
+  function pg_ok(input [1:0] k, input [1:0] p);   // p is a page k fetches from (wr_hit's test)
+    pg_ok = (p == ctx_page[2*k +: 2]) | (span_on[k] & (p == ctx_page[2*(k ^ 2'd2) +: 2]));
+  endfunction
+  always @(posedge clk) begin
+    // (the stage records start empty: they are cleared with the core's own reset)
+    f_v1 <= rst_n & f_valid & ~start & ~stop; f_a1 <= imem_addr; f_m1 <= f_pm; f_h1 <= c_hold[32*fq +: 32];
+    f_v2 <= rst_n & f_v1 & ~start & ~stop;    f_a2 <= f_a1;      f_m2 <= f_m1;
+    f_v3 <= rst_n & f_v2 & ~start & ~stop;    f_a3 <= f_a2;      f_m3 <= f_m2;
+    f_x2 <= imem_wr && imem_wpage == f_a1[9:8];
+    f_x3 <= f_x2 || (imem_wr && imem_wpage == f_a2[9:8]);
+    f_k2 <= p1_fq; f_k3 <= f_k2;
+  end
+  always @(*) if (f_past_valid && rst_n) begin
+    park_i: assert (!free_q || !f_valid);                       // a fetch cycle is never a write's
+    park_k: assert (!p1_hit || f_v1);
+    park_l: assert (!p1_hit || c_hold[32*p1_fq +: 32] == f_h1); // the held word is not rewritten
+    park_m: assert (!(p1_hit && f_a1 == f_pa) || f_h1 == f_m1);
+    park_a: assert (!(p1_hit && f_a1 == f_pa) || c_hold[32*p1_fq +: 32] == f_m1);
+    park_h: assert (!(f_v1 && !p1_hit && f_a1 == f_pa) || (f_prd && f_prdm == f_m1));
+    park_b: assert (!(f_v2 && f_a2 == f_pa) || p2_insn == f_m2);
+    park_c: assert (!(f_v3 && f_a3 == f_pa) || p3_insn == f_m3);
+    park_e: assert (!commit_valid || (f_v3 && f_a3 == paddr(cctx, c_pc)));
+    park_j1: assert (!f_v1 || f_m1 == f_pm);                    // no write in a fetch cycle
+    park_j2: assert (!(f_v2 && !f_x2 && f_a2 == f_pa) || f_m2 == f_pm);
+    park_j3: assert (!(f_v3 && !f_x3 && f_a3 == f_pa) || f_m3 == f_pm);
+    // the guard sees every write into the page a committing instruction was fetched from
+    park_x: assert (!(commit_valid && f_x3) || wq0[cctx] || wq1[cctx]);
+    // ... by way of: the stages run, a fetch is from one of its context's pages, the stage
+    // contexts are the fetching context, and wq0/wq1 follow the stage's write record
+    park_r: assert (!(f_v1 || f_v2 || f_v3) || run);
+    park_p: assert (c_park == 4'd0 || run);                  // a parked context is in a run
+    park_s0: assert (!run || span_on[0] || (!c_pc[8] && !c_lr[8]));
+    park_s1: assert (!run || span_on[1] || (!c_pc[17] && !c_lr[17]));
+    park_s2: assert (!run || span_on[2] || (!c_pc[26] && !c_lr[26]));
+    park_s3: assert (!run || span_on[3] || (!c_pc[35] && !c_lr[35]));
+    park_g1: assert (!f_v1 || pg_ok(p1_fq, f_a1[9:8]));
+    park_g2: assert (!f_v2 || pg_ok(f_k2, f_a2[9:8]));
+    park_q2: assert (!f_v2 || f_k2 == nq);
+    park_q3: assert (!f_v3 || f_k3 == cq);
+    park_x2: assert (!(f_v2 && f_x2) || wq0[f_k2]);
+    park_x3: assert (!(f_v3 && f_x3) || wq0[f_k3] || wq1[f_k3]);
+    park_d0: assert (!(c_park[0] && paddr(2'd0, c_pc) == f_pa) || c_hold[31:0] == f_pm);
+    park_d1: assert (!(c_park[1] && paddr(2'd1, c_pc) == f_pa) || c_hold[63:32] == f_pm);
+    park_d2: assert (!(c_park[2] && paddr(2'd2, c_pc) == f_pa) || c_hold[95:64] == f_pm);
+    park_d3: assert (!(c_park[3] && paddr(2'd3, c_pc) == f_pa) || c_hold[127:96] == f_pm);
+  end
+  always @(*) if (rst_n && run) begin
+    park_cv1: cover (p1_hit && f_a1 == f_pa);     // a parked fetch at f_pa
+    park_cv2: cover (p1_hit && pair_on != 4'd0);  // ... of a paired context
+    park_cv3: cover (c_park != 4'd0 && imem_wr);  // a live write while a context waits
+    park_cv4: cover (c_park != 4'd0 && wr_hit == 4'd0 && imem_wr);   // ... into another page
+  end
+`endif
 `endif
 
 endmodule
