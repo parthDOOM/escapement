@@ -749,6 +749,20 @@ changed; on master, on a new branch and on a manual run they always run. Nothing
 read is in those paths, and the site is not among them, since its playground runs the
 simulator's code.
 
+**D-72 The layout build retries OpenROAD's placement crash.** The crash of timing-driven
+global placement ([tool bugs](24-TOOL-BUGS.md#timing-driven-global-placement-crashes-openroad-11977))
+used to mean a manual rerun of the gds job. On 25 November the commit that brought the
+held-out round to master crashed there twice in a row, on RTL, settings, tools and runner
+image identical to a run that had passed on its branch the day before. Both runs entered
+placement in the same state and agreed to the last printed digit up to the first repair,
+which inserted the same 4,365 buffers in both; one went on and two crashed. Waiting for a
+person to rerun leaves master's check red for hours over a fault that is not in the
+design. The job now builds up to three times, retrying only when the placement log shows
+the crash (a segmentation fault or RSZ-1008); every other failure fails at once, as before.
+A retry keeps the crashed attempt's logs under their own name. Changing the flow to avoid
+the crash, a placement setting or a pinned OpenROAD with a fix, was set aside: no fix
+exists upstream, and the layout is signed off on the shuttle's own flow, whose pins stay.
+
 ## The held-out round
 
 **D-70 escert checks every CONFIG as the chip will (3.1).** A `CONFIG` that completes is
