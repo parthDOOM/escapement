@@ -1366,6 +1366,162 @@ def case_oled_game():
     return Board(oled, host), host, check, lambda t, ob: OLED_PRESS
 
 
+def case_mil1553_rt():
+    """Held-out round: MIL-STD-1553B remote terminal (address 5) at 50 MHz against the bus
+    model (a BC, the bus and the RT's transceiver), which checks every crossing the RT
+    sends to 25 ns and its 4 to 12 us response. The host loads two transmit words; a
+    receive command with two data words, a transmit command, a parity error in a data
+    word, then transmit status word (message error set) and a broadcast receive."""
+    from escmodels import Bc1553
+
+    def cmd(rt, tr, sa, wc):
+        return rt << 11 | tr << 10 | sa << 5 | (wc & 31)
+    msgs = [{"at_us": 160, "words": [("cmd", cmd(5, 0, 3, 2)), ("data", 0x1234), ("data", 0xBEEF)]},
+            {"at_us": 280, "words": [("cmd", cmd(5, 1, 3, 2))]},
+            {"at_us": 380, "words": [("cmd", cmd(5, 0, 3, 2)), ("data", 1), ("data", 2)],
+             "faults": {"parity": 2}},
+            {"at_us": 480, "words": [("cmd", cmd(5, 1, 0, 2))]},
+            {"at_us": 560, "words": [("cmd", cmd(31, 0, 7, 1)), ("data", 0xCAFE)]}]
+    bc = Bc1553(tick_ns=20.0, messages=msgs)
+    host = HostScript([(200, 1, 0x0100A55A), (3200, 1, 0x01010FF0)], drain=[1], poll=1400)
+
+    def check(board, h):
+        bc.finish()
+        st = [None if r is None else (r["status"], r["data"], r["status_ok"]) for r in bc.responses]
+        want = [(0x2800, [], True), (0x2800, [0xA55A, 0x0FF0], True), None,
+                (0x2C00, [], True), None]
+        got_host = h.received[1]
+        want_host = [2 << 16 | cmd(5, 0, 3, 2), 0x1234, 0xBEEF, 1 << 16 | cmd(31, 0, 7, 1), 0xCAFE]
+        return (([] if st == want else [f"mil1553 responses {st}"])
+                + ([] if got_host == want_host else [f"mil1553 host {[hex(w) for w in got_host]}"])
+                + bc.errors() + board.errors())
+    return Board(bc, host), host, check
+
+
+def case_spdif_tx():
+    """Held-out round: S/PDIF / AES3 transmitter at CELL 8 (49.152 MHz for 48 kHz) against
+    the receiver model, which checks biphase mark, the preambles, parity and every
+    transition on the ideal clock. The host pushes one stereo word a frame; the frames
+    before the first carry validity 1."""
+    from escmodels import SpdifRx
+    words = [((i * 977 - 30000) & 0xFFFF) << 16 | (0x8000 ^ (i * 4099)) & 0xFFFF for i in range(30)]
+    rx = SpdifRx(0, tick_ns=1e9 / (128 * 48000 * 8), fs_hz=48000)
+    host = HostScript([(2200 + 1024 * i, 0, w) for i, w in enumerate(words)], poll=1400)
+
+    def check(board, h):
+        rx.finish()
+        got = [(f["a"], f["b"]) for f in rx.frames if f["v"] == (0, 0)]
+        want = [((w >> 16) << 8, (w & 0xFFFF) << 8) for w in words]
+        ok = len(got) >= 25 and got[0] in want and got == want[want.index(got[0]):][:len(got)]
+        return (([] if ok and rx.locks == 1 else [f"spdif {len(got)} frames, locks {rx.locks}"])
+                + rx.errors() + board.errors())
+    return Board(rx, host), host, check
+
+
+def case_microwire_93c46():
+    """Held-out round: Microwire controller (25 MHz, 500 kHz CLK) and a 93LC46B (x16)
+    model with a 40 us programming cycle: EWEN, two WRITEs (each polled until ready), two
+    READs, ERASE, a READ of the erased word."""
+    from escmodels import Eeprom93
+
+    def c(op, addr=0, data=0):
+        return op << 28 | addr << 16 | data
+    cmds = [c(6), c(2, 5, 0x1234), c(2, 63, 0xBEEF), c(1, 5), c(1, 63), c(3, 5), c(1, 5)]
+    ee = Eeprom93(tick_ns=40.0, org16=True, grade="LC", twc_us=40)
+    host = HostScript([(100 + i * 4000, 0, w) for i, w in enumerate(cmds)], drain=[0], poll=1250)
+
+    def check(board, h):
+        ee.finish()
+        want = [1, 1, 1, 0x1234, 0xBEEF, 1, 0xFFFF]
+        return (([] if h.received[0] == want else [f"microwire {[hex(x) for x in h.received[0]]}"])
+                + ee.errors() + board.errors())
+    return Board(ee, host), host, check
+
+
+def case_dht22():
+    """Held-out round: DHT22 host at 4 MHz (MIN_MS 6 between reads) and the AM2302 sensor
+    model at its slowest timings: two reads, the second below zero."""
+    from escmodels import Dht22
+    sensor = Dht22(0, tick_ns=250.0, humidity=[65.8, 50.0], temperature=[26.9, -10.1],
+                   timing="max", startup_s=0.005, min_interval_s=0.005)
+    host = HostScript([(100, 0, 1), (200, 0, 1)], drain=[0], poll=400)
+
+    def check(board, h):
+        sensor.finish()
+        want = [0x0292010D, 500 << 16 | 0x8065]
+        return (([] if h.received[0] == want else [f"dht22 {[hex(x) for x in h.received[0]]}"])
+                + sensor.errors() + board.errors())
+    return Board(sensor, host), host, check
+
+
+def case_biss_c():
+    """Held-out round: BiSS C master (25 MHz, MA 250 kHz, 26-bit data channel) and one
+    slave model with a line delay of 1.3 us and a 10 us processing time: two frames, the
+    second with a wrong CRC."""
+    from escmodels import BissSlave
+    slave = BissSlave(0, 1, tick_ns=40.0, dlen=26, data=[0x2ABCDE7, 0x0000155],
+                      line_delay_ns=1300.0, busy_ns=10_000.0, faults={"crc": 1})
+    host = HostScript([(2500, 0, 1), (14000, 0, 1)], drain=[0], poll=250)
+
+    def check(board, h):
+        slave.finish()
+        r = h.received[0]
+        # frame 1: CRC good, line delay 1 clock, its data; frame 2: the CRC wrong
+        ok = r == [0x101, 0x2ABCDE7, 0x100, 0x0000155]
+        return ([] if ok else [f"biss {[hex(x) for x in r]}"]) + slave.errors() + board.errors()
+    return Board(slave, host), host, check
+
+
+def case_ps2_host():
+    """Held-out round: PS/2 host at 4 MHz and the keyboard model at random timing: two scan
+    codes from the keyboard, then the host's Echo (EE) and the keyboard's answer."""
+    from escmodels import Ps2Keyboard
+    kbd = Ps2Keyboard(0, 1, tick_ns=250.0, send=[(100, 0x1C), (100, 0xF0)], timing="random",
+                      seed=7, reply_us=200.0)
+    host = HostScript([(12_000, 0, 0xEE)], drain=[0], poll=80)
+
+    def check(board, h):
+        kbd.finish()
+        want = [0x1C, 0xF0, 0x80000000, 0xEE]
+        return (([] if h.received[0] == want else [f"ps2 {[hex(x) for x in h.received[0]]}"])
+                + kbd.errors() + board.errors())
+    return Board(kbd, host), host, check
+
+
+def case_snes_pad():
+    """Held-out round: SNES controller reader (25 MHz, latch and half clock 1 us: FW_EQU) and
+    the pad model at the 5 V maximum delays: two reads, B + Start, then L + R + A."""
+    from escmodels import SnesPad
+    pad = SnesPad(0, 1, 2, tick_ns=40.0, buttons=[0x9000, 0x0030 | 0x0080], timing="max")
+    host = HostScript([(200, 0, 1), (2200, 0, 1)], drain=[0], poll=50)
+
+    def check(board, h):
+        pad.finish()
+        want = [0x10000 | 0x9000, 0x10000 | 0x00B0]
+        return (([] if h.received[0] == want else [f"snes {[hex(x) for x in h.received[0]]}"])
+                + pad.errors() + board.errors())
+    return Board(pad, host), host, check
+
+
+def case_mbus_slave():
+    """Held-out round: M-Bus slave at 4 MHz, 9600 baud, address 5 (FW_EQU), and the master
+    model: SND_NKE (E5h), then REQ_UD2 answered with the default CI 72h response."""
+    from escmodels import MbusMaster
+    from escmodels.mbus import short_frame
+    master = MbusMaster(0, 1, tick_ns=250.0, baud=9600, slave_address=5, start_ms=1.0,
+                        telegrams=[short_frame(0x40, 5), short_frame(0x7B, 5)])
+    host = HostScript([], drain=[0], poll=100)
+
+    def check(board, h):
+        master.finish()
+        want = [0x01054000, 0x02057B00]
+        replies = [x["reply"][:1] for x in master.exchanges]
+        ok = h.received[0] == want and replies == [b"\xe5", b"\x68"]
+        return (([] if ok else [f"mbus {[hex(x) for x in h.received[0]]} {replies}"])
+                + master.errors() + board.errors())
+    return Board(master, host), host, check
+
+
 FIRMWARE_CASES = {
     "uart_rx": ("uart_rx.asm", 13500, case_uart_rx),
     "i2c_ctrl": ("i2c_ctrl.asm", 9000, case_i2c),
@@ -1458,13 +1614,25 @@ FIRMWARE_CASES = {
     "i2c_stream": ("i2c_burst.asm", 60_000, case_i2c_stream),
     "oled_pong": (OLED, 900_000, case_oled_pong),       # a page per context (escasm.paged)
     "oled_game": (OLED_GAME, 450_000, case_oled_game),
+    "mil1553_rt": ("mil1553_rt.asm", 36_000, case_mil1553_rt),   # held-out round
+    "spdif_tx": ("spdif_tx.asm", 36_000, case_spdif_tx),
+    "microwire_93c46": ("microwire_93c46.asm", 32_000, case_microwire_93c46),
+    "dht22": ("dht22.asm", 90_000, case_dht22),
+    "biss_c": ("biss_c.asm", 26_000, case_biss_c),
+    "ps2_host": ("ps2_host.asm", 24_000, case_ps2_host),
+    "snes_pad": ("snes_pad.asm", 4_500, case_snes_pad),
+    "mbus_slave": ("mbus_slave.asm", 200_000, case_mbus_slave),
 }
 TAPE_PREP = {"i2c_eeprom": eeprom_tape, "ws2812_gen": ws_tape, "gen_slow": dmx_tape,
              "modbus": modbus_tape, "i2c_burst": burst_tape, "oled_game": oled_game_tape}
 TAPE_PREP["spi_target"] = TAPE_PREP["spi_target_mode3"] = eeprom_tape
 TAPE_PREP["ws2801_tx"] = ws2801_tape
 # parameters a case sets on its firmware's .defaults (a short gate for the meter)
-FW_EQU = {"freq_meter": {"N": 8, "PIN": 3}, "i2c_timing": {"TOUT_US": 100},
+FW_EQU = {"dht22": {"CLK_KHZ": 4000, "MIN_MS": 6},
+          "ps2_host": {"CLK_KHZ": 4000},
+          "snes_pad": {"HALF_NS": 1000, "LATCH_NS": 1000},
+          "mbus_slave": {"CLK_KHZ": 4000, "BAUD": 9600, "ADDR": 5},
+          "freq_meter": {"N": 8, "PIN": 3}, "i2c_timing": {"TOUT_US": 100},
           "spi_sniff_long": {"QUIET": 4000},
           "sirc_tx": {"CLK_KHZ": 2000}, "rc5_tx": {"CLK_KHZ": 2000}, "rc6_tx": {"CLK_KHZ": 8000}, "jvc_tx": {"CLK_KHZ": 2000},
           "samsung_tx": {"CLK_KHZ": 2000}, "panasonic_tx": {"CLK_KHZ": 2000}, "sharp_tx": {"CLK_KHZ": 2000}, "j1850_vpw": {"CLK_KHZ": 4000},

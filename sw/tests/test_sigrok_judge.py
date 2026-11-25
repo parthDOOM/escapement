@@ -260,7 +260,185 @@ def test_morse_message():
     assert set(units) == {"1.0*0.002", "3.0*0.002", "7.0*0.002"}, sorted(set(units))
 
 
-JUDGED = [test_usbpd_source_capabilities, test_lin_responder_frame, test_rc6_frame, test_em4100_tag,
+def test_spdif_tx_frames():
+    """Held-out round: spdif_tx.asm at CELL 8. The VCD is written at 20 ns a tick (a UI of
+    160 ns, a 48.8 kHz frame rate; the decoder measures the rate itself): every sub-frame's
+    24-bit audio word in order, valid, and the preambles B (Z), M (X), W (Y)."""
+    from escmodels import Board, HostFeed
+    from esciss import Machine
+    import test_heldout_spdif_tx as S
+    words = S.sample_words(220)           # more than the run uses: no underrun
+    host = HostFeed({0: list(words)}, gap=64)
+    board = Board(host)
+    m = Machine(S.image(8), board=board)
+    host.machine = m
+    m.run(200 * 1024 + 3000, stop_when_idle=False)
+    lv = board.level(0)
+    first = next(t for t in range(1, len(lv)) if lv[t] != lv[t - 1])
+    # from one UI before the stream, as an analyser triggered on it: the decoder learns its
+    # three pulse widths from the first edges, and its first width runs from the start of
+    # the capture (sigrok 0.7.2), so a longer idle lead-in would be taken for a pulse
+    ann = decode(vcd({"line": lv[first - 8:]}, 20), "spdif:data=line")
+    audio = [int(a.split()[1], 16) for a in ann if a.startswith("Audio 0x")]
+    want = [x for w in words for x in ((w >> 16) << 8, (w & 0xFFFF) << 8)]
+    k = want.index(audio[0])               # the decoder synchronises on the first frames
+    assert k <= 6 and len(audio) >= 390 and audio == want[k:k + len(audio)], (k, audio[:6])
+    # the first frame's Z goes into the decoder's synchronisation; the next is frame 192's
+    pre = [a.split()[1] for a in ann if a.startswith("Preamble ")]
+    b = pre.index("B")
+    assert pre.count("B") == 1 and pre[b + 1] == "W" and (2 * 192 - b) in (k, k + 1), (b, k)
+    rest = pre[:b] + ["M"] + pre[b + 1:]
+    assert all(p == ("M" if (i - rest.index("M")) % 2 == 0 else "W")
+               for i, p in enumerate(rest) if i >= rest.index("M")), pre[:8]
+    assert ann.count("E") == 0 and ann.count("V") >= 390
+    assert not [a for a in ann if "Unknown" in a]
+
+
+def test_microwire_93c46_session():
+    """Held-out round: microwire_93c46.asm (x16, 25 MHz, 500 kHz CLK) against the EEPROM
+    model; sigrok's microwire decoder with eeprom93xx on top (6 address bits, 16-bit words):
+    the write enable, the writes with their addresses and data, and the reads with the
+    words the EEPROM sent."""
+    import test_heldout_microwire_93c46 as M
+    cmds = [M.cmd(M.EWEN), M.cmd(M.WRITE, 5, 0x1234), M.cmd(M.WRITE, 63, 0xBEEF),
+            M.cmd(M.READ, 5), M.cmd(M.READ, 63)]
+    ee, m, got = M.session(cmds, twc_us=50, board_out=True)
+    assert got == [1, 1, 1, 0x1234, 0xBEEF]
+    board = ee.board
+    lv = {n: board.level(p) for n, p in (("cs", 0), ("sk", 1), ("si", 2), ("so", 3))}
+    ann = decode(vcd(lv, 40), "microwire:cs=cs:sk=sk:si=si:so=so,"
+                 "eeprom93xx:addresssize=6:wordsize=16")
+    ops = [a for a in ann if a in ("Read word", "Write word", "Erase word", "Write enable",
+                                   "Write disable")]
+    assert ops == ["Write enable", "Write word", "Write word", "Read word", "Read word"], ann
+    assert [a for a in ann if a.startswith("Address: ")] == ["Address: 0x0005", "Address: 0x003f",
+                                                            "Address: 0x0005", "Address: 0x003f"], ann
+    assert [a for a in ann if a.startswith("Data: ")] == ["Data: 0x1234", "Data: 0xbeef",
+                                                         "Data: 0x1234", "Data: 0xbeef"], ann
+    assert not [a for a in ann if "Not enough" in a], ann
+
+
+def test_dht22_reads():
+    """Held-out round: dht22.asm at 4 MHz reading the sensor model twice (65.8 %RH and
+    26.9 C, then 50.0 %RH and -10.1 C); sigrok's am230x decoder on the line: the start, the
+    readings and good checksums."""
+    import test_heldout_dht22 as D
+    from escmodels import Board, Dht22, HostScript
+    from esciss import Machine
+    khz = 4000
+    sensor = Dht22(0, tick_ns=1e6 / khz, humidity=[65.8, 50.0], temperature=[26.9, -10.1],
+                   startup_s=0.005, min_interval_s=0.005)
+    host = HostScript([(100, 0, 1), (200, 0, 1)], drain=[0], poll=400)
+    board = Board(sensor, host)
+    m = Machine(D.image(khz), board=board)
+    host.machine = m
+    m.run(3 * (D.MIN_MS + 7) * khz, stop_when_idle=False)
+    assert host.received[0] == [0x0292_010D, 500 << 16 | 0x8065]
+    ann = decode(vcd({"sda": board.level(0)}, 250, tail_ticks=4000),
+                 "am230x:sda=sda:device=am230x/rht")
+    assert ann.count("Start") == 2, ann
+    assert [a for a in ann if a.startswith(("Humidity:", "Temperature:", "Checksum:"))] == [
+        "Humidity: 65.8 %", "Temperature: 26.9 °C", "Checksum: OK",
+        "Humidity: 50.0 %", "Temperature: -10.1 °C", "Checksum: OK"], ann
+
+
+def test_ps2_host_session():
+    """Held-out round: ps2_host.asm at 4 MHz with the keyboard model (random timing): four
+    scan codes, then the host's Echo (EE) and Read ID (F2) with the keyboard's answers.
+    sigrok's ps2 decoder samples DATA on each CLK fall and closes a byte only on the fall
+    after its 11th (on a PC, the controller's inhibit after each byte; this program inhibits
+    only when its mailbox is full). So the capture is cut into one window per byte, from 10 us
+    before the keyboard's start (or the host's request to send) to 10 us before the next, each
+    closed by vcd()'s marker fall; each window is the pins' levels as they were. Host bytes
+    decode too: DATA at the 11th fall is the keyboard's line-control bit, read as the stop."""
+    import test_heldout_ps2_host as P
+    from escmodels import Board, HostScript, Ps2Keyboard
+    from esciss import Machine
+    khz = 4000
+    kbd = Ps2Keyboard(0, 1, tick_ns=1e6 / khz, send=[(100, b) for b in P.SCAN[:4]],
+                      timing="random", seed=11, reply_us=300.0)
+    host = HostScript([(6 * khz, 0, 0xEE), (9 * khz, 0, 0xF2)], drain=[0], poll=80)
+    board = Board(kbd, host)
+    m = Machine(P.image(khz), board=board)
+    host.machine = m
+    m.run(14 * khz, stop_when_idle=False)
+    kbd.finish()
+    want = P.SCAN[:4] + [0xEE, 0xEE, 0xF2, 0xFA, 0xAB, 0x83]
+    assert host.received[0] == P.SCAN[:4] + [P.SENT, 0xEE, P.SENT, 0xFA, 0xAB, 0x83]
+    assert not kbd.errors(), kbd.errors()
+    starts = sorted([s["t_start"] for s in kbd.sent] + [r["t_rts"] for r in kbd.received])
+    assert len(starts) == len(want)
+    clk, data = board.level(0), board.level(1)
+    cuts = [t - 40 for t in starts] + [len(clk)]
+    words = []
+    for a, b in zip(cuts, cuts[1:]):
+        ann = decode(vcd({"clk": clk[a:b], "data": data[a:b]}, 250, tail_ticks=400),
+                     "ps2:clk=clk:data=data")
+        assert ann.count("Parity OK") == 1, ann
+        words += [x.split(": ")[1] for x in ann if x.startswith("Data: ")]
+    assert words == ["%02x" % b for b in want], words
+
+
+def test_snes_pad_reads():
+    """Held-out round: snes_pad.asm (25 MHz, latch and half clock 1 us) reading the pad model
+    (5 V maximum delays) three times. sigrok has no SNES decoder (nes_gamepad is the 8-bit
+    NES pad), so the judge is its spi decoder: LATCH as an active-low select (the shift phase
+    is LATCH low), CLK idle high, DATA as MISO sampled on each rising edge (CPOL 1, CPHA 1),
+    8-bit words MSB first: the two key data bytes of each read, as the line levels (a pressed
+    button low), then the 17th bit as an incomplete word."""
+    import test_heldout_snes_pad as S
+    from escmodels import Board, HostScript, SnesPad
+    from esciss import Machine
+    reads = [S.mask("B", "Start"), S.mask("L", "R", "A"), 0]
+    pad = SnesPad(0, 1, 2, tick_ns=40.0, buttons=reads, timing="max")
+    host = HostScript([(200, 0, 1), (2200, 0, 1), (4200, 0, 1)], drain=[0], poll=50)
+    board = Board(pad, host)
+    m = Machine(S.image(25000, 1000, 1000), board=board)
+    host.machine = m
+    m.run(6500, stop_when_idle=False)
+    pad.finish()
+    assert host.received[0] == [S.CONNECTED | r for r in reads] and not pad.errors()
+    ch = {"clk": board.level(1), "miso": board.level(2), "cs": board.level(0)}
+    ann = decode(vcd(ch, 40, tail_ticks=100),
+                 "spi:clk=clk:miso=miso:cs=cs:cs_polarity=active-low:cpol=1:cpha=1:wordsize=8",
+                 ["-A", "spi=miso-data"])
+    want = []
+    for r in reads:
+        line = ~r & 0xFFFF
+        want += ["%02X" % (line >> 8), "%02X" % (line & 0xFF)]
+    assert ann == want, ann
+
+
+def test_mbus_slave_exchanges():
+    """Held-out round: mbus_slave.asm at 4 MHz, 9600 baud, address 5, with the master model:
+    SND_NKE, then REQ_UD2 with the default CI 72h response. sigrok's uart decoder on both
+    lines (8 data bits, even parity, 1 stop bit, M-Bus 5.1): every character of the master's
+    telegrams and of the slave's replies, and no parity or frame error."""
+    import test_heldout_mbus_slave as T
+    from escmodels import Board, HostScript, MbusMaster
+    from escmodels.mbus import short_frame
+    from esciss import Machine
+    tel = [short_frame(0x40, 5), short_frame(0x7B, 5)]
+    master = MbusMaster(0, 1, tick_ns=250.0, baud=9600, slave_address=5, start_ms=1.0,
+                        telegrams=tel)
+    host = HostScript([], drain=[0], poll=100)
+    board = Board(master, host)
+    m = Machine(T.image(4000, 9600, 5), board=board)
+    host.machine = m
+    m.run(200_000, stop_when_idle=False)
+    master.finish()
+    assert not master.errors(), master.errors()
+    replies = [x["reply"] for x in master.exchanges]
+    assert replies[0] == bytes([0xE5]) and len(replies[1]) == 21
+    ann = decode(vcd({"m2s": board.level(0), "s2m": board.level(1)}, 250, tail_ticks=4000),
+                 "uart:rx=m2s:tx=s2m:baudrate=9600:parity=even:format=hex")
+    assert not [a for a in ann if "error" in a.lower()], ann
+    data = [a for a in ann if len(a) == 2 and all(c in "0123456789ABCDEF" for c in a)]
+    want = list(tel[0]) + list(replies[0]) + list(tel[1]) + list(replies[1])   # half duplex
+    assert data == ["%02X" % b for b in want], (data, want)
+
+
+JUDGED = [test_mbus_slave_exchanges, test_snes_pad_reads, test_ps2_host_session, test_dht22_reads, test_microwire_93c46_session, test_spdif_tx_frames, test_usbpd_source_capabilities, test_lin_responder_frame, test_rc6_frame, test_em4100_tag,
           test_dcf77_minutes, test_sd_card_session, test_onewire_device_read_and_search_rom,
           test_avr_isp_session, test_qi_receiver_session, test_spi_flash_session,
           test_max7219_display, test_stepper_speed_and_position, test_nrf24_session,
