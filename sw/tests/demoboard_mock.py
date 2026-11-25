@@ -66,7 +66,7 @@ def blank_image() -> Image:
                  pin_owned=[False] * 8, pin_owner=[0] * 8, pin_od=[False] * 8)
 
 
-def cfg_image(imem, tape, cfg, ctx_page=0, ctx_span=0) -> Image:
+def cfg_image(imem, tape, cfg, ctx_page=0, ctx_span=0, ctx_pair=0) -> Image:
     en, entry, owned, owner, od, bank = cfg
     return Image(words=list(imem), entry_pcs=[(entry >> (8 * k)) & 0xFF for k in range(4)],
                  ctx_enable=[bool((en >> k) & 1) for k in range(4)],
@@ -75,7 +75,8 @@ def cfg_image(imem, tape, cfg, ctx_page=0, ctx_span=0) -> Image:
                  pin_od=[bool((od >> i) & 1) for i in range(8)], tape=list(tape),
                  ctx_bank=[bool((bank >> k) & 1) for k in range(4)],
                  ctx_page=[(ctx_page >> (2 * k)) & 3 for k in range(4)],
-                 ctx_span=[bool((ctx_span >> k) & 1) for k in range(4)])
+                 ctx_span=[bool((ctx_span >> k) & 1) for k in range(4)],
+                 ctx_pair=[bool((ctx_pair >> k) & 1) for k in range(4)])
 
 
 class FaultyMachine(Machine):
@@ -120,6 +121,7 @@ class SimChip:
         rng = random.Random(seed)
         # powers up undefined; v2 (S-A): the program store is four pages of 256 words
         self.pages = version >= 10
+        self.pair = version >= 9               # 1.7: WRITE_CFG byte 10 bits 7:4
         self.span = version >= 11              # 3.1: WRITE_CFG byte 15
         self.mem = [[rng.randrange(1 << 32) for _ in range(1024 if self.pages else 256)],
                     [rng.randrange(1 << 32) for _ in range(256)]]
@@ -166,6 +168,7 @@ class SimChip:
         self.mem_addr = self.mem_space = 0
         self.mem_page = self.ctx_page = 0     # v2 (S-A)
         self.ctx_span = 0                     # 3.1
+        self.ctx_pair = 0                     # 1.7
         self.dbg_ctx = self.dbg_sel = 0
         self.running = False
         self.m = Machine(blank_image())
@@ -438,8 +441,10 @@ class SimChip:
                     c[3] = (c[3] & ~0xFF) | rx
                 elif idx == 9:
                     c[4] = rx
-                elif idx == 10:                     # v1.2 bank B
+                elif idx == 10:                     # v1.2 bank B, 1.7 pair mode
                     c[5] = rx & 0xF
+                    if self.pair:                   # (an older chip ignores bits 7:4)
+                        self.ctx_pair = (rx >> 4) & 0xF
                 elif idx == 11:
                     c[2] = (c[2] & 0xFF) | ((rx & 0x1F) << 8)
                 elif idx == 12:
@@ -478,7 +483,7 @@ class SimChip:
         prog = ([self.mem_read(0, a & 0xFF, a >> 8) for a in range(1024)] if self.pages
                 else [self.mem_read(0, a) for a in range(256)])
         image = cfg_image(prog, [self.mem_read(1, a) for a in range(256)], self.cfg,
-                          self.ctx_page, self.ctx_span)
+                          self.ctx_page, self.ctx_span, self.ctx_pair)
         FaultyMachine.exec_fault = self.exec_fault
         self.m = (FaultyMachine if self.exec_fault else Machine)(image, board=self._board,
                                                                    board_b=self._board_b)
