@@ -20,10 +20,10 @@
 #   m-dq         v3 M7: the rule latches' shared write word drops a bit      esc_mon.sby kind
 #   m-own-read   v3: GETM 0/1 read the monitor for any context                esc_ni_ind.sby kind (scored on the induction failure, below)
 #   m-own-mon    v3: a MON of another context than the monitor's owner completes  split_bmc.py, depth 12
-#   p-guard      v3.2 A: a context parked while a live write may be in flight  esc_core.sby park_bmc
-#   e-stage      v3.2 E: the held X select loaded from the wrong stage (p2v)   esc_core.sby ahead
-#   c-cm .. c-fi v3.2 C: a gated context bank's enable misses a term            esc_ctx.sby kind
-#   d-x, d-f     v3.2 D: a pipeline bank loads on the wrong stage's valid bit   esc_core.sby ahead
+#   p-guard      D-73: a context parked while a live write may be in flight  esc_core.sby park_bmc
+#   e-stage      D-74: the held X select loaded from the wrong stage (p2v)   esc_core.sby ahead
+#   c-cm .. c-fi D-75: a gated context bank's enable misses a term            esc_ctx.sby kind
+#   d-x, d-f     D-76: a pipeline bank loads on the wrong stage's valid bit   esc_core.sby ahead
 # Prints one line per tooth; exit status 1 if any tooth did not bite.
 set -u
 cd "$(dirname "$0")/.."
@@ -77,11 +77,11 @@ tooth m-dq      esc_mon.v "s/\.d(cfg_d), \.q(cfg_q)/.d({cfg_d[CW-1:1], 1'b0}), .
 tooth m-count   esc_mon.v "s/cnt_d = {{(W-1){1'b0}}, 1'b1}; end/cnt_d = {W{1'b0}}; end/" 'cnt_d = {W{1.b0}}; end' esc_mon.sby kind 600
 tooth p-guard   esc_core.v 's/cm_wait & cm_sel\[gk\] & ~(wr_hit\[gk\] | wq0\[gk\] | wq1\[gk\]);/cm_wait \& cm_sel[gk] \& ~(wr_hit[gk] | wq0[gk]);/' 'cm_sel\[gk\] & ~(wr_hit\[gk\] | wq0\[gk\]);' esc_core.sby park_bmc 3600
 tooth e-stage   esc_core.v 's/if (p1v) nq_e <= own(sq + 2.d2, pair_on);/if (p2v) nq_e <= own(sq + 2'"'"'d2, pair_on);/' 'if (p2v) nq_e <= own' esc_core.sby ahead 3600
-# v3.2 C: each gated bank of esc_ctx loses one term of its enable; the shadow proof must fail
+# D-75: each gated bank of esc_ctx loses one term of its enable; the shadow proof must fail
 tooth c-cm      esc_ctx.v 's/wire en_cm = start_i | cm_ok;/wire en_cm = cm_ok;/' 'wire en_cm = cm_ok;' esc_ctx.sby kind 600
 tooth c-wf      esc_ctx.v 's/wire en_wf = start_i | cm_waitfull;/wire en_wf = cm_waitfull;/' 'wire en_wf = cm_waitfull;' esc_ctx.sby kind 600
 tooth c-ck      esc_ctx.v 's/wire en_ck = start_i | o_act | due_q;/wire en_ck = start_i | o_act;/' 'wire en_ck = start_i | o_act;' esc_ctx.sby kind 600
-# v3.2 D: a pipeline bank loads on the wrong stage's valid bit; ahead_s2a-c must fail
+# D-76: a pipeline bank loads on the wrong stage's valid bit; ahead_s2a-c must fail
 tooth d-x       esc_core.v 's/assign {ge_p1, ge_p2, ge_p3} = {f_valid, p1v, p2v};/assign {ge_p1, ge_p2, ge_p3} = {f_valid, p1v, p1v};/' '= {f_valid, p1v, p1v};' esc_core.sby ahead 3600
 tooth d-f       esc_core.v 's/assign {ge_p1, ge_p2, ge_p3} = {f_valid, p1v, p2v};/assign {ge_p1, ge_p2, ge_p3} = {p1v, p1v, p2v};/' '= {p1v, p1v, p2v};' esc_core.sby ahead 3600
 tooth c-fi      esc_ctx.v 's/| (o_cnt != 3.d0) | push;/| (o_cnt != 3'"'"'d0);/' "| (o_cnt != 3'd0);" esc_ctx.sby kind 600

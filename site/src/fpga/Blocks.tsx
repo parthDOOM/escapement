@@ -118,7 +118,7 @@ export function FpgaVsAsic({ d }: { d: Fpga }) {
             <th className="num">Std cells</th><th className="num">Area <span style={{ textTransform: "none" }}>µm²</span></th></tr>
         </thead>
         <tbody>
-          <tr className="group"><td colSpan={4}>GW5A-25 FPGA (this bench)</td><td colSpan={2} className="num">IHP SG13CMOS5L silicon (v3.1)</td></tr>
+          <tr className="group"><td colSpan={4}>GW5A-25 FPGA (this bench)</td><td colSpan={2} className="num">IHP SG13CMOS5L silicon (v3.2)</td></tr>
           {rows.map(([label, ids, key]) => {
             const a = key ? asic(key) : undefined;
             const sram = label.startsWith("Program");

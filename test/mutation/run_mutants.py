@@ -490,6 +490,64 @@ EXCLUDED = {
                               "the next head's tests), START empties it, and every read of a slot is gated by the "
                               "count (n_keep, rel < cnt, due, the core's tail tests under cs_cnta != 0): the slot "
                               "a run starts from changes no output",
+    # v3.2 campaign (run 45793753053, 11-26): mutants on lines v3.2 rewrote, undecided by the 30-minute
+    # proof (three more were test gaps: esc_ctx_const_192c1b90, test_start_clears_expect_seen;
+    # esc_ctx_const_21620745, test_reset_state reading selects 0-8 through the port; esc_ctx_logic_9949a45a,
+    # test_fifo_full_wait_saturates)
+    "esc_core_const_7cd1f4d4": "ahd_tail's reset value: it is read only by a commit, which needs p3v; p3v <= p2v "
+                               "at the edge where the X bank, enabled by p2v (D-76), loads ahd_tail_n, so a "
+                               "commit always reads a loaded value (ahead_b3 proves it equal to its definition)",
+    "esc_core_const_ecc137f5": "now's reset value: before the first START every reader is gated by a run, a "
+                               "commit or a CONFIG (RDTIME, the capture records, the monitor's tick, the fault "
+                               "record, the contexts' FIFOs, the line unit's owner cycles), and fq = now[1:0] "
+                               "addresses the store only while running; START loads now and fq from START_NOW",
+    "escapement_host_const_0027954d": "tape_ack_v's reset value: tape_ack resets to 0 and is raised only by a "
+                                      "TAPE_ACK payload byte, at the edge where the byte bank (byte_done, idx != 0) "
+                                      "loads tape_ack_v with that byte; the capture unit reads ack_v only "
+                                      "with ack",
+    "esc_cap_const_3b5935be": "snap left set by a disarming CAPT is never read: records are generated only "
+                              "with en, which the same CAPT clears, and the only assignment that sets en "
+                              "(an arming CAPT) sets snap with it",
+    "esc_line_const_5343ef63": "dq_oe's reset value: dq_oe is read only with dq_go (the TX drive), and the two "
+                               "load only together, in the branch after reset, lu_hold, start and kill, all of "
+                               "which hold both; dq_go is 0 until that branch first runs",
+    "esc_core_stuck_6410dfa3": "nq left at START: nq is read only with p2v (illegal_n into the P3 bank, "
+                               "enabled by p2v; f_chain and x_npc through x_ok; f_far_sp), START clears p2v, "
+                               "and the first run edge loads nq = own(sq + 2) from the sq START set, before "
+                               "p2v can rise (ahead_b0 would fail on it; no output changes)",
+    "esc_core_const_db54a15f": "p3_insn's reset value: insn is read only by a commit, which needs p3v, and by "
+                               "dbg_commit_insn, which is unconnected at the top and feeds the hold bank only "
+                               "at a WAIT commit; p3v <= p2v at the edge where the P3 bank, enabled by p2v "
+                               "(D-76), loads p3_insn",
+    "escapement_host_const_62f48c4d": "mem_addr's reset value: every command that addresses a memory loads mem_addr "
+                                      "from its address byte (idx 1) before the store or tape uses it (mem_we, "
+                                      "imem_wpend and tape_req come later or at that edge; READ_IMEM's data is "
+                                      "taken at idx 2), and a refused address byte (no wslot) means a word "
+                                      "waits, whose WRITE_IMEM loaded mem_addr",
+    "escapement_host_const_df9196fc": "tape_ack set by reset: it is cleared at the first edge after reset, where the "
+                                      "capture unit's g_rptr loads ack_v, tape_ack_v's reset value 0, which is "
+                                      "rptr's own reset value; tape_ack has no other reader",
+    "escapement_host_const_d85b7638": "gnt_d set by reset: its only effect is that g_tdata loads mem_rdata at the "
+                                      "first edge; tdata is sent only by a READ_TAPE, whose fetch at the address "
+                                      "byte reloads it, unless the fetch was late, when host error is set and the "
+                                      "word sent is undefined (docs/12-HOST-PROTOCOL.md)",
+    "escapement_host_const_416b3513": "READ_DBG's wcnt also counting at the select byte (idx 1): idx 2 clears wcnt "
+                                      "at the next byte, and between the two edges wcnt has no reader (next_tx at "
+                                      "idx 2 sends dbg_rdata, the byte bank loads word from dbg_rdata; wcnt is "
+                                      "read only for idx > 2); a frame that ends sooner clears it",
+    "esc_core_const_4ece4e53": "nq loaded with the wrong slot at START: as for esc_core_stuck_6410dfa3, nq is "
+                               "read only with p2v, which START clears, and the first run edge reloads it",
+    "esc_core_const_faa0ed40": "fq's reset value: while stopped every edge loads fq <= now[1:0], 0 after reset; "
+                               "before that first edge fq reaches only the fetch (imem_addr, which the top uses "
+                               "only while running, and f_valid, which needs run)",
+    "esc_line_const_ccb3ea47": "es_q's reset value: es_q is read only at a transmit boundary after the first "
+                               "(eseg = tx_start ? es0 : es_q, every reader under tx_bnd), and TX is entered at "
+                               "tx_start in the branch that loads es_q at every edge, so a loaded value is read",
+    "escapement_host_stuck_7fa1bbef": "cmd left without its reset: every edge without chip select loads C_IGNORE "
+                                      "and a frame's command byte loads cmd; before either, cmd reaches next_tx "
+                                      "only in its idx != 0 branch, the payload logic and the byte bank only with "
+                                      "idx != 0, and mem_re only as a stopped store read whose data is taken at "
+                                      "idx 2 of a READ_IMEM",
 }
 
 

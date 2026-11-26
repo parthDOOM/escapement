@@ -27,16 +27,16 @@ check, each able to catch what the others miss:
 | Equivalence checking | The hardened netlist equals the RTL for every input sequence | `formal/equiv.sh` |
 | Continuous integration | Every check above reruns on each change it depends on | `.github/workflows`, [results page](https://parthdoom.github.io/escapement/#results) |
 
-The numbers in this chapter come from the final continuous-integration runs on version 3.1
-unless a section says otherwise. The final runs at a glance:
+The numbers in this chapter come from the final continuous-integration runs on version 3.2
+(PENDING-CI) unless a section says otherwise. The final runs at a glance:
 
 | Check | Result |
 | --- | --- |
-| Formal proofs | 110 of 110 tasks pass; 15 planted bugs each make their proof fail |
-| Netlist against RTL | Sequentially equivalent, 337 output bits compared |
+| Formal proofs | PENDING-PROOF-TASKS of PENDING-PROOF-TASKS tasks pass; PENDING-TEETH planted bugs each make their proof fail |
+| Netlist against RTL | PENDING-EQUIV |
 | Lockstep co-simulation | 191 random programs and 84 firmware cases, on two builds of the RTL: no difference |
 | Timing certificates | 90 of 90 programs certified; the measured lead equals the bound in 64 of 84 contexts and is never below it |
-| Mutation testing | 1,017 planted RTL faults: 902 caught, 57 proved harmless, 58 argued harmless, none surviving |
+| Mutation testing | 1,035 planted RTL faults: PENDING-MUT-KILLED caught, PENDING-MUT-PROVED proved harmless, PENDING-MUT-ARGUED argued harmless, none surviving |
 | Outside judges | decoders written by other people agree with 80 of the 90 programs; every control fails |
 | Planted firmware bugs | 823 timing bugs in 87 programs: 196 refuted with a reproducer, 23 not proven, 604 certified, none certified that can fault |
 | Held-out round | eight protocols drawn at random from a sealed list, each certified, co-simulated, judged where a decoder exists and run on the FPGA bench; all eight fit ([below](#the-held-out-round)) |
@@ -430,8 +430,8 @@ minutes on one core for version 1.3.
 
 The proofs above are about the RTL, but the chip is built from the netlist that synthesis,
 placement and routing produce. `make equiv` proves that the two are the same machine: the
-signed-off netlist of version 3.1 (SHA-256 `1342fef1bc2f9f99…`, the same from the CI harden
-and the local one) is sequentially equivalent to the RTL in `src/` for every input sequence
+signed-off netlist of version 3.2 (SHA-256 `90aa97b297b9515a…` from the local harden;
+PENDING-SHA from the CI harden) is sequentially equivalent to the RTL in `src/` for every input sequence
 after reset.
 
 Both designs are flattened and placed side by side in a **miter**, a circuit that feeds
@@ -563,8 +563,8 @@ reasons, so the harness guards against each way that could happen:
 The line unit lockstep also counts its own replayed edges and the stray tape reads it makes,
 and fails a run that replays fewer edges than it generated.
 
-**Where the mutants come from.** The campaign has 1,017 mutants across the whole RTL,
-including the line unit, the bus monitor and the program store. 947 are generated
+**Where the mutants come from.** The campaign has 1,035 mutants across the whole RTL,
+including the line unit, the bus monitor and the program store. 965 are generated
 (`test/mutation/generate.py`). Every synthesisable line outside the verification-only
 blocks is scanned for classic fault sites: a comparison or logic operator swapped, an
 inversion dropped, an arithmetic operator swapped, a constant changed, an `if` condition
@@ -605,19 +605,19 @@ The other 70 are written by hand, each aimed at one feature:
   dropped polynomial term in the digest, a missing GETI wait, broken tape forwarding,
   capture rule changes and clock-gate enable errors.
 
-**Result: 1,017 mutants, none surviving.**
+**Result: 1,035 mutants, none surviving (PENDING-CI).**
 
 | Outcome | Mutants |
 | --- | ---: |
-| Killed by the lockstep co-simulation | 434 |
-| Killed by the line unit lockstep | 278 |
-| Killed by the host interface tests | 96 |
-| Killed by the core unit tests | 58 |
-| Killed by the bus monitor tests | 24 |
-| Killed by the chip tests | 11 |
-| Killed by the firmware tests through the pins | 1 |
-| Proved equivalent (`formal/equiv.sh`): no chip output can differ | 57 |
-| Excluded, each with its written argument in `run_mutants.py` | 58 |
+| Killed by the lockstep co-simulation | PENDING-MUT-COSIM |
+| Killed by the line unit lockstep | PENDING-MUT-LINE |
+| Killed by the host interface tests | PENDING-MUT-HOST |
+| Killed by the core unit tests | PENDING-MUT-UNIT |
+| Killed by the bus monitor tests | PENDING-MUT-MON |
+| Killed by the chip tests | PENDING-MUT-CHIP |
+| Killed by the firmware tests through the pins | PENDING-MUT-PINS |
+| Proved equivalent (`formal/equiv.sh`): no chip output can differ | PENDING-MUT-PROVED |
+| Excluded, each with its written argument in `run_mutants.py` | PENDING-MUT-ARGUED |
 
 Most exclusions change a reset or start value that nothing reads before it is loaded again,
 such as the core's operand registers, line unit fields read only in a mode whose entry sets
@@ -680,6 +680,29 @@ harness and the tests as they are today.
   a first-fault record whose tick keeps its old value, which no test killed. The unit test
   that forces a late head to check the tripwires now also reads the first-fault record it
   leaves: the cause, the context and the tick of the edge that saw it.
+- **Version 3.2: values that take 2³¹ ticks or 65,536 waits to show.** The gated banks
+  rewrote many reset and start lines, and since a generated mutant is chosen by its line's
+  text, the first version 3.2 run met mutants no campaign had judged. Fourteen written by hand
+  no longer applied to the new code and were retargeted with the same faults. Most of the
+  generated ones that survived change a value that nothing reads before it is loaded again:
+  reset or clear values whose every reader is qualified by a signal loaded on the same edge
+  (the commit stage's instruction and admission flags, the line unit's segment register and
+  its TX drive's output enable, the host's command, memory address and first-cycle strobes, a
+  capture snapshot left by a disarming CAPT), the fetch and X stages' owners left wrong at
+  reset or at a START, which reach the pipeline only after the next edge reloads them, and a
+  debug read's byte counter stepped one byte early, which the next byte clears. They are
+  excluded with those arguments. Three were holes in the tests:
+  - A START that set `exp_seen`. Nothing reads it until a run's first `EXPECT`, which it then
+    compares with `lee`, the start timer, so it refuses only a deadline 2³¹ or more ticks past
+    the start: 86 s at 25 MHz, beyond any simulation. `test_start_clears_expect_seen` reaches
+    that case in 15 ticks by loading the timer with 0x80000000.
+  - A loop counter reset to 1. `test_reset_state` read selects 0 to 8 without the clock edges
+    that load the debug port's register (D-41), so for those selects it saw that register's
+    own reset value, not the contexts'. It now gives each select the edges a READ_DBG frame
+    gives it.
+  - A full-FIFO wait count that wrapped after 65,535 instead of saturating, a difference only
+    from the 65,536th wait on. `test_fifo_full_wait_saturates` makes about 65,600 of them
+    (PENDING-MUT-V32).
 
 ## Timing certificates
 
@@ -1365,7 +1388,7 @@ inputs it samples are its buttons.
 | Co-simulation and line unit lockstep on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make cosim-parallel line-test`) | all | Pass |
 | Co-simulation (`make cosim`): 200 random programs (191 fit a page), 84 firmware cases with bus models, directed tests | all | Pass |
 | Host interface (`make host-test`) | 25 | Pass |
-| Core unit tests (`make unit-test`) | 40 | Pass |
+| Core unit tests (`make unit-test`) | 43 | Pass |
 | Bus monitor (`make mon-test`) | 1 | Pass |
 | Line unit lockstep (`make line-test`) | 19 runs, 3.8 million edges | Pass |
 | Newer firmware (SWD, SPI target, NEC, NEC rebuilt for 33 and for 50 MHz, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 9 | Pass on the RTL and on the final netlist |

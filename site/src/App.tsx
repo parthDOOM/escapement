@@ -83,8 +83,8 @@ export default function App() {
                 <a className="run-btn" href="#play">Run the firmware</a>
                 <a className="icon-btn" href="#inside">How it works</a>
               </div>
-              <p className="hero-hw"><a href={asset("fpga/")}>Runs on hardware: version 3.1 on an FPGA, driven by a
-                Pico W, runs 89 of the 90 programs, each matching the model and its certificate, answers a laptop's ping,
+              <p className="hero-hw"><a href={asset("fpga/")}>Runs on hardware: on an FPGA, driven by a Pico W, version
+                3.2 runs 89 of the 90 programs, each matching the model and its certificate; version 3.1 answers a laptop's ping,
                 types into it as a USB keyboard, plays DOOM on an OLED with the Pico as its host, refuses a late edge where its
                 certificate said, and learns a remote's protocol from its own capture →</a></p>
               <p className="hero-hw"><a href="#heldout">Protocols it was not designed for: eight drawn at random from a sealed
@@ -292,8 +292,8 @@ export default function App() {
                   prediction.</p>
                 <p>To check the tests themselves, faults are planted in the RTL one at a time, across every module,
                   the line unit and the bus monitor included, and simulated on the PDK's standard-cell models. The
-                  final campaign planted 1,017: the tests caught 902, 57 are proved to change no output of the chip,
-                  and 58 are excluded with a written reason, most of them reset or start values that nothing reads
+                  final campaign planted 1,035: the tests caught PENDING-MUT-KILLED, PENDING-MUT-PROVED are proved to change no output of the chip,
+                  and PENDING-MUT-ARGUED are excluded with a written reason, most of them reset or start values that nothing reads
                   before they are reloaded. None survives. CI reruns the whole campaign on every change to the RTL.
                   Every fault that slipped through a run was read against the RTL, and each hole it showed was closed
                   with a new test.</p>
@@ -316,14 +316,14 @@ export default function App() {
             </div>
             <Later h={520}><DieZoom /></Later>
 
-            <p className="more"><a href={asset("silicon/")}>Down to the transistors, and the eight layouts that led
+            <p className="more"><a href={asset("silicon/")}>Down to the transistors, and the nine layouts that led
               here →</a></p>
             <div className="stats" style={{ marginTop: "3rem" }} aria-label="Sign-off results">
-              <div><b>38,514</b><span>standard cells</span></div>
-              <div><b>62.6%</b><span>utilisation</span></div>
-              <div><b>2.20 m</b><span>of wire</span></div>
-              <div><b>16.6 ns</b><span>shortest clock the slow corner passes (signed off at 20 ns, rated 50 MHz)</span></div>
-              <div><b>+0.098 ns</b><span>worst hold slack, fast corner</span></div>
+              <div><b>39,588</b><span>standard cells</span></div>
+              <div><b>64.4%</b><span>utilisation</span></div>
+              <div><b>2.38 m</b><span>of wire</span></div>
+              <div><b>17.0 ns</b><span>shortest clock the slow corner passes (signed off at 20 ns, rated 50 MHz)</span></div>
+              <div><b>+0.216 ns</b><span>worst hold slack, fast corner</span></div>
               <div><b>0</b><span>slew, capacitance, DRC, LVS and antenna errors</span></div>
             </div>
 
@@ -332,8 +332,9 @@ export default function App() {
                 <h3>Power: measure, then cut what dominates</h3>
                 <p>The first netlist used 93% of its busy power while doing nothing, all of it clocking flip-flops and
                   reading memories every cycle. Clock gating, on-demand memory selects and a split hold margin removed
-                  most of it. Version 3.1 uses 4.42 mW sending a UART and 3.36 mW stopped, against 8.61 and 7.99 mW for
-                  that first netlist.</p>
+                  most of it, and version 3.2 gated almost every register that was left and parked waiting contexts.
+                  Version 3.2 uses 1.85 mW sending a UART and 1.27 mW stopped, against 8.61 and 7.99 mW for that first
+                  netlist and 4.42 and 3.36 mW for version 3.1.</p>
                 <p>Figures are from gate-level simulation at the typical corner, with the memory energy counted edge by
                   edge.</p>
               </div>

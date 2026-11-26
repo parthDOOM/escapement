@@ -18,8 +18,8 @@ class Guard extends Component<{ children: React.ReactNode }, { err: string | nul
   }
 }
 
-// The layout in depth, moved here from the chip's page: the transistor close-up and the nine
-// adopted layouts from v1.0 to v3.1. The chip's page keeps the die, its sign-off numbers and power.
+// The layout in depth, moved here from the chip's page: the transistor close-up and the ten
+// adopted layouts from v1.0 to v3.2. The chip's page keeps the die, its sign-off numbers and power.
 export default function SiliconApp() {
   return (
     <>
@@ -27,9 +27,9 @@ export default function SiliconApp() {
       <main id="top">
         <section className="hero page-hero">
           <div className="wrap">
-            <p className="eyebrow">Physical design · v3.1 · IHP SG13CMOS5L 130 nm · 8×4 tiles</p>
+            <p className="eyebrow">Physical design · v3.2 · IHP SG13CMOS5L 130 nm · 8×4 tiles</p>
             <h1>The <em>layout</em></h1>
-            <p className="lede">The die as it goes to silicon, cut down to its transistors, and the eight layouts that
+            <p className="lede">The die as it goes to silicon, cut down to its transistors, and the nine layouts that
               led to it. The whole die, its sign-off numbers and its power are on <a href={asset("#silicon")}>the
               chip's page</a>.</p>
           </div>
@@ -56,10 +56,13 @@ export default function SiliconApp() {
                   eight by four tiles came with a 1,024-word program store; version 3 puts both memories in one column
                   on the east side, so the logic is a single rectangle with no macro across its horizontal paths, and is
                   still laid out for 20 ns. Version 3.1 corrects the repair step's picture of the wires and of the
-                  slow corner, and meets every electrical rule at every corner.</p>
-                <p>To save power, register banks that are not being written do not see the clock: about 90 clock gates
-                  stand in front of the banks among the 5,398 storage cells, and each memory is selected only on the
-                  cycles that read it.</p>
+                  slow corner, and meets every electrical rule at every corner. Version 3.2 gates almost every
+                  remaining register; its first layouts lost timing margin to a latch on the TX pin claim and to a
+                  97-buffer chain built by a repair step, and a flip-flop and one flow setting won it back.</p>
+                <p>To save power, registers that are not being written do not see the clock: 128 clock gates stand in
+                  front of the banks among the 5,619 storage cells, a waiting context reissues its held instruction
+                  instead of reading the program store, and each memory is selected only on the cycles that read
+                  it.</p>
               </div>
             </div>
           </div>

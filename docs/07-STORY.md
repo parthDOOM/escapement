@@ -204,6 +204,15 @@ pad reader and an M-Bus slave. All eight fit. The chip had no bug to show; the c
 checker had one, a `CONFIG` it never checked the way the chip does, and it was fixed
 ([heldout/RESULTS](../heldout/RESULTS.md)).
 
+The last version was for power alone. Version 3.1 still clocked 1,738 flip-flops at every
+edge, whether or not anything wrote them, and a waiting context read its `WAIT` from the
+program store again in every slot. Version 3.2 put those registers behind clock gates that
+open only when the register is written, and parked a waiting context on the word it already
+held. Its first layouts lost timing margin to a latch on the TX pin claim and to a chain of
+97 buffers that a repair step of the layout tool built; a flip-flop and one flow setting won
+it back. A stopped chip went from 3.36 to 1.27 mW, and nothing a program sees changed
+(D-73 to D-77).
+
 ## What stayed the same
 
 Through all of this the central promise did not change, and neither did the working

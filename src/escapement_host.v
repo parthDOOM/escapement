@@ -242,7 +242,7 @@ module escapement_host #(
                 if (idx == 5'd1) begin
                   if (wslot) mem_addr <= rx_byte; else host_err <= 1'b1;   // v1.7: a word waits
                 end else begin
-                  wcnt <= wcnt + 2'd1;                   // (word, mem_wdata: bank B below)
+                  wcnt <= wcnt + 2'd1;                   // (word, mem_wdata: the byte bank below)
                   if (wcnt == 2'd3) begin
                     if (!running) mem_we <= 1'b1;
                     else if (cmd == C_WRITE_IMEM && wslot) imem_wpend <= 1'b1;
@@ -256,7 +256,7 @@ module escapement_host #(
                   else host_err <= 1'b1;
                   if (cmd == C_READ_TAPE) tape_req <= 1'b1;
                 end else if (idx == 5'd2) begin
-                  // (the first word: bank B)
+                  // (the first word: the byte bank)
                   if (wslot) mem_addr <= mem_addr + 8'd1;       // prefetch next
                   else host_err <= 1'b1;
                   wcnt     <= 2'd0;
@@ -271,13 +271,13 @@ module escapement_host #(
                   end
                 end
               end
-              C_TAPE_ACK: if (idx == 5'd1) tape_ack <= 1'b1;          // (its value: bank B)
-              // (WRITE_CFG: bank B)
-              C_READ_DBG: begin                                      // (selects, word: bank B)
+              C_TAPE_ACK: if (idx == 5'd1) tape_ack <= 1'b1;          // (its value: the byte bank)
+              // (WRITE_CFG: the byte bank)
+              C_READ_DBG: begin                                      // (selects, word: the byte bank)
                 if (idx == 5'd2) wcnt <= 2'd0;
                 else if (idx != 5'd1 && wcnt != 2'd3) wcnt <= wcnt + 2'd1;
               end
-              C_MBX_PUSH: begin                                      // (mctx, word: bank B)
+              C_MBX_PUSH: begin                                      // (mctx, word: the byte bank)
                 if (idx == 5'd5) begin
                   if (mbx_rx_full[mctx]) host_err <= 1'b1;
                   else mbx_rx_push[mctx] <= 1'b1;
@@ -289,7 +289,7 @@ module escapement_host #(
               C_IRQ_CLEAR: if (idx == 5'd1) irq_clear <= rx_byte[3:0];
               // running or stopped; refused while a live word waits (its page is
               // part of its address, as for a new address byte)
-              C_IMEM_PAGE: if (idx == 5'd1 && !wslot) host_err <= 1'b1;  // (mem_page: bank B)
+              C_IMEM_PAGE: if (idx == 5'd1 && !wslot) host_err <= 1'b1;  // (mem_page: the byte bank)
               // Live reload: stop / restart contexts during a run. CTX_START refuses (host error,
               // nothing started) a context that is not enabled or is RUNNING.
               C_CTX_STOP: if (idx == 5'd1) begin
@@ -308,13 +308,13 @@ module escapement_host #(
     end
   end
 
-  // ---------------------------------------------------------------- bank B (v3.2)
+  // ---------------------------------------------------------- the byte bank (D-74)
   // The registers written only at the edge that ends a payload byte: the assembled word,
   // the configuration, the program store's write word, the program page, the debug and
   // mailbox selects and TAPE_ACK's value. They saw every clock edge and change a few times
   // per host command, so they sit behind one clock gate, open at the only edges at which
-  // the block above could assign them (the v1.7 S2 prototype's bank, with 3.1's pages,
-  // span and live words). Each assignment is the one that block made, under its condition.
+  // the block above could assign them, version 3.1's pages, span and live words included.
+  // Each assignment is the one that block made, under its condition.
   wire en_hb = byte_done & (idx != 5'd0);
   wire gc_hb, ge_hb;
 `ifdef FORMAL
@@ -359,7 +359,7 @@ module escapement_host #(
             5'd7: pin_owner[15:8]  <= rx_byte;
             5'd8: pin_owner[7:0]   <= rx_byte;
             5'd9: pin_od           <= rx_byte;
-            // bank B and pair mode; a 9-byte WRITE_CFG leaves these unchanged
+            // pin bank B and pair mode; a 9-byte WRITE_CFG leaves these unchanged
             5'd10: begin ctx_bank <= rx_byte[3:0]; ctx_pair <= rx_byte[7:4]; end
             5'd11: pin_owned[12:8]   <= rx_byte[4:0];
             5'd12: pin_owner[25:24]  <= rx_byte[1:0];

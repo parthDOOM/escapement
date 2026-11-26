@@ -363,7 +363,10 @@ certificates, among them `modbus_full`, the first program that spans two pages. 
 19 November, on version 3, refused one bench program, `eth_trx`, as it should have: it had no
 certificate, and its findings were a real fault. With that fixed, the program is CHECKED and
 passed on 21 November. The run was repeated on 22 November with the reset synchroniser
-(D-63) in the build, with the same 85 of 85. The same bench also runs programs against real
+(D-63) in the build, with the same 85 of 85. On 26 November version 3.2 passed every
+stage with 94 of 94, the 85 with `pwm_audio` and the eight held-out programs added; its
+clock gates are plain enables in the FPGA build, so the run checks the logic of the parked
+fetch and the gated banks, not their power. The same bench also runs programs against real
 equipment: 10BASE-T Ethernet with a laptop in both directions, answering its ARP requests
 and pings; Arm SWD reading the debug ports of an RP2040; and a USB keyboard that the laptop
 enumerates and that types a line into it, six times out of six. The README there has these

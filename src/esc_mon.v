@@ -86,7 +86,7 @@ module esc_mon #(
   esc_greg #(CW) g_cq (.clk(clk), .rst_n(rst_n), .en(wr), .d(cfg_d), .q(cfg_q));
 
   // v3.2: each rule's state (enable, armed, interval counter, violation count) is a
-  // clock-gated bank (esc_greg, D-29), open only at an edge that can change it: a start, a
+  // clock-gated bank (esc_greg, D-74), open only at an edge that can change it: a start, a
   // write of the rule, a clear, or a run edge while the rule is armed or sees its from-edge.
   // A rule that is off, or on and waiting for its from-edge, sees no clock.
   wire          en    [0:RULES-1];

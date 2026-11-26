@@ -18,7 +18,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import FallingEdge, Timer
+from cocotb.triggers import ClockCycles, FallingEdge, Timer
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "sw"))
@@ -369,6 +369,36 @@ async def test_fifo_full_wait(dut):
         else:
             want = ({100: 1, 101: 0, 102: 1, 103: 0}.get(t, 1), 1)
         assert (tr[t]["out"], tr[t]["oe"]) == want, (t, tr[t])
+
+
+@cocotb.test()
+async def test_fifo_full_wait_saturates(dut):
+    """sec. 6.2 wait_full is 16 bits and saturating. The FIFO fills with deadlines 2^20 ticks
+    out, so the fifth EMIT WAITs in every slot for far longer than the run: about 65,600 WAITs,
+    past the 65,535 at which the count must stop (a count that wraps reads 73)."""
+    env = await new_env(dut)
+    await env.load_and_start("""
+    .entry 0, s
+    .own 0, 0
+    s: MOVI r0, 1       ; pc0 t3
+       SHL r0, 20       ; pc1 t7   r0 = 2^20
+       SETT r0          ; pc2 t11  tmr = 2^20
+       EMIT 1, 1, 1     ; pc3      |Q| 1
+       ADDT 1
+       EMIT 1, 0, 1     ;          |Q| 2
+       ADDT 1
+       EMIT 1, 1, 1     ;          |Q| 3
+       ADDT 1
+       EMIT 1, 0, 1     ;          |Q| 4: full
+       ADDT 1
+       EMIT 1, 1, 1     ;          WAIT in every slot until the head retires near tick 2^20
+       HALT
+    """)
+    await env.run(80)
+    assert [c[3] for c in env.commit_summary()][-3:] == [W, W, W], env.commit_summary()
+    await ClockCycles(dut.clk, 4 * 65_600)
+    await FallingEdge(dut.clk)
+    assert await env.rd(9) & 0xFFFF == 0xFFFF, hex(await env.rd(9))
 
 
 # --------------------------------------------------------------------------- sec. 7.3
@@ -1133,6 +1163,28 @@ async def test_start_reinitialises_context(dut):
     assert (c["r0"], c["r1"], c["r2"], c["r3"], c["sh"], c["tmr"]) == (0, 0, 0, 0, 0, 0), c
 
 
+@cocotb.test()
+async def test_start_clears_expect_seen(dut):
+    """sec. 9 Start clears exp_seen, so a run's first EXPECT is never compared with the end of
+    an earlier window: lee then holds only the start timer (0 here), not a window. This EXPECT's
+    deadline is 0x80000000: less than 2^31 ahead of its commit tick, so it is ahead (sec. 6.2),
+    and exactly 2^31 past lee, so a START that left exp_seen set would refuse it for OVERLAP.
+    (Otherwise that takes a first EXPECT more than 2^31 ticks into a run, 86 s at 25 MHz.)"""
+    env = await new_env(dut)
+    await env.load_and_start("""
+    .entry 0, s
+    s: MOVI r0, 1                     ; 0 t3
+       SHL r0, 31                     ; 1 t7   r0 = 0x80000000
+       SETT r0                        ; 2 t11  tmr = 0x80000000
+       EXPECT 0x01, 0x01, HOLD, 0     ; 3 t15  d - (c + 1) = 0x7FFFFFF0: ahead
+       HALT                           ; 4 t19  W: the EXPECT stays queued
+    """)
+    await env.run(24)
+    c = env.commit_at(15)
+    assert c["oc"] == C, ("the run's first EXPECT was refused", env.commit_summary())
+    assert not any(r["fv"] for r in env.trace), "a fault was recorded"
+
+
 # --------------------------------------------------------------------------- sec. 9 Reset
 # Every observable register before the first START. A host can read the debug selects
 # over SPI at any time, so a wrong reset value is a visible bug, not a hidden one; the
@@ -1154,6 +1206,11 @@ async def test_reset_state(dut):
         for k in range(4):
             dut.dbg_sel.value, dut.dbg_sel_ctx.value = s, k
             await Timer(1, unit="ns")
+            if s <= 8:
+                # selects 0-8 come through dbg_cs (D-41), which loads at the edges after the
+                # host selects another field or context, as a READ_DBG frame's bytes allow
+                for _ in range(3):
+                    await FallingEdge(dut.clk)
             v = dut.dbg_rdata.value
             if not v.is_resolvable or int(v) != RESET_SEL.get(s, 0):
                 bad[f"sel {s} ctx {k}"] = str(v)

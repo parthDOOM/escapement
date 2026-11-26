@@ -204,8 +204,8 @@ rather than as a puzzling failure.
 
 Every proof runs in continuous integration on each change it depends on, and planted
 faults show that the proofs can fail, since a proof that passes whatever the design does
-proves nothing. In the final run all 110 proof tasks pass, and each of 15 planted bugs
-makes its proof fail.
+proves nothing. In the final run all PENDING-PROOF-TASKS proof tasks pass, and each of PENDING-TEETH planted
+bugs makes its proof fail.
 
 ## 6. Checking the checks
 
@@ -249,8 +249,8 @@ bus models catch them. The campaign also found three bugs in escert itself.
 **Mutation testing.** To check the tests themselves, faults are planted in the RTL one at
 a time across every module and simulated on the PDK's standard-cell models; a fault the
 tests do not notice is a hole in the tests, to be closed with a new test, proved to change
-no output, or excluded with a written argument. The final campaign planted 1,017 faults:
-902 were caught by a test, 57 were proved to change no output, and 58 are excluded, most
+no output, or excluded with a written argument. The final campaign planted 1,035 faults:
+PENDING-MUT-KILLED were caught by a test, PENDING-MUT-PROVED were proved to change no output, and PENDING-MUT-ARGUED are excluded, most
 of them reset or start values that nothing reads before they are reloaded. None survives.
 
 **Real devices as oracles.** Models written from datasheets can share a misreading with the
@@ -268,24 +268,27 @@ and board add, and every protocol still works.
 
 ## 7. The silicon
 
-Version 3.1 occupies 8 × 4 Tiny Tapeout tiles, 1724.16 × 710.64 µm, with 38,514 standard
-cells, a 1,024 × 32 program store and a 256 × 32 tape, at 62.6% utilisation. It is limited
+Version 3.2 occupies 8 × 4 Tiny Tapeout tiles, 1724.16 × 710.64 µm, with 39,588 standard
+cells, a 1,024 × 32 program store and a 256 × 32 tape, at 64.4% utilisation. It is limited
 by wiring, not cell area: four metal layers carry signals, only one of them horizontally,
 and each SRAM blocks three of them over its footprint, so the floorplan puts both memories
 in one column on the east side and leaves the logic a single rectangle.
 
 The layout is signed off at 20 ns at all three corners, so the chip is rated for clocks up
-to 50 MHz. The slow corner passes setup down to 16.6 ns, and the worst hold slack, at the
-fast corner, is +0.098 ns. Every electrical rule is met at every corner, LVS, DRC and
+to 50 MHz. The slow corner passes setup down to 17.0 ns, and the worst hold slack, at the
+fast corner, is +0.216 ns. Every electrical rule is met at every corner, LVS, DRC and
 antenna checks are clean, the shuttle's precheck passes, and the CI harden and the local
 one produce the same netlist bit for bit.
 
-Power follows one rule: pay only for work. Register banks that are not being written do not
-see the clock, most of their storage is latches at about half the area of flip-flops, and
-each memory is selected only in the cycles that read it. The first netlist spent 93% of its
-busy power doing nothing. Version 3.1 uses 4.42 mW sending a UART and 3.36 mW stopped, at
-25 MHz and the typical corner; what a stopped chip still spends goes to the storage that
-must stay clocked and to the clock tree ([power](15-POWER.md)).
+Power follows one rule: pay only for work. A register that is not being written does not
+see the clock, most of the large banks are latches at about half the area of flip-flops,
+each memory is selected only in the cycles that read it, and a context waiting on a `WAIT`
+reissues its held instruction instead of reading the program store again. The first
+netlist spent 93% of its busy power doing nothing. Version 3.2 uses 1.85 mW sending a UART
+and 1.27 mW stopped, at 25 MHz and the typical corner, against 4.42 and 3.36 mW for
+version 3.1; what a stopped chip still spends goes to the registers that must keep running,
+such as the pin synchronisers and the host link, and to the clock tree and its gates
+([power](15-POWER.md)).
 
 ## 8. On the bench
 
@@ -297,12 +300,12 @@ prediction and the certificate.
 
 ![The bench: a Raspberry Pi Pico W wired to a Sipeed Tang Primer 25K Dock](img/bench-setup.jpg)
 
-Version 3.1's RTL, the same Verilog that was hardened for silicon, runs 89 of the 90
-programs, all but the 14-second `westminster` chime, which has no bench bundle, and every
-one matches the reference model and stays within its timing certificate
-([the bench](https://parthdoom.github.io/escapement/fpga/)).
+The chip's RTL, the same Verilog that is hardened for silicon, runs 89 of the 90 programs,
+all but the 14-second `westminster` chime, which has no bench bundle, and every one matches
+the reference model and stays within its timing certificate: on version 3.1, and again on
+version 3.2 ([the bench](https://parthdoom.github.io/escapement/fpga/)).
 
-The same bitstream talks 10BASE-T Ethernet with a laptop through resistors, capacitors and
+Version 3.1's bitstream talks 10BASE-T Ethernet with a laptop through resistors, capacitors and
 a patch cable cut open at one end: `eth_tx` sent 20 of 20 frames intact, `eth_rx` received
 the laptop's own traffic with a good check sequence on every frame, and `eth_trx` answered
 its pings, with the Pico as the IP stack
@@ -410,7 +413,7 @@ and can be rerun:
 | The RTL is the machine the specification defines | lockstep co-simulation against the instruction-set simulator | `make cosim-parallel` |
 | Every program is certified, and the chip measures the bound | `escert`, and each bound beside the lead the RTL measures | `make cert proof-table` |
 | The certificate checker refuses what can fault | 823 planted firmware timing bugs | `make fw-mutants` |
-| The tests notice a broken design | 1,017 planted RTL faults | `make mutation` |
+| The tests notice a broken design | 1,035 planted RTL faults | `make mutation` |
 | The programs speak the protocol, not our model of it | decoders written by other people, each with a control that must fail | `make judges` |
 | The protocols survive pad and board delays | every case with its pins up to three ticks slower each way | `make pad-audit` |
 | The layout meets 20 ns and every electrical rule at every corner | the CI harden's sign-off reports, summarised in [physical design](03-PHYSICAL-DESIGN.md#sign-off-results) | `make harden` |

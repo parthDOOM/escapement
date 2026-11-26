@@ -277,7 +277,7 @@ module esc_ctx (
   wire       tx_wi     = tx_rp ^ tx_popped ^ tx_cnt_p[0];
 
   // ------------------------------------------------------------------ registers
-  // v3.2 (C): these registers were one block that saw every clock edge, about 170 flip-flops
+  // D-75: these registers were one block that saw every clock edge, 164 flip-flops
   // per context and a third of a stopped chip's power. They are four banks, each behind a
   // clock gate (esc_icg) whose enable covers every way the bank can change, plus nine
   // flip-flops left on the clock. Each enable follows from its bank's own statements:
@@ -528,7 +528,7 @@ module esc_ctx (
 
 `ifdef FORMAL
 `ifdef ESC_CTX_ENV
-  // v3.2 (C): the gated banks equal the single block they replaced (formal/esc_ctx.sby, every
+  // D-75: the gated banks equal the single block they replaced (formal/esc_ctx.sby, every
   // input free). The shadow is that block, loading from the real registers at every edge;
   // every gated register equals it after every edge, so a bank whose clock was stopped could
   // not have changed. h_q must equal it while the FIFO holds an entry: with the FIFO empty

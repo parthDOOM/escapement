@@ -12,7 +12,7 @@ alternatives that were measured and rejected, are in [06-DECISIONS](06-DECISIONS
 ## What limits this layout
 
 The die is larger than the design needs: the standard cells and the two memories fill
-62.6% of the core. The limit is wiring, not area. A Tiny Tapeout block in
+64.4% of the core. The limit is wiring, not area. A Tiny Tapeout block in
 this process has four signal layers below the top metal, and only one of them, Metal3,
 runs horizontally at a useful pitch for signals. On a die more than twice as wide as it
 is tall, nearly all routing congestion is horizontal, so every layout decision in this
@@ -73,8 +73,8 @@ so it was removed (D-61).
   The density was chosen among nearby values: 60% and 61% each produced a placement that
   triggers the clock-tree defect in the next item, and 61.3% missed setup at the slow
   corner (D-65).
-- **Clock-gate sinks clustered within 50 µm.** The design has about 90 clock gates, one
-  per rarely written register bank, and the clock-tree tool treats each gate's input as a
+- **Clock-gate sinks clustered within 50 µm.** The design has 128 clock gates, one
+  per gated register bank, and the clock-tree tool treats each gate's input as a
   macro-like sink. With its default clustering diameter of 833 µm it grouped gates far
   apart and moved each one to the centre of the bank it clocks. Clustering within 50 µm
   keeps the gated trees local. The same move exposes a known OpenROAD defect (issue
@@ -86,7 +86,7 @@ so it was removed (D-61).
   non-default routing rule for clock nets: with one subtree per clock gate, double
   spacing would cost more routing than it saves. Each leaf buffer is sized for the load it
   actually drives, which makes most leaves 1× buffers where the tool's default picked 8×.
-  That cut the clock tree's power by 6.6% and left 17 fanout flags, all at the roots of
+  That cut the clock tree's power by 6.6% and leaves 9 fanout flags, all at the roots of
   gated clocks (Sign-off results, below).
 
 ## Routing
@@ -102,7 +102,7 @@ never saw; in an early layout they shorted signal wires to power in about 4,000 
 which only LVS detected. Filler cells carry Metal1 only on their rails, and every logic
 cell's Metal1 is fully described in its LEF, which was checked against the GDS for every
 cell the design uses ([`scripts/m1_fill_overlap.py`](../scripts/m1_fill_overlap.py)). The
-design therefore has no decap capacitance; the worst IR drop at 20 ns is 0.35 mV.
+design therefore has no decap capacitance; the worst IR drop at 20 ns is 0.25 mV.
 
 **Design repair** keeps every pin within the library's limits on slew, capacitance and
 fanout, by buffering and resizing, once after placement and again after global routing.
@@ -276,5 +276,6 @@ signed off with electrical-rule violations, and a series of trial hardens traced
 the resizer's wire model, the detours of detailed routing, repair that only looked at the
 fast corner, and the memories' strict input pins. With all four addressed, the 3.1 layout
 meets every electrical rule at every corner and closes 2 ns faster at the slow corner
-(D-65). Every harden, adopted or rejected, is recorded with its reason in
-[`asic/reports/area.csv`](../asic/reports/area.csv).
+(D-65). Every 6 × 4 harden, adopted or rejected, is recorded with its reason in
+[`asic/reports/area.csv`](../asic/reports/area.csv), and so are version 2's frozen layout and
+each adopted layout since.

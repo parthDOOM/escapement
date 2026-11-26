@@ -601,6 +601,8 @@ version may be rated for it. Not this one: at 16.7 ns less than 0.2 ns is in han
 Tiny Tapeout multiplexer and pads add delays that the flow does not model. What
 a faster clock would buy is small: both-edge sampling already doubles the input resolution
 where it matters (D-57), and every protocol in the library already runs at 50 MHz or below.
+Version 3.2's layout passes down to 17.0 ns, so 60 MHz is out of reach again; the 50 MHz
+rating keeps 3.0 ns in hand.
 
 ## Version 3.1: span, the electrical rules and the reset
 

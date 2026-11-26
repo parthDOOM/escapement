@@ -81,7 +81,7 @@ function Page({ d }: { d: Fpga }) {
       <section className="hero fpga-hero">
         <div className="wrap hero-grid">
           <div>
-            <p className="eyebrow">Hardware bench · v3.1 · {d.date}</p>
+            <p className="eyebrow">Hardware bench · v3.2 · {d.date}</p>
             <h1>On the <em>bench</em></h1>
             <p className="claim">The chip's RTL on an FPGA, driven pin for pin by the bring-up script it was written
               for. {d.verdict === "PASSED" ? "Every stage passes." : unc.length && ok + unc.length === d.firmware.length
@@ -89,7 +89,7 @@ function Page({ d }: { d: Fpga }) {
                   "an unfinished bench program with no timing certificate, is the one stage 5 refuses to pass."
                 : "See the results below."}</p>
             <p className="lede">A Raspberry Pi Pico W plays the Tiny Tapeout demo board and a Sipeed Tang Primer 25K
-              plays the chip. Version 3.1 of the RTL, the same Verilog that was hardened for silicon, runs through
+              plays the chip. Version 3.2 of the RTL, the same Verilog that is hardened for silicon, runs through
               six bring-up stages and all {d.firmware.length} firmware runs, each compared with the reference
               model.</p>
             <div className="facts">
@@ -209,7 +209,7 @@ function Page({ d }: { d: Fpga }) {
               <h3>One design, two forms</h3>
               <p>The same RTL as a GW5A bitstream and as the IHP SG13CMOS5L layout. The FPGA column counts each block
                 with its boundaries kept ({n(d.hierarchy.total.lut4)} LUT4 in all); the bitstream itself, flattened
-                and optimised across blocks, uses {n(lut[0])}. The silicon column is the signed-off version 3.1 layout.</p>
+                and optimised across blocks, uses {n(lut[0])}. The silicon column is the signed-off version 3.2 layout.</p>
               <p>A full gate-level drawing of either is a wall of boxes: tens of thousands of cells. The die views on
                 the <a href="../silicon/">layout page</a> show the real layout down to the transistors.</p>
               <p className="note">nextpnr reports {d.pnr.hold_flags} hold flags, all at block RAM address pins. A lone
@@ -303,7 +303,7 @@ function Page({ d }: { d: Fpga }) {
           <div className="sec-head">
             <p className="eyebrow">Ethernet · 16 to 22 November 2026</p>
             <h2>10BASE-T with a laptop</h2>
-            <p className="lede">The same bitstream at 40 MHz, with only resistors, capacitors and a patch cable cut
+            <p className="lede">Version 3.1's bitstream at 40 MHz, with only resistors, capacitors and a patch cable cut
               open at one end between the Dock and a laptop's Ethernet port: first each direction as its own
               program load, then both in one, answering the laptop's ping.</p>
           </div>

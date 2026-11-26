@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { css, fit, useResize, useThemeTick } from "../lib/util";
 
-// docs/15-POWER.md: the first v1.1 netlist, and version 3.1 as built (at 25 MHz)
-const ROWS: [string, number, number][] = [["Sending UART", 8.61, 4.42], ["Logic analyser", 8.45, 3.95], ["Stopped", 7.99, 3.36]];
+// docs/15-POWER.md: the first v1.1 netlist, and version 3.2 as built (at 25 MHz)
+const ROWS: [string, number, number][] = [["Sending UART", 8.61, 1.85], ["Logic analyser", 8.45, 1.54], ["Stopped", 7.99, 1.27]];
 const MAX = 9;
 
 export function Power() {
@@ -21,7 +21,7 @@ export function Power() {
           </div>
         ))}
       </div>
-      <figcaption>Grey: the first netlist, version 1.1 before clock gating. Brass: version 3.1 as built.</figcaption>
+      <figcaption>Grey: the first netlist, version 1.1 before clock gating. Brass: version 3.2 as built.</figcaption>
     </figure>
   );
 }
@@ -46,6 +46,8 @@ const VERSIONS = [
     what: "Eight by four tiles, with what versions 1.7 and 2 built: pair mode and live reload, a 1,024-word store in four pages and proof tripwires. Version 3 adds line-unit receive, a half-tick input sampler and a bus timing monitor. Still signed off at 20 ns." },
   { v: "v3.1", date: "22 Nov", cells: 38514, util: 62.6,
     what: "Span: a program can run on into its idle partner's page. A reset synchroniser, and a layout that meets every electrical rule at every corner. Signed off at 20 ns; the slow corner passes down to 16.6 ns." },
+  { v: "v3.2", date: "26 Nov", cells: 39588, util: 64.4,
+    what: "Power: almost every register sees the clock only when it is written, and a waiting context reissues its held instruction instead of reading the program store. A stopped chip goes from 3.36 to 1.27 mW. Signed off at 20 ns; the slow corner passes down to 17.0 ns." },
 ];
 
 /** Cells of each adopted layout on a labelled axis (the changes are a few thousand cells
@@ -115,7 +117,7 @@ export function History() {
       </ol>
       <figcaption>Standard cells and utilisation of each adopted layout; the axis starts at 22,000 cells. Every
         6 × 4 run, adopted or rejected, is logged with its reason in <code>asic/reports/area.csv</code>, and
-        version 3.1's adopted layout is its last row.</figcaption>
+        version 3.2's adopted layout is its last row.</figcaption>
     </figure>
   );
 }

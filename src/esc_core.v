@@ -1206,7 +1206,7 @@ module esc_core #(
     end
   end
 
-  // The first-fault record (v3.2 C): written once per run, at the first fault, and cleared by
+  // The first-fault record (D-75): written once per run, at the first fault, and cleared by
   // a start, so it is a gated bank (esc_greg) whose enable is exactly those two edges.
   // A commit fault and a line unit CONFIG fault (never the owner's commit edge) at one
   // edge: the lower-numbered context is recorded (sec. 8).
@@ -1220,7 +1220,7 @@ module esc_core #(
   esc_greg #(49) g_ffr (.clk(clk), .rst_n(rst_n), .en(start | (~stop & ff_hit)), .d(ffr_d),
       .q({ff_cause, ff_sub, ff_ctx, ff_pc, ff_tick}));
 
-  // The pipeline's data registers (v3.2 D), 222 flip-flops, in three gated banks, each loaded
+  // The pipeline's data registers (D-76), 222 flip-flops, in three gated banks, each loaded
   // only at an edge where the stage it feeds will hold an instruction: the fetch PC with a
   // fetch (f_valid), the fetched word and its PC from a valid D stage (p1v), the decode, the
   // operands and the deadline flags from a valid X stage (p2v). They used to load at every
@@ -1458,17 +1458,17 @@ module esc_core #(
   // cycle as before; B7S ties it to the committing context while a commit is valid (cq is
   // the previous nq during a run, but while stopped cq is the host's debug selection).
   reg f_far_sp;
-  always @(posedge clk) if (p2v) f_far_sp <= span_on[nq];   // with the X bank (D)
+  always @(posedge clk) if (p2v) f_far_sp <= span_on[nq];   // with the X bank (D-76)
   always @(*) if (rst_n) begin
     ahead_b6: `ESC_AHEAD (d_op == onehot(op));
     ahead_b7: `ESC_AHEAD (illegal == (illegal_of(insn) | far_of(insn[31:24], insn[8], f_far_sp)));
   end
   always @(*) if (rst_n && commit_valid)
     ahead_b7s: `ESC_AHEAD (f_far_sp == span_on[cctx]);
-  // v3.2 (E): the X stage's held select is nq whenever the X slot holds an instruction
+  // D-74: the X stage's held select is nq whenever the X slot holds an instruction
   always @(*) if (rst_n)
     ahead_be: `ESC_AHEAD (!p2v || nq_e == nq);
-  // v3.2 (D): the gated pipeline banks against their ungated twins (the registers as they
+  // D-76: the gated pipeline banks against their ungated twins (the registers as they
   // were, loading at every edge): equal wherever a valid bit says the stage holds an
   // instruction. B1-B9 then carry it to the commit.
   reg [8:0]  s_p1_spc, s_p2_spc;
@@ -1709,7 +1709,7 @@ module esc_core #(
     if (f_past_valid && rst_n && run && $past(run))
       cover (dbg_commit_valid && dbg_commit_ctx != now[1:0]);
 
-  // v3.2 park (formal/esc_park.sby, task park of esc_core.sby): a parked fetch takes the word
+  // D-73 park (task park of esc_core.sby): a parked fetch takes the word
   // the store would have returned. One address f_pa of the store, any, and its word f_pm,
   // any at first, which a program write may change (to any value: the write's address and
   // data are not the core's inputs). The store's read data, otherwise free, is that word

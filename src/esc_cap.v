@@ -44,7 +44,7 @@ module esc_cap (
 );
   reg       en, snap, ovf, full, wrapped;
   reg [1:0] n;
-  // v3.2: everything below that is not a flag is a clock-gated bank (esc_greg, D-29): the
+  // v3.2: everything below that is not a flag is a clock-gated bank (esc_greg, D-74): the
   // configuration, the pointers, the two staged records, the edge detector and the overflow
   // tick. Each enable is exactly the condition under which the always block assigned the
   // bank (start, then the drain, then generation, then a CAPT), and each d what it assigned,

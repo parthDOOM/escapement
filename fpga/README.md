@@ -12,7 +12,7 @@ an FPGA design, and both keep the chip's behaviour:
   gives its word from the next cycle and holds it, a write cycle reads nothing, and a write
   wins over a read.
 
-In simulation the FPGA build of version 3.1 passes 11 of the 12 chip tests and all 9 firmware-through-the-pins
+In simulation the FPGA build of version 3.2 passes 11 of the 12 chip tests and all 9 firmware-through-the-pins
 tests, each against the reference model's execution digest. The twelfth chip test,
 `test_store_reads_only_for_the_host_while_stopped`, watches the enable pin of the IHP macro
 inside the program store, which the block-RAM model does not have. To rerun: copy `src/`,
@@ -23,18 +23,18 @@ replace `escapement_sram.v` with `fpga/escapement_sram_fpga.v`, empty
 
 ## Size
 
-Yosys synthesis of the whole chip, version 3.1, for three FPGA families (`fpga/estimate.sh`,
+Yosys synthesis of the whole chip, version 3.2, for three FPGA families (`fpga/estimate.sh`,
 OSS CAD Suite 2026-10-04 as pinned in `scripts/versions.txt`):
 
 | Family | Logic | Flip-flops | Block RAM | Boards that fit |
 | --- | ---: | ---: | --- | --- |
-| Xilinx 7-series | 9,988 LUTs | 5,361 | 1 RAMB36 and 1 RAMB18 | Artix-7 35T and larger (Digilent Basys 3, Arty A7, Nexys A7, Cmod A7-35T); Spartan-7 25 (Arty S7-25) |
-| Lattice ECP5 | 14,641 LUT4 (523 CCU2C counted as two each) | 5,109 | 3 DP16KD | LFE5U-25F and larger (ULX3S, OrangeCrab 25F) |
-| Lattice iCE40 | 13,242 LUT4 | 5,111 | 10 RAM40 | none: the UP5K (5,280) and HX8K (7,680) are too small |
+| Xilinx 7-series | 9,969 LUTs | 5,506 | 1 RAMB36 and 1 RAMB18 | Artix-7 35T and larger (Digilent Basys 3, Arty A7, Nexys A7, Cmod A7-35T); Spartan-7 25 (Arty S7-25) |
+| Lattice ECP5 | 14,822 LUT4 (523 CCU2C counted as two each) | 5,262 | 3 DP16KD | LFE5U-25F and larger (ULX3S, OrangeCrab 25F) |
+| Lattice iCE40 | 13,391 LUT4 | 5,264 | 10 RAM40 | none: the UP5K (5,280) and HX8K (7,680) are too small |
 
 `synth_xilinx` keeps the module hierarchy unless told to flatten, so about 250 flip-flops
 that the other two families merge or remove across module boundaries survive there (the
-hierarchy-kept Gowin synthesis of the bench shows the same, 5,317). In all three the 13
+hierarchy-kept Gowin synthesis of the bench shows the same, 5,462). In all three the 13
 falling-edge flip-flops of the half-tick pin sampler map to the family's own falling-edge
 cell (`FDCE_1`, `SB_DFFNR`, an ECP5 slice with its clock inverted), so the clock stays on
 the global network.
@@ -51,8 +51,8 @@ openFPGALoader -b ulx3s fpga/build/ulx3s/escapement.bit
 
 | Board | Logic | Flip-flops | Block RAM | Clock after routing |
 | --- | ---: | ---: | ---: | ---: |
-| Radiona ULX3S 25F (LFE5U-25F) | 14,504 of 24,288 LUT4 (60%) | 5,109 (21%) | 3 of 56 | 42.2 MHz |
-| Radiona ULX3S 85F (LFE5U-85F) | 14,504 of 83,640 (17%) | 5,109 (6%) | 3 of 208 | 41.6 MHz |
+| Radiona ULX3S 25F (LFE5U-25F) | 14,983 of 24,288 LUT4 (62%) | 5,262 (22%) | 3 of 56 | 41.7 MHz |
+| Radiona ULX3S 85F (LFE5U-85F) | 14,983 of 83,640 (18%) | 5,262 (6%) | 3 of 208 | 40.2 MHz |
 
 Both meet 25 MHz, and so 24 MHz for the USB firmware, with no place-and-route warnings
 (OSS CAD Suite 2026-10-04: Yosys 0.69+190, nextpnr 0.11.1-47); each build takes about

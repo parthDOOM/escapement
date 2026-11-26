@@ -92,7 +92,8 @@ python3 scripts/ci_budget.py runs/NAME                # predicted CI time of tha
 Detailed routing in OpenROAD gives the same result at any thread count, so a local run
 predicts the CI result, and `ci_budget.py` turns its routing CPU time into an estimate of CI
 wall time. The final netlist of a local harden and of the CI harden can be compared
-directly: for the signed-off version 3.1 layout both have SHA-256 `1342fef1bc2f9f99…`
+directly: for the signed-off version 3.1 layout both had SHA-256 `1342fef1bc2f9f99…`, and for
+version 3.2 the local one is `90aa97b297b9515a…` (CI: PENDING-SHA)
 ([03-PHYSICAL-DESIGN](03-PHYSICAL-DESIGN.md#sign-off-results)).
 
 Two defects of the flow's OpenROAD (commit `dcf36133`) show up on this design, and neither
@@ -130,7 +131,7 @@ reproducer, and the other tool defects this design has met.
 
 [`fpga/`](../fpga/README.md) builds the same RTL for an FPGA, with plain flip-flops
 (`ESC_NO_CG`) in place of the clock-gated banks and a block-RAM model of each SRAM macro.
-Version 3 needs about 14,500 LUT4s, 5,100 flip-flops and three block RAMs on an ECP5, so a
+Version 3.2 needs about 15,000 LUT4s, 5,300 flip-flops and three block RAMs on an ECP5, so a
 25k-LUT part or larger. `fpga/estimate.sh` gives the size for Xilinx, ECP5
 and iCE40 with Yosys, and `fpga/build.sh` places and routes the chip for the Radiona ULX3S
 with yosys and nextpnr.

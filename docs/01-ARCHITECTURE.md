@@ -410,17 +410,20 @@ writes a word another running context can reach.
 The design tries to make idle hardware cost as little power as possible
 ([15-POWER](15-POWER.md)).
 
-- **Clock gating.** Registers that change rarely, such as the general registers, queue
-  entries, mailboxes, checker records and the monitor's rule settings, sit behind clock
-  gates built from standard cells. A gated bank sees the clock only in a cycle in which it
-  is written. A formal proof shows that each gated bank behaves exactly like an ordinary
+- **Clock gating.** Almost every register sits behind a clock gate built from standard
+  cells: the general registers, queue entries, mailboxes, checker records and the monitor's
+  rule settings, and since version 3.2 also each context's control state, the host's and
+  the capture unit's settings and the pipeline stages, which load only when they hold an
+  instruction. A gated bank sees the clock only in a cycle in which it is written. A formal proof shows that each gated bank behaves exactly like an ordinary
   register with an enable, and that its gated clock cannot glitch.
 - **Latches instead of flip-flops.** In most of those banks the storage is a latch, which
   is about half the area of a flip-flop. Each latch copies a value written at the last
   clock edge, so reads see the same thing they would see from a flip-flop.
 - **Memories read only on demand.** The program store is read only when a running context
   fetches, and the tape only when someone uses it. In every other cycle the memory is
-  deselected and draws no read energy.
+  deselected and draws no read energy. A context waiting on a `WAIT` is parked: it reissues
+  the instruction it holds instead of fetching it again in each of its slots, until the wait
+  ends or a stop, a restart, a fault or a write into its program page clears the park.
 
 ## Reset, start and stop
 
@@ -446,7 +449,9 @@ Version 1.7 added pair mode and live reload, with the non-interference proof. Ve
 moved to a larger 8×4-tile die and added program pages and proof tripwires. Version 3
 added the line unit's three receive strobes, the half-tick sampler and the bus timing
 monitor. Version 3.1 let a program span two pages, released reset through a two-flip-flop
-synchroniser, and met every electrical rule of the layout. [07-STORY](07-STORY.md) tells this story with the reasons behind each step, and
+synchroniser, and met every electrical rule of the layout. Version 3.2 changed nothing a
+program sees: it clocked only the registers being written and parked waiting contexts, and
+a stopped chip's power fell by 62%. [07-STORY](07-STORY.md) tells this story with the reasons behind each step, and
 [06-DECISIONS](06-DECISIONS.md) records every decision and the alternatives that were
 rejected.
 

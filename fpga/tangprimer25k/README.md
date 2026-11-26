@@ -21,7 +21,9 @@ gate is an enable (`ESC_NO_CG`), as it is in the proofs, so this run checks the 
 board and says nothing about the gates themselves or the power. It loaded the RTL of the
 version 3.2 commit and bundles built from the same tree, both built before that commit was
 made: the MANIFESTs name its parent, `2a4ba1f`, with `src/` modified, and the sha256 of each of
-the 12 files in `chip.MANIFEST` is that of the file in the commit.
+the 12 files in `chip.MANIFEST` is that of the file in the commit, `57db3c3`. Later commits
+change only comments in five of them (`esc_core.v`, `esc_ctx.v`, `esc_cap.v`, `esc_mon.v` and
+`escapement_host.v`).
 
 | Step | Result | Evidence |
 | --- | --- | --- |
@@ -222,7 +224,7 @@ input. `chip-pnr.log` is the place-and-route log of that bitstream.
 | `learnhost.py`, `learnbench.py`, `test_learnbench.py` | the learning bench (Learned on the bench, below): the laptop's steps, the Pico's steps, and the whole loop on the simulated chip |
 | `bench.ps1` | Windows helper: build, deploy, load, run (the Dock's USB goes to WSL with usbipd-win) |
 | `hierarchy.sh`, `hierarchy.py` | block-level LUT, flip-flop and bus counts of the FPGA build |
-| `results/2026-11-26/` | version 3.2: the bring-up log and telemetry, the bitstream's and bundles' MANIFESTs, the place-and-route log and the clock skew report |
+| `results/2026-11-26/` | version 3.2: the bring-up log and telemetry, the bitstream's and bundles' MANIFESTs, the place-and-route log, the clock skew report and the block hierarchy (`hierarchy.json`) |
 | `results/2026-11-24/` | the refusal bench (`late.log`) and the learning bench (`learn.log`, with the playback, the chip's capture, the learned table, both generated programs and the timed marks in `learn/`), after a bring-up of 86 of 86 programs; the bundles' MANIFEST and the bitstream's (built 2026-11-22) |
 | `results/2026-11-22/` | version 3.1 with the reset synchroniser: the bring-up log and telemetry, the bitstream's and bundles' MANIFESTs, the place-and-route log and the block hierarchy (`hierarchy.json`); the Ethernet transmit, receive (at three bias levels), line-check and ping logs (the laptop's MAC address replaced by LAPTOP-MAC); the USB keyboard runs (`usb-keyboard.log`) |
 | `results/2026-11-21/` | the first version 3.1 (span) runs: the wiring check, and two bring-up runs with their logs, telemetry and MANIFESTs, one on a bitstream packed by hand (this folder) and one on the bitstream `build.sh` now builds unaided (`clean-build/`) |
