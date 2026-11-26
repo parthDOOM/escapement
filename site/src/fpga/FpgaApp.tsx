@@ -283,7 +283,8 @@ function Page({ d }: { d: Fpga }) {
             </dl>
             <div className="prose">
               <p>Each build writes a manifest with the commit and the sha256 of every input. The bring-up log, the
-                stage 5 telemetry of every program and the place-and-route log of this run, and the wiring check of
+                stage 5 telemetry of every program, the place-and-route log of
+                {" "}{d.pnr_date === d.date ? "this run" : `the build of ${d.pnr_date}, whose bitstream this run used`}, and the wiring check of
                 {" "}{d.pinid.date}, are kept next to the bench sources, and this page is generated from them.</p>
               <p>{packed
                 ? "This run's bitstream was packed by hand after two of the build's own checks failed (the signal path, above), so the published build script stops before it; its sha256 is the one in the manifest."

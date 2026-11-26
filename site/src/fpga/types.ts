@@ -21,7 +21,7 @@ export type Block = {
 };
 export type Edge = { from: string; to: string; bits: number; ports: string[] };
 export type Fpga = {
-  date: string; files: string;
+  date: string; files: string; pnr_date: string;
   pinid: { pass: boolean; map: [number, string][]; date: string };
   stages: Stage[]; verdict: string | null; firmware: Firmware[];
   chip: Manifest; bundles: Manifest;
