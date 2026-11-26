@@ -154,6 +154,13 @@ def manifest(path):
     return m
 
 
+def bitstream(run):
+    """The chip bitstream's sha256 in a run's chip.MANIFEST, or None."""
+    f = run / "chip.MANIFEST"
+    m = re.search(r"^([0-9a-f]{64})\s+chip\.fs$", f.read_text(), re.M) if f.exists() else None
+    return m.group(1) if m else None
+
+
 def main():
     # bring-up runs only: a results folder may hold other bench evidence (2026-11-16: Ethernet)
     runs = sorted(p for p in (BENCH / "results").iterdir() if (p / "bringup.log").exists())
@@ -162,6 +169,15 @@ def main():
     # the wiring check runs when the wiring changes: the newest one up to this run
     pin_run = [r for r in runs if (r / "pinid.txt").exists() and r.name <= run.name][-1]
     pin = (pin_run / "pinid.txt").read_text()
+    # place and route runs when the chip is built: its log and hierarchy come from the newest run
+    # up to this one built to this run's very bitstream (2026-11-24 ran bring-up again on the
+    # bitstream of 2026-11-22). No such run stops the build.
+    fs = bitstream(run)
+    pnr_run = [r for r in runs if r.name <= run.name and (r / "chip-pnr.log").exists()
+               and (r / "hierarchy.json").exists() and bitstream(r) == fs]
+    if not fs or not pnr_run:
+        raise SystemExit(f"fpga_bench: no place-and-route log for {run.name}'s bitstream {fs}")
+    pnr_run = pnr_run[-1]
     pinmap = re.findall(r"^GP(\d+)\s+(\S+)$", pin, re.M)
     data = {
         "date": run.name,
@@ -172,8 +188,9 @@ def main():
         "firmware": fw,
         "chip": manifest(run / "chip.MANIFEST"),
         "bundles": manifest(run / "bundles.MANIFEST"),
-        "pnr": pnr((run / "chip-pnr.log").read_text()),
-        "hierarchy": json.loads((run / "hierarchy.json").read_text()),
+        "pnr": pnr((pnr_run / "chip-pnr.log").read_text()),
+        "pnr_date": pnr_run.name,
+        "hierarchy": json.loads((pnr_run / "hierarchy.json").read_text()),
         **wiring(),
     }
     m = re.search(r"chip clock ([\d.]+) MHz", (run / "bringup.log").read_text())

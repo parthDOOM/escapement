@@ -1,0 +1,12 @@
+$timescale 10 ns $end
+$scope module chip $end
+$var wire 1 ! sda $end
+$upscope $end
+$enddefinitions $end
+#0
+1!
+#10000
+0!
+#110100
+1!
+#441000

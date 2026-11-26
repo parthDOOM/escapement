@@ -54,14 +54,14 @@ export function ProofTable() {
         <tbody>
           <tr><td>Proof tasks: unbounded core proofs, other proofs and covers, bounded from reset to depth 20</td><td className="num">110</td><td>pass; 15 planted bugs each make their proof fail</td></tr>
           <tr><td>Random programs against the model, behavioural and standard-cell builds</td><td className="num">191 each</td><td>19,850 commits each, 0 mismatches</td></tr>
-          <tr><td>Firmware cases with independent bus models, RTL against the model</td><td className="num">76</td><td>0 mismatches</td></tr>
+          <tr><td>Firmware cases with independent bus models, RTL against the model</td><td className="num">84</td><td>0 mismatches</td></tr>
           <tr><td>Line unit against its model, every output every cycle</td><td className="num">3.8 million edges</td><td>0 mismatches</td></tr>
           <tr><td>Planted RTL faults (mutants) across every module, standard-cell models</td><td className="num">1,017</td><td>902 caught, 57 proved equivalent, 58 excluded, 0 surviving</td></tr>
-          <tr><td>Timing certificates against measured leads (76 cases, 76 contexts with a bound)</td><td className="num">76</td><td>59 exact, 0 below</td></tr>
-          <tr><td>Planted firmware timing bugs: escert must refute every one that can fault, and what it certifies is attacked on the simulator</td><td className="num">729</td><td>178 refuted, 18 not proven, 533 certified, 0 certified that fault</td></tr>
-          <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 to 50 MHz</td><td className="num">1,632</td><td>pass</td></tr>
-          <tr><td>Outside judges: decoders written by others (sigrok, IRMP, Wireshark, rtl_433, rc-switch) read the pins, each with a control that must fail</td><td className="num">74 of 82 programs</td><td>agree; every control fails</td></tr>
-          <tr><td>Firmware cases with every pin up to three ticks slower each way (pads and board)</td><td className="num">76</td><td>pass</td></tr>
+          <tr><td>Timing certificates against measured leads (84 cases, 84 contexts with a bound)</td><td className="num">84</td><td>64 exact, 0 below</td></tr>
+          <tr><td>Planted firmware timing bugs: escert must refute every one that can fault, and what it certifies is attacked on the simulator</td><td className="num">823</td><td>196 refuted, 23 not proven, 604 certified, 0 certified that fault</td></tr>
+          <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 to 50 MHz</td><td className="num">1,869</td><td>pass</td></tr>
+          <tr><td>Outside judges: decoders written by others (sigrok, IRMP, Wireshark, rtl_433, rc-switch) read the pins, each with a control that must fail</td><td className="num">80 of 90 programs</td><td>agree; every control fails</td></tr>
+          <tr><td>Firmware cases with every pin up to three ticks slower each way (pads and board)</td><td className="num">84</td><td>pass</td></tr>
           <tr><td>Chip tests on the final gate-level netlist</td><td className="num">12</td><td>pass</td></tr>
           <tr><td>Firmware through the pins on the final netlist; SDF-annotated chip tests at three corners</td><td className="num">9 · 12 × 3</td><td>pass</td></tr>
           <tr><td>Netlist against RTL, sequential equivalence (two steps)</td><td className="num">337 bits</td><td>proved</td></tr>

@@ -1,0 +1,9 @@
+salt: 35bca796074fb0dee5a55de625df9540c70bdea3af0c259cf85641bc50a6aa73
+1 MIL-STD-1553B remote terminal (Manchester II, 1 Mbit/s)
+6 S/PDIF transmitter (IEC 60958, biphase mark)
+9 Microwire, 93C46 EEPROM read and write
+14 DHT22 temperature and humidity sensor (one wire)
+16 BiSS-C encoder interface
+19 PS/2 host (keyboard side reversed: the chip is the host)
+21 SNES controller (latch and shift)
+24 M-Bus (meter bus) slave, EN 13757-2 framing

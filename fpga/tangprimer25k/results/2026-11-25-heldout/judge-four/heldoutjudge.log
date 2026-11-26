@@ -1,0 +1,7 @@
+heldoutjudge: analyser COM12, bench COM8; programs: spdif_tx, dht22, biss_c, ps2_host
+spdif_tx         FAIL  0 valid samples in 192 sub-frames
+    valid samples []..., pushed ['0x111100', '0xa5a500', '0x232300', '0xaaaa00', '0x333300', '0xbbbb00']...
+dht22            PASS  replies ['0xffff0001']
+biss_c           PASS  replies ['0x2', '0x0']
+ps2_host         PASS  replies ['0x80000002']
+heldoutjudge: FAIL: spdif_tx

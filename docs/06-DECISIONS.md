@@ -738,6 +738,48 @@ record. A newer push to a branch cancels that branch's runs, and the site builds
 commit, after its last workflow, where each workflow used to start a build that cancelled
 the one before and left cancelled checks on the commit.
 
+**D-71 A branch push that changes only documentation runs no tests.** The test workflow has
+no path filter, unlike the harden, the formal proofs and the two mutation campaigns: it runs
+on every push to master so that the site, built after master's last verification run, is
+rebuilt for a commit that changes only the docs or the site. On other branches that made a
+docs-only push run the whole verification, about an hour and a half of runner time, for a tree
+whose code had just passed. A first job now compares the push with the commit before it and
+lets the two test jobs run only if something outside `docs/`, `paper/` and the Markdown files
+changed; on master, on a new branch and on a manual run they always run. Nothing the tests
+read is in those paths, and the site is not among them, since its playground runs the
+simulator's code.
+
+**D-72 The layout build retries OpenROAD's placement crash.** The crash of timing-driven
+global placement ([tool bugs](24-TOOL-BUGS.md#timing-driven-global-placement-crashes-openroad-11977))
+used to mean a manual rerun of the gds job. On 25 November the commit that brought the
+held-out round to master crashed there twice in a row, on RTL, settings, tools and runner
+image identical to a run that had passed on its branch the day before. Both runs entered
+placement in the same state and agreed to the last printed digit up to the first repair,
+which inserted the same 4,365 buffers in both; one went on and two crashed. Waiting for a
+person to rerun leaves master's check red for hours over a fault that is not in the
+design. The job now builds up to three times, retrying only when the placement log shows
+the crash (a segmentation fault or RSZ-1008); every other failure fails at once, as before.
+A retry keeps the crashed attempt's logs under their own name. Changing the flow to avoid
+the crash, a placement setting or a pinned OpenROAD with a fix, was set aside: no fix
+exists upstream, and the layout is signed off on the shuttle's own flow, whose pins stay.
+
+## The held-out round
+
+**D-70 escert checks every CONFIG as the chip will (3.1).** A `CONFIG` that completes is
+checked by the chip before the line unit takes it (§6.6 step 1 of the
+[semantics](11-SEMANTICS.md)): ADMIT/OWNER if the configuration drives a pin its context
+does not own, ADMIT/CONFIG if it is invalid: with one cell a bit, a period under 8 ticks or a
+sampling point S outside 4 ≤ S < the period; with more cells, a cell under 2 ticks. When escert learned the line unit in version
+1.4 it modelled a `CONFIG`'s timing, its ownership of the unit and the pins it claims, but
+not those two faults, and no test certified a bad configuration, so the gap stayed unseen
+until the held-out round's S/PDIF transmitter: a draft whose `CONFIG` faults on the
+simulator at tick 24 was certified CHECKED. escert now checks both faults at every
+`CONFIG`, from the configuration block's value when it can be read as constant and otherwise
+from its value in the image, and the certificate then says so. Eleven tests cover valid and invalid configurations; on every
+invalid one the escert of version 3.1 found nothing while the simulator faults. The fix is
+to the checker only: the chip already refused those configurations, so no certified program
+could ever have run late, only been refused where its certificate said it would not be.
+
 ## The DOOM console
 
 **D-66 The game on the host, the chip as its input/output processor.** DOOM needs far more

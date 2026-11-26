@@ -26,6 +26,7 @@ const SECTIONS = [
   ["doom", "DOOM"],
   ["refuse", "Refusal"],
   ["learn", "Learning"],
+  ["heldout", "Held-out"],
   ["limits", "Limits"],
 ] as const;
 
@@ -282,7 +283,8 @@ function Page({ d }: { d: Fpga }) {
             </dl>
             <div className="prose">
               <p>Each build writes a manifest with the commit and the sha256 of every input. The bring-up log, the
-                stage 5 telemetry of every program and the place-and-route log of this run, and the wiring check of
+                stage 5 telemetry of every program, the place-and-route log of
+                {" "}{d.pnr_date === d.date ? "this run" : `the build of ${d.pnr_date}, whose bitstream this run used`}, and the wiring check of
                 {" "}{d.pinid.date}, are kept next to the bench sources, and this page is generated from them.</p>
               <p>{packed
                 ? "This run's bitstream was packed by hand after two of the build's own checks failed (the signal path, above), so the published build script stops before it; its sha256 is the one in the manifest."
@@ -670,7 +672,41 @@ function Page({ d }: { d: Fpga }) {
 
       <Ruler n={22} />
 
-      <section id="limits" className="band">
+      <section id="heldout" className="band">
+        <div className="wrap">
+          <div className="sec-head">
+            <p className="eyebrow">Held-out round · 2026-11-25</p>
+            <h2>Eight protocols drawn at random, on the same chip</h2>
+            <p className="lede">The held-out round wrote eight protocols drawn at random from a sealed list, on
+              version 3.1 as tagged. Here each runs on the chip with no device on the other end of its bus: only the two boards, and a
+              second Pico as a two-channel logic analyser, which for M-Bus the Pico W joins as the bus master.</p>
+          </div>
+          <div className="facts" style={{ marginBottom: "2rem" }}>
+            <div><b>94 of 94</b><span>bring-up bundles matching the model and their certificates, the eight among them</span></div>
+            <div><b>7 of 7</b><span>captured programs passed their judges: the simulator, the protocol's limits, and sigrok where it can</span></div>
+            <div><b>0</b><span>controls passed: each judge refused the same capture with one pulse inverted</span></div>
+            <div><b>22.0</b><span>bit times from each M-Bus telegram to the slave's reply, live with the Pico W as master</span></div>
+          </div>
+          <div className="cols">
+            <div className="prose">
+              <p><strong>Judged three ways.</strong> The simulator runs the same image with the same host words, and every
+                edge the analyser saw must be one it made, at the same time within two samples plus 100 ppm. Each
+                capture is also held to its specification's limits, such as the CD4021B's pulse widths for the SNES pad,
+                and sigrok decodes the S/PDIF stream and the Microwire commands.</p>
+            </div>
+            <div className="prose">
+              <p><strong>What it cannot show.</strong> The 1553B terminal makes no edge without a bus controller, so
+                bring-up alone judges it, and with no sensor, keyboard, pad or encoder attached, those programs show their
+                side of the bus and their timeouts. No physical layer is tested. Logs and every capture:
+                <a href={`${REPO}/tree/master/fpga/tangprimer25k#held-out-round-on-the-bench-2026-11-25`}> fpga/tangprimer25k</a>.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <Ruler n={23} />
+
+      <section id="limits">
         <div className="wrap">
           <div className="sec-head">
             <p className="eyebrow">Limits</p>

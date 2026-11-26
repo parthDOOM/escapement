@@ -42,9 +42,11 @@ and a non-interference proof shows that one program can be replaced while the ot
 without moving any of their edges. A line unit, a capture unit and a bus timing monitor
 supply the per-bit work and the observation that firmware cannot do itself. The design
 occupies $1724\times711\,\mu$m, is signed off at 20\,ns at all three corners with every
-electrical rule met, and draws 4.42\,mW while sending a UART at 25\,MHz. Eighty-two
-programs, from UART and I2C to a USB keyboard and 10BASE-T Ethernet, run on it. On an FPGA
-the same RTL passes 80 of them through the chip's own bring-up script, answers a laptop's
+electrical rule met, and draws 4.42\,mW while sending a UART at 25\,MHz. Ninety
+programs, from UART and I2C to a USB keyboard and 10BASE-T Ethernet, run on it; eight of
+them are for protocols drawn at random from a sealed list and written on the tagged design,
+and all eight fit. On an FPGA the same RTL passes 89 of them through the chip's own bring-up
+script, answers a laptop's
 ping over 10BASE-T, enumerates on its USB port as a keyboard, and drives the display and
 sound for DOOM running on its host. There it also refuses a late edge and an unowned pin
 exactly where the certificate checker foretold, and learns a 433\,MHz remote's protocol
@@ -94,7 +96,10 @@ This paper describes that hardware and how its claims are checked. Its contribut
   static timing certificates measured against the chip, and mutation testing
   (Section~\ref{sec:verif});
 \item a 130\,nm implementation on an open-source flow, with its measurements, and a
-  hardware bench on which the same RTL runs every program (Section~\ref{sec:impl}).
+  hardware bench on which the same RTL runs every program (Section~\ref{sec:impl});
+\item a held-out test of the central claim: eight protocols drawn at random from a sealed
+  list, each written on the tagged design and checked like every other program
+  (Section~\ref{sec:apps}).
 \end{itemize}
 
 % =====================================================================================
@@ -457,7 +462,7 @@ authors who could not read each other's code, so that a misreading of the specif
 shows up as a disagreement rather than as two identical bugs. A co-simulation in
 cocotb \cite{cocotb} on Icarus Verilog \cite{iverilog} runs both side by side and
 compares every commit, every register, every pin, the queues and the memories on every
-tick. In the final run it compared 191 random programs (19,850 commits; 9 more were too long for a program page) and 76 firmware cases, each against independent bus models, on both the behavioural RTL and the standard-cell build, and found no difference. The same simulator runs in the project's web page under Pyodide
+tick. In the final run it compared 191 random programs (19,850 commits; 9 more were too long for a program page) and 84 firmware cases, each against independent bus models, on both the behavioural RTL and the standard-cell build, and found no difference. The same simulator runs in the project's web page under Pyodide
 \cite{pyodide}, so what a reader runs in the browser is the model the RTL is held to.
 
 On every clock edge where something happens, the chip folds what happened into a 32-bit
@@ -473,7 +478,7 @@ it runs, the minimum lead of each context, so the certificate and the silicon ch
 other. In the VGA Pong firmware, for example, the certificate proves that every edge of
 the video signal is queued at least 1{,}597 ticks early in the sync context and 8 ticks
 early in the picture context, and the simulator, the RTL, the gate-level netlist and the
-FPGA all measure exactly 1{,}597 and 8. All 82 programs are certified for every input. Across the 76 co-simulated firmware cases, 76 contexts have a finite bound, and the lead measured on the RTL equals the bound in 59 of them and exceeds it in the other 17; it is never below.
+FPGA all measure exactly 1{,}597 and 8. All 90 programs are certified for every input. Across the 84 co-simulated firmware cases, 84 contexts have a finite bound, and the lead measured on the RTL equals the bound in 64 of them and exceeds it in the other 20; it is never below.
 
 \subsection{Checking the checks}
 
@@ -497,7 +502,7 @@ tick short, a bug that lockstep comparison cannot see because the two agreed.
 For every program whose protocol someone else's software can read, that software reads
 the pins of the simulated run and must decode what the test asked for: sigrok's decoders
 \cite{sigrok}, the IRMP infrared library, Wireshark's dissectors, the rtl\_433 receiver and
-rc-switch's receiver code. They agree with 74 of the 82 programs, and each judge has a
+rc-switch's receiver code. They agree with 80 of the 90 programs, and each judge has a
 control: the same recording with one pulse inverted must fail it. The same runs are repeated with every pin delayed by up to three
 ticks each way, more than the pads and the board add, and every protocol still works.
 
@@ -513,14 +518,15 @@ Method & Result \\
 \midrule
 Formal properties & 110 of 110 tasks pass, 52 of them bounded to depth 20; 15 planted bugs caught \\
 Netlist vs.\ RTL & Sequentially equivalent (337 output bits) \\
-Lockstep co-simulation & 191 random programs, 76 firmware cases, two builds: no difference \\
-Timing certificates & 82 of 82 certified; measured lead equals the bound in 59 of 76 contexts, never below \\
+Lockstep co-simulation & 191 random programs, 84 firmware cases, two builds: no difference \\
+Timing certificates & 90 of 90 certified; measured lead equals the bound in 64 of 84 contexts, never below \\
 Mutation testing & 1,017 faults: 902 caught, 57 proved harmless, 58 argued, 0 surviving \\
-Outside judges & decoders by others agree with 74 of 82 programs; every control fails \\
-Planted firmware bugs & 729 timing bugs: 178 refuted, 18 not proven, 533 certified, 0 certified that fault \\
+Outside judges & decoders by others agree with 80 of 90 programs; every control fails \\
+Planted firmware bugs & 823 timing bugs: 196 refuted, 23 not proven, 604 certified, 0 certified that fault \\
 Slower pins & every firmware case passes with up to three ticks of delay each way \\
-Test suites & 1,632 software, 12 chip (RTL and netlist), 9 through the pins \\
-FPGA bench & 80 of 82 programs match the model and their certificates (21 and 22 Nov.; the 14\,s chime has no bench bundle, and the PWM sound program ran as the DOOM console's sound); a laptop's ping over 10BASE-T; SWD on a real RP2040, judged by sigrok; a USB keyboard on a laptop; DOOM, with no word lost on the host link; a late and an unowned edge refused as 	exttt{escert} foretold; a 433\,MHz remote's protocol learned from the chip's own capture, its generated receiver and transmitter run on the chip \\
+Test suites & 1,869 software, 12 chip (RTL and netlist), 9 through the pins \\
+Held-out round & 8 of a pool of 24 drawn at random, the draw sealed: all fit; all certified and co-simulated; 6 judged by sigrok; 7 judged on the bench from captures \\
+FPGA bench & 89 of 90 programs match the model and their certificates (21 to 25 Nov.; the 14\,s chime has no bench bundle); a laptop's ping over 10BASE-T; SWD on a real RP2040, judged by sigrok; a USB keyboard on a laptop; DOOM, with no word lost on the host link; a late and an unowned edge refused as \texttt{escert} foretold; a 433\,MHz remote's protocol learned from the chip's own capture, its generated receiver and transmitter run on the chip \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -654,7 +660,7 @@ wired by 32 jumpers to a Sipeed Tang Primer 25K Dock (right), playing the chip.}
 \label{fig:bench}
 \end{figure}
 
-There is no chip yet, so its RTL runs on an FPGA (Fig.~\ref{fig:bench}). A Sipeed Tang
+The chip's RTL runs on an FPGA (Fig.~\ref{fig:bench}). A Sipeed Tang
 Primer 25K (Gowin GW5A-25) plays the chip, built with Yosys and nextpnr \cite{nextpnr} on
 Project Apicula \cite{apicula}, with plain flip-flops in place of the clock gates and latch
 banks and block RAM in place of the memories. A Raspberry Pi Pico W plays the demo board
@@ -663,10 +669,9 @@ tests the link, every memory and every pin, then loads every firmware, runs it, 
 compares the chip's digest, state and measured leads with the model's prediction and the
 certificate.
 
-The RTL that was hardened for silicon runs 80 of the 82 programs through the bring-up
-script (all but a 14-second chime, which has no bench bundle, and the PWM sound program of
-Section~\ref{sec:apps}, which has run on the bench as DOOM's sound), and each matches the model
-and stays within its timing certificate, a program spanning two pages among them. The
+The RTL that was hardened for silicon runs 89 of the 90 programs through the bring-up
+script (all but a 14-second chime, which has no bench bundle), and each matches the model
+and stays within its timing certificate, four programs spanning two pages among them. The
 build uses 15{,}540 of 23{,}040 LUTs, 5{,}109 flip-flops and 3 of 56 block RAMs, and routes
 to 58.0\,MHz against the 25\,MHz it runs at, with the clock on the global network to every
 one of its sinks. Earlier builds clocked the half-tick sampler's falling-edge register
@@ -702,7 +707,7 @@ drawn on the laptop for that run, so only a working keyboard could have typed it
 
 The refusal that the chip is built around has also run on these pins. Two programs ask for
 the impossible: a UART whose bit is five ticks long, so its second edge cannot be queued
-before its deadline, and a drive on a pin its context does not own. 	exttt{escert} refutes
+before its deadline, and a drive on a pin its context does not own. \texttt{escert} refutes
 both before they run. On the bench each faulted at the instruction and tick the model
 predicts (ADMIT with subcode PAST at tick~35, and OWNER at tick~15), with the model's
 digest. While each run was still on, the Pico swapped its pull-ups on the program's pins
@@ -712,9 +717,9 @@ FIFO head, an unowned drive and a faulted context driving, read zero.
 
 Learning ran on the chip's own capture. The Pico played the frames of a PT2262 433\,MHz
 socket remote, from a sigrok recording, onto one pin, and the capture unit recorded their
-200 edges. From that capture 	exttt{esclearn} recovered the code (25 bits a frame, a
+200 edges. From that capture \texttt{esclearn} recovered the code (25 bits a frame, a
 290\,$\mu$s or 920\,$\mu$s mark per bit) and all four of the remote's words, and
-	exttt{escgen} generated a receiver and a transmitter, both certified. On the chip the
+\texttt{escgen} generated a receiver and a transmitter, both certified. On the chip the
 receiver read 8 of 8 frames as their words, and the transmitter sent an address the remote
 never had, which the learned model read back from the Pico's timing of the pin.
 
@@ -784,14 +789,33 @@ low, which I2C allows.
 
 \textbf{Protocols without new hardware.} Version 3's hardware was complete on 14 November.
 Since then the OLED Pong, an I2C burst writer and nine more protocols have been added
-without a hardware change: four timing tables for the generator (Samsung, Sharp and
-Panasonic infrared, WS2801 LEDs) and five hand-written programs, from an XY2-100
-laser-scanner link in four cooperating contexts to a FlexRay frame with both of its CRCs
-computed on the chip. Each was checked as the earlier programs were, with a model written
-from the specification, planted bugs, a certificate, lockstep runs on the RTL and a decoder
-written by others. Version 3.1's one new capability, span, came for a program that needed
-more room, a Modbus device with its whole data model, and every earlier program runs on it
-unchanged.
+without a hardware change, from an XY2-100 laser-scanner link in four cooperating contexts
+to a FlexRay frame with both of its CRCs computed on the chip. Version 3.1's one new
+capability, span, came for a Modbus device with its whole data model, and every earlier
+program runs on it unchanged.
+
+\textbf{Protocols it was not designed for.} Every program above is for a protocol someone
+chose knowing what the chip could do. The held-out round takes that choice away. On 4 November a pool of 24 protocols was fixed, each with a public specification
+and none in the firmware; eight were drawn from it at random, and the SHA-256 of the drawn
+list, with a 256-bit salt, was committed before any was written. The eight were written on
+24 November on version 3.1, with the chip, assembler and simulator as tagged: a
+MIL-STD-1553B remote terminal, an S/PDIF transmitter, a Microwire EEPROM master, a DHT22
+host, a BiSS C encoder master, a PS/2 host, a SNES pad reader and an M-Bus slave. Each was
+tested against a bus model written by a separate session from the specification and an
+interface it was given, and barred from the firmware and its tests, with planted
+variants that must fail, then certified, co-simulated on the RTL, read by sigrok where it
+has a decoder (six of eight) and run on the FPGA bench, where seven were judged from a logic
+analyser's capture; the 1553B terminal makes no edge without a bus controller.
+
+All eight fit, each with stated limits, and no instruction was missing: the timed events
+placed every edge where its specification puts it. What ran short was registers and
+program words, not timing. Three programs span two pages, and where a bit is only a few
+instructions the protocol sets a floor on the clock, 40\,MHz for the 1553B terminal. The
+round found no bug in the chip. It found one in \texttt{escert}, which had never checked
+that a line-unit configuration is valid and drives only pins its context owns, and now
+does. The pool itself was chosen, and has been public while the hardware went on changing, so the
+round shows that the chip takes protocols nobody picked to fit it, not that it takes any
+protocol. The draw, the seal and every result are published with the design.
 
 % =====================================================================================
 \section{How it got here}
@@ -881,7 +905,8 @@ event with an absolute deadline, checked when it is queued and either applied on
 tick or refused, and that property is proved for every program on RTL equivalent to the
 netlist sent to fabrication. The fixed-slot barrel makes a program's timing its own, so
 static certificates compose and the chip can measure the margin they predict. On that
-base, protocols are programs: eighty-two of them run on a 130\,nm design that fits in
+base, protocols are programs: ninety of them, eight drawn at random from a sealed list,
+run on a 130\,nm design that fits in
 $8\times4$ Tiny Tapeout tiles and uses 4.42\,mW to send a UART. Everything described here,
 RTL, firmware, tools, proofs and the flow configuration, is open source.
 

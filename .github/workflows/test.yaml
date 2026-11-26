@@ -10,7 +10,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Does this push change anything but documentation (D-71)? On master every push runs both
+  # jobs, since the site is built when master's last verification run finishes (D-69) and a
+  # docs-only commit must still reach it. On any other branch a push that changes only files
+  # under docs/ or paper/, or Markdown files, skips them. A new branch, a manual run, or a
+  # push GitHub cannot compare runs everything.
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.c.outputs.run }}
+    steps:
+      - id: c
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          run=true
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" != refs/heads/master ] \
+             && [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
+            if files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$GITHUB_SHA" \
+                         --jq 'if (.files | length) >= 300 then "MANY" else .files[].filename end'); then
+              other=$(printf '%s\n' "$files" | grep -vE '^(docs|paper)/|\.md$' | grep -c . || true)
+              if [ -n "$files" ] && [ "$other" = 0 ]; then run=false; fi
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "changes: run=$run" | tee -a "$GITHUB_STEP_SUMMARY"
+
   test:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repo
@@ -73,6 +102,8 @@ jobs:
   # ISS vs RTL lockstep co-simulation (cosim-parallel) and the newer firmware through
   # the chip's pins (pin-test), then cosim and the line unit on the standard cells.
   verification:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repo

@@ -23,7 +23,8 @@ and sample them at exact ticks (SAMPLE). A second 256-word SRAM, the tape, holds
 data and timestamped captures of the pins, so the chip also works as a logic analyser that
 can replay what it recorded. UART, SPI, I2C, CAN, PS/2, WS2812, 1-Wire, JTAG, ARM SWD,
 infrared remotes, HDMI-CEC, DALI, SENT, DShot and many more are firmware: the repository
-holds 82 programs.
+holds 90 programs, eight of them for protocols drawn at random from a sealed list
+([held-out round](../heldout/RESULTS.md)).
 
 Three units do work that firmware cannot do per bit:
 

@@ -1,7 +1,7 @@
 """escert: static timing certificates for Escapement firmware (D-11).
 
 For each context, prove that no admission fault (ADMIT/MASK, OWNER, PAST, ORDER,
-OVERLAP) can occur for ANY input behaviour, and give a lower bound on the
+OVERLAP, CONFIG) can occur for ANY input behaviour, and give a lower bound on the
 hardware's own `min_lead` telemetry. The chip measures `min_lead`, so every certificate
 is falsifiable on RTL, gates and silicon: a measurement below the bound is a checker bug.
 
@@ -12,7 +12,9 @@ is an input), own (a job the program started: CONFIG ends at c + 9, CRC at c + n
 packet after its deadline) or unknown. Ownership is tracked too: a LINE, GETL or SEND
 before the context's first CONFIG commits faults OWNER, and RECV, CRC and SEND do until
 that CONFIG completes, or after an OFF until the next CONFIG does (the check comes before
-the wait for the running job); SEND needs a
+the wait for the running job). A CONFIG faults at its completion (sec. 6.6 step 1) if its
+configuration has tx_pins and drives a pin the context does not own (OWNER), or is invalid
+(CONFIG); a block not read as constant is checked at its image value. SEND needs a
 configuration with tx_pins (in a block not read as constant, its image value), and an
 EMIT may not drive a pin the configuration claims. Both are checked against the
 configuration in force at the commit: a CONFIG's takes over at its completion, so until
@@ -803,6 +805,36 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
         if not any(f.pc == pc and f.kind == kind for f in cert.findings):
             cert.findings.append(Finding(pc, kind, note))
 
+    def config_faults(pc, a):
+        """sec. 6.6 step 1: a CONFIG from block a faults its owner at its completion with
+        ADMIT/OWNER if the configuration has tx_pins and d (or, with diff, n) is not a pin
+        the context owns, or diff and d == n; otherwise with ADMIT/CONFIG if it is invalid.
+        Words not read as constant are taken at their image value, as for tx_pins, and
+        the certificate says so. Flags and returns True if the CONFIG faults."""
+        from esciss.line import Cfg
+        src = consts if consts else (early if pc in early_pcs else {})
+        words = [src.get((a + i) & 0xFF) for i in range(3)]
+        w2 = image.tape[(a + 2) & 0xFF] if words[2] is None else words[2]
+        if (w2 >> 25) & 1:                               # ext: W3 and W4 too
+            words += [src.get((a + i) & 0xFF) for i in (3, 4)]
+        known = None not in words
+        c = Cfg(*[image.tape[(a + i) & 0xFF] if w is None else w for i, w in enumerate(words)])
+        how = "" if known else " (its image value; the block is not read as constant)"
+        if c.tx_pins and (not (owned >> c.d) & 1 or (c.diff and (not (owned >> c.n) & 1
+                                                                 or c.d == c.n))):
+            flag(pc, "OWNER", "the configuration at 0x%02x drives pins this context does "
+                              "not own%s" % (a, how))
+            return True
+        if not c.valid():
+            flag(pc, "CONFIG", "the configuration at 0x%02x is invalid (sec. 6.6)%s" % (a, how))
+            return True
+        if not known:
+            note = (f"CONFIG at pc {pc}: the configuration at 0x{a:02x} is checked at its image "
+                    "value (the block is not read as constant)")
+            if note not in cert.notes:
+                cert.notes.append(note)
+        return False
+
     def lu_owned(pc, s, need_cfg):
         """sec. 7.7, 6.2: a LINE (not CONFIG), GETL or SEND before this context's first
         CONFIG commits faults ADMIT/OWNER, and so do RECV, CRC and SEND while the unit is
@@ -1120,6 +1152,8 @@ def analyse(image: Image, ctx: int, max_states: int = 60_000, keys_lc: Optional[
                 s = lu_owned(pc, s, op != 0)
                 if s is None:
                     continue
+            elif config_faults(pc, v & 0xFF):
+                continue                                 # the owner faults at E_(c+9)
             if op == 0:                                  # OFF: no wait; the unit is left
                 s.lu = "idle"                            # unconfigured (sec. 6.6)
                 s.cf = 3

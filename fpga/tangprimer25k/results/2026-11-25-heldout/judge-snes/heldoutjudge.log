@@ -1,0 +1,3 @@
+heldoutjudge: analyser COM12, bench COM8; programs: snes_pad
+snes_pad         PASS  replies ['0x0']
+heldoutjudge: PASS: 1 of 1

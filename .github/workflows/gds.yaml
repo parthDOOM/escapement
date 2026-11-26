@@ -30,6 +30,7 @@ on:
       - 'test/tb.v'
       - 'test/test.py'
       - '.github/workflows/gds.yaml'
+      - 'scripts/gds_retry.sh'
   workflow_dispatch:
 
 # a newer push to a branch replaces that branch's run; on master every run completes
@@ -41,19 +42,95 @@ jobs:
   gds:
     runs-on: ubuntu-24.04
     timeout-minutes: 330
+    permissions:
+      contents: read
+      actions: write        # a retry deletes the crashed attempt's GDS_logs artifact (D-72)
     steps:
       - name: checkout repo
         uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - name: Build GDS
-        id: build
+      # Up to three attempts (D-72). OpenROAD's timing-driven global placement can crash on
+      # the very input it placed in another run (#11977, docs/24-TOOL-BUGS.md), so a crash
+      # there (Signal 11 or RSZ-1008) builds again; any other failure is not retried. Before a
+      # retry the crashed attempt's logs are kept as GDS_logs_attempt<n>, and its GDS_logs
+      # artifact, which the action would fail to upload a second time, is deleted. The step
+      # named "Build GDS" passes only if an attempt did, and the steps after it check it.
+      - name: Build GDS, attempt 1
+        id: build1
+        continue-on-error: true
         uses: TinyTapeout/tt-gds-action@e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6
         with:
           pdk: ihp-sg13cmos5l
           tools-ref: 0922544e6c7f6126047c3fba720b0437fa32a1b8
           librelane-version: 3.1.0.dev4
+
+      - name: Placement crash after attempt 1?
+        id: retry1
+        if: ${{ !cancelled() && steps.build1.outcome == 'failure' }}
+        run: bash scripts/gds_retry.sh check
+
+      - name: Keep attempt 1's logs
+        if: ${{ !cancelled() && steps.retry1.outputs.retry == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: GDS_logs_attempt1
+          path: runs/wokwi/*
+
+      - name: Clear attempt 1
+        if: ${{ !cancelled() && steps.retry1.outputs.retry == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/gds_retry.sh clean
+
+      - name: Build GDS, attempt 2
+        id: build2
+        if: ${{ !cancelled() && steps.retry1.outputs.retry == 'true' }}
+        continue-on-error: true
+        uses: TinyTapeout/tt-gds-action@e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6
+        with:
+          pdk: ihp-sg13cmos5l
+          tools-ref: 0922544e6c7f6126047c3fba720b0437fa32a1b8
+          librelane-version: 3.1.0.dev4
+
+      - name: Placement crash after attempt 2?
+        id: retry2
+        if: ${{ !cancelled() && steps.build2.outcome == 'failure' }}
+        run: bash scripts/gds_retry.sh check
+
+      - name: Keep attempt 2's logs
+        if: ${{ !cancelled() && steps.retry2.outputs.retry == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: GDS_logs_attempt2
+          path: runs/wokwi/*
+
+      - name: Clear attempt 2
+        if: ${{ !cancelled() && steps.retry2.outputs.retry == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/gds_retry.sh clean
+
+      - name: Build GDS, attempt 3
+        id: build3
+        if: ${{ !cancelled() && steps.retry2.outputs.retry == 'true' }}
+        continue-on-error: true
+        uses: TinyTapeout/tt-gds-action@e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6
+        with:
+          pdk: ihp-sg13cmos5l
+          tools-ref: 0922544e6c7f6126047c3fba720b0437fa32a1b8
+          librelane-version: 3.1.0.dev4
+
+      - name: Build GDS
+        id: build
+        if: ${{ !cancelled() }}
+        run: |
+          for o in "${{ steps.build1.outcome }}" "${{ steps.build2.outcome }}" "${{ steps.build3.outcome }}"; do
+            if [ "$o" = success ]; then echo "GDS built ($o)"; exit 0; fi
+          done
+          echo "No attempt built the GDS: ${{ steps.build1.outcome }} / ${{ steps.build2.outcome }} / ${{ steps.build3.outcome }}"
+          exit 1
 
       - name: Precheck
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

@@ -1,0 +1,3 @@
+heldoutjudge: analyser COM12, bench COM8; programs: microwire_93c46
+microwire_93c46  PASS  3 commands, each captured twice and merged on SK
+heldoutjudge: PASS: 1 of 1

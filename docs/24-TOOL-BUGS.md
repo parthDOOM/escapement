@@ -63,10 +63,14 @@ four crashes in four, about 75 seconds each.
 **What the design does.** The committed settings keep the memories' input nets out of
 repair, which [D-65](06-DECISIONS.md) needed for other reasons (a buffer before every
 memory input, which repair must not undo). From the final layout's input, those settings
-never crashed in 24 runs. A full harden still crashes now and then, because each harden
-reaches global placement with a slightly different state, and a rerun of the same job
-passes. The signed-off netlist is not affected either way: a run that crashes produces no
-layout, and a run that passes has gone through every sign-off check.
+never crashed in 24 runs. A full harden in CI still crashes now and then, and not only
+from a different input: on 25 November two runs crashed in a row on a tree identical to
+one that had passed the day before, all three entering placement in the same state and
+agreeing to the last printed digit up to the first repair. Whether the freed record has
+been reused then decides it. The gds job therefore builds again when the placement log
+shows the crash, up to three times ([D-72](06-DECISIONS.md)). The signed-off netlist is not
+affected either way: a run that crashes produces no layout, and a run that passes has gone
+through every sign-off check.
 
 **Related upstream.** [OpenSTA #398](https://github.com/The-OpenROAD-Project/OpenSTA/issues/398)
 (open) is an out-of-bounds access on the same `fullyRebuffer` call chain, on an IHP design

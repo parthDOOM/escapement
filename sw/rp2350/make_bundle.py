@@ -75,12 +75,18 @@ CHUNK = 4096
 # device look at the host every millisecond while the bus is idle (25,000 ticks, RDTIME each
 # time): inside that wait the model sees a 4-tick pattern, and its self-check ends before the
 # millisecond is up. PWM audio, with no host on the bench, plays silence and counts every silent
-# sample in the tape (UNDER), so its state never repeats.
+# sample in the tape (UNDER), so its state never repeats. Held-out round: the S/PDIF
+# transmitter's channel status repeats every 192 frames (196,608 ticks at CELL 8), past
+# MAX_PERIOD; the PS/2 host looks at its mailbox every 100 us while the bus is idle (RDTIME
+# each time), and the M-Bus slave every 4 bit times (41,668 ticks at 2400 baud, RDTIME each
+# time): the model's check ends at that wait's end, before the bench's link can stop the chip
+# (bench 2026-11-25: stopped at tick 91,598, the prediction good to tick 41,679).
 # Bundled with kind "none": loaded, run and checked for faults only.
 NO_PREDICT = {"seven_seg.asm", "ws2812_gen.asm", "ws2801_tx.asm", "dmx512_tx.asm", "dshot_tx.asm",
               "sent_tx.asm", "cec.asm", "dali.asm", "vga_pong.asm", "eth_tx.asm", "udp_tx.asm",
               "sbus_rx.asm", "modbus_rtu.asm", "servo.asm", "lin_resp.asm", "onewire_dev.asm",
-              "modbus_full.asm", "pwm_audio.asm"}
+              "modbus_full.asm", "pwm_audio.asm", "spdif_tx.asm", "ps2_host.asm",
+              "mbus_slave.asm"}
 # Variants: name -> (firmware, .equ overrides): the logic analyser streaming a
 # 64-word ring to the host during the run (escapement_demo.stream).
 VARIANTS = {"logic_analyzer_stream": ("logic_analyzer.asm",

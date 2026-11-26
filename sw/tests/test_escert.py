@@ -101,9 +101,12 @@ FIXED_CLOCK = {"eth_tx": 40000, "udp_tx": 40000, "usb_hid": 24000, "vga_pong": 2
 # Programs that need whole ticks per bit run only at certain clocks, every one of which is
 # certified here (and none at 33 MHz): v3's 10BASE-T receive a 100 ns bit, 40 or 50 MHz;
 # XY2-100 four instructions in each 500 ns bit, 40 to 50 MHz in 2 MHz steps; FlexRay at
-# 2.5 Mbit/s, 25 to 50 MHz in 2.5 MHz steps.
+# 2.5 Mbit/s, 25 to 50 MHz in 2.5 MHz steps; the held-out round's MIL-STD-1553B terminal a
+# whole number of ticks per half bit and its decode between samples, 40 to 50 MHz in 2 MHz
+# steps.
 STEP_CLOCKS = {"eth_rx": (40000, 50000), "xy2_100": tuple(range(40000, 50001, 2000)),
-               "flexray_tx": tuple(range(25000, 50001, 2500))}
+               "flexray_tx": tuple(range(25000, 50001, 2500)),
+               "mil1553_rt": tuple(range(40000, 50001, 2000))}
 CLK_33 = sorted(p.stem for p in FW.glob("*.asm")
                 if ".default CLK_KHZ" in p.read_text()
                 and p.stem not in FIXED_CLOCK and p.stem not in STEP_CLOCKS)
@@ -790,6 +793,59 @@ def test_line_unit_use_before_config_and_send_without_tx_pins_fault_owner():
     body = " ADDT 0xFFFFFF\n GETL r1\n ADDT 300\n LDT r0, r3, 0xE2\n SEND r0\n HALT\n"
     assert lu_owner_case(body, w0=NRZ_W0 & ~(1 << 20)) == (True, True)
     assert lu_owner_case(body) == (False, False)
+
+
+def lu_config_case(w0=NRZ_W0, w1=NRZ_W1, body=" ADDT 0xFFFFFF\n GETL r1\n HALT\n"):
+    """(escert's finding kinds, the ISS's ADMIT subcode or None) for LU_PRE's CONFIG of
+    (w0, w1, CRC16_W2), committed at 7 and completing at E_16."""
+    src = LU_PRE.format(w0=w0, w1=w1, w2=CRC16_W2, send=0x0800) + body
+    c = certify(assemble(src))[0]
+    m = Machine(assemble(src))
+    m.run(400, stop_when_idle=False)
+    f = m.ff
+    return ({x.kind for x in c.findings},
+            f.subcode if f.valid and f.ctx == 0 and f.cause == ADMIT else None)
+
+
+@pytest.mark.parametrize("w1,bad", [
+    (7 | 4 << 20, True),                 # P_int 7 (< 8)
+    (16 | 16 << 20, True),               # S = P_int
+    (16 | 3 << 20, True),                # S 3 (< 4)
+    (8 | 4 << 20, False),                # the smallest valid cell: P_int 8, S 4
+    (16 | 15 << 20, False),              # S = P_int - 1
+])
+def test_an_invalid_configuration_faults_config(w1, bad):
+    """sec. 6.6 step 1: the CONFIG of an invalid configuration faults ADMIT/CONFIG (6) at
+    its completion. escert certified it before (the S/PDIF draft in the held-out round)."""
+    kinds, sub = lu_config_case(w1=w1)
+    assert ("CONFIG" in kinds, sub == 6) == (bad, bad), (kinds, sub)
+    if not bad:
+        assert not kinds and sub is None, (kinds, sub)
+
+
+@pytest.mark.parametrize("w0,bad", [
+    (NRZ_W0 | 5, True),                  # tx_pins, d = 5: not owned
+    (NRZ_W0 | 1 << 9 | 6 << 3, True),    # diff, n = 6: not owned
+    (NRZ_W0 | 1 << 9, True),             # diff, d == n
+    (NRZ_W0 | 1 << 9 | 1 << 3, False),   # diff, d 0 and n 1: both owned
+    (NRZ_W0 & ~(1 << 20) | 5, False),    # d = 5 without tx_pins: no pin driven
+])
+def test_a_configuration_on_pins_not_owned_faults_owner(w0, bad):
+    kinds, sub = lu_config_case(w0=w0)
+    assert ("OWNER" in kinds, sub == 2) == (bad, bad), (kinds, sub)
+
+
+def test_a_configuration_not_read_as_constant_is_checked_at_its_image_value():
+    """An STT may rewrite the block, so it is not a constant: escert checks the image's
+    words and says so in a note (an invalid image value is flagged)."""
+    body = " MOVI r1, 0x10\n MOVHI r1, 0x80\n STT r1, r3, 0xF1\n ADDT 0xFFFFFF\n GETL r1\n HALT\n"
+    src = LU_PRE.format(w0=NRZ_W0, w1=NRZ_W1, w2=CRC16_W2, send=0x0800) + body
+    c = certify(assemble(src))[0]
+    assert not any(f.kind in ("CONFIG", "OWNER") for f in c.findings), str(c)
+    assert any("image value" in n for n in c.notes), c.notes
+    bad = LU_PRE.format(w0=NRZ_W0, w1=7 | 4 << 20, w2=CRC16_W2, send=0x0800) + body
+    c = certify(assemble(bad))[0]
+    assert any(f.kind == "CONFIG" and "image value" in f.note for f in c.findings), str(c)
 
 
 def lu_switch_case(body):
