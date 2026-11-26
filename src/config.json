@@ -72,7 +72,12 @@
   "//": "v1.6 (20 ns): 2.5 and 3 ns. Hold repair keeps this setup margin too, so with 1 and 2 ns",
   "//": "it put 0.7-1 ns delay cells at the roots of paths that turned critical after routing",
   "//": "(v16g: -0.67 ns at 20 ns); with 2.5 and 3 ns the layout meets 20 ns (v16i).",
+  "//": "v3.2: no rebuffering in the post-CTS setup repair. With it, one v3.2 layout got a",
+  "//": "97-buffer daisy chain on a net from the tape to the core (-1.13 ns at the slow corner);",
+  "//": "without it the same tree meets 20 ns with the slow-corner limit at 17.0 ns. Sizing, pin",
+  "//": "swaps and cloning stay, and the post-GRT repair still rebuffers (D-77, docs/24).",
   "PL_RESIZER_SETUP_SLACK_MARGIN": 2.5,
+  "PL_RESIZER_SETUP_BUFFERING": false,
   "GRT_RESIZER_SETUP_SLACK_MARGIN": 3.0,
 
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",

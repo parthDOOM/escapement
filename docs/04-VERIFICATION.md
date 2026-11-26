@@ -215,6 +215,42 @@ The task has teeth. Measuring the lead from the current tick instead of the next
 with a trace, and computing the tests for the context committing now instead of next fails
 the induction step.
 
+### Registers that stop seeing the clock
+
+Version 3.2 put about a thousand more flip-flops behind clock gates (D-74 to D-76) and lets a
+waiting context skip its program-store read (D-73). In the proofs every gated bank is an
+enable flip-flop, as it has been since D-29, so what has to be shown is that each new enable
+covers every edge at which the old register could have changed. A bank whose clock stops at
+such an edge would keep a stale value, and nothing else in the proofs would notice. Three
+proofs close that gap, each by running the new registers beside the old ones.
+
+- **Each context's banks** (D-75). `formal/esc_ctx.sby` adds a shadow of the single always
+  block the four banks replaced, loading from the real registers at every edge, and proves by
+  k-induction, with every input free, that each gated register equals its shadow after every
+  edge. The one register compared under a condition is the FIFO head, which must match only
+  while the FIFO holds an entry: with the FIFO empty it holds no entry, and every reader of it
+  is qualified by the head being due, which needs an entry (D1).
+- **The pipeline banks** (D-76). The `ahead` task keeps an ungated twin of each pipeline
+  register, loading at every edge as the old register did, and proves the two equal wherever
+  the stage's valid bit says it holds an instruction (`ahead_s2a` to `ahead_s2c`). B1–B9 then
+  carry the equality to the commit. The same task proves the X stage's held select equal to
+  the issuing context wherever the stage is valid (`ahead_be`).
+- **The parked fetch** (D-73). The `park` task follows one address of the program store, any
+  address, and its word, which a program write during the run may change to any value. The
+  store's read data, otherwise unconstrained, is that word in the cycle after a read of it.
+  The task proves that the hold bank of a context parked at that address holds the word, so
+  a parked fetch takes exactly what the store would have returned, including across a live
+  reload of the same page.
+
+The banks of D-74 (host, capture unit, bus monitor) need no proof of their own: each enable is
+the condition under which the old always block assigned the bank, so the enable flip-flop the
+proofs see is the old register. Two sequential equivalence checks (yosys, RTL against RTL)
+confirm the rewrites as a whole. With the park and the held select turned off, the chip with
+the D-74 banks equals version 3.1 in every register and output (`dprove`, closed by
+induction at depth 1). The core with the D-75 banks and the first-fault record equals the core
+without them in all 29,067 compared signals (`equiv_induct`), with the FIFO head compared
+where it is due, as above.
+
 Span (version 3.1) changed what B7 decides. A branch target with bit 8 set, which names the
 partner's page, is legal only for a context that spans, so the registered legality now
 depends on the committing context's configuration as well as on the instruction. A tenth
@@ -341,7 +377,7 @@ hold vacuously, and its cover would fail.
 
 **Planted bugs.** `formal/teeth.sh` (`make formal-teeth`) plants known bugs, one at a time,
 in a copy of `src/`, and runs the proof that must catch each. A planted bug counts only if
-its edit applied exactly once and the proof fails. In the final run all fifteen were caught:
+its edit applied exactly once and the proof fails. In the final run all twenty-three were caught:
 
 | Planted bug | Proof | Caught |
 | --- | --- | --- |
@@ -360,6 +396,14 @@ its edit applied exactly once and the proof fails. In the final run all fifteen 
 | M7: the monitor's shared write word dropping a bit | `esc_mon.sby` | step 3 |
 | The monitor's results readable by any context | `esc_ni_ind.sby` | induction fails |
 | A MON from a context other than the monitor's owner taking effect | bounded core check | step 6 |
+| Park (D-73): a context parked while a program write may still be in flight | `esc_core.sby` park | step 6 |
+| The held X select (D-74) loaded from the wrong stage | `esc_core.sby` ahead | step 4 |
+| A context's commit bank (D-75) not opened by a start | `esc_ctx.sby` | step 3 |
+| The wait-full bank not opened by a start | `esc_ctx.sby` | step 5 |
+| The checker bank not opened by a due FIFO head | `esc_ctx.sby` | step 5 |
+| The FIFO bank not opened by a push | `esc_ctx.sby` | step 4 |
+| The X stage's pipeline bank (D-76) loaded on the decode stage's valid bit | `esc_core.sby` ahead | step 5 |
+| The fetch stage's pipeline bank loaded on the decode stage's valid bit | `esc_core.sby` ahead | step 3 |
 
 The clock-gate proof has its own: a naive `clk & en` gate fails G3 at the first step.
 

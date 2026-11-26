@@ -277,71 +277,91 @@ module esc_ctx (
   wire       tx_wi     = tx_rp ^ tx_popped ^ tx_cnt_p[0];
 
   // ------------------------------------------------------------------ registers
-  always @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      o_lc <= 16'd0; o_pc <= 9'd0; o_lr <= 9'd0;
-      o_z <= 1'b0; o_c <= 1'b0; o_state <= ST_IDLE;
-      head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0; h_q <= 26'd0;
-      o_act <= 1'b0; ck_mask <= 8'd0; ck_level <= 8'd0; ck_mode <= 1'b0; ck_rem <= 7'd0;
-      o_pass <= 8'd0; o_fail <= 8'd0; o_failed <= 1'b0;
-      o_exp_seen <= 1'b0;
-      o_min_lead <= 16'hFFFF; o_max_occ <= 3'd0; o_wait_full <= 16'd0;
-      o_irq_p <= 1'b0; o_irq_code <= 8'd0;
-      rx_cnt <= 2'd0; tx_cnt <= 2'd0; rx_rp <= 1'b0; tx_rp <= 1'b0;
-    end else if (start_i) begin
-      // sec. 9 Start
-      o_lc <= 16'd0; o_pc <= {1'b0, cfg_entry_pc}; o_lr <= 9'd0;   // entry PCs are 8 bits
-      o_z <= 1'b0; o_c <= 1'b0; o_state <= cfg_enable ? ST_RUN : ST_IDLE;
-      head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0; h_q <= 26'd0;
-      o_act <= 1'b0; ck_rem <= 7'd0;
-      o_pass <= 8'd0; o_fail <= 8'd0; o_failed <= 1'b0;
-      o_exp_seen <= 1'b0;
-      o_min_lead <= 16'hFFFF; o_max_occ <= 3'd0; o_wait_full <= 16'd0;
-      o_irq_p <= 1'b0; o_irq_code <= 8'd0;
-      rx_cnt <= 2'd0; tx_cnt <= 2'd0; rx_rp <= 1'b0; tx_rp <= 1'b0;
-    end else begin
-      // ---- host IRQ clear (overridden below by an IRQ commit at the same edge)
-      if (h_irq_clear) o_irq_p <= 1'b0;
+  // v3.2 (C): these registers were one block that saw every clock edge, about 170 flip-flops
+  // per context and a third of a stopped chip's power. They are four banks, each behind a
+  // clock gate (esc_icg) whose enable covers every way the bank can change, plus nine
+  // flip-flops left on the clock. Each enable follows from its bank's own statements:
+  //   commit   (64)  start, or a commit of this context
+  //   waitfull (16)  start, or a WAIT on a full FIFO
+  //   checker  (42)  start, the checker active, or the head due (only a due EXPECT starts it)
+  //   fifo     (33)  start, a kill, the head due or late, a queued event, or a push; with the
+  //                  FIFO empty and nothing pushed no test can come true, and the head
+  //                  register h_q, which then holds no entry, is read by nothing
+  // Under FORMAL (and ESC_NO_CG) each bank is an enable flip-flop; the shadow proof below
+  // (formal/esc_ctx.sby) shows every register equal to what the single block would load.
+  wire en_cm = start_i | cm_ok;
+  wire en_wf = start_i | cm_waitfull;
+  wire en_ck = start_i | o_act | due_q;
+  wire en_fi = start_i | kill | due_q | late_q | (o_cnt != 3'd0) | push;
+  wire gc_cm, gc_wf, gc_ck, gc_fi;   // the banks' clocks
+  wire ge_cm, ge_wf, ge_ck, ge_fi;   // the enables as the banks' always blocks see them
+  // enable flip-flops exactly where esc_greg.v makes them (its macro is not used: file order)
+`ifdef FORMAL
+`ifndef ESC_CG_FORMAL
+`define ESC_CTX_PLAIN
+`endif
+`endif
+`ifdef ESC_NO_CG
+`define ESC_CTX_PLAIN
+`endif
+`ifdef ESC_CTX_PLAIN
+  assign {gc_cm, gc_wf, gc_ck, gc_fi} = {4{clk}};
+  assign {ge_cm, ge_wf, ge_ck, ge_fi} = {en_cm, en_wf, en_ck, en_fi};
+`else
+  esc_icg cg_cm (.clk(clk), .en(en_cm), .gclk(gc_cm));
+  esc_icg cg_wf (.clk(clk), .en(en_wf), .gclk(gc_wf));
+  esc_icg cg_ck (.clk(clk), .en(en_ck), .gclk(gc_ck));
+  esc_icg cg_fi (.clk(clk), .en(en_fi), .gclk(gc_fi));
+  assign {ge_cm, ge_wf, ge_ck, ge_fi} = 4'b1111;
+`endif
+`undef ESC_CTX_PLAIN
 
-      // ---- commit effects (cm_ok implies no fault and no stop at this edge)
-      if (cm_ok) begin
+  // ---- commit effects (cm_ok implies no fault and no stop at this edge)
+  always @(posedge gc_cm or negedge rst_n) begin
+    if (!rst_n) begin
+      o_lc <= 16'd0; o_pc <= 9'd0; o_lr <= 9'd0; o_z <= 1'b0; o_c <= 1'b0;
+      o_exp_seen <= 1'b0; o_min_lead <= 16'hFFFF; o_max_occ <= 3'd0; o_irq_code <= 8'd0;
+    end else if (ge_cm) begin
+      if (start_i) begin
+        // sec. 9 Start
+        o_lc <= 16'd0; o_pc <= {1'b0, cfg_entry_pc}; o_lr <= 9'd0;   // entry PCs are 8 bits
+        o_z <= 1'b0; o_c <= 1'b0;
+        o_exp_seen <= 1'b0; o_min_lead <= 16'hFFFF; o_max_occ <= 3'd0; o_irq_code <= 8'd0;
+      end else if (cm_ok) begin
         if (w_z_we)   o_z   <= w_z;
         if (w_c_we)   o_c   <= w_c;
         if (w_lc_we)  o_lc  <= w_lc;
         if (w_lr_we)  o_lr  <= w_lr;
         o_pc <= w_pc;
-        if (w_halt) o_state <= ST_HALT;
-        if (w_irq) begin
-          o_irq_p    <= 1'b1;
-          o_irq_code <= w_irq_code;
-        end
+        if (w_irq) o_irq_code <= w_irq_code;
         if (w_exp_admit) o_exp_seen <= 1'b1;
         if (w_push) begin
           if (w_lead16 < o_min_lead) o_min_lead <= w_lead16;
           if ((o_cnt_after + 3'd1) > o_max_occ) o_max_occ <= o_cnt_after + 3'd1;
         end
       end
-      if (cm_waitfull && o_wait_full != 16'hFFFF) o_wait_full <= o_wait_full + 16'd1;
+    end
+  end
 
-      // ---- state transitions that override the commit (sec. 8, 9)
-      if (stop_i) begin
-        if (o_state == ST_RUN) o_state <= ST_HALT;
-      end else if (fault) begin
-        o_state <= ST_FAULT;
-      end
+  // ---- WAITs on a full FIFO
+  always @(posedge gc_wf or negedge rst_n) begin
+    if (!rst_n)              o_wait_full <= 16'd0;
+    else if (ge_wf) begin
+      if (start_i)           o_wait_full <= 16'd0;
+      else if (cm_waitfull && o_wait_full != 16'hFFFF) o_wait_full <= o_wait_full + 16'd1;
+    end
+  end
 
-      // ---- FIFO
-      if (kill) begin
-        o_cnt <= 3'd0;
-        due_q <= 1'b0; late_q <= 1'b0;
-      end else begin
-        o_cnt <= o_cnt - {2'b0, due} + {2'b0, push};
-        if (due) head <= head + 2'd1;
-        due_q <= due_n; late_q <= late_n; h_q <= h_n;
-      end
-
-      // ---- checker
-      if (kill) begin
+  // ---- checker
+  always @(posedge gc_ck or negedge rst_n) begin
+    if (!rst_n) begin
+      o_act <= 1'b0; ck_mask <= 8'd0; ck_level <= 8'd0; ck_mode <= 1'b0; ck_rem <= 7'd0;
+      o_pass <= 8'd0; o_fail <= 8'd0; o_failed <= 1'b0;
+    end else if (ge_ck) begin
+      if (start_i) begin
+        o_act <= 1'b0; ck_rem <= 7'd0;
+        o_pass <= 8'd0; o_fail <= 8'd0; o_failed <= 1'b0;
+      end else if (kill) begin
         o_act <= 1'b0;
       end else begin
         o_act <= o_act_after;
@@ -359,8 +379,48 @@ module esc_ctx (
           if (!o_failed) o_failed <= 1'b1;
         end
       end
+    end
+  end
 
-      // ---- mailboxes
+  // ---- FIFO
+  always @(posedge gc_fi or negedge rst_n) begin
+    if (!rst_n) begin
+      head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0; h_q <= 26'd0;
+    end else if (ge_fi) begin
+      if (start_i) begin
+        head <= 2'd0; o_cnt <= 3'd0; due_q <= 1'b0; late_q <= 1'b0; h_q <= 26'd0;
+      end else if (kill) begin
+        o_cnt <= 3'd0;
+        due_q <= 1'b0; late_q <= 1'b0;
+      end else begin
+        o_cnt <= o_cnt - {2'b0, due} + {2'b0, push};
+        if (due) head <= head + 2'd1;
+        due_q <= due_n; late_q <= late_n; h_q <= h_n;
+      end
+    end
+  end
+
+  // ---- state, IRQ pending and mailbox counts: nine flip-flops, on the clock
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      o_state <= ST_IDLE; o_irq_p <= 1'b0;
+      rx_cnt <= 2'd0; tx_cnt <= 2'd0; rx_rp <= 1'b0; tx_rp <= 1'b0;
+    end else if (start_i) begin
+      o_state <= cfg_enable ? ST_RUN : ST_IDLE; o_irq_p <= 1'b0;
+      rx_cnt <= 2'd0; tx_cnt <= 2'd0; rx_rp <= 1'b0; tx_rp <= 1'b0;
+    end else begin
+      // host IRQ clear, overridden by an IRQ commit at the same edge
+      if (h_irq_clear) o_irq_p <= 1'b0;
+      if (cm_ok) begin
+        if (w_halt) o_state <= ST_HALT;
+        if (w_irq)  o_irq_p <= 1'b1;
+      end
+      // state transitions that override the commit (sec. 8, 9)
+      if (stop_i) begin
+        if (o_state == ST_RUN) o_state <= ST_HALT;
+      end else if (fault) begin
+        o_state <= ST_FAULT;
+      end
       rx_cnt <= rx_cnt_p + {1'b0, rx_pushed};
       rx_rp  <= rx_rp ^ rx_popped;
       tx_cnt <= tx_cnt_p + {1'b0, tx_pushed};
@@ -467,6 +527,89 @@ module esc_ctx (
 `endif
 
 `ifdef FORMAL
+`ifdef ESC_CTX_ENV
+  // v3.2 (C): the gated banks equal the single block they replaced (formal/esc_ctx.sby, every
+  // input free). The shadow is that block, loading from the real registers at every edge;
+  // every gated register equals it after every edge, so a bank whose clock was stopped could
+  // not have changed. h_q must equal it while the FIFO holds an entry: with the FIFO empty
+  // h_q holds no entry, and every reader of it is qualified by due (retirement, the
+  // checker's start, a SAMPLE) or by the core's c_drv (a retiring DRIVE), and due implies a
+  // nonempty FIFO (D1).
+  reg [15:0] s_lc, s_min_lead, s_wait_full;
+  reg [8:0]  s_pc, s_lr;
+  reg [7:0]  s_irq_code, s_ck_mask, s_ck_level, s_pass, s_fail;
+  reg        s_z, s_c, s_exp_seen, s_act, s_ck_mode, s_failed, s_due, s_late;
+  reg [2:0]  s_max_occ, s_cnt;
+  reg [6:0]  s_ck_rem;
+  reg [1:0]  s_head;
+  reg [25:0] s_h;
+  always @(posedge clk) begin
+    {s_lc, s_pc, s_lr, s_z, s_c, s_exp_seen, s_min_lead, s_max_occ, s_irq_code, s_wait_full,
+     s_act, s_ck_mask, s_ck_level, s_ck_mode, s_ck_rem, s_pass, s_fail, s_failed,
+     s_head, s_cnt, s_due, s_late, s_h} <=
+    {o_lc, o_pc, o_lr, o_z, o_c, o_exp_seen, o_min_lead, o_max_occ, o_irq_code, o_wait_full,
+     o_act, ck_mask, ck_level, ck_mode, ck_rem, o_pass, o_fail, o_failed,
+     head, o_cnt, due_q, late_q, h_q};
+    if (start_i) begin
+      s_lc <= 16'd0; s_pc <= {1'b0, cfg_entry_pc}; s_lr <= 9'd0; s_z <= 1'b0; s_c <= 1'b0;
+      s_head <= 2'd0; s_cnt <= 3'd0; s_due <= 1'b0; s_late <= 1'b0; s_h <= 26'd0;
+      s_act <= 1'b0; s_ck_rem <= 7'd0; s_pass <= 8'd0; s_fail <= 8'd0; s_failed <= 1'b0;
+      s_exp_seen <= 1'b0; s_min_lead <= 16'hFFFF; s_max_occ <= 3'd0; s_wait_full <= 16'd0;
+      s_irq_code <= 8'd0;
+    end else begin
+      if (cm_ok) begin
+        if (w_z_we)  s_z  <= w_z;
+        if (w_c_we)  s_c  <= w_c;
+        if (w_lc_we) s_lc <= w_lc;
+        if (w_lr_we) s_lr <= w_lr;
+        s_pc <= w_pc;
+        if (w_irq) s_irq_code <= w_irq_code;
+        if (w_exp_admit) s_exp_seen <= 1'b1;
+        if (w_push) begin
+          if (w_lead16 < o_min_lead) s_min_lead <= w_lead16;
+          if ((o_cnt_after + 3'd1) > o_max_occ) s_max_occ <= o_cnt_after + 3'd1;
+        end
+      end
+      if (cm_waitfull && o_wait_full != 16'hFFFF) s_wait_full <= o_wait_full + 16'd1;
+      if (kill) begin
+        s_cnt <= 3'd0; s_due <= 1'b0; s_late <= 1'b0;
+      end else begin
+        s_cnt <= o_cnt - {2'b0, due} + {2'b0, push};
+        if (due) s_head <= head + 2'd1;
+        s_due <= due_n; s_late <= late_n; s_h <= h_n;
+      end
+      if (kill) begin
+        s_act <= 1'b0;
+      end else begin
+        s_act <= o_act_after;
+        if (starting) begin
+          s_ck_mask <= h_pl[23:16]; s_ck_level <= h_pl[15:8];
+          s_ck_mode <= h_pl[7];     s_ck_rem   <= h_pl[6:0] - 7'd1;
+        end else if (o_act) begin
+          s_ck_rem <= ck_rem - 7'd1;
+        end
+        if (ck_pass && o_pass != 8'hFF) s_pass <= o_pass + 8'd1;
+        if (ck_fail) begin
+          if (o_fail != 8'hFF) s_fail <= o_fail + 8'd1;
+          if (!o_failed) s_failed <= 1'b1;
+        end
+      end
+    end
+  end
+  reg f_cg = 1'b0;
+  always @(posedge clk) f_cg <= 1'b1;
+  always @(posedge clk)
+    if (f_cg && rst_n && $past(rst_n)) begin
+      cg_cm: assert ({o_lc, o_pc, o_lr, o_z, o_c, o_exp_seen, o_min_lead, o_max_occ, o_irq_code}
+                  == {s_lc, s_pc, s_lr, s_z, s_c, s_exp_seen, s_min_lead, s_max_occ, s_irq_code});
+      cg_wf: assert (o_wait_full == s_wait_full);
+      cg_ck: assert ({o_act, ck_mask, ck_level, ck_mode, ck_rem, o_pass, o_fail, o_failed}
+                  == {s_act, s_ck_mask, s_ck_level, s_ck_mode, s_ck_rem, s_pass, s_fail, s_failed});
+      cg_fi: assert ({head, o_cnt, due_q, late_q} == {s_head, s_cnt, s_due, s_late});
+      if (o_cnt != 3'd0) cg_fh: assert (h_q == s_h);
+    end
+`endif
+
   // Inductive strengthening for P2 "never late" (esc_core.v), so it can be proved for
   // all time by k-induction (formal/esc_core.sby task `kind`):
   //  H1 every queued deadline is at or after now (within the half range);

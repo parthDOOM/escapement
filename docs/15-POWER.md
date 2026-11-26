@@ -2,38 +2,44 @@
 
 A protocol engine spends most of its time waiting, so its power while waiting matters
 more than its power while busy. This chapter shows how the chip's power was measured,
-what the measurements found, and the three changes that cut it: clock-gated register
+what the measurements found, and the changes that cut it: clock-gated register
 banks, memories read only on demand, and a hold margin that stopped thousands of
-needless delay cells. The decisions are D-28, D-29 and D-40 in
-[06-DECISIONS](06-DECISIONS.md). Every number comes from OpenROAD and OpenSTA on the
+needless delay cells (D-28, D-29 and D-40), and in version 3.2 the same clock gating
+carried to nearly every remaining register, with a waiting context that no longer reads
+the program store (D-73 to D-76). The decisions are in [06-DECISIONS](06-DECISIONS.md). Every number comes from OpenROAD and OpenSTA on the
 project's own layout databases, at the typical corner (1.20 V, 25 °C) and 25 MHz, with
 parasitics estimated from placement; the scripts are in `scripts/` and the runs can be
 repeated.
 
 The measurements in sections 1 to 3 were taken on versions 1.1 to 1.6, on the 6 × 4
-layouts, as each change was made. The current design, version 3.1 at 8 × 4, was measured
+layouts, as each change was made. The current design, version 3.2 at 8 × 4, was measured
 the same way on its signed-off layout (`scripts/power-workload.sh`, the same three workloads
-and the same 8,000-cycle windows):
+and the same 8,000-cycle windows), beside version 3.1:
 
-| Version 3.1 | uart_tx (sending) | logic analyser (capturing) | idle (stopped) | static estimate |
+| Version 3.2 (3.1) | uart_tx (sending) | logic analyser (capturing) | idle (stopped) | static estimate |
 | --- | ---: | ---: | ---: | ---: |
-| flip-flops and latches | 2.49 mW | 2.45 mW | 2.40 mW | |
-| clock tree | 0.97 mW | 0.97 mW | 0.96 mW | |
-| logic | 0.66 mW | 0.54 mW | 0.00 mW | |
-| SRAM macros (counted edge by edge) | 0.30 mW | 0.0015 mW | 0 | |
-| **total** | **4.42 mW** | **3.95 mW** | **3.36 mW** | 3.43 mW |
+| flip-flops and latches | 0.90 mW (2.49) | 0.75 mW (2.45) | 0.71 mW (2.40) | |
+| clock tree | 0.65 mW (0.97) | 0.57 mW (0.97) | 0.56 mW (0.96) | |
+| logic | 0.29 mW (0.66) | 0.22 mW (0.54) | 0.00 mW (0.00) | |
+| SRAM macros (counted edge by edge) | 0.017 mW (0.30) | 0.0015 mW (0.0015) | 0 (0) | |
+| **total** | **1.85 mW (4.42)** | **1.54 mW (3.95)** | **1.27 mW (3.36)** | 1.32 mW (3.43) |
 
-Version 3.0 measured 4.42, 3.97 and 3.38 mW: span, the reset synchroniser and the layout
-that meets every electrical rule left the power within 0.02 mW. Against version 1.6 (3.60,
-3.29 and 2.93 mW) it is 0.43 to 0.82 mW more, 15 to 23%. Most of that is the clocked storage
-the later versions added: pair mode, live reload, the four pages, the proof tripwires, the
-bus timing monitor and the half-tick sampler bring the sequential cells to 5,398, against
-4,838 in version 1.6 (2,391 flip-flops, 2,365 latches
-and 82 clock-gate latches). The program store adds the rest of the busy workload's
-difference. It is one 1024 × 32 macro, whose read costs 48.3 pJ against 26.0 pJ for a
-256 × 32, so the same 2,000 fetches in the `uart_tx` window cost 302 µW instead of 162 µW.
-The design's shape is unchanged: a stopped chip reads no memory and switches no logic, and
-what it spends is the clocked storage that must keep running and the clock tree.
+Version 3.2 spends 58 to 62% less than version 3.1 in these three workloads, and less than
+any earlier version, including v1.1 with its first clock gates (2.92, 2.58 and 2.23 mW),
+although it has far more storage and logic. Section 4 shows where the saving came from and four more
+workloads that isolate waiting.
+
+Version 3.1, in turn, measured within 0.02 mW of version 3.0 (4.42, 3.97 and 3.38 mW): span,
+the reset synchroniser and the layout that meets every electrical rule cost almost nothing.
+Against version 1.6 (3.60, 3.29 and 2.93 mW) it was 0.43 to 0.82 mW more, 15 to 23%. Most
+of that was the clocked storage the later versions added: pair mode, live reload, the four
+pages, the proof tripwires, the bus timing monitor and the half-tick sampler brought the
+sequential cells to 5,398, against 4,838 in version 1.6 (2,391 flip-flops, 2,365 latches and
+82 clock-gate latches). The program store added the rest of the busy workload's difference.
+It is one 1024 × 32 macro, whose read costs 48.3 pJ against 26.0 pJ for a 256 × 32, so the
+same 2,000 fetches in the `uart_tx` window cost 302 µW instead of 162 µW. That is the state
+version 3.2 started from: a stopped chip read no memory and switched no logic, and what it
+spent was the clocked storage that kept running and the clock tree.
 
 ## 1. Where the power went
 
@@ -158,6 +164,7 @@ estimate, which LibreLane prints in its power report.
 | change, before → v1.6 | −5% | | −52% | −59% | **−58%** | **−61%** | **−63%** |
 | version 3 (8 × 4) | 32,676 | 56.2% | 257 | 3.58 mW | 4.42 mW | 3.97 mW | 3.38 mW |
 | version 3.1: span, reset synchroniser, electrical rules | 34,511 | 57.4% | 246 | 3.43 mW | 4.42 mW | 3.95 mW | 3.36 mW |
+| **version 3.2: registers clocked only when written, waiting contexts parked (D-73 to D-77)** | **35,631** | **59.4%** | **383** | **1.32 mW** | **1.85 mW** | **1.54 mW** | **1.27 mW** |
 
 n/m = not measured. The workload columns use the exact SRAM count below. Version 1.6 costs
 0.40–0.42 mW (13–16%) in every workload, nearly all of it in the flip-flop and clock rows.
@@ -205,7 +212,52 @@ What is left while waiting is mostly the 1,179 free-running flops (the time base
 pipeline, host link, and per-context control and telemetry) and the main clock tree.
 That is the honest floor of a design whose host link and time base must keep running.
 
-## 4. How to read the timing report with clock gates
+## 4. Version 3.2: clock only what is written
+
+By version 3.1 the chip had grown to 5,398 storage cells, and 1,738 of its flip-flops still saw
+every clock edge. In a stopped chip they and their clock leaves cost 2.74 mW of the 3.36, and
+the clock trunk another 0.41. Grouped by what they hold, the free-running registers were the
+contexts' state (1.08 mW), the host interface (0.30), the pipeline (0.29), the bus monitor
+(0.25), the capture unit (0.24), the pins and their synchronisers (0.23) and smaller groups.
+Each flip-flop cost about 1.3 µW plus 0.26 µW of leaf clock, whether it changed or not. A
+waiting context added 0.30 mW more, because it fetched its `WAIT` from the program store again
+in every one of its slots.
+
+Four workloads beyond the standard three show the cost of waiting directly. In `run_halted` the
+chip runs with its one context halted, so nothing is fetched. In `wait1` one context sits in a
+long `WAIT`; in `wait4` four contexts do; in `fifo4` four contexts are blocked on full FIFOs:
+
+| mW, 25 MHz | idle | run_halted | wait1 | wait4 | fifo4 | uart_tx | logic analyser |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| version 3.1 | 3.36 | 3.92 | 4.30 | 5.23 | 5.36 | 4.42 | 3.96 |
+| after D-73 and D-74 | 2.66 | 2.92 | 2.99 | 3.35 | 3.51 | 3.06 | 2.94 |
+| version 3.2 (with D-75 to D-77) | 1.27 | 1.52 | 1.71 | 2.42 | 2.90 | 1.85 | 1.54 |
+| change from 3.1 | −62% | −61% | −60% | −54% | −46% | −58% | −61% |
+
+The middle row was measured on a layout of its own, with the park, the rarely written banks
+and the held select in place but the contexts and the pipeline still free-running. It shows
+the two halves of the work. The park removes the program-store reads of a waiting context
+(wait4: 8,000 reads in the window, 1.21 mW, to none), and the rarely written banks and the
+held select take another 0.6 to 1.0 mW off every workload. The per-context and pipeline banks then halve what was left.
+In `uart_tx` the store is now read 116 times in the window instead of 2,000, because the
+program spends most of its time parked in a `WAIT`.
+
+What a stopped version 3.2 still spends is mostly what must run. The free-running storage
+falls from 2.29 to 0.54 mW and its leaf clocks from 0.45 to 0.13 mW. The largest remaining
+groups are the pins and their synchronisers (0.16 mW with leaves), the nine flip-flops per
+context that stay on the clock (0.13), the host link (0.07), and the digest and tripwires
+(0.05). The clock trunk (0.35 mW) and the clock gates themselves (0.16 mW for 128 gates, against 90
+in version 3.1) are now two fifths of a stopped chip's power.
+
+The gated banks cost power only when their work happens, which is why the savings shrink
+as the chip gets busier. With four contexts waiting, the pipeline stages are valid in every
+slot and the pipeline banks clock at almost every edge (0.32 mW with their leaves, against none
+when stopped). With four FIFOs full, each context's FIFO bank clocks at every edge, because the
+head's due and late tests run on each one, and the contexts' gated banks cost 0.42 mW with
+their leaves, against 0.10 mW with four contexts waiting. So `fifo4`, the busiest workload, saves
+the least (46%), and an idle or lightly loaded chip saves the most (about 60%).
+
+## 5. How to read the timing report with clock gates
 
 The worst setup path ends at a clock-gate latch, with slack measured to the latch's
 opening edge (the falling edge, 20 ns) and up to 19.9 ns of borrowing available. The
@@ -213,7 +265,7 @@ true limit is the closing edge, and borrowing is harmless for a clock gate: whil
 is low the AND output is low whatever the latch passes. A low headline "setup slack" is
 this reporting convention, not a slow path.
 
-## 5. Limits of these numbers
+## 6. Limits of these numbers
 
 - One corner (typical), placement-estimated parasitics, no IR-drop interaction.
 - Zero-delay gate-level simulation counts no glitch power, which slightly flatters
@@ -231,7 +283,7 @@ this reporting convention, not a slow path.
 - Workload windows are 8,000 cycles (320 µs) after start. They are representative of
   steady state for these programs, not of every program.
 
-## 6. Reproduce
+## 7. Reproduce
 
 ```sh
 scripts/local-harden.sh --tag NAME [--to OpenROAD.ResizerTimingPostCTS]

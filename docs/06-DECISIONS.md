@@ -780,6 +780,122 @@ invalid one the escert of version 3.1 found nothing while the simulator faults. 
 to the checker only: the chip already refused those configurations, so no certified program
 could ever have run late, only been refused where its certificate said it would not be.
 
+## Version 3.2: power
+
+Version 3.1 spent 3.36 mW while stopped and 4.42 mW while sending a UART frame
+([15-POWER](15-POWER.md)). A stopped chip switches no logic and reads no memory, so nearly all
+of that was clocked storage: 2.40 mW in flip-flops and latches and 0.96 mW in the clock tree
+that drives them. Most of those flip-flops saw every clock edge, although each is written at
+a few known moments, such as a commit of its own context, a host byte or the start of a run.
+D-29 had already put the large register files behind clock gates. Version 3.2 extends the same
+rule, that a bank which is not written does not see the clock, to everything that was left,
+and stops a waiting context from reading the program store again and again. None of the
+changes adds a feature or alters what a program sees. Each is proved equal to the design it
+replaced, either cycle for cycle or wherever the value is read.
+
+**D-73 A waiting context is parked (3.2).** A `WAIT` that has not yet completed leaves the
+program counter on itself, so a waiting context fetched the same word in every one of its
+issue slots, and each fetch was a read of the program store, the most expensive single event
+on the chip (48.3 pJ). Most protocol programs spend most of their time in exactly this state.
+Now, when a `WAIT` commits without completing, the instruction word is copied into a 32-bit
+latch bank kept for that context, and the context is marked parked. While it is parked, a fetch
+from its own program counter reads nothing and the pipeline takes the held word instead. That
+is the word the store would have returned, because a parked context's program counter and page
+cannot change. Anything that ends the wait or moves the program counter clears the park: a
+commit that does not wait, a stop, a restart, a fault, or a program write into a page the
+context fetches from (its own, or its partner's when it spans, D-64). A write also keeps the
+park from being set again for three cycles, which covers a fetch already in flight when the
+write arrived. A write into some other context's page touches nothing of a parked context's,
+so a live reload stays invisible to the contexts it does not reload, and the non-interference
+proof still holds. Everything after the fetch is unchanged, and `esc_core.sby` (task `park`)
+proves the machine the same cycle for cycle. The cost is four 32-bit latch banks and a few
+control bits.
+
+**D-74 The remaining rarely written registers behind clock gates (3.2).** Four groups of
+registers change only a few times per host command, per capture or per monitor rule, but still
+saw every clock edge. The host interface's bank B (186 flip-flops: the assembled word, the
+configuration, the program write word, the page, the selects and the tape acknowledgement) is
+written only at the edge that ends a payload byte. The capture unit's configuration, pointers,
+staged records and edge detector (147 flip-flops in seven banks) change only while a capture is
+armed. The bus monitor keeps 26 bits of state per rule, which changes only at a start, a write or
+clear of the rule, or an edge at which the rule is armed or sees the edge that arms it, so a
+rule that is off or waiting sees no clock. Two 32-bit words, the host's fetched tape word and the monitor's
+record tick, are loaded only when a fetch is granted or a record is taken. Each group is now a
+gated bank (`esc_greg`, D-29) whose enable is exactly the condition under which the old always
+block assigned it, with the same priority, so the change is invisible by construction. One
+change in the same step is not a clock gate. The X stage's operand and deadline multiplexers
+select by the issuing context, and they used to follow the slot count even through cycles
+whose X slot was empty. Their select now holds through such a cycle, so the wide multiplexers
+switch only when an instruction is there to use them (`ahead_be` proves the select equal
+wherever the stage holds an instruction).
+
+**D-75 Each context's registers in four gated banks (3.2).** About 164 flip-flops per context
+(program counter, link register, flags, telemetry, the expect checker, the event FIFO's head)
+were one always block that saw every edge, about a third of a stopped chip's power. They are
+now four banks, each behind its own clock gate, and the enable of each covers every way the
+bank can change:
+
+| bank | bits per context | clocked when |
+| --- | ---: | --- |
+| commit | 64 | a start, or a commit of this context |
+| wait-full counter | 16 | a start, or a `WAIT` that finds the FIFO full |
+| checker | 42 | a start, an active `EXPECT` window, or a due FIFO head |
+| FIFO | 33 | a start, a kill, a due or late head, a queued event, or a push |
+
+Nine flip-flops stay on the free clock: the context state, the pending interrupt, and the
+mailbox counts and read pointers, which change at host edges that no enable covers cheaply.
+The banks are gated flip-flops. The latch banks of D-40, with one shared write register per
+field, were the planned alternative: they would save area and keep the commit path's hold
+checks between free-running registers. That matters because an earlier trial of gated
+flip-flops here had the hold repair put a 1.24 ns delay cell on the issuing context's select,
+the trunk that every context's commit reads. Gated flip-flops were tried first, because the
+layout now has more setup margin than that trial had and their proof could be ported, with
+the latch banks kept as the fallback if the trap came back. It did not: clock-tree synthesis
+added 424 hold buffers, against 416 without the banks. `formal/esc_ctx.sby` runs the gated banks beside a shadow copy
+of the single block they replaced and proves every register equal to what that block would
+have loaded, and each bank has a planted bug (a tooth) that the proof must catch. The FIFO
+bank is the one that cannot close often. A context with events queued clocks it at every edge,
+because the head's due and late tests run on each one, so a program that keeps its FIFO full
+saves the least. The first-fault record (49 bits) moved into a gated bank in the same step. It
+is written once per run, at the first fault, and cleared by a start, and those two edges are
+its enable.
+
+**D-76 The pipeline registers load only for a valid stage (3.2).** The pipeline's data
+registers (222 flip-flops in the RTL, 164 after synthesis) used to load at every edge. With one
+context running, three slots in four are empty, and what the registers loaded in an empty slot
+was never used: every reader is a commit, which requires a valid commit stage, the X stage,
+which requires a valid X stage, or the fetch chain, which checks the X stage too. The registers
+now sit in three gated banks: the fetch program counter loads with a fetch, the fetched word
+and its program counter from a valid decode stage, and the decode, operands and deadline flags
+from a valid X stage. A parked slot (D-73) is still a valid slot, so the two savings do not
+overlap. The core proof gains three properties, `ahead_s2a` to `ahead_s2c`, which run each
+gated bank beside an ungated twin and prove the two equal wherever the stage is valid, and
+two teeth that move an enable onto the wrong valid bit.
+
+**D-77 The TX pin claim is a flip-flop (3.2).** Version 3.2's first full layout met timing at
+20 ns, but its slow-corner limit rose from 16.9 ns to 18.3 ns, which left 1.7 ns of the 2 ns
+margin the plan required. Static timing named a single startpoint for every failing path at
+18.0 ns and at 16.8 ns: the latch in the line unit's W0 configuration that holds `c_txp`,
+whether the unit claims its transmit pins. W0 is a latch bank (D-40), and a path from a latch
+starts when the latch opens, not at the clock edge, so the time the latch's input takes to
+arrive is added to every path that leaves it. This bit gates the claimed-pin mask, which
+reaches the receiver through the pins and ends at the line unit's next-word register, a long
+path, and the larger layout had pushed it over. The low 12 bits of W0 (pin numbers,
+differential, NRZI, bit order) were made flip-flops for this same reason when the latch banks
+went in. `c_txp` now joins them, with the same enable and input, so the function is unchanged
+and the proofs' model, in which every latch bank is an enable flip-flop, is identical. With the
+bit moved, nothing else on the chip failed at 16.8 ns.
+
+The first layout of the corrected design failed at 20 ns, for a reason that had nothing to do
+with the change. On a net that carries a tape-derived value to state across the core, the
+resizer's setup repair after clock-tree synthesis had built a chain of 97 buffers in series,
+all within a patch of about 50 × 70 µm, each driving the next buffer and two or three of the
+net's loads. A fanout tree had become a daisy chain, adding 11.7 ns to a path that the stage 2
+layout met with 9.4 ns to spare. The flow now turns off rebuffering in that one repair step
+(`PL_RESIZER_SETUP_BUFFERING` in `src/config.json`). Sizing, pin swaps and gate cloning stay,
+and the repair after global routing still rebuffers. The same design then met 20 ns with no
+chain, and its slow-corner limit is 17.0 ns, 3.0 ns of margin at the rated clock.
+
 ## The DOOM console
 
 **D-66 The game on the host, the chip as its input/output processor.** DOOM needs far more

@@ -11,7 +11,34 @@ so the script runs unchanged.
 | Chip | Sipeed Tang Primer 25K Dock (GW5A-LV25MG121NC1/I0), loaded over its onboard USB debugger |
 | Build | `fpga/escapement_board.v` with `ESC_NO_CG` and `fpga/escapement_sram_fpga.v`, as in `fpga/README.md` |
 
-## Result, 2026-11-21 (version 3.1, span)
+## Result, 2026-11-26 (version 3.2)
+
+Version 3.2 lowers the chip's power without changing what it does: registers are clocked only
+when they are written, a context waiting on a `WAIT` is parked and reissues its held instruction
+instead of reading the program store again, and the pipeline loads only a stage that holds an
+instruction (D-73 to D-77 in [06-DECISIONS](../../docs/06-DECISIONS.md)). On the FPGA every clock
+gate is an enable (`ESC_NO_CG`), as it is in the proofs, so this run checks the new logic on the
+board and says nothing about the gates themselves or the power. It loaded the RTL of the
+version 3.2 commit and bundles built from the same tree, both built before that commit was
+made: the MANIFESTs name its parent, `2a4ba1f`, with `src/` modified, and the sha256 of each of
+the 12 files in `chip.MANIFEST` is that of the file in the commit.
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| 0 board and project | PASS | `results/2026-11-26/bringup.log` |
+| 1 clock and reset | PASS: 25 MHz from the Pico, outputs correct in and after reset | same |
+| 2 host link | PASS: STATUS reports protocol version 11, fast and slow SCK | same |
+| 3 memories | PASS: 4 patterns x 256 words in each of the four program pages and the tape, tape reads during a run | same |
+| 4 pins and clock rate | PASS: every uio, input and bank B pin; chip clock 24.9844 MHz | same |
+| 5 firmware | PASS: 94 of 94 bundles match the model's digest or final state and their certificates, the same set as on 25 November | same, and `proof.json` |
+
+The wiring check was not repeated; stage 4 drives and reads every pin. The bitstream was
+built by `build.sh` with every check passing: the clock is on the global network to all 5,266
+of its clock pins (5,113 on version 3.1) with no measured skew, setup passes at 25 MHz
+(54.76 MHz possible, 58.00 on version 3.1), and nextpnr's 8 hold flags are all at block RAM
+address pins (below).
+
+## Earlier result, 2026-11-21 (version 3.1, span)
 
 Version 3.1 adds span: a context whose partner is switched off can run one program of up to
 512 words across both of their program pages. This run loaded the RTL of commit c49c1c0 and
@@ -195,6 +222,7 @@ input. `chip-pnr.log` is the place-and-route log of that bitstream.
 | `learnhost.py`, `learnbench.py`, `test_learnbench.py` | the learning bench (Learned on the bench, below): the laptop's steps, the Pico's steps, and the whole loop on the simulated chip |
 | `bench.ps1` | Windows helper: build, deploy, load, run (the Dock's USB goes to WSL with usbipd-win) |
 | `hierarchy.sh`, `hierarchy.py` | block-level LUT, flip-flop and bus counts of the FPGA build |
+| `results/2026-11-26/` | version 3.2: the bring-up log and telemetry, the bitstream's and bundles' MANIFESTs, the place-and-route log and the clock skew report |
 | `results/2026-11-24/` | the refusal bench (`late.log`) and the learning bench (`learn.log`, with the playback, the chip's capture, the learned table, both generated programs and the timed marks in `learn/`), after a bring-up of 86 of 86 programs; the bundles' MANIFEST and the bitstream's (built 2026-11-22) |
 | `results/2026-11-22/` | version 3.1 with the reset synchroniser: the bring-up log and telemetry, the bitstream's and bundles' MANIFESTs, the place-and-route log and the block hierarchy (`hierarchy.json`); the Ethernet transmit, receive (at three bias levels), line-check and ping logs (the laptop's MAC address replaced by LAPTOP-MAC); the USB keyboard runs (`usb-keyboard.log`) |
 | `results/2026-11-21/` | the first version 3.1 (span) runs: the wiring check, and two bring-up runs with their logs, telemetry and MANIFESTs, one on a bitstream packed by hand (this folder) and one on the bitstream `build.sh` now builds unaided (`clean-build/`) |

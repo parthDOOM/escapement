@@ -197,10 +197,11 @@ module esc_core #(
   reg [54:0] d_op;                     // decode of p3_insn, registered (below)
   reg        illegal;
   reg        ff_valid;
-  reg [2:0]  ff_cause, ff_sub;
-  reg [1:0]  ff_ctx;
-  reg [8:0]  ff_pc;
-  reg [31:0] ff_tick;
+  wire       ff_hit;                   // the first fault of a run, at this edge (below)
+  wire [2:0] ff_cause, ff_sub;         // the record: a gated bank (g_ffr, below)
+  wire [1:0] ff_ctx;
+  wire [8:0] ff_pc;
+  wire [31:0] ff_tick;
 
   wire       stop_q = stop & ~start;     // start wins over a simultaneous stop
 
@@ -447,19 +448,13 @@ module esc_core #(
   wire [31:0] nd_now  = n_tmr - now_n;
   wire [31:0] nd_tail = n_tmr - c_tail[32*nq_e +: 32];
   wire [31:0] nd_lee  = n_tmr - c_lee[32*nq_e +: 32];
-  reg         ahd_now, rch_tmr, ahd_tail, ahd_lee;
+  reg         ahd_now, rch_tmr, ahd_tail, ahd_lee;   // the X bank (below)
   reg  [15:0] lead16;
-  always @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      ahd_now <= 1'b0; rch_tmr <= 1'b0; ahd_tail <= 1'b0; ahd_lee <= 1'b0; lead16 <= 16'd0;
-    end else begin
-      ahd_now  <= (nd_now != 32'd0) & ~nd_now[31];                                 // ahead(d, c)
-      rch_tmr  <= (nd_now == 32'd0) | (nd_now[31] & (nd_now[30:0] != 31'd0));      // reached(c, tmr)
-      ahd_tail <= (nd_tail != 32'd0) & ~nd_tail[31];
-      ahd_lee  <= (nd_lee != 32'd0) & ~nd_lee[31];
-      lead16   <= (nd_now[31:16] != 16'd0) ? 16'hFFFF : nd_now[15:0];             // min(lead, 0xFFFF)
-    end
-  end
+  wire        ahd_now_n  = (nd_now != 32'd0) & ~nd_now[31];                             // ahead(d, c)
+  wire        rch_tmr_n  = (nd_now == 32'd0) | (nd_now[31] & (nd_now[30:0] != 31'd0));  // reached(c, tmr)
+  wire        ahd_tail_n = (nd_tail != 32'd0) & ~nd_tail[31];
+  wire        ahd_lee_n  = (nd_lee != 32'd0) & ~nd_lee[31];
+  wire [15:0] lead16_n   = (nd_now[31:16] != 16'd0) ? 16'hFFFF : nd_now[15:0];         // min(lead, 0xFFFF)
 
   wire        x_bit   = f_dir ? cs_sh[31] : cs_sh[0];          // EMITX bit
   wire [7:0]  ev_val  = d_op[I_EMITR] ? opb[7:0] :
@@ -1148,15 +1143,11 @@ module esc_core #(
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       run <= 1'b0; now <= 32'd0; sq <= 2'd1; cq <= 2'd1; nq <= 2'd2; nq_e <= 2'd2; fq <= 2'd0;
-      p1_spc <= 9'd0; p2_spc <= 9'd0; p3ok <= 1'b1; lu_bank <= 1'b0;
+      p3ok <= 1'b1; lu_bank <= 1'b0;
       pin_val <= 13'd0; pin_oe <= 13'd0;
       s1 <= 13'd0; s2 <= 13'd0; h2 <= 13'd0; h3 <= 13'd0;
       p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
-      p2_insn <= 32'd0; p3_insn <= 32'd0;
-      d_op <= 55'd0; illegal <= 1'b1;          // the decode of 0: no opcode, illegal
-      opa <= 32'd0; opb <= 32'd0;
-      ff_valid <= 1'b0; ff_cause <= 3'd0; ff_sub <= 3'd0; ff_ctx <= 2'd0;
-      ff_pc <= 9'd0; ff_tick <= 32'd0;
+      ff_valid <= 1'b0;
       dbg_commit_valid <= 1'b0; dbg_commit_ctx <= 2'd0; dbg_commit_pc <= 9'd0;
       dbg_commit_insn <= 32'd0; dbg_commit_outcome <= 2'd0;
     end else begin
@@ -1166,16 +1157,8 @@ module esc_core #(
       h2 <= pin_h;                    // v3: the falling-edge sample, two more stages: in a
       h3 <= h2;                       // cycle, h3 is the pins half a period before s2's sample
 
-      // instruction pipeline
-      p2_insn <= p1_hit ? c_hold[32*p1_fq +: 32] : imem_rdata;
-      p3_insn <= p2_insn;
-      d_op    <= d_op_n;
-      illegal <= illegal_n;
-      opa     <= opa_n;
-      opb     <= opb_n;
-      p1_spc  <= f_pc;
+      // instruction pipeline (its data registers: the gated banks below)
       lu_bank <= ctx_bank[lu_owner];
-      p2_spc  <= p1_spc;
       p3ok    <= x_ok;
       if (start || stop) begin
         p1v <= 1'b0; p2v <= 1'b0; p3v <= 1'b0;
@@ -1210,8 +1193,7 @@ module esc_core #(
       if (start) begin
         run <= 1'b1; now <= START_NOW;
         pin_val <= 13'd0; pin_oe <= 13'd0;
-        ff_valid <= 1'b0; ff_cause <= 3'd0; ff_sub <= 3'd0; ff_ctx <= 2'd0;
-        ff_pc <= 9'd0; ff_tick <= 32'd0;
+        ff_valid <= 1'b0;
       end else if (stop) begin
         run    <= 1'b0;          // now holds
         pin_oe <= 13'd0;
@@ -1219,23 +1201,80 @@ module esc_core #(
         if (run) now <= now_n;
         pin_val <= val_n;
         pin_oe  <= oe_n;
-        if (!ff_valid) begin
-          // a commit fault and a line unit CONFIG fault (never the owner's commit
-          // edge) at one edge: the lower-numbered context is recorded (sec. 8)
-          if (cm_fault && !(lu_cfgf && lu_owner < cctx)) begin
-            ff_valid <= 1'b1; ff_cause <= f_cause; ff_sub <= f_sub;
-            ff_ctx <= cctx; ff_pc <= cs_pc; ff_tick <= now;
-          end else if (lu_cfgf) begin
-            ff_valid <= 1'b1; ff_cause <= FC_ADMIT; ff_sub <= lu_flto ? AS_OWNER : AS_CONFIG;
-            ff_ctx <= lu_owner; ff_pc <= c_pc[9*lu_owner +: 9]; ff_tick <= now;
-          end else if (c_late != 4'd0) begin
-            ff_valid <= 1'b1; ff_cause <= FC_LATE; ff_sub <= 3'd0;
-            ff_ctx <= late_ctx; ff_pc <= c_pc[9*late_ctx +: 9]; ff_tick <= now;
-          end
-        end
+        if (ff_hit) ff_valid <= 1'b1;
       end
     end
   end
+
+  // The first-fault record (v3.2 C): written once per run, at the first fault, and cleared by
+  // a start, so it is a gated bank (esc_greg) whose enable is exactly those two edges.
+  // A commit fault and a line unit CONFIG fault (never the owner's commit edge) at one
+  // edge: the lower-numbered context is recorded (sec. 8).
+  assign      ff_hit = ~ff_valid & (cm_fault | lu_cfgf | (c_late != 4'd0));
+  wire        ff_cm  = cm_fault & ~(lu_cfgf & (lu_owner < cctx));
+  wire [48:0] ffr_d  = start ? 49'd0 :
+                       ff_cm   ? {f_cause, f_sub, cctx, cs_pc, now} :
+                       lu_cfgf ? {FC_ADMIT, lu_flto ? AS_OWNER : AS_CONFIG, lu_owner,
+                                  c_pc[9*lu_owner +: 9], now} :
+                                 {FC_LATE, 3'd0, late_ctx, c_pc[9*late_ctx +: 9], now};
+  esc_greg #(49) g_ffr (.clk(clk), .rst_n(rst_n), .en(start | (~stop & ff_hit)), .d(ffr_d),
+      .q({ff_cause, ff_sub, ff_ctx, ff_pc, ff_tick}));
+
+  // The pipeline's data registers (v3.2 D), 222 flip-flops, in three gated banks, each loaded
+  // only at an edge where the stage it feeds will hold an instruction: the fetch PC with a
+  // fetch (f_valid), the fetched word and its PC from a valid D stage (p1v), the decode, the
+  // operands and the deadline flags from a valid X stage (p2v). They used to load at every
+  // edge; what they loaded with the stage empty was never used, since every reader is a
+  // commit (commit_valid needs p3v), the X stage (p2v) or the fetch chain (x_ok needs p2v).
+  // ahead_s2a-c (below) prove each equal to its ungated twin wherever its stage is valid.
+  wire gc_p1, gc_p2, gc_p3;
+  wire ge_p1, ge_p2, ge_p3;
+`ifdef FORMAL
+`ifndef ESC_CG_FORMAL
+`define ESC_CORE_PLAIN
+`endif
+`endif
+`ifdef ESC_NO_CG
+`define ESC_CORE_PLAIN
+`endif
+`ifdef ESC_CORE_PLAIN
+  assign {gc_p1, gc_p2, gc_p3} = {3{clk}};
+  assign {ge_p1, ge_p2, ge_p3} = {f_valid, p1v, p2v};
+`else
+  esc_icg cg_p1 (.clk(clk), .en(f_valid), .gclk(gc_p1));
+  esc_icg cg_p2 (.clk(clk), .en(p1v),     .gclk(gc_p2));
+  esc_icg cg_p3 (.clk(clk), .en(p2v),     .gclk(gc_p3));
+  assign {ge_p1, ge_p2, ge_p3} = 3'b111;
+`endif
+`undef ESC_CORE_PLAIN
+  always @(posedge gc_p1 or negedge rst_n)
+    if (!rst_n)     p1_spc <= 9'd0;
+    else if (ge_p1) p1_spc <= f_pc;
+  always @(posedge gc_p2 or negedge rst_n)
+    if (!rst_n) begin
+      p2_insn <= 32'd0; p2_spc <= 9'd0;
+    end else if (ge_p2) begin
+      p2_insn <= p1_hit ? c_hold[32*p1_fq +: 32] : imem_rdata;
+      p2_spc  <= p1_spc;
+    end
+  always @(posedge gc_p3 or negedge rst_n)
+    if (!rst_n) begin
+      p3_insn <= 32'd0;
+      d_op <= 55'd0; illegal <= 1'b1;          // the decode of 0: no opcode, illegal
+      opa <= 32'd0; opb <= 32'd0;
+      ahd_now <= 1'b0; rch_tmr <= 1'b0; ahd_tail <= 1'b0; ahd_lee <= 1'b0; lead16 <= 16'd0;
+    end else if (ge_p3) begin
+      p3_insn  <= p2_insn;
+      d_op     <= d_op_n;
+      illegal  <= illegal_n;
+      opa      <= opa_n;
+      opb      <= opb_n;
+      ahd_now  <= ahd_now_n;
+      rch_tmr  <= rch_tmr_n;
+      ahd_tail <= ahd_tail_n;
+      ahd_lee  <= ahd_lee_n;
+      lead16   <= lead16_n;
+    end
 
   // ------------------------------------------------------------------ pins
   assign uio_out = pin_val[7:0] & ~pin_od;
@@ -1419,7 +1458,7 @@ module esc_core #(
   // cycle as before; B7S ties it to the committing context while a commit is valid (cq is
   // the previous nq during a run, but while stopped cq is the host's debug selection).
   reg f_far_sp;
-  always @(posedge clk) f_far_sp <= span_on[nq];
+  always @(posedge clk) if (p2v) f_far_sp <= span_on[nq];   // with the X bank (D)
   always @(*) if (rst_n) begin
     ahead_b6: `ESC_AHEAD (d_op == onehot(op));
     ahead_b7: `ESC_AHEAD (illegal == (illegal_of(insn) | far_of(insn[31:24], insn[8], f_far_sp)));
@@ -1429,6 +1468,25 @@ module esc_core #(
   // v3.2 (E): the X stage's held select is nq whenever the X slot holds an instruction
   always @(*) if (rst_n)
     ahead_be: `ESC_AHEAD (!p2v || nq_e == nq);
+  // v3.2 (D): the gated pipeline banks against their ungated twins (the registers as they
+  // were, loading at every edge): equal wherever a valid bit says the stage holds an
+  // instruction. B1-B9 then carry it to the commit.
+  reg [8:0]  s_p1_spc, s_p2_spc;
+  reg [31:0] s_p2_insn, s_p3_insn;
+  reg [139:0] s_x;
+  always @(posedge clk) begin
+    s_p1_spc  <= f_pc;
+    s_p2_insn <= p1_hit ? c_hold[32*p1_fq +: 32] : imem_rdata;
+    s_p2_spc  <= p1_spc;
+    s_p3_insn <= p2_insn;
+    s_x <= {d_op_n, illegal_n, opa_n, opb_n, ahd_now_n, rch_tmr_n, ahd_tail_n, ahd_lee_n, lead16_n};
+  end
+  always @(*) if (rst_n) begin
+    ahead_s2a: `ESC_AHEAD (!p1v || p1_spc == s_p1_spc);
+    ahead_s2b: `ESC_AHEAD (!p2v || (p2_insn == s_p2_insn && p2_spc == s_p2_spc));
+    ahead_s2c: `ESC_AHEAD (!p3v || (p3_insn == s_p3_insn && s_x ==
+                {d_op, illegal, opa, opb, ahd_now, rch_tmr, ahd_tail, ahd_lee, lead16}));
+  end
   wire [1:0] f_rs = d_op[I_EMITR] ? insn[15:14] : insn[21:20];
   always @(*) if (rst_n && commit_valid) begin
     ahead_b8: `ESC_AHEAD (opa == pick(f_rd, cs_r0, cs_r1, cs_r2, cs_r3));

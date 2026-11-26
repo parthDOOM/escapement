@@ -1,6 +1,6 @@
 # Tool bugs
 
-Five defects in the tools this design is built and checked with have shown up on it. This
+Six defects in the tools this design is built and checked with have shown up on it. This
 page records each one: what it does, how it showed, why it cannot pass unnoticed, what the
 design does about it, and where it stands upstream. A defect counts here if it is in the
 version the project uses now; one already fixed in that version is listed under
@@ -17,6 +17,7 @@ The versions are those of the shuttle's flow and of CI: LibreLane 3.1.0.dev4 wit
 | OpenROAD, global placement | The resizer inside timing-driven placement follows timing-path records its own buffering has freed | A segmentation fault, or RSZ-1008, a delay too large for its fixed-point type; the flow stops | [#11977](https://github.com/The-OpenROAD-Project/OpenROAD/issues/11977), open |
 | OpenROAD, clock-tree synthesis | When two clock gates' banks share a centre, one gate loses its clock input | The disconnected-pin check stops the flow | [#9816](https://github.com/The-OpenROAD-Project/OpenROAD/issues/9816), fixed after the flow's commit |
 | OpenROAD, design repair | Slew and capacitance are repaired at the first corner defined, which LibreLane makes the fast one | Violations at the slow corner that the repair leaves in place | not reported |
+| OpenROAD, setup repair after clock-tree synthesis | Rebuffering can turn a net's fanout tree into a long chain of buffers in series | Setup violations after routing, on paths that met timing before | not reported |
 | Icarus Verilog 13, `$sdf_annotate` | Five gaps in SDF annotation, one of which stops reading the file without failing the run | SDF errors in the simulation log | [#509](https://github.com/steveicarus/iverilog/issues/509), [#945](https://github.com/steveicarus/iverilog/issues/945), [#746](https://github.com/steveicarus/iverilog/issues/746) open; [PR #1694](https://github.com/steveicarus/iverilog/pull/1694) merged, not released |
 | yosys-smtbmc 0.69 | The witness writer wraps one-bit values in a bit-vector extract, which fails when `--unroll` has made them Boolean | A failed induction ends in ERROR, not UNKNOWN, and loses its witness file | no issue found; not reported |
 
@@ -104,6 +105,25 @@ electrical rule at every corner by working around it: a buffer before every swit
 memory input, a tighter slew limit during repair, and the other changes of
 [D-65](06-DECISIONS.md).
 
+## Setup repair builds a buffer chain
+
+After clock-tree synthesis, OpenROAD's setup repair (`repair_timing`) sizes cells, swaps
+pins, clones gates and rebuffers nets until every path has the margin the flow asks for,
+2.5 ns here. On one layout of version 3.2 it inserted 154 buffers, against 31 on a layout of
+nearly the same design, and 97 of them sat in series on a single net: a value from the tape
+memory that spreads across the core. They were placed within a patch of about 50 × 70 µm,
+each driving the next buffer and two or three of the net's loads, so the net's fanout tree had
+become a daisy chain about 11.7 ns long. The step's own report ended with no path short of
+its margin, so it did not see the chain as a fault. After routing, setup failed at the slow
+corner by 1.13 ns at 20 ns, on 28 paths, all starting at the tape memory's output.
+
+Setup is checked at every corner on the routed layout, so a chain like this cannot pass
+unnoticed: it shows as failing paths, or as a lower frequency limit. The flow turns off
+rebuffering in that one step (`PL_RESIZER_SETUP_BUFFERING` false in `src/config.json`).
+Sizing, pin swaps and cloning stay, and the repair after global routing still rebuffers.
+The same source then met 20 ns with no chain (D-77). The case has not been reduced to a
+small reproducer, and it is not reported upstream.
+
 ## SDF annotation in Icarus Verilog 13
 
 The SDF-annotated gate-level runs found five places where the harden's SDF (written by
@@ -126,14 +146,15 @@ fails if any one step is left out; the fifth leaves out four delays of a few pic
   open). They are dropped; setup and hold are signed off by static timing analysis.
 - **Interconnect delays need `-ginterconnect`** ([#746](https://github.com/steveicarus/iverilog/issues/746),
   open); the test Makefile passes it.
-- **An interconnect to a port behind an `assign` is not found.** The version 3.1 netlist
-  connects four outputs, `uo_out[3]`, `[5]`, `[6]` and `[7]`, to their buffers through
-  `assign` statements, and Icarus reports "Could not find intermodpath" for the interconnect
-  from each buffer to the port. Those four delays, 2 to 4 ps each, are left out; the other
-  20 interconnects to ports, which connect directly, and the rest of the file's 85,103 are
-  applied. Each SDF-annotated run of version 3.1 prints exactly these four errors and no
-  other, which the runs check, since an error of any other kind may mean part of the file
-  went unread.
+- **An interconnect to a port behind an `assign` is not found.** The version 3.2 netlist
+  connects five outputs, `uo_out[3]` to `uo_out[7]`, to their buffers through `assign`
+  statements, and Icarus reports "Could not find intermodpath" for the interconnect from
+  each buffer to the port. Those five delays, 6 to 14 ps each, are left out; the other
+  19 interconnects to ports, which connect directly, and the rest of the file's 86,702 are
+  applied. Which outputs go through an `assign` depends on the layout: version 3.1 had four,
+  without `uo_out[4]`. Each SDF-annotated run of version 3.2 prints exactly these five errors
+  and no other, which the runs check, since an error of any other kind may mean part of the
+  file went unread.
 
 An empty typical voltage or temperature in the SDF header also fails, but Icarus is asking
 for a value the file leaves empty, so it is not counted as a bug; `sdf_prep.py` fills it.

@@ -427,12 +427,12 @@ module esc_line (
             | (~start & ~kill & ((op_crc & (op_v[15:8] == 8'd0)) | rx_none));
   assign e_ld = e_ev;                    // (the core: e <= start ? 0 : now, enabled by start | e_ld)
   // W0 is a latch bank (D-40): the buffer holds still at the CONFIG's last edge, so it is
-  // its own dq. For timing, its low fields (pin numbers, diff, NRZI, LSB first) fan out
-  // over the receive and drive logic, and a path from a latch starts when the latch opens,
-  // so those 12 bits are flip-flops, written at the same edge.
-  esc_lreg #(17) g_w0 (.clk(clk), .rst_n(rst_n), .en(cfg_done), .d({buf_q[31:24], buf_q[20:12]}),
-                       .dq({buf_q[31:24], buf_q[20:12]}), .q(w0[28:12]));
-  esc_greg #(12) g_w0f (.clk(clk), .rst_n(rst_n), .en(cfg_done), .d(buf_q[11:0]), .q(w0[11:0]));
+  // its own dq. A path from a latch starts when the latch opens, so the fields that reach the
+  // receive and drive logic are flip-flops, written at the same edge: the low 12 (pins, diff,
+  // NRZI, LSB first) and the TX pin claim c_txp, w0[20] (claimed -> pins -> receiver -> nxt_q).
+  esc_lreg #(16) g_w0 (.clk(clk), .rst_n(rst_n), .en(cfg_done), .d({buf_q[31:24], buf_q[19:12]}),
+                       .dq({buf_q[31:24], buf_q[19:12]}), .q({w0[28:21], w0[19:12]}));
+  esc_greg #(13) g_w0f (.clk(clk), .rst_n(rst_n), .en(cfg_done), .d({buf_q[20], buf_q[11:0]}), .q({w0[20], w0[11:0]}));
   esc_greg #(32) g_w1 (.clk(clk), .rst_n(rst_n), .en(cfg_on & ld & (el == 12'd4)),
                        .d(rdata), .q(w1));
   // W2 is written when it arrives (its ext decides whether W3 and W4 follow); the
