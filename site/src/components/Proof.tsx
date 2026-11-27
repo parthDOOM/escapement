@@ -56,7 +56,7 @@ export function ProofTable() {
           <tr><td>Random programs against the model, behavioural and standard-cell builds</td><td className="num">191 each</td><td>19,850 commits each, 0 mismatches</td></tr>
           <tr><td>Firmware cases with independent bus models, RTL against the model</td><td className="num">84</td><td>0 mismatches</td></tr>
           <tr><td>Line unit against its model, every output every cycle</td><td className="num">3.8 million edges</td><td>0 mismatches</td></tr>
-          <tr><td>Planted RTL faults (mutants) across every module, standard-cell models</td><td className="num">1,035</td><td>PENDING-MUT-KILLED caught, PENDING-MUT-PROVED proved equivalent, PENDING-MUT-ARGUED excluded, 0 surviving</td></tr>
+          <tr><td>Planted RTL faults (mutants) across every module, standard-cell models</td><td className="num">1,033</td><td>PENDING-MUT-KILLED caught, PENDING-MUT-PROVED proved equivalent, PENDING-MUT-ARGUED excluded, 0 surviving</td></tr>
           <tr><td>Timing certificates against measured leads (84 cases, 84 contexts with a bound)</td><td className="num">84</td><td>64 exact, 0 below</td></tr>
           <tr><td>Planted firmware timing bugs: escert must refute every one that can fault, and what it certifies is attacked on the simulator</td><td className="num">823</td><td>196 refuted, 23 not proven, 604 certified, 0 certified that fault</td></tr>
           <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 to 50 MHz</td><td className="num">1,869</td><td>pass</td></tr>

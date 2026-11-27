@@ -292,7 +292,7 @@ export default function App() {
                   prediction.</p>
                 <p>To check the tests themselves, faults are planted in the RTL one at a time, across every module,
                   the line unit and the bus monitor included, and simulated on the PDK's standard-cell models. The
-                  final campaign planted 1,035: the tests caught PENDING-MUT-KILLED, PENDING-MUT-PROVED are proved to change no output of the chip,
+                  final campaign planted 1,033: the tests caught PENDING-MUT-KILLED, PENDING-MUT-PROVED are proved to change no output of the chip,
                   and PENDING-MUT-ARGUED are excluded with a written reason, most of them reset or start values that nothing reads
                   before they are reloaded. None survives. CI reruns the whole campaign on every change to the RTL.
                   Every fault that slipped through a run was read against the RTL, and each hole it showed was closed

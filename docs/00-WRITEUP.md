@@ -249,7 +249,7 @@ bus models catch them. The campaign also found three bugs in escert itself.
 **Mutation testing.** To check the tests themselves, faults are planted in the RTL one at
 a time across every module and simulated on the PDK's standard-cell models; a fault the
 tests do not notice is a hole in the tests, to be closed with a new test, proved to change
-no output, or excluded with a written argument. The final campaign planted 1,035 faults:
+no output, or excluded with a written argument. The final campaign planted 1,033 faults:
 PENDING-MUT-KILLED were caught by a test, PENDING-MUT-PROVED were proved to change no output, and PENDING-MUT-ARGUED are excluded, most
 of them reset or start values that nothing reads before they are reloaded. None survives.
 
@@ -413,7 +413,7 @@ and can be rerun:
 | The RTL is the machine the specification defines | lockstep co-simulation against the instruction-set simulator | `make cosim-parallel` |
 | Every program is certified, and the chip measures the bound | `escert`, and each bound beside the lead the RTL measures | `make cert proof-table` |
 | The certificate checker refuses what can fault | 823 planted firmware timing bugs | `make fw-mutants` |
-| The tests notice a broken design | 1,035 planted RTL faults | `make mutation` |
+| The tests notice a broken design | 1,033 planted RTL faults | `make mutation` |
 | The programs speak the protocol, not our model of it | decoders written by other people, each with a control that must fail | `make judges` |
 | The protocols survive pad and board delays | every case with its pins up to three ticks slower each way | `make pad-audit` |
 | The layout meets 20 ns and every electrical rule at every corner | the CI harden's sign-off reports, summarised in [physical design](03-PHYSICAL-DESIGN.md#sign-off-results) | `make harden` |

@@ -36,7 +36,7 @@ The numbers in this chapter come from the final continuous-integration runs on v
 | Netlist against RTL | PENDING-EQUIV |
 | Lockstep co-simulation | 191 random programs and 84 firmware cases, on two builds of the RTL: no difference |
 | Timing certificates | 90 of 90 programs certified; the measured lead equals the bound in 64 of 84 contexts and is never below it |
-| Mutation testing | 1,035 planted RTL faults: PENDING-MUT-KILLED caught, PENDING-MUT-PROVED proved harmless, PENDING-MUT-ARGUED argued harmless, none surviving |
+| Mutation testing | 1,033 planted RTL faults: PENDING-MUT-KILLED caught, PENDING-MUT-PROVED proved harmless, PENDING-MUT-ARGUED argued harmless, none surviving |
 | Outside judges | decoders written by other people agree with 80 of the 90 programs; every control fails |
 | Planted firmware bugs | 823 timing bugs in 87 programs: 196 refuted with a reproducer, 23 not proven, 604 certified, none certified that can fault |
 | Held-out round | eight protocols drawn at random from a sealed list, each certified, co-simulated, judged where a decoder exists and run on the FPGA bench; all eight fit ([below](#the-held-out-round)) |
@@ -563,8 +563,8 @@ reasons, so the harness guards against each way that could happen:
 The line unit lockstep also counts its own replayed edges and the stray tape reads it makes,
 and fails a run that replays fewer edges than it generated.
 
-**Where the mutants come from.** The campaign has 1,035 mutants across the whole RTL,
-including the line unit, the bus monitor and the program store. 965 are generated
+**Where the mutants come from.** The campaign has 1,033 mutants across the whole RTL,
+including the line unit, the bus monitor and the program store. 963 are generated
 (`test/mutation/generate.py`). Every synthesisable line outside the verification-only
 blocks is scanned for classic fault sites: a comparison or logic operator swapped, an
 inversion dropped, an arithmetic operator swapped, a constant changed, an `if` condition
@@ -572,8 +572,10 @@ negated, or a register that keeps its value instead of taking an assignment. A s
 chosen when a hash of its file, operator and line text falls under a fixed rate (30%), so
 editing one line changes only that line's mutants. A generate condition is not mutated,
 because it chooses at elaboration what is built, so its mutant only swaps one equivalent
-build for another or trips a build guard. `--rate 1` takes every site, 2,507 mutants in
-all; that run is too long for CI and is made locally, on the lines that change.
+build for another or trips a build guard. Nor is a parameter passed to a module: a width
+changed there stops elaboration, which says nothing about the tests. `--rate 1` takes every
+site, 3,199 mutants in all; that run is too long for CI and is made locally, on the lines
+that change.
 
 The other 70 are written by hand, each aimed at one feature:
 
@@ -605,7 +607,7 @@ The other 70 are written by hand, each aimed at one feature:
   dropped polynomial term in the digest, a missing GETI wait, broken tape forwarding,
   capture rule changes and clock-gate enable errors.
 
-**Result: 1,035 mutants, none surviving (PENDING-CI).**
+**Result: 1,033 mutants, none surviving (PENDING-CI).**
 
 | Outcome | Mutants |
 | --- | ---: |
@@ -701,8 +703,12 @@ harness and the tests as they are today.
     own reset value, not the contexts'. It now gives each select the edges a READ_DBG frame
     gives it.
   - A full-FIFO wait count that wrapped after 65,535 instead of saturating, a difference only
-    from the 65,536th wait on. `test_fifo_full_wait_saturates` makes about 65,600 of them
-    (PENDING-MUT-V32).
+    from the 65,536th wait on. `test_fifo_full_wait_saturates` makes about 65,600 of them.
+
+  The second run found two mutants the generator should not have made, both on new lines:
+  a width in a module's parameter list, which no longer elaborates, and a comparison in an
+  `if` read as an assignment (`if (idx <= idx;`). Parameter lists are now left alone, and
+  only a `<=` outside every parenthesis is taken for an assignment (PENDING-MUT-V32).
 
 ## Timing certificates
 

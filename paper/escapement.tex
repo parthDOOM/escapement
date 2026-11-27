@@ -484,7 +484,7 @@ To check the tests themselves, faults are planted in the RTL one at a time acros
 module and simulated on the process kit's standard-cell models \cite{mutation}; a fault
 the tests do not notice is a hole in the tests. Each surviving fault is read against the
 RTL and either closed with a new test, proved to change no output, or excluded with a
-written argument. The final campaign planted 1,035 faults: \NUM{PENDING-MUT-KILLED} were caught by a test, \NUM{PENDING-MUT-PROVED} were proved to change no output, and \NUM{PENDING-MUT-ARGUED} are excluded with a written argument, most of them reset or start values that nothing reads before they are reloaded. None survives.
+written argument. The final campaign planted 1,033 faults: \NUM{PENDING-MUT-KILLED} were caught by a test, \NUM{PENDING-MUT-PROVED} were proved to change no output, and \NUM{PENDING-MUT-ARGUED} are excluded with a written argument, most of them reset or start values that nothing reads before they are reloaded. None survives.
 
 Models written from datasheets can share a misreading with the firmware they test, so
 recordings of real hardware, many of them from the sigrok-dumps collection \cite{sigrok},
@@ -518,7 +518,7 @@ Formal properties & \NUM{PENDING-PROOF-TASKS} of \NUM{PENDING-PROOF-TASKS} tasks
 Netlist vs.\ RTL & \NUM{PENDING-EQUIV} \\
 Lockstep co-simulation & 191 random programs, 84 firmware cases, two builds: no difference \\
 Timing certificates & 90 of 90 certified; measured lead equals the bound in 64 of 84 contexts, never below \\
-Mutation testing & 1,035 faults: \NUM{PENDING-MUT-KILLED} caught, \NUM{PENDING-MUT-PROVED} proved harmless, \NUM{PENDING-MUT-ARGUED} argued, 0 surviving \\
+Mutation testing & 1,033 faults: \NUM{PENDING-MUT-KILLED} caught, \NUM{PENDING-MUT-PROVED} proved harmless, \NUM{PENDING-MUT-ARGUED} argued, 0 surviving \\
 Outside judges & decoders by others agree with 80 of 90 programs; every control fails \\
 Planted firmware bugs & 823 timing bugs: 196 refuted, 23 not proven, 604 certified, 0 certified that fault \\
 Slower pins & every firmware case passes with up to three ticks of delay each way \\

@@ -108,14 +108,43 @@ def is_binary(code: str, i: int) -> bool:
     return j >= 0 and (code[j].isalnum() or code[j] in ")]}_'")
 
 
+def paren_depth(code: str) -> list[int]:
+    """The (...) nesting depth at each column (an opening parenthesis counts for itself)."""
+    depth, out = 0, []
+    for ch in code:
+        depth += ch == "("
+        out.append(depth)
+        depth = max(0, depth - (ch == ")"))
+    return out
+
+
+def param_mask(code: str) -> list[bool]:
+    """True for columns inside a #(...) parameter override: a changed width there stops
+    elaboration (a negative or mismatched width), which is no fault of the design's behaviour."""
+    mask, depth = [False] * len(code), 0
+    i = code.find("#(")
+    while i >= 0:
+        depth = 0
+        for j in range(i + 1, len(code)):
+            depth += code[j] == "("
+            depth -= code[j] == ")"
+            mask[j] = True
+            if depth == 0:
+                break
+        i = code.find("#(", i + 2)
+    return mask
+
+
 def sites(line: str):
     """(op, start, end, replacement, description) for every mutation site of a line."""
     code = code_part(line)
     inb = bracket_mask(code)
+    inp = param_mask(code)
+    pd = paren_depth(code)
     out = []
 
     def add(op, a, b, rep, desc):
-        if not inb[a]:
+        if not inb[a] and not inp[a]:
             out.append((op, a, b, rep, desc))
 
     for m in re.finditer(r"==|!=", code):
@@ -162,13 +191,21 @@ def sites(line: str):
     # Not for a constant right-hand side (a reset or START value): holding there is a missing
     # reset, which the equivalence check cannot judge (it starts every register at 0); the
     # const mutants cover those values instead.
-    for m in re.finditer(r"(?<![\w\]])(\w+(?:\[[^\]]*\])?)\s*<=\s*([^;]+);", code):
-        lhs, rhs = m.group(1), m.group(2).strip()
+    # Only a `<=` outside every parenthesis assigns: `if (idx <= 5'd5) word <= ...` has one
+    # register, word (11-27: the old pattern took idx for one and wrote `if (idx <= idx;`).
+    taken = 0                                   # the end of the last statement taken
+    for m in re.finditer(r"(?<![\w\]])(\w+(?:\[[^\]]*\])?)\s*<=\s*", code):
+        semi = code.find(";", m.end())
+        if m.start() < taken or pd[m.start()] != 0 or semi <= m.end():
+            continue
+        taken = semi + 1
+        lhs, a = m.group(1), m.end()
+        rhs = code[a:semi].strip()
         if re.fullmatch(r"\d+'[bdh][0-9a-fA-F_]+|\{?\s*\d+\s*\{\s*1'b[01]\s*\}\s*\}?", rhs):
             continue
         # (a `<=` in an assign or wire declaration is a comparison, not a register)
         if rhs != lhs and not re.match(r"\s*(assign|wire)\s", code) and lhs not in ("if", "wire"):
-            out.append(("stuck", m.start(2), m.start(2) + len(m.group(2)), lhs, f"{lhs} keeps its value"))
+            out.append(("stuck", a, semi, lhs, f"{lhs} keeps its value"))
     return out
 
 
