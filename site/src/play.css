@@ -143,26 +143,28 @@ kbd { font: 500 0.68rem var(--font-mono); padding: 0.05rem 0.3rem; border-radius
 .decoded { font-size: var(--step-0); color: var(--fg); padding-bottom: 0.35rem; overflow-wrap: anywhere; }
 
 /* ---- history ---- */
-/* the chart's points sit over the centres of the columns below them, one per version (--n) */
-.hist-chart { width: 100%; height: 170px; }
-.hist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n, 6), minmax(0, 1fr)); gap: 0; align-items: start; }
-.hist-col { display: grid; gap: 0.35rem; align-content: start; min-width: 0; padding: 0.7rem 0.7rem 0.4rem; border-top: 2px solid var(--line); outline: none; transition: border-color 0.2s, background 0.2s; }
-.hist-col.on, .hist-col:focus-visible { border-top-color: var(--brass); background: color-mix(in srgb, var(--brass) 6%, transparent); }
-.hist-head { display: flex; align-items: baseline; gap: 0.6rem; }
+/* the chart's points sit over the version tags below them, one column per version (--n); the
+   cards share one grid cell, so the area is as tall as the longest and never changes height */
+.hist-plot { display: grid; }
+.hist-chart { width: 100%; height: 180px; touch-action: pan-y; cursor: pointer; }
+.hist-axis { display: grid; grid-template-columns: repeat(var(--n, 6), minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.hist-tag { all: unset; box-sizing: border-box; cursor: pointer; text-align: center; padding: 0.45rem 0 0.35rem; min-width: 0;
+  font: 500 0.74rem/1 var(--font-mono); color: var(--fg-3); border-top: 2px solid transparent; margin-top: -1px;
+  white-space: nowrap; overflow: hidden; text-overflow: clip; transition: color 0.15s, border-color 0.15s; }
+.hist-tag:hover, .hist-tag:focus-visible { color: var(--fg); }
+.hist-tag.on { color: var(--brass); border-top-color: var(--brass); font-weight: 600; }
+.hist-tag:focus-visible { outline: 1px solid var(--brass); outline-offset: -1px; }
+.hist-cards { display: grid; margin-top: 1rem; }
+.hist-card { grid-area: 1 / 1; display: grid; gap: 0.45rem; align-content: start; min-width: 0; visibility: hidden; }
+.hist-card.on { visibility: visible; }
+.hist-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.7rem; }
 .hist-head b { font: 600 var(--step-2)/1 var(--font-display); }
-.hist-nums { display: flex; flex-wrap: wrap; gap: 0.15rem 0.6rem; font-size: 0.76rem; color: var(--fg-2); }
+.hist-nums { display: flex; flex-wrap: wrap; gap: 0.15rem 0.9rem; font-size: 0.8rem; color: var(--fg-2); }
 .hist-nums .delta { font-weight: 600; }
 .hist-nums .delta.down { color: var(--ok); }
 .hist-nums .delta.up { color: var(--fg-2); }
-.hist-col p { color: var(--fg-2); }
-/* a phone: a vertical timeline, a dot per version on a rail */
-@media (max-width: 760px) {
-  .hist { grid-template-columns: minmax(0, 1fr); gap: 0; padding-left: 1.1rem; border-left: 2px solid var(--line); margin-left: 0.4rem; }
-  .hist-col { border-top: 0; padding: 0.2rem 0 1.1rem 0.4rem; position: relative; }
-  .hist-col::before { content: ""; position: absolute; left: -1.62rem; top: 0.45rem; width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--bg); border: 2px solid var(--brass); }
-  .hist-col.on::before { background: var(--brass); }
-  .hist-col.on { background: none; }
-}
+.hist-card p { margin: 0; max-width: 68ch; color: var(--fg-2); overflow-wrap: break-word; hyphens: auto; }
+@media (max-width: 520px) { .hist-tag { font-size: 0.62rem; letter-spacing: -0.02em; } }
 
 /* ---- pinout ---- */
 .pin-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }

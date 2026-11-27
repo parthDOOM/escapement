@@ -50,74 +50,98 @@ const VERSIONS = [
     what: "Power: almost every register sees the clock only when it is written, and a waiting context reissues its held instruction instead of reading the program store. A stopped chip goes from 3.36 to 1.27 mW. Signed off at 20 ns; the slow corner passes down to 17.0 ns." },
 ];
 
-/** Cells of each adopted layout on a labelled axis (the changes are a few thousand cells
- *  on 24,000 to 39,600, which bars from zero hide), with the ten versions in matching columns
- *  below; on a phone the columns become a vertical timeline. */
+/** Cells of each adopted layout on a labelled axis (the changes are a few thousand cells on
+ *  24,000 to 39,600, which bars from zero hide), with each version's tag under its point. One
+ *  card below tells the selected version's story: the latest by default, any other while its
+ *  point or tag is hovered, focused or tapped, until another is. Every card is laid out in the same grid cell, so
+ *  the card area is as tall as the longest story and does not move when the selection changes. */
 export function History() {
   const ref = useRef<HTMLCanvasElement>(null);
-  const [sel, setSel] = useState(VERSIONS.length - 1);
+  const LAST = VERSIONS.length - 1;
+  const [sel, setSel] = useState(LAST);
   const theme = useThemeTick();
-  const LO = 22000, HI = 40000;
+  const LO = 22000, HI = 40000, H = 180, PAD = 34;
+  const n = VERSIONS.length;
+  const X = (i: number, w: number) => PAD + ((i + 0.5) / n) * (w - PAD);
   const draw = () => {
     const c = ref.current;
     if (!c) return;
-    const { g, w, h } = fit(c, 170);
+    const { g, w, h } = fit(c, H);
     g.clearRect(0, 0, w, h);
-    const n = VERSIONS.length, top = 26, bot = h - 18;
-    // on a phone the columns stack, so the points move clear of the axis labels
-    const pad = w < 520 ? 30 : 0;
-    const X = (i: number) => pad + ((i + 0.5) / n) * (w - pad);
+    const top = 28, bot = h - 10;
     const Y = (v: number) => bot - ((v - LO) / (HI - LO)) * (bot - top);
     const mono = css("--font-mono");
     g.font = "500 10px " + mono; g.strokeStyle = css("--line"); g.fillStyle = css("--fg-3");
-    g.textAlign = "left"; g.textBaseline = "bottom";
+    g.textAlign = "left"; g.textBaseline = "middle";
     for (let v = LO; v <= HI; v += 2000) {
       const y = Math.round(Y(v)) + 0.5;
-      g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
-      g.fillText((v / 1000).toFixed(0) + "k", 2, y - 2);
+      g.beginPath(); g.moveTo(PAD, y); g.lineTo(w, y); g.stroke();
+      if ((v - LO) % 4000 === 0) g.fillText((v / 1000).toFixed(0) + "k", 0, y);
     }
     const brass = css("--brass");
-    g.strokeStyle = brass; g.lineWidth = 2; g.beginPath();
-    VERSIONS.forEach((x, i) => (i ? g.lineTo(X(i), Y(x.cells)) : g.moveTo(X(i), Y(x.cells))));
-    g.stroke(); g.lineWidth = 1;
-    g.textAlign = "center"; g.textBaseline = "bottom";
+    // the selected version: a guide from its point down to its tag
+    const sx = Math.round(X(sel, w)) + 0.5, sy = Y(VERSIONS[sel].cells);
+    g.strokeStyle = brass; g.globalAlpha = 0.45; g.setLineDash([3, 3]);
+    g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx, h); g.stroke();
+    g.setLineDash([]); g.globalAlpha = 1;
+    g.lineWidth = 2; g.beginPath();
+    VERSIONS.forEach((x, i) => (i ? g.lineTo(X(i, w), Y(x.cells)) : g.moveTo(X(i, w), Y(x.cells))));
+    g.stroke();
     VERSIONS.forEach((x, i) => {
       const on = i === sel;
-      g.fillStyle = on ? brass : css("--bg");
-      g.strokeStyle = brass; g.lineWidth = 2;
-      g.beginPath(); g.arc(X(i), Y(x.cells), on ? 6 : 4.5, 0, Math.PI * 2); g.fill(); g.stroke();
-      g.lineWidth = 1;
-      g.fillStyle = on ? css("--fg") : css("--fg-2");
-      g.font = (on ? "600 " : "500 ") + "11px " + mono;
-      g.fillText(w < 520 ? (x.cells / 1000).toFixed(1) + "k" : x.cells.toLocaleString(), X(i), Y(x.cells) - 10);
+      g.fillStyle = on ? brass : css("--bg"); g.strokeStyle = brass; g.lineWidth = 2;
+      g.beginPath(); g.arc(X(i, w), Y(x.cells), on ? 6 : 4.5, 0, Math.PI * 2); g.fill(); g.stroke();
     });
+    g.lineWidth = 1;
+    // the selected point's cell count, kept inside the canvas at either end
+    const label = VERSIONS[sel].cells.toLocaleString();
+    g.font = "600 11px " + mono; g.fillStyle = css("--fg"); g.textBaseline = "bottom";
+    const tw = g.measureText(label).width;
+    g.textAlign = "left";
+    g.fillText(label, Math.min(Math.max(sx - tw / 2, PAD), w - tw), sy - 10);
   };
   useEffect(draw, [sel, theme]);
   useResize(draw, [sel]);
+  const pick = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const i = Math.floor(((e.clientX - r.left - PAD) / (r.width - PAD)) * n);
+    setSel(Math.min(n - 1, Math.max(0, i)));
+  };
   return (
     <figure className="panel history">
-      <canvas ref={ref} className="hist-chart" role="img"
-        aria-label={"Standard cells per layout: " + VERSIONS.map((x) => `${x.v} ${x.cells.toLocaleString()}`).join(", ")} />
-      <ol className="hist" style={{ "--n": VERSIONS.length } as React.CSSProperties}>
+      <div className="hist-plot">
+        <canvas ref={ref} className="hist-chart" role="img" onPointerMove={pick} onPointerDown={pick}
+          aria-label={"Standard cells per layout: " + VERSIONS.map((x) => `${x.v} ${x.cells.toLocaleString()}`).join(", ")} />
+        <div className="hist-axis" style={{ "--n": n, paddingLeft: PAD } as React.CSSProperties}>
+          {VERSIONS.map((x, i) => (
+            <button key={x.v} type="button" className={"hist-tag" + (i === sel ? " on" : "")}
+              aria-pressed={i === sel} onMouseEnter={() => setSel(i)} onFocus={() => setSel(i)}
+              onClick={() => setSel(i)}>{x.v}</button>
+          ))}
+        </div>
+      </div>
+      <div className="hist-cards" aria-live="polite">
         {VERSIONS.map((x, i) => {
           const d = i ? x.cells - VERSIONS[i - 1].cells : 0;
           return (
-            <li key={x.v} className={"hist-col" + (i === sel ? " on" : "")} onMouseEnter={() => setSel(i)}
-              onFocus={() => setSel(i)} tabIndex={0}>
-              <div className="hist-head"><b>{x.v}</b><span className="dim small">{x.date}</span></div>
+            <div key={x.v} className={"hist-card" + (i === sel ? " on" : "")} aria-hidden={i !== sel}>
+              <div className="hist-head">
+                <b>{x.v}</b>
+                <span className="dim small">{x.date}{i === LAST ? " · the layout going to silicon" : ""}</span>
+              </div>
               <div className="hist-nums mono">
                 <span>{x.cells.toLocaleString()} cells</span>
-                {i > 0 && <span className={"delta " + (d < 0 ? "down" : "up")}>{d < 0 ? "−" : "+"}{Math.abs(d).toLocaleString()}</span>}
+                {i > 0 && <span className={"delta " + (d < 0 ? "down" : "up")}>{d < 0 ? "−" : "+"}{Math.abs(d).toLocaleString()} on {VERSIONS[i - 1].v}</span>}
                 <span className="dim">{x.util}% used</span>
               </div>
-              <p className="small">{x.what}</p>
-            </li>
+              <p>{x.what}</p>
+            </div>
           );
         })}
-      </ol>
-      <figcaption>Standard cells and utilisation of each adopted layout; the axis starts at 22,000 cells. Every
-        6 × 4 run, adopted or rejected, is logged with its reason in <code>asic/reports/area.csv</code>, and
-        version 3.2's adopted layout is its last row.</figcaption>
+      </div>
+      <figcaption>Standard cells and utilisation of each adopted layout; the axis starts at 22,000 cells. Point
+        at a version to read its story. Every 6 × 4 run, adopted or rejected, is logged with its reason in{" "}
+        <code>asic/reports/area.csv</code>, and version 3.2's adopted layout is its last row.</figcaption>
     </figure>
   );
 }
