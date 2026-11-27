@@ -18,11 +18,11 @@ and the same 8,000-cycle windows), beside version 3.1:
 
 | Version 3.2 (3.1) | uart_tx (sending) | logic analyser (capturing) | idle (stopped) | static estimate |
 | --- | ---: | ---: | ---: | ---: |
-| flip-flops and latches | 0.90 mW (2.49) | 0.75 mW (2.45) | 0.71 mW (2.40) | |
-| clock tree | 0.65 mW (0.97) | 0.57 mW (0.97) | 0.56 mW (0.96) | |
-| logic | 0.29 mW (0.66) | 0.22 mW (0.54) | 0.00 mW (0.00) | |
-| SRAM macros (counted edge by edge) | 0.017 mW (0.30) | 0.0015 mW (0.0015) | 0 (0) | |
-| **total** | **1.85 mW (4.42)** | **1.54 mW (3.95)** | **1.27 mW (3.36)** | 1.32 mW (3.43) |
+| flip-flops and latches | 0.897 mW (2.49) | 0.750 mW (2.45) | 0.707 mW (2.40) | |
+| clock tree | 0.646 mW (0.97) | 0.568 mW (0.97) | 0.559 mW (0.96) | |
+| logic | 0.288 mW (0.66) | 0.216 mW (0.54) | 0.004 mW (0.00) | |
+| SRAM macros (counted edge by edge) | 0.0175 mW (0.30) | 0.0015 mW (0.0015) | 0 (0) | |
+| **total** | **1.848 mW (4.42)** | **1.535 mW (3.95)** | **1.270 mW (3.36)** | 1.32 mW (3.43) |
 
 Version 3.2 spends 58 to 62% less than version 3.1 in these three workloads, and less than
 any earlier version, including v1.1 with its first clock gates (2.92, 2.58 and 2.23 mW),

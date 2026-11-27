@@ -52,11 +52,11 @@ export function ProofTable() {
       <table>
         <thead><tr><th>Check</th><th className="num">Size</th><th>Result</th></tr></thead>
         <tbody>
-          <tr><td>Proof tasks: unbounded core proofs, other proofs and covers, bounded from reset to depth 20</td><td className="num">PENDING-PROOF-TASKS</td><td>pass; PENDING-TEETH planted bugs each make their proof fail</td></tr>
+          <tr><td>Proof tasks: unbounded core proofs, other proofs and covers, bounded from reset to depth 20</td><td className="num">116</td><td>pass; 23 planted bugs each make their proof fail</td></tr>
           <tr><td>Random programs against the model, behavioural and standard-cell builds</td><td className="num">191 each</td><td>19,850 commits each, 0 mismatches</td></tr>
           <tr><td>Firmware cases with independent bus models, RTL against the model</td><td className="num">84</td><td>0 mismatches</td></tr>
           <tr><td>Line unit against its model, every output every cycle</td><td className="num">3.8 million edges</td><td>0 mismatches</td></tr>
-          <tr><td>Planted RTL faults (mutants) across every module, standard-cell models</td><td className="num">1,033</td><td>PENDING-MUT-KILLED caught, PENDING-MUT-PROVED proved equivalent, PENDING-MUT-ARGUED excluded, 0 surviving</td></tr>
+          <tr><td>Planted RTL faults (mutants) across every module, standard-cell models</td><td className="num">1,033</td><td>919 caught, 55 proved equivalent, 59 excluded, 0 surviving</td></tr>
           <tr><td>Timing certificates against measured leads (84 cases, 84 contexts with a bound)</td><td className="num">84</td><td>64 exact, 0 below</td></tr>
           <tr><td>Planted firmware timing bugs: escert must refute every one that can fault, and what it certifies is attacked on the simulator</td><td className="num">823</td><td>196 refuted, 23 not proven, 604 certified, 0 certified that fault</td></tr>
           <tr><td>Software tests: assembler, simulator, certificates, models, bring-up, firmware at 33 to 50 MHz</td><td className="num">1,869</td><td>pass</td></tr>
@@ -64,7 +64,7 @@ export function ProofTable() {
           <tr><td>Firmware cases with every pin up to three ticks slower each way (pads and board)</td><td className="num">84</td><td>pass</td></tr>
           <tr><td>Chip tests on the final gate-level netlist</td><td className="num">12</td><td>pass</td></tr>
           <tr><td>Firmware through the pins on the final netlist; SDF-annotated chip tests at three corners</td><td className="num">9 · 12 × 3</td><td>pass</td></tr>
-          <tr><td>Netlist against RTL, sequential equivalence (two steps)</td><td className="num">PENDING-EQUIV</td><td>proved</td></tr>
+          <tr><td>Netlist against RTL, sequential equivalence (two steps)</td><td className="num">337 bits</td><td>proved</td></tr>
         </tbody>
       </table>
     </div>

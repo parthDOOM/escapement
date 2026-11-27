@@ -28,20 +28,20 @@ check, each able to catch what the others miss:
 | Continuous integration | Every check above reruns on each change it depends on | `.github/workflows`, [results page](https://parthdoom.github.io/escapement/#results) |
 
 The numbers in this chapter come from the final continuous-integration runs on version 3.2
-(PENDING-CI) unless a section says otherwise. The final runs at a glance:
+(commit `1d644e8`, and for mutation testing `c005a47`) unless a section says otherwise. The final runs at a glance:
 
 | Check | Result |
 | --- | --- |
-| Formal proofs | PENDING-PROOF-TASKS of PENDING-PROOF-TASKS tasks pass; PENDING-TEETH planted bugs each make their proof fail |
-| Netlist against RTL | PENDING-EQUIV |
+| Formal proofs | 116 of 116 tasks pass; 23 planted bugs each make their proof fail |
+| Netlist against RTL | Sequentially equivalent, 337 output bits compared |
 | Lockstep co-simulation | 191 random programs and 84 firmware cases, on two builds of the RTL: no difference |
 | Timing certificates | 90 of 90 programs certified; the measured lead equals the bound in 64 of 84 contexts and is never below it |
-| Mutation testing | 1,033 planted RTL faults: PENDING-MUT-KILLED caught, PENDING-MUT-PROVED proved harmless, PENDING-MUT-ARGUED argued harmless, none surviving |
+| Mutation testing | 1,033 planted RTL faults: 919 caught, 55 proved harmless, 59 argued harmless, none surviving |
 | Outside judges | decoders written by other people agree with 80 of the 90 programs; every control fails |
 | Planted firmware bugs | 823 timing bugs in 87 programs: 196 refuted with a reproducer, 23 not proven, 604 certified, none certified that can fault |
 | Held-out round | eight protocols drawn at random from a sealed list, each certified, co-simulated, judged where a decoder exists and run on the FPGA bench; all eight fit ([below](#the-held-out-round)) |
 | Pads and board | every firmware case still passes with its pins up to three ticks slower each way |
-| Test suites | 1,869 software tests (5 skipped where a tool is absent); 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
+| Test suites | 1,869 software tests (5 skipped by design: functions only `modbus_full` has, not run against `modbus_rtu`); 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
 
 ## How the checks grew
 
@@ -430,8 +430,8 @@ minutes on one core for version 1.3.
 
 The proofs above are about the RTL, but the chip is built from the netlist that synthesis,
 placement and routing produce. `make equiv` proves that the two are the same machine: the
-signed-off netlist of version 3.2 (SHA-256 `90aa97b297b9515a…` from the local harden;
-PENDING-SHA from the CI harden) is sequentially equivalent to the RTL in `src/` for every input sequence
+signed-off netlist of version 3.2 (SHA-256 `90aa97b297b9515a…`, the same from the CI harden
+of `1d644e8`) is sequentially equivalent to the RTL in `src/` for every input sequence
 after reset.
 
 Both designs are flattened and placed side by side in a **miter**, a circuit that feeds
@@ -607,19 +607,19 @@ The other 70 are written by hand, each aimed at one feature:
   dropped polynomial term in the digest, a missing GETI wait, broken tape forwarding,
   capture rule changes and clock-gate enable errors.
 
-**Result: 1,033 mutants, none surviving (PENDING-CI).**
+**Result: 1,033 mutants, none surviving (CI, commit `c005a47`).**
 
 | Outcome | Mutants |
 | --- | ---: |
-| Killed by the lockstep co-simulation | PENDING-MUT-COSIM |
-| Killed by the line unit lockstep | PENDING-MUT-LINE |
-| Killed by the host interface tests | PENDING-MUT-HOST |
-| Killed by the core unit tests | PENDING-MUT-UNIT |
-| Killed by the bus monitor tests | PENDING-MUT-MON |
-| Killed by the chip tests | PENDING-MUT-CHIP |
-| Killed by the firmware tests through the pins | PENDING-MUT-PINS |
-| Proved equivalent (`formal/equiv.sh`): no chip output can differ | PENDING-MUT-PROVED |
-| Excluded, each with its written argument in `run_mutants.py` | PENDING-MUT-ARGUED |
+| Killed by the lockstep co-simulation | 436 |
+| Killed by the line unit lockstep | 278 |
+| Killed by the host interface tests | 110 |
+| Killed by the core unit tests | 59 |
+| Killed by the bus monitor tests | 23 |
+| Killed by the chip tests | 12 |
+| Killed by the firmware tests through the pins | 1 |
+| Proved equivalent (`formal/equiv.sh`): no chip output can differ | 55 |
+| Excluded, each with its written argument in `run_mutants.py` | 59 |
 
 Most exclusions change a reset or start value that nothing reads before it is loaded again,
 such as the core's operand registers, line unit fields read only in a mode whose entry sets
@@ -708,7 +708,7 @@ harness and the tests as they are today.
   The second run found two mutants the generator should not have made, both on new lines:
   a width in a module's parameter list, which no longer elaborates, and a comparison in an
   `if` read as an assignment (`if (idx <= idx;`). Parameter lists are now left alone, and
-  only a `<=` outside every parenthesis is taken for an assignment (PENDING-MUT-V32).
+  only a `<=` outside every parenthesis is taken for an assignment (`c005a47`, whose full run left no survivor).
 
 ## Timing certificates
 
@@ -1126,7 +1126,7 @@ terminal, makes no edge without a bus controller, which the bench does not have.
 
 All eight fit, each with stated limits, and no instruction was missing. The timed events
 carried every edge each specification places, and `WAITP` timed every input that is read by
-its own edges. What ran short was registers and program words: three programs span two
+its own edges. What ran short was registers and program words: two programs span two
 pages, and with four registers the M-Bus slave keeps its state in the tape. Where a bit is
 a few instructions the protocol sets a clock floor: 40 MHz for the 1553B terminal,
 16 MHz for Microwire at its 500 kHz clock, and for S/PDIF exactly 128 × fs × the cell length,
@@ -1388,19 +1388,19 @@ inputs it samples are its buttons.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings and receivers generated from their tables, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the DOOM console's load model, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,869 | Pass, 5 skipped where an optional tool is absent (the sigrok tests need `sigrok-cli`, which CI installs) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings and receivers generated from their tables, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the DOOM console's load model, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,869 | Pass, 5 skipped by design: the five tests of functions only `modbus_full` has, which are not run against `modbus_rtu` (without `sigrok-cli` the sigrok tests skip as well; CI installs it) |
 | Chip level on the RTL (`make test`) | 12 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 12 | Pass; with SDF timing at 20 ns at the three corners, 12 each |
 | Co-simulation and line unit lockstep on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make cosim-parallel line-test`) | all | Pass |
 | Co-simulation (`make cosim`): 200 random programs (191 fit a page), 84 firmware cases with bus models, directed tests | all | Pass |
-| Host interface (`make host-test`) | 25 | Pass |
+| Host interface (`make host-test`) | 26 | Pass |
 | Core unit tests (`make unit-test`) | 43 | Pass |
 | Bus monitor (`make mon-test`) | 1 | Pass |
 | Line unit lockstep (`make line-test`) | 19 runs, 3.8 million edges | Pass |
 | Newer firmware (SWD, SPI target, NEC, NEC rebuilt for 33 and for 50 MHz, both pin banks at once, VGA Pong) and a protocol learned from the chip's own capture, through the chip pins (`make pin-test`, `make gl-pin-test`) | 9 | Pass on the RTL and on the final netlist |
 | Bring-up script on the chip RTL (`make bringup-test`) | 2 | Pass |
 | Outside judges: decoders written by others on the co-simulation cases (`make judges`), each with its control; 20 more are in the software tests | 63 | Pass; every control fails |
-| Pads and board: every co-simulation case with its pins delayed 0 to 3 ticks each way (`make pad-audit`) | 74 × 4 | Pass |
+| Pads and board: every co-simulation case with its pins delayed 0 to 3 ticks each way (`make pad-audit`) | 84 × 4 | Pass |
 | Lint (`make lint`, Verilator `-Wall`) | — | Clean |
 
 The chip-level tests drive the real pins: they load firmware over SPI, run it, decode the

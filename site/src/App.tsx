@@ -249,8 +249,8 @@ export default function App() {
               <table>
                 <thead><tr><th>Protocol</th><th className="num">Words</th><th>Certified at</th><th>Outside judge</th><th>Bench</th></tr></thead>
                 <tbody>
-                  <tr><td>MIL-STD-1553B remote terminal</td><td className="num">458, spans</td><td>40 to 50 MHz, 2 MHz steps</td><td>none exists</td><td>bring-up; no bus controller to answer</td></tr>
-                  <tr><td>S/PDIF transmitter</td><td className="num">262, spans</td><td>cells of 8 and 10 ticks; the clock is 128 × fs × the cell</td><td>sigrok spdif</td><td>captured, decoded by sigrok</td></tr>
+                  <tr><td>MIL-STD-1553B remote terminal</td><td className="num">462, spans</td><td>40 to 50 MHz, 2 MHz steps</td><td>none exists</td><td>bring-up; no bus controller to answer</td></tr>
+                  <tr><td>S/PDIF transmitter</td><td className="num">255</td><td>cells of 8 and 10 ticks; the clock is 128 × fs × the cell</td><td>sigrok spdif</td><td>captured, decoded by sigrok</td></tr>
                   <tr><td>Microwire 93C46 EEPROM master</td><td className="num">133</td><td>16 to 50 MHz</td><td>sigrok microwire, eeprom93xx</td><td>captured, decoded by sigrok</td></tr>
                   <tr><td>DHT22 sensor host</td><td className="num">128</td><td>4, 25 and 50 MHz</td><td>sigrok am230x</td><td>captured, every edge as the simulator made it</td></tr>
                   <tr><td>BiSS C encoder master</td><td className="num">123</td><td>16, 25 and 50 MHz</td><td>none exists</td><td>captured, every edge as the simulator made it</td></tr>
@@ -292,8 +292,8 @@ export default function App() {
                   prediction.</p>
                 <p>To check the tests themselves, faults are planted in the RTL one at a time, across every module,
                   the line unit and the bus monitor included, and simulated on the PDK's standard-cell models. The
-                  final campaign planted 1,033: the tests caught PENDING-MUT-KILLED, PENDING-MUT-PROVED are proved to change no output of the chip,
-                  and PENDING-MUT-ARGUED are excluded with a written reason, most of them reset or start values that nothing reads
+                  final campaign planted 1,033: the tests caught 919, 55 are proved to change no output of the chip,
+                  and 59 are excluded with a written reason, most of them reset or start values that nothing reads
                   before they are reloaded. None survives. CI reruns the whole campaign on every change to the RTL.
                   Every fault that slipped through a run was read against the RTL, and each hole it showed was closed
                   with a new test.</p>

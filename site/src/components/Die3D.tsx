@@ -120,7 +120,7 @@ export default function Die3D() {
       <div className="stage" ref={stage}>
         {fallback && !err && (
           <img className="fallback" src={asset("die/die_0_0_0.jpg")}
-            alt="The Escapement die: two SRAM macros at opposite corners and about 28,000 standard cells between them" />
+            alt="The Escapement die: both SRAM macros in one column on the east side and 39,588 standard cells beside them" />
         )}
         {err && <span className="stage-msg">The die images are rendered from the GDS when the site is built.</span>}
         {!fallback && hint && <span className="hint">drag to turn · {ZOOM_KEY} + scroll to zoom</span>}

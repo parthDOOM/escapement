@@ -51,7 +51,7 @@ const VERSIONS = [
 ];
 
 /** Cells of each adopted layout on a labelled axis (the changes are a few thousand cells
- *  on 24,000 to 38,500, which bars from zero hide), with the nine versions in matching columns
+ *  on 24,000 to 39,600, which bars from zero hide), with the ten versions in matching columns
  *  below; on a phone the columns become a vertical timeline. */
 export function History() {
   const ref = useRef<HTMLCanvasElement>(null);

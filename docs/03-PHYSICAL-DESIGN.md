@@ -168,7 +168,7 @@ flip-flop separately.
 
 ## Sign-off results
 
-The figures are from the CI harden of commit PENDING-SHA and the local harden of the same
+The figures are from the CI harden of commit `1d644e8` and the local harden of the same
 source with [`scripts/local-harden.sh`](../scripts/local-harden.sh), which produced an
 identical netlist.
 
@@ -179,19 +179,19 @@ identical netlist.
 | Macros | `RM_IHPSG13_1P_1024x32_c2_bm_bist` (program store) and `RM_IHPSG13_1P_256x32_c2_bm_bist` (tape), 189,671 µm² together |
 | Utilisation | 64.4% |
 | Clock | Placed, routed and signed off at 20 ns: rated up to 50 MHz, 25 MHz by default (D-5) |
-| Setup | No violations at any corner. Worst path into a flip-flop: +3.015 ns at the slow corner, from the tape memory's output (+6.583 ns typical, +6.327 ns fast). Paths into latches are covered by the headroom sweep below: setup passes at every corner down to 17.0 ns |
+| Setup | No violations at any corner. Worst path into a flip-flop at 20 ns: +3.015 ns at the slow corner, from the tape memory's output. At the typical and fast corners it is +6.583 and +6.327 ns, on another path: from a pin, whose input delay is 20% of the period, to the half-tick sampler's falling-edge flip-flop at half the period. That path keeps about 30% of the period as slack, so it loses only 0.3 ns for each nanosecond taken off the period, and it is not the one that limits the clock: the headroom sweep below, which shortens the period and the I/O delays together, latch inputs included, finds the memory path failing first at every corner, at 16.9, 10.6 and 7.0 ns |
 | Hold | No violations. Worst slack: +0.216 ns at the fast corner (+0.348 ns typical, +0.532 ns slow) |
-| Hold buffers | 71 |
-| Electrical rules | Met. Max slew and max capacitance: no violation at any corner. Max fanout: 9 flags at every corner, all of them roots of gated clocks driving 16 loads against the library's limit of 8 (the four FIFO entries of contexts 0 and 3, and the core's queued FIFO entry, each 58 bits); each passes slew and capacitance, and they are accepted (D-65) |
+| Hold buffers | 3,002 delay cells: 383 inserted after clock-tree synthesis and 2,619 after global routing, which repairs hold to a 0.3 ns margin (D-53); version 3.1's netlist has 3,063 and version 3.0's 3,931 (counted in the netlists: each step's for version 3.2, the released ones for 3.1 and 3.0). LibreLane's `hold_buffer` metric reads 71, as does the repair's own log line for the step after global routing, although that step adds 2,619 delay cells; the metric read 12 for version 3.1 and 259 for 3.0, so it is not a count of the hold buffers in the chip |
+| Electrical rules | Met. Max slew and max capacitance: no violation at any corner. Max fanout: 9 flags at every corner, all of them roots of gated clocks, 8× buffers driving 16 loads (the four FIFO entries of contexts 0 and 3, and the core's queued FIFO entry, each 58 bits). The limit they exceed, 8, is not measured for any cell: it is the library's one default (`default_max_fanout`), the same for its smallest buffer and its largest. Each of the nine passes slew and capacitance, the checks that keep the timing within the library's characterised tables, and they are accepted (D-65) |
 | Routing | 2.38 m of wire, 299,493 vias; global-route overflow 0; detailed-route DRC 0 |
 | LVS | Clean (0 errors, 0 net or device differences) |
 | DRC | Clean (KLayout SG13CMOS5L deck in the Tiny Tapeout precheck) |
 | Antenna | 0 violations (30 diodes) |
 | IR drop | 0.25 mV worst, at 20 ns |
-| Power | 2.99 mW (the flow's estimate at 20 ns, typical corner); workload measurements in [15-POWER](15-POWER.md) |
+| Power | 2.99 mW (the flow's estimate at 20 ns, typical corner; version 3.1 7.36 mW); workload measurements in [15-POWER](15-POWER.md) |
 | Precheck | The `ttihp27a` shuttle's precheck passes, every row |
 | Gate level | The 9 firmware tests through the pins pass on this netlist, and the 12 chip tests pass with SDF timing at 20 ns at all three corners; Icarus leaves out five interconnect delays of 6 to 14 ps ([24-TOOL-BUGS](24-TOOL-BUGS.md#sdf-annotation-in-icarus-verilog-13)). As a control, the digest test on the slow-corner SDF at 8 ns fails (the I/O pins go unknown before the program halts), so the delays are live; at 12 ns it still passes, as on version 2, because the simulation exercises only this program's paths and lets the latches borrow time freely, where timing analysis is worst-case. The netlist is proved equivalent to the RTL ([04-VERIFICATION](04-VERIFICATION.md#rtl-to-netlist-equivalence)) |
-| Reproduction | The CI harden's netlist and the local one have the same SHA-256 (`90aa97b297b9515a…`; PENDING-CI) |
+| Reproduction | The CI harden's netlist and the local one have the same SHA-256 (`90aa97b297b9515a…`), from both CI hardens of this source (`50d1b52` and `1d644e8`) |
 
 The corners are `nom_slow_1p08V_125C`, `nom_typ_1p20V_25C` and `nom_fast_1p32V_m40C`.
 

@@ -18,12 +18,13 @@ when they are written, a context waiting on a `WAIT` is parked and reissues its 
 instead of reading the program store again, and the pipeline loads only a stage that holds an
 instruction (D-73 to D-77 in [06-DECISIONS](../../docs/06-DECISIONS.md)). On the FPGA every clock
 gate is an enable (`ESC_NO_CG`), as it is in the proofs, so this run checks the new logic on the
-board and says nothing about the gates themselves or the power. It loaded the RTL of the
-version 3.2 commit and bundles built from the same tree, both built before that commit was
-made: the MANIFESTs name its parent, `2a4ba1f`, with `src/` modified, and the sha256 of each of
-the 12 files in `chip.MANIFEST` is that of the file in the commit, `57db3c3`. Later commits
-change only comments in five of them (`esc_core.v`, `esc_ctx.v`, `esc_cap.v`, `esc_mon.v` and
-`escapement_host.v`).
+board and says nothing about the gates themselves or the power. The bitstream and the bundles
+were built from the sources committed as version 3.2, `57db3c3`: the sha256 of each of the 12
+HDL files in `chip.MANIFEST` (the ten from `src/` and the two from `fpga/`) is that of the file
+in that commit. They were built before the commit was made, so the MANIFESTs name its parent,
+`2a4ba1f`, and say "src modified: v3.2 uncommitted"; the hashes are what ties them to
+`57db3c3`. Later commits change only comments in five of the files (`esc_core.v`, `esc_ctx.v`,
+`esc_cap.v`, `esc_mon.v` and `escapement_host.v`).
 
 | Step | Result | Evidence |
 | --- | --- | --- |
@@ -224,6 +225,7 @@ input. `chip-pnr.log` is the place-and-route log of that bitstream.
 | `learnhost.py`, `learnbench.py`, `test_learnbench.py` | the learning bench (Learned on the bench, below): the laptop's steps, the Pico's steps, and the whole loop on the simulated chip |
 | `bench.ps1` | Windows helper: build, deploy, load, run (the Dock's USB goes to WSL with usbipd-win) |
 | `hierarchy.sh`, `hierarchy.py` | block-level LUT, flip-flop and bus counts of the FPGA build |
+| `results/2026-11-27/` | version 3.2: the refusal bench (`late.log`) and the learning bench (`learn.log` and `learn/`, as on 24 November), on the bitstream of 26 November (`chip.MANIFEST`) |
 | `results/2026-11-26/` | version 3.2: the bring-up log and telemetry, the bitstream's and bundles' MANIFESTs, the place-and-route log, the clock skew report and the block hierarchy (`hierarchy.json`) |
 | `results/2026-11-24/` | the refusal bench (`late.log`) and the learning bench (`learn.log`, with the playback, the chip's capture, the learned table, both generated programs and the timed marks in `learn/`), after a bring-up of 86 of 86 programs; the bundles' MANIFEST and the bitstream's (built 2026-11-22) |
 | `results/2026-11-22/` | version 3.1 with the reset synchroniser: the bring-up log and telemetry, the bitstream's and bundles' MANIFESTs, the place-and-route log and the block hierarchy (`hierarchy.json`); the Ethernet transmit, receive (at three bias levels), line-check and ping logs (the laptop's MAC address replaced by LAPTOP-MAC); the USB keyboard runs (`usb-keyboard.log`) |
@@ -761,7 +763,15 @@ the model said, and neither reached a pin it should not have:
 
 Log: `results/2026-11-24/late.log`, after a bring-up that passed every stage with 86 of 86
 programs (`bringup.log` there). The bitstream is the one built 2026-11-22
-(`chip.MANIFEST`), whose sources hash the same as this checkout's.
+(`chip.MANIFEST`), from version 3.1's sources.
+
+**Rerun on version 3.2, 2026-11-27.** On the version 3.2 bitstream (built 26 November from
+the sources committed as `57db3c3`, the one that passed bring-up with 94 of 94), both
+programs were refused again with every value in the table unchanged: the same cause,
+instruction and tick, the same digests, no pin driven and the tripwires at 0. Version 3.2
+changed how a waiting context fetches (the parked fetch, D-73), which is the path a late
+event takes, so this is the run that shows the refusal on the chip being taped out. Log:
+`results/2026-11-27/late.log`.
 
 ## Learned on the bench
 
@@ -792,7 +802,7 @@ console's OLED sits on those two rows, so its SCL and SDA come off for this run.
 | Step | Result |
 | --- | --- |
 | capture | 201 records: the level at START and the 200 edges of the four frames |
-| learn | pulse width, 25 bits a frame, idle low; zero = 290 µs mark, 970 µs space; one = 920 µs mark, 340 µs space; 9.86 ms between frames. The capture decodes to the recording's four words |
+| learn | pulse width, 25 bits a frame, idle low; zero = 290 µs mark, 970 µs space; one = 920 µs mark, 340 µs space; 9.85 ms between frames. The capture decodes to the recording's four words |
 | programs | transmitter 23 words, CHECKED with a lead of at least 9 ticks; receiver 67 words, CHECKED |
 | receive | 8 of 8 frames (two rounds of four) pushed as their own word |
 | transmit | 0x0A8888 sent twice; the learned model reads 0x0A8888 from the frames the Pico timed |
@@ -805,6 +815,13 @@ rightly read nothing.
 
 Files: `results/2026-11-24/learn.log`, and in `learn/` the playback (`source.json`), the
 chip's capture, the learned table, both generated programs and the timed marks.
+
+**Rerun on version 3.2, 2026-11-27.** On the version 3.2 bitstream the loop passed again,
+every step as in the table: the same 201 records, code and four words, the same program
+sizes and certificates, 8 of 8 frames received and 0x0A8888 read back. The one difference
+is the gap between frames, learned as 9.84 ms against 9.85, because it is the Pico's
+playback as the chip captured it; the generated programs differ only in that constant
+(`GAP`, 250 ticks shorter). Files: `results/2026-11-27/`, laid out as above.
 
 ## Held-out round on the bench, 2026-11-25
 

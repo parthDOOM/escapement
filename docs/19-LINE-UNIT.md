@@ -293,8 +293,8 @@ Planted bugs check that these tests can fail. While the line unit was first buil
 hand in the line unit model, 28 in the firmware and 9 in escert's line unit analysis were
 all caught; that campaign was not kept as a script. The planted bugs that can be rerun are
 the RTL mutants of `esc_line.v` in the mutation campaign (`make mutation`), and the timing
-bugs `make fw-mutants` plants in the line unit programs (69 mutants in the nine programs in the final run; none
-certified and then faulting). The tests and the
+bugs `make fw-mutants` plants in the line unit programs (89 mutants in the 11 programs in the final run:
+75 certified, 14 refuted with a reproducer, none certified and then faulting). The tests and the
 certificate found real problems that earlier tests had passed: the firmware missed a
 token sent two bit times after the host's ACK on a transfer's last packet, could send a
 report with a stale data toggle after a reset, and went back to wait without re-arming

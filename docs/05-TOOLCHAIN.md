@@ -93,7 +93,7 @@ Detailed routing in OpenROAD gives the same result at any thread count, so a loc
 predicts the CI result, and `ci_budget.py` turns its routing CPU time into an estimate of CI
 wall time. The final netlist of a local harden and of the CI harden can be compared
 directly: for the signed-off version 3.1 layout both had SHA-256 `1342fef1bc2f9f99…`, and for
-version 3.2 the local one is `90aa97b297b9515a…` (CI: PENDING-SHA)
+version 3.2 both have `90aa97b297b9515a…`
 ([03-PHYSICAL-DESIGN](03-PHYSICAL-DESIGN.md#sign-off-results)).
 
 Two defects of the flow's OpenROAD (commit `dcf36133`) show up on this design, and neither

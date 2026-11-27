@@ -102,7 +102,7 @@
 ;           then the next preamble's cells 1 and 2: bits 30, 31 = 1
 .entry CTX, main
 .pair CTX
-.span CTX                          ; 262 words: context 0 also takes context 2's page
+.span CTX                          ; 255 words fit one page; the span is kept, so context 2 stays off
 .own PIN, CTX
 
 main:

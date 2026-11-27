@@ -601,7 +601,7 @@ function Page({ d }: { d: Fpga }) {
       <section id="refuse" className="band">
         <div className="wrap">
           <div className="sec-head">
-            <p className="eyebrow">Refusal · 2026-11-24</p>
+            <p className="eyebrow">Refusal · version 3.1, 2026-11-24 · version 3.2, 2026-11-27</p>
             <h2>Asked for the impossible, the chip refuses where it was foretold</h2>
             <p className="lede">Every other run on this bench is a program that works. Here two programs ask for what
               the chip must not do: a UART whose bit is five ticks long, so its second edge cannot be queued before its
@@ -638,7 +638,7 @@ function Page({ d }: { d: Fpga }) {
       <section id="learn">
         <div className="wrap">
           <div className="sec-head">
-            <p className="eyebrow">Learning · 2026-11-24</p>
+            <p className="eyebrow">Learning · version 3.1, 2026-11-24 · version 3.2, 2026-11-27</p>
             <h2>A remote it was never programmed for, learned from its own capture</h2>
             <p className="lede">The Pico plays the frames of a PT2262 433 MHz socket remote, from a sigrok recording,
               onto one of the chip's pins. The chip never sees the file, only the pin: its capture unit records the
@@ -647,7 +647,7 @@ function Page({ d }: { d: Fpga }) {
           </div>
           <div className="facts" style={{ marginBottom: "2rem" }}>
             <div><b>200</b><span>edges of four frames recorded by the chip, with the line's level at START</span></div>
-            <div><b>290 / 920 µs</b><span>the learned marks of a 0 and a 1, 25 bits a frame, 9.86 ms between frames</span></div>
+            <div><b>290 / 920 µs</b><span>the learned marks of a 0 and a 1, 25 bits a frame, 9.85 ms between frames</span></div>
             <div><b>8 of 8</b><span>frames read by the learned receiver as the remote's own words</span></div>
             <div><b>0x0A8888</b><span>an address the remote never sent, sent by the learned transmitter and read back</span></div>
           </div>

@@ -35,7 +35,15 @@ QUICK = [
     ("esc_host_prove", "S1 configuration frozen during a run (PDR)"),
     ("esc_host_cover", "Host interface cover"),
     ("esc_line_kind", "L2 line unit's registered values (k-induction)"),
+    ("esc_top_prove", "C6 live-write grant at the top level (k-induction)"),
+    ("esc_top_cover", "Live-write grant cover"),
+    ("esc_mon_kind", "M1-M7 bus timing monitor (k-induction)"),
+    ("esc_mon_cover", "Bus monitor cover"),
+    ("esc_core_park", "A parked fetch takes the word the store would return (k-induction)"),
+    ("esc_core_park_cover", "Parked fetch cover"),
 ]
+# every task in formal-props (Makefile) must be listed above, or the results page undercounts it
+# (version 3.2 found six missing)
 
 
 def secs_of(d: Path):

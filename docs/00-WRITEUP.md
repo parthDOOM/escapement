@@ -204,7 +204,7 @@ rather than as a puzzling failure.
 
 Every proof runs in continuous integration on each change it depends on, and planted
 faults show that the proofs can fail, since a proof that passes whatever the design does
-proves nothing. In the final run all PENDING-PROOF-TASKS proof tasks pass, and each of PENDING-TEETH planted
+proves nothing. In the final run all 116 proof tasks pass, and each of 23 planted
 bugs makes its proof fail.
 
 ## 6. Checking the checks
@@ -250,7 +250,7 @@ bus models catch them. The campaign also found three bugs in escert itself.
 a time across every module and simulated on the PDK's standard-cell models; a fault the
 tests do not notice is a hole in the tests, to be closed with a new test, proved to change
 no output, or excluded with a written argument. The final campaign planted 1,033 faults:
-PENDING-MUT-KILLED were caught by a test, PENDING-MUT-PROVED were proved to change no output, and PENDING-MUT-ARGUED are excluded, most
+919 were caught by a test, 55 were proved to change no output, and 59 are excluded, most
 of them reset or start values that nothing reads before they are reloaded. None survives.
 
 **Real devices as oracles.** Models written from datasheets can share a misreading with the
@@ -378,7 +378,7 @@ and barred from the firmware and its tests; then certified, co-simulated on the 
 where one exists, and run on the FPGA bench.
 
 All eight fit, each with stated limits, and no instruction was missing. What ran short was
-registers and program words, not timing: three programs span two pages, and where a bit is
+registers and program words, not timing: two programs span two pages, and where a bit is
 only a few instructions the protocol sets a floor on the clock, 40 MHz for the 1553B
 terminal. The round found no bug in the chip. It found one in escert, which had never
 checked that a line-unit configuration is valid and drives only pins its context owns; it
@@ -407,7 +407,7 @@ and can be rerun:
 | Claim | Checked by | Rerun |
 | --- | --- | --- |
 | No edge is ever late, for every program | the unbounded core proof, one PDR task per assertion group (`formal/esc_core.sby`) | `make formal` |
-| The proofs can fail | 15 planted bugs, each of which must make its proof fail (`formal/teeth.sh`) | `make formal-teeth` |
+| The proofs can fail | 23 planted bugs, each of which must make its proof fail (`formal/teeth.sh`) | `make formal-teeth` |
 | The fabricated netlist is the design | sequential equivalence of the sign-off netlist and the RTL (`formal/equiv.sh`) | `make equiv` |
 | A program can be swapped beside a running one | the non-interference proof (`formal/esc_ni_ind.sby`) | `make formal-v2` |
 | The RTL is the machine the specification defines | lockstep co-simulation against the instruction-set simulator | `make cosim-parallel` |

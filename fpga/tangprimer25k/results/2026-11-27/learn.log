@@ -1,0 +1,28 @@
+frame 0x2a8888: 50 segments, 40.4 ms
+frame 0x2a2888: 50 segments, 40.4 ms
+frame 0x22a888: 50 segments, 40.4 ms
+frame 0x28a888: 50 segments, 40.4 ms
+Up to date: learn/source.json
+learn: the chip recorded 4 frames on uio[2]: 201 records -> learn/capture.json
+pulse width, 25 bits per frame, idle low
+zero: mark 290.0 us space 970.0 us; one: mark 920.0 us space 340.0 us
+gap 9843.0 us
+frame 0x02a8888
+frame 0x02a2888
+frame 0x022a888
+frame 0x028a888
+the chip's capture decodes to 4 frame(s); the recording's 4 words all among them
+tx: learned_on_chip.asm, 23 words, pin uio[3], escert ctx 0 CHECKED (lead >= 9)
+rx: learned_on_chip_rx.asm, 67 words, pin uio[2], escert ctx 0 CHECKED
+Up to date: learn/learned_rx.json
+learn: played 0x2a8888, the chip's receiver PUSHed 0x2a8888
+learn: played 0x2a2888, the chip's receiver PUSHed 0x2a2888
+learn: played 0x22a888, the chip's receiver PUSHed 0x22a888
+learn: played 0x28a888, the chip's receiver PUSHed 0x28a888
+learn: played 0x2a8888, the chip's receiver PUSHed 0x2a8888
+learn: played 0x2a2888, the chip's receiver PUSHed 0x2a2888
+learn: played 0x22a888, the chip's receiver PUSHed 0x22a888
+learn: played 0x28a888, the chip's receiver PUSHed 0x28a888
+learn: PASS: the learned receiver read every frame as the recording's word
+learn: the chip sent 0xa8888 2 times on uio[3]: 43 marks timed -> learn/sent.json
+judge: the learned model reads 0xa8888: the word sent, 0xa8888

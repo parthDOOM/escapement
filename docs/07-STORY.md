@@ -189,7 +189,7 @@ mailbox while the Pico drew the next ([25-DOOM-CONSOLE](25-DOOM-CONSOLE.md)).
 The last bench runs closed two gaps between what the simulator had shown and what the pins
 had. The refusal, the idea the chip started from, had only ever been seen in simulation;
 on 24 November two programs that ask for a late edge and an unowned pin were refused on the
-FPGA build where the certificate checker had said they would be. And learning, until then
+FPGA build, and on 27 November on version 3.2's, where the certificate checker had said they would be. And learning, until then
 checked against recordings in software, ran on the chip's own capture: it recorded a 433 MHz
 remote's frames, and the transmitter and receiver generated from what it learned ran on the
 same chip.

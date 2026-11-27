@@ -124,7 +124,7 @@ compare.
     ...
     uart_tx.asm            halt   ok    digest 0x63114ed9 model 0x63114ed9; min lead 0:9 (cert 9)
     usb_hid.asm            steady ok    digest 0x0cafaeb5 = model at tick 35926; min lead 0:none (cert 1)
-[5] PASS  80 of 80 firmware match the model and their certificates
+[5] PASS  90 of 90 firmware match the model and their certificates
 [6] UART smoke test (optional) ...
     uart_tx.asm: RP UART received 55 4b 21 0a
 [6] PASS  1 UART smoke test(s) received exactly the model's bytes

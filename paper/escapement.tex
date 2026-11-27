@@ -1,6 +1,6 @@
 % Escapement: the paper. Build: latexmk -pdf escapement.tex (figures: python paper/figures.py GDS).
 % The numbers are those of the final CI runs, the same as docs/00-WRITEUP.md and README.md
-% give; \NUM (below) marks a number still to come: version 3.2's CI results (PENDING-*).
+% give; \NUM (below) marks a number still to come, printed in red; none is left.
 \documentclass[conference,letterpaper]{IEEEtran}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
@@ -449,7 +449,7 @@ assumption about the environment would appear as a named, broken property rather
 as a puzzling failure.
 
 Every proof runs in continuous integration on each change it depends on, and planted
-faults show that the proofs can fail. In the final run all \NUM{PENDING-PROOF-TASKS} tasks pass: the 44 unbounded core proofs and \NUM{PENDING-PROOF-OTHER} in one job, the bounded check from reset as 52 tasks covering 72 assertion lines to depth 20 in a second, and the tripwire, line unit and non-interference proofs in a third; 15 planted bugs each make their proof fail.
+faults show that the proofs can fail. In the final run all 116 tasks pass: the 44 unbounded core proofs and 16 more proofs and cover checks in one job, the bounded check from reset as 52 tasks covering 72 assertion lines to depth 20 in a second, and the tripwire, line unit and non-interference proofs in a third; 23 planted bugs each make their proof fail.
 
 \subsection{Two implementations of one specification}
 
@@ -484,7 +484,7 @@ To check the tests themselves, faults are planted in the RTL one at a time acros
 module and simulated on the process kit's standard-cell models \cite{mutation}; a fault
 the tests do not notice is a hole in the tests. Each surviving fault is read against the
 RTL and either closed with a new test, proved to change no output, or excluded with a
-written argument. The final campaign planted 1,033 faults: \NUM{PENDING-MUT-KILLED} were caught by a test, \NUM{PENDING-MUT-PROVED} were proved to change no output, and \NUM{PENDING-MUT-ARGUED} are excluded with a written argument, most of them reset or start values that nothing reads before they are reloaded. None survives.
+written argument. The final campaign planted 1,033 faults: 919 were caught by a test, 55 were proved to change no output, and 59 are excluded with a written argument, most of them reset or start values that nothing reads before they are reloaded. None survives.
 
 Models written from datasheets can share a misreading with the firmware they test, so
 recordings of real hardware, many of them from the sigrok-dumps collection \cite{sigrok},
@@ -514,17 +514,17 @@ continuous-integration runs.}
 \toprule
 Method & Result \\
 \midrule
-Formal properties & \NUM{PENDING-PROOF-TASKS} of \NUM{PENDING-PROOF-TASKS} tasks pass, 52 of them bounded to depth 20; \NUM{PENDING-TEETH} planted bugs caught \\
-Netlist vs.\ RTL & \NUM{PENDING-EQUIV} \\
+Formal properties & 116 of 116 tasks pass, 52 of them bounded to depth 20; 23 planted bugs caught \\
+Netlist vs.\ RTL & Sequentially equivalent (337 output bits) \\
 Lockstep co-simulation & 191 random programs, 84 firmware cases, two builds: no difference \\
 Timing certificates & 90 of 90 certified; measured lead equals the bound in 64 of 84 contexts, never below \\
-Mutation testing & 1,033 faults: \NUM{PENDING-MUT-KILLED} caught, \NUM{PENDING-MUT-PROVED} proved harmless, \NUM{PENDING-MUT-ARGUED} argued, 0 surviving \\
+Mutation testing & 1,033 faults: 919 caught, 55 proved harmless, 59 argued, 0 surviving \\
 Outside judges & decoders by others agree with 80 of 90 programs; every control fails \\
 Planted firmware bugs & 823 timing bugs: 196 refuted, 23 not proven, 604 certified, 0 certified that fault \\
 Slower pins & every firmware case passes with up to three ticks of delay each way \\
 Test suites & 1,869 software, 12 chip (RTL and netlist), 9 through the pins \\
 Held-out round & 8 of a pool of 24 drawn at random, the draw sealed: all fit; all certified and co-simulated; 6 judged by sigrok; 7 judged on the bench from captures \\
-FPGA bench & 89 of 90 programs match the model and their certificates (version 3.1, 21 to 25 Nov.; version 3.2, 26 Nov.; the 14\,s chime has no bench bundle); on version 3.1, a laptop's ping over 10BASE-T; SWD on a real RP2040, judged by sigrok; a USB keyboard on a laptop; DOOM, with no word lost on the host link; a late and an unowned edge refused as \texttt{escert} predicted; a 433\,MHz remote's protocol learned from the chip's own capture, its generated receiver and transmitter run on the chip \\
+FPGA bench & 89 of 90 programs match the model and their certificates (version 3.1, 21 to 25 Nov.; version 3.2, 26 Nov.; the 14\,s chime has no bench bundle); on both versions, a late and an unowned edge refused as \texttt{escert} predicted, and a 433\,MHz remote's protocol learned from the chip's own capture, its generated receiver and transmitter run on the chip; on version 3.1, a laptop's ping over 10BASE-T; SWD on a real RP2040, judged by sigrok; a USB keyboard on a laptop; DOOM, with no word lost on the host link \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -671,7 +671,7 @@ certificate.
 
 Version 3.2's RTL, the one hardened for silicon, runs 89 of the 90 programs through the bring-up
 script (all but a 14-second chime, which has no bench bundle), and each matches the model
-and stays within its timing certificate, four programs spanning two pages among them. The
+and stays within its timing certificate, three programs spanning two pages among them. The
 build uses 15{,}251 of 23{,}040 LUTs, 5{,}262 flip-flops and 3 of 56 block RAMs, and routes
 to 54.8\,MHz against the 25\,MHz it runs at, with the clock on the global network to every
 one of its sinks. Earlier builds clocked the half-tick sampler's falling-edge register
@@ -810,7 +810,7 @@ analyser's capture; the 1553B terminal makes no edge without a bus controller.
 
 All eight fit, each with stated limits, and no instruction was missing: the timed events
 placed every edge where its specification puts it. What ran short was registers and
-program words, not timing. Three programs span two pages, and where a bit is only a few
+program words, not timing. Two programs span two pages, and where a bit is only a few
 instructions the protocol sets a floor on the clock, 40\,MHz for the 1553B terminal. The
 round found no bug in the chip. It found one in \texttt{escert}, which had never checked
 that a line-unit configuration is valid and drives only pins its context owns, and now

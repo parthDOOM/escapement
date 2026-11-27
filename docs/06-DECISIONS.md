@@ -681,7 +681,9 @@ one of them.
   fanout flags from 176 to 17.
 
 The 17 flags left are the roots of gated clocks, each driving 16 loads against the
-library's limit of 8 while passing slew and capacitance with room. They are accepted: the
+library's limit of 8 while passing slew and capacitance with room. That limit is a single
+default for every cell in the library (`default_max_fanout`), from the 1× buffer to the
+16×, not a figure characterised for the buffers at these roots. They are accepted: the
 fanout limit stands in for those two checks, and splitting the roots (sink clustering at 8)
 raised the clock tree's power by 32% and left new slew failures elsewhere. The placement
 density moved from 61% to 61.7%. With the reset synchroniser in place, 61% hit OpenROAD's
