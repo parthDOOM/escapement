@@ -56,7 +56,7 @@ The rebaseline of 4 October set the shape that the chip still has:
 
 ## Two implementations of one specification
 
-Before any silicon, the machine was written down as a cycle-exact specification,
+Before any RTL, the machine was written down as a cycle-exact specification,
 [11-SEMANTICS](11-SEMANTICS.md). Two implementations were then written from it
 independently: the Python instruction-set simulator and the RTL, by separate authors who
 could not read each other's code. By 11 October their tick-by-tick traces agreed on every
@@ -68,21 +68,21 @@ was settled in favour of cancelling it.
 That arrangement became the backbone of the verification: the simulator is the reference
 model for the RTL, the two run in lockstep in co-simulation, and a disagreement is always
 a bug in one of them or in the specification. The admission rule also earned its place
-before any chip existed, by refusing four firmware bugs that a conventional processor
+before any layout existed, by refusing four firmware bugs that a conventional processor
 would have run with a late edge: late first-bit deadlines in I2C and SPI, a stale deadline
 after a 1-Wire reset, and an off-by-one in a re-anchor.
 
-## Growing one capability at a time
+## Growing a step at a time
 
 The first public release, version 1.1, came on 17 October. It added the **tape**, a
 second SRAM shared by firmware loads and stores and a capture unit that records pin
 changes with their ticks, and the **execution digest**, a 32-bit signature of a whole run
 that the simulator predicts exactly. With those, the chip could record and replay a
-waveform, and silicon could be checked against the model with one read. The layout from
+waveform, and a whole run could be checked against the model with one read. The layout from
 the competition's own CI matched the local one in every reported metric, which made
 reproducibility a standing rule.
 
-Each later version added one capability and kept every older program's behaviour
+Each later version added capabilities and kept every older program's behaviour
 unchanged, digest included:
 
 - **Version 1.2** (18 October) noticed that the host link left five dedicated inputs and
@@ -95,7 +95,8 @@ unchanged, digest included:
   instructions per bit, too few for NRZI, bit stuffing and a CRC, so a small configurable
   block took over the bit work while firmware kept the packets. A USB keyboard written for
   it enumerated on a real Linux kernel through USB/IP, and the certificate checker proved
-  every reply leaves exactly 72 ticks after the host's packet. The extra logic made the
+  every reply has its deadline exactly 72 ticks after the end tick recorded for the
+  host's packet (75 ticks between the pins). The extra logic made the
   design 11% larger, and moving rarely written registers from flip-flops into latches
   brought it back below the previous version's size.
 
@@ -140,11 +141,11 @@ cannot, within a stated scope.
 On 9 November the competition's rules page confirmed that 8 × 4 tiles were allowed.
 **Version 2** used the larger die for **program pages**, a 1,024-word store in four pages
 so four full-size programs can run with no linking, and for **proof tripwires**, twelve
-proved invariants built into the silicon as sticky flags that should never set. Moving to
+proved invariants built into the chip as sticky flags that should never set. Moving to
 8 × 4 also brought the project's most useful physical finding. The bigger die did not make
 routing easier, because the chip is limited by wiring on its four metal layers, not by
-cell area, and only one of those layers runs horizontally for signals. The first 8 × 4
-layouts overflowed it. A measured analysis led to a new floorplan and to timing-driven
+cell area, and only two of those layers run horizontally, one of them shared with the
+cells' own pins and power rails. The first 8 × 4 layouts overflowed them. A measured analysis led to a new floorplan and to timing-driven
 placement, and timing closed with margin at 20 ns.
 
 ## Version 3: listening as well as speaking
@@ -170,7 +171,7 @@ both memories into one column on the east side, so the logic is a single rectang
 macro in its horizontal paths. A decorative layout-art macro, which stranded rows in that
 floorplan, was removed.
 
-Version 3.1 is a small step in silicon. A context whose partner is switched off can now
+Version 3.1 is a small step in hardware. A context whose partner is switched off can now
 **span** both of their pages, enough for a Modbus device with its whole data model, and the
 reset is released through a two-flip-flop synchroniser after a duty-cycle check found the
 raw reset reaching some latches too late. The larger change was in the layout: version 3.0
@@ -190,9 +191,9 @@ The last bench runs closed two gaps between what the simulator had shown and wha
 had. The refusal, the idea the chip started from, had only ever been seen in simulation;
 on 24 November two programs that ask for a late edge and an unowned pin were refused on the
 FPGA build, and on 27 November on version 3.2's, where the certificate checker had said they would be. And learning, until then
-checked against recordings in software, ran on the chip's own capture: it recorded a 433 MHz
-remote's frames, and the transmitter and receiver generated from what it learned ran on the
-same chip.
+checked against recordings in software, ran on the chip's own capture: a Pico played a 433 MHz remote's recorded frames into a
+pin, the chip captured them, and the transmitter and receiver generated from what it learned
+ran on the same chip.
 
 The last test was of the claim itself. Every program until then was for a protocol someone
 had chosen knowing what the chip could do. On 4 November, with version 1.6, a pool of 24
@@ -212,6 +213,17 @@ held. Its first layouts lost timing margin to a latch on the TX pin claim and to
 97 buffers that a repair step of the layout tool built; a flip-flop and one flow setting won
 it back. A stopped chip went from 3.36 to 1.27 mW, and nothing a program sees changed
 (D-73 to D-77).
+
+The last proof was of the instruction set itself. Every earlier proof said what the chip
+never does, and that ADD adds rested on the two models agreeing. Once version 3.2's layout
+was settled, a checker was written from the specification alone, by an author who had not
+read the core's execute logic, restating all 55 instructions, and the core was proved
+against it at every commit, in four tiers from the data instructions to the ones that drive
+the shared units, with planted bugs in every instruction to show the proof could fail. It
+found no bug in the chip. It found one in the specification: GETM had always set the Z
+flag in both models, but its row listed no flag, a slip the co-simulation could never see
+because the two models agreed (D-78). The same checker now also runs inside the
+co-simulation, as a third reading of every commit.
 
 ## What stayed the same
 

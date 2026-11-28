@@ -101,9 +101,9 @@ the chip prepares data; its response is 0x00.
 
 ## Tape reads during a run
 
-READ_TAPE fetches each word in a cycle in which neither the core nor the capture unit
-uses the tape port ([11-SEMANTICS](11-SEMANTICS.md) §10, `tape_busy`), so a host read
-never delays an instruction or a capture record. A word's fetch is requested when its
+READ_TAPE fetches each word in a cycle in which none of the core, the line unit and the
+capture unit uses the tape port ([11-SEMANTICS](11-SEMANTICS.md) §10, `tape_busy`), so a host read
+never delays an instruction, a line unit access or a capture record. A word's fetch is requested when its
 address is set (the address byte, then each prefetch) and must happen before the word is
 sent, at least one SPI byte later (64 core cycles at the fastest SCK). The port is free
 in almost every cycle; only firmware that does nothing but LDT and STT in all four
@@ -148,8 +148,10 @@ One context `k` gets a new program while the others run on, untouched:
 Pins, bank and pairing stay as configured: the new program must use the same configuration
 (WRITE_CFG stays stopped-only). The program words of running contexts must not change
 (both pages of a spanning one, 3.1).
-`sw/eschost` checks both before sending anything (`eschost.live.plan_reload`: the changed
-words are outside every other enabled context's reach, and escert certifies the new program),
+`sw/eschost` checks both before sending anything (`eschost.live.plan_reload`: no changed
+word is in a page another enabled context fetches from, no other enabled context can reach
+an instruction of the capture unit, the line unit or the monitor, and escert certifies the
+new program),
 and `Host.reload` sends steps 1 to 4. READ_IMEM cannot verify the words during the run; the
 host checks host error instead, and can READ_IMEM after the next STOP. The execution digest
 folds every commit, so it depends on when the reload happened.

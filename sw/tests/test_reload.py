@@ -141,20 +141,64 @@ def test_paired_context_restarts_before_its_first_slot(at):
     assert pins(m, 1)[base:] == pins(fresh, 1)[:TICKS - base]
 
 
-def test_plan_reload_checks_reach_configuration_and_certificate():
+PA = """
+.entry 0, a
+.own 0, 0
+a:  {first}ADDT 40
+    EMIT 1, 1, 1
+    ADDT 40
+    EMIT 1, 0, 1
+    JMP a
+{tail}"""
+PB = """
+.entry 1, b
+.own 1, 1
+b:  ADDT {up}
+    EMIT 2, 2, 2
+    ADDT {down}
+    EMIT 2, 0, 2
+    JMP b
+"""
+
+
+def two_pages(first="", tail="", up=24, down=24, a40=40):
+    """Context 0 (PA) in page 0 and context 1 (PB) in page 1: the layout a live reload needs."""
+    from escasm import paged
+    a = assemble(PA.format(first=first, tail=tail).replace("ADDT 40", f"ADDT {a40}", 1))
+    return paged({0: a, 1: assemble(PB.format(up=up, down=down))})
+
+
+def test_plan_reload_checks_pages_configuration_and_certificate():
+    """A reload may write only pages no other running context fetches from: the assumption of
+    the non-interference proof. Context 1 alone in page 1 can be reloaded; the same reload
+    in a one-page image, where context 0 fetches from the same page, is refused."""
     from eschost.live import plan_reload
-    runs = plan_reload(OLD, NEW, 1)
-    assert runs and all(a >= NEW.entry_pcs[1] for a, _ in runs)
-    assert sum(len(w) for _, w in runs) == sum(OLD.words[a] != NEW.words[a] for a in range(256))
-    a_moved = assemble(PROG.replace("ADDT 40", "ADDT 48", 1).format(up=56, down=12))
-    with pytest.raises(ValueError, match="context 0 can reach"):
-        plan_reload(OLD, a_moved, 1)
-    repinned = assemble(PROG.replace(".own 1, 1", ".own 2, 1").format(up=56, down=12))
+    old, new = two_pages(), two_pages(up=56, down=12)
+    runs = plan_reload(old, new, 1)
+    assert runs and all(256 <= a < 512 for a, _ in runs)
+    assert sum(len(w) for _, w in runs) == sum(old.words[a] != new.words[a] for a in range(1024))
+    with pytest.raises(ValueError, match="context 0 fetches from"):
+        plan_reload(OLD, NEW, 1)                       # one page, shared with context 0
+    with pytest.raises(ValueError, match="context 0 fetches from"):
+        plan_reload(old, two_pages(up=56, down=12, a40=48), 1)
+    repinned = assemble(PB.replace(".own 1, 1", ".own 1, 2").format(up=56, down=12))
+    from escasm import paged
     with pytest.raises(ValueError, match="configuration"):
-        plan_reload(OLD, repinned, 1)
-    late = assemble(PROG.format(up=0, down=12))     # an EMIT due at its own commit tick
+        plan_reload(old, paged({0: assemble(PA.format(first="", tail="")), 1: repinned}), 1)
     with pytest.raises(ValueError, match="not certified"):
-        plan_reload(OLD, late, 1)
+        plan_reload(old, two_pages(up=0, down=12), 1)  # an EMIT due at its own commit tick
+
+
+@pytest.mark.parametrize("insn", ["CAPT r0", "GETC r0", "MON r0, r1", "GETL r0", "LINE r0"])
+def test_plan_reload_refuses_while_another_context_uses_a_shared_unit(insn):
+    """The non-interference proof covers a context that uses none of the shared units: a
+    reload beside one that can reach a unit's instruction is refused. GETM is allowed, and an
+    unreachable unit instruction does not count."""
+    from eschost.live import plan_reload
+    with pytest.raises(ValueError, match="shared unit"):
+        plan_reload(two_pages(first=f"{insn}\n    "), two_pages(first=f"{insn}\n    ", up=56, down=12), 1)
+    for kw in ({"first": "GETM r0, 0\n    "}, {"tail": f"    {insn}\n"}):
+        assert plan_reload(two_pages(**kw), two_pages(up=56, down=12, **kw), 1)
 
 
 class _Live:
@@ -169,10 +213,9 @@ class _Live:
 
 
 def test_host_reload_sends_stop_words_start():
-    from eschost.live import plan_reload
     from eschost.protocol import Host
     chip = _Live()
-    runs = plan_reload(OLD, NEW, 1)
+    runs = [(a, [NEW.words[a]]) for a in range(256) if OLD.words[a] != NEW.words[a]]
     Host(chip).reload(1, runs)
     ops = [f[0] for f in chip.frames]
     assert ops == [0x00, 0x22] + [0x10] * len(runs) + [0x23, 0x51]

@@ -74,27 +74,27 @@ export default function App() {
               </p>
               <h1>Escape<em>ment</em></h1>
               <p className="claim">No pin edge is ever late, whatever program runs.
-                <a href="#proof">Proved for every program, on the netlist that goes to silicon.</a></p>
+                <a href="#proof">Proved for every program, and the signed-off netlist is proved equal to the design.</a></p>
               <p className="lede">A chip that speaks UART, SPI, I2C, CAN, JTAG, ARM SWD, low-speed USB, 10BASE-T Ethernet and more, with
                 none of them built into the hardware. Firmware schedules every pin change for an exact 40 ns tick. The chip makes
-                that tick, or refuses the change when it is queued. The guarantee is in the silicon, not in a tool
+                that tick, or refuses the change when it is queued. The guarantee is in the hardware, not in a tool
                 that vets programs: one nobody has checked still cannot make a late edge.</p>
               <div className="hero-cta">
                 <a className="run-btn" href="#play">Run the firmware</a>
                 <a className="icon-btn" href="#inside">How it works</a>
               </div>
               <p className="hero-hw"><a href={asset("fpga/")}>Runs on hardware: on an FPGA, driven by a Pico W, version
-                3.2 runs 89 of the 90 programs, each matching the model and its certificate; version 3.1 answers a laptop's ping,
-                types into it as a USB keyboard, plays DOOM on an OLED with the Pico as its host, refuses a late edge where its
-                certificate said, and learns a remote's protocol from its own capture →</a></p>
-              <p className="hero-hw"><a href="#heldout">Protocols it was not designed for: eight drawn at random from a sealed
-                list and written on version 3.1 as tagged, and all eight fit →</a></p>
+                3.2 runs all 90 programs, each matching the model and its certificate, refuses a late edge where its
+                certificate said, and learns a remote's protocol from its own capture of the remote's recorded frames; version 3.1 answers a laptop's ping,
+                types into it as a USB keyboard, and plays DOOM on an OLED with the Pico as its host →</a></p>
+              <p className="hero-hw"><a href="#heldout">Protocols it was not designed for: eight drawn at random from a public
+                pool by a sealed draw and written on version 3.1 as tagged, and all eight fit →</a></p>
               <div className="facts">
                 <div><b>40 ns</b><span>one tick at 25 MHz, rated to 50</span></div>
                 <div><b>4</b><span>programs running at once</span></div>
                 <div><b>13</b><span>protocol pins, two banks</span></div>
                 <div><b>90</b><span>firmware programs</span></div>
-                <div><b>4.4 mW</b><span>sending UART</span></div>
+                <div><b>2.16 mW</b><span>sending UART</span></div>
                 <div><b>0</b><span>late edges, for any program, for all time</span></div>
               </div>
             </div>
@@ -133,7 +133,7 @@ export default function App() {
             <div className="cols" style={{ marginTop: "2.5rem" }}>
               <div className="prose">
                 <h3>Time is the only thing in hardware</h3>
-                <p>Nothing on the chip knows what UART or I2C is. The silicon offers three kinds of timed event:
+                <p>Nothing on the chip knows what UART or I2C is. The hardware offers three kinds of timed event:
                   <strong> DRIVE</strong> sets pins, <strong>EXPECT</strong> checks that an input holds a level or
                   arrives at it within a window of up to 127 ticks, and <strong>SAMPLE</strong> captures one input bit.
                   Everything else is a program, in a 1,024-word program memory of four 256-word pages. Version 1.4
@@ -145,7 +145,7 @@ export default function App() {
                 <p>Because the deadline is absolute, a program can compute it, reuse it and check it. A static
                   analyser, <code>escert</code>, walks every path of a firmware and proves a lower bound on how early
                   each event is queued. The chip measures the same quantity while it runs, so the certificate and the
-                  silicon check each other. The playground below shows both, side by side.</p>
+                  chip check each other. The playground below shows both, side by side.</p>
               </div>
             </div>
           </div>
@@ -177,7 +177,7 @@ export default function App() {
                   work. <code>SEND</code> queues a packet like any other event, checked when it is queued and sent on its
                   exact tick; a receive records the tick the packet ended, so a reply can leave a fixed number of
                   ticks after the host's packet, whatever ran in between.</p>
-                <p>The unit knows no protocol. Three words in the tape, or five with symbol coding, set the pins,
+                <p>The unit knows no protocol. Three words in the tape, or five with symbol coding or a CRC wider than 16 bits, set the pins,
                   the coding, the stuffing rule, the bit period and any CRC up to 32 bits, so USB, CAN and 10BASE-T
                   Ethernet frames are configurations of it. While it is idle its clocks are gated off.</p>
               </div>
@@ -287,9 +287,14 @@ export default function App() {
                   tick: each commit, every register, every pin, the queues and the memories. Thousands of random
                   programs and every firmware agree with zero mismatches. That Python model is the simulator in the
                   playground above.</p>
+                <p>Two models that agree can still share a misreading of the specification, so a third reading checks
+                  both: a checker of every instruction, written from the specification alone, proved against the RTL
+                  at every commit and also run inside the co-simulation. It found one such misreading, in the
+                  specification itself: GETM sets the Z flag in both models, from the value it reads, as GETP, GETI, GETX and GETC do, but
+                  its row listed no flag. The row now says Z.</p>
                 <p>A 32-bit <strong>execution digest</strong> folds every commit, register write and pin change of a
-                  run into one word. After a run on silicon, one SPI read compares the chip with the model's
-                  prediction.</p>
+                  run into one word. After a run, on the chip, the netlist or the FPGA build, one SPI read
+                  compares it with the model's prediction.</p>
                 <p>To check the tests themselves, faults are planted in the RTL one at a time, across every module,
                   the line unit and the bus monitor included, and simulated on the PDK's standard-cell models. The
                   final campaign planted 1,033: the tests caught 919, 55 are proved to change no output of the chip,
@@ -333,7 +338,9 @@ export default function App() {
                 <p>The first netlist used 93% of its busy power while doing nothing, all of it clocking flip-flops and
                   reading memories every cycle. Clock gating, on-demand memory selects and a split hold margin removed
                   most of it, and version 3.2 gated almost every register that was left and parked waiting contexts.
-                  Version 3.2 uses 1.85 mW sending a UART and 1.27 mW stopped, against 8.61 and 7.99 mW for that first
+                  On its signed-off layout, with the wiring extracted from its routes, version 3.2 uses 2.16 mW sending
+                  a UART and 1.41 mW stopped. Measured the way every earlier version was, after clock-tree synthesis with
+                  the wiring estimated from placement, it uses 1.85 and 1.27 mW, against 8.61 and 7.99 mW for that first
                   netlist and 4.42 and 3.36 mW for version 3.1.</p>
                 <p>Figures are from gate-level simulation at the typical corner, with the memory energy counted edge by
                   edge.</p>
@@ -364,15 +371,16 @@ export default function App() {
               </ol>
               <div className="prose">
                 <p>A staged bring-up script for the Tiny Tapeout demo board's RP2350 tests the link, both memories,
-                  every pin and every firmware in order, and says what each failure most likely means. It has already
-                  run on the RTL in an FPGA: <a href={asset("fpga/")}>the bench, its wiring and every result</a>,
+                  every pin and every firmware in order, and says what each failure most likely means. It has run on
+                  the RTL in an FPGA: <a href={asset("fpga/")}>the bench, its wiring and every result</a>,
                   with the chip's pinout.</p>
                 <p>The chip is also an instrument. Its capture unit timestamps every change of the watched pins to the
                   40 ns tick, and the host reads the records during the run, so a capture lasts as long as the host
-                  keeps up and a record is never overwritten before it has been read. On the demo board, PulseView and
-                  sigrok-cli record from the chip through their existing Openbench Logic Sniffer driver.</p>
+                  keeps up and a record is never overwritten before it has been read. PulseView and sigrok-cli record from
+                  the chip through their existing Openbench Logic Sniffer driver: on the FPGA bench it captured two test
+                  waves at 1 MHz with every edge on its sample, for as long as the bench's host link kept up.</p>
                 <p>Everything is open: RTL, firmware, assembler, simulator, certificate checker, proofs and the flow
-                  configuration.</p>
+                  configuration. Only the DOOM console's game side is kept separately.</p>
                 <p><em>Why it exists: I have lost time hunting edges my own software sent late, and the Jane
                   Street competition was the chance to build a chip that cannot send one.</em></p>
                 <ul className="links">

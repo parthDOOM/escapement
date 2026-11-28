@@ -6,8 +6,8 @@ Escapement makes three promises, and this chapter shows how each is checked:
   event that cannot be on time is refused with a fault, never emitted late.
 - **Certified firmware is never refused.** A program that the certificate checker accepts
   cannot meet that fault, for any input.
-- **The chip that is fabricated is the chip that was proved.** The routed netlist behaves
-  exactly like the RTL that the proofs and tests are about.
+- **The netlist that is signed off is the design that was proved.** The routed netlist
+  behaves exactly like the RTL that the proofs and tests are about.
 
 No single method can show all of this. A test sees only the inputs it tries, a proof
 covers only the properties someone wrote down, and both can be fooled by a model that
@@ -19,29 +19,32 @@ check, each able to catch what the others miss:
 | Normative specification | One cycle-exact definition of the machine | [11-SEMANTICS](11-SEMANTICS.md) |
 | Instruction-set simulator | A second implementation of that definition, in Python | `sw/esciss` |
 | Lockstep co-simulation | RTL and simulator agree on every commit and every pin, every tick | `test/cosim` |
-| Formal proofs | Safety properties hold in every reachable state, not just in tests | `formal/`, `ifdef FORMAL` blocks in `src/` |
+| Formal proofs | Safety properties hold in every reachable state, not just in tests, and every instruction does what the specification says | `formal/`, `ifdef FORMAL` blocks in `src/` |
+| Instruction checker | A third restatement of the specification, written from it alone, checked against the core in the proofs and in the co-simulation | `formal/esc_isa_check.v` |
 | Mutation testing | The tests notice a broken design | `test/mutation` |
 | Timing certificates | Firmware can never trigger an admission fault, for any input | `sw/escert` |
-| On-chip telemetry, digest and tripwires | The silicon checks the certificates, the model and the proofs | [architecture](01-ARCHITECTURE.md) |
+| On-chip telemetry, digest and tripwires | Every run reports its leads against the certificates, its digest against the model and any broken proved property, on the RTL, the netlist and the FPGA build alike | [architecture](01-ARCHITECTURE.md) |
 | Gate-level simulation | The hardened netlist behaves like the RTL | `test/` with `GATES=yes` |
 | Equivalence checking | The hardened netlist equals the RTL for every input sequence | `formal/equiv.sh` |
 | Continuous integration | Every check above reruns on each change it depends on | `.github/workflows`, [results page](https://parthdoom.github.io/escapement/#results) |
 
 The numbers in this chapter come from the final continuous-integration runs on version 3.2
-(commit `1d644e8`, and for mutation testing `c005a47`) unless a section says otherwise. The final runs at a glance:
+(commit `1d644e8`, and for mutation testing `c005a47`) unless a section says otherwise; the
+instruction proof, the checker inside the co-simulation and the planted bugs added with them
+come from the run marked PENDING-CI. The final runs at a glance:
 
 | Check | Result |
 | --- | --- |
-| Formal proofs | 116 of 116 tasks pass; 23 planted bugs each make their proof fail |
+| Formal proofs | PENDING-CI of PENDING-CI tasks pass, the proof of all 55 instructions against the specification among them; 99 planted bugs each make their proof fail |
 | Netlist against RTL | Sequentially equivalent, 337 output bits compared |
-| Lockstep co-simulation | 191 random programs and 84 firmware cases, on two builds of the RTL: no difference |
+| Lockstep co-simulation | 191 random programs and 84 firmware cases, on two builds of the RTL: no difference, and the instruction checker satisfied on every commit (PENDING-CI) |
 | Timing certificates | 90 of 90 programs certified; the measured lead equals the bound in 64 of 84 contexts and is never below it |
 | Mutation testing | 1,033 planted RTL faults: 919 caught, 55 proved harmless, 59 argued harmless, none surviving |
-| Outside judges | decoders written by other people agree with 80 of the 90 programs; every control fails |
+| Outside judges | decoders written by other people agree with all 80 of the 90 programs they can read (the other ten have no outside decoder or nothing for one to read); every control fails |
 | Planted firmware bugs | 823 timing bugs in 87 programs: 196 refuted with a reproducer, 23 not proven, 604 certified, none certified that can fault |
-| Held-out round | eight protocols drawn at random from a sealed list, each certified, co-simulated, judged where a decoder exists and run on the FPGA bench; all eight fit ([below](#the-held-out-round)) |
+| Held-out round | eight protocols drawn at random from a public pool by a sealed draw, each certified, co-simulated, judged where a decoder exists and run on the FPGA bench; all eight fit ([below](#the-held-out-round)) |
 | Pads and board | every firmware case still passes with its pins up to three ticks slower each way |
-| Test suites | 1,869 software tests (5 skipped by design: functions only `modbus_full` has, not run against `modbus_rtu`); 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
+| Test suites | 1,876 software tests (5 skipped by design: functions only `modbus_full` has, not run against `modbus_rtu`); 12 chip tests on the RTL and on the netlist; 9 firmware tests through the pins |
 
 ## How the checks grew
 
@@ -54,9 +57,11 @@ already proved equivalent to its RTL. Mutation testing had found its first holes
 make every test fail for the wrong reason. Version 1.5 computed the deadline tests a cycle
 early for speed, which needed a new kind of proof; version 1.6 registered the line unit's
 outputs and split the equivalence proof in two; version 1.7 added live reload with the proof
-that contexts cannot disturb each other; version 2 built proof tripwires into the silicon;
-and version 3 added the bus monitor with its own proofs. Each of these is described in its
-section below, with what it found.
+that contexts cannot disturb each other; version 2 built proof tripwires into the chip;
+and version 3 added the bus monitor with its own proofs. The last was the proof of what
+each instruction does, after version 3.2's layout was settled: a checker written from the
+specification alone, which found the specification itself wrong about one flag. Each of
+these is described in its section below, with what it found.
 
 ## Two implementations of one specification
 
@@ -93,13 +98,13 @@ Three kinds of program are run this way:
 | Final run | Programs | Compared | Mismatches |
 | --- | ---: | ---: | ---: |
 | Random programs (`make cosim`, 200 seeds), behavioural and standard-cell builds | 191 (9 too long for a page) | 19,850 commits on each build | 0 |
-| Firmware cases with their bus models, behavioural and standard-cell builds | 74 | every commit and pin | 0 |
+| Firmware cases with their bus models, behavioural and standard-cell builds | 84 | every commit and pin | 0 |
 | Line unit alone against its model, every output every cycle (`make line-test`) | 19 runs (8 seeds, 11 profiles) | 3.8 million edges | 0 |
 | Bus monitor alone against its model, every output every cycle (`make mon-test`) | random rules and pin traffic | 200,000 cycles | 0 |
 
 The standard-cell build simulates the RTL with the PDK's own clock-gate and latch cells
 (`CELLS=yes`), as it is hardened, so a fault in how a latch bank is written shows up in
-simulation and not only in silicon.
+simulation rather than only after fabrication.
 
 Larger campaigns were run at earlier versions and still apply to the logic they exercised:
 
@@ -164,6 +169,8 @@ another part proves.
 | NI | Two chips that differ in every command and program word aimed at other contexts give context j the same commits, state and pins | k-induction with an invariant, and bounded from reset (below) |
 | M1–M7 | The bus monitor's counts never wrap, a rule write that keeps the rules changes none, its record holds until a start or a clear, a violation with no record yet is recorded, and its latch banks hold what was written | k-induction (`formal/esc_mon.sby`) |
 | TW | The twelve properties watched by the on-chip tripwires imply that the tripwires stay zero | induction (below) |
+| ISA | Each of the 55 instructions does exactly what section 7 of the specification says to every field it may change, leaves every other field unchanged, and hands the unit it uses what section 7 says | k-induction, assuming the properties above ([below](#what-each-instruction-does)) |
+| F | The word that commits is the program store's word at the committing context's own page and PC, as fetched | k-induction (park task) |
 
 Every assertion of the core is also checked **bounded from reset**: from a real reset,
 with every input free, no assertion fails in the first 20 steps. This catches a property
@@ -190,6 +197,105 @@ proves that no *other* fault coincides with a commit, the per-context proof assu
 that, and P2 completes the clause. The exception cannot hide a late head, because lateness
 depends on state alone, never on the inputs of the same cycle. Stated as one clause, P8 had
 not converged after seven hours of PDR; split this way, it proves in under a minute.
+
+### What each instruction does
+
+The properties above say what the chip never does: it is never late, never drives a pin it
+does not own, never lets one context disturb another. They do not say that ADD adds. For a
+long time that rested on the lockstep co-simulation, which shows the RTL and the simulator
+agree on the programs it runs. The ISA proof states it for every program and every
+reachable state.
+
+`formal/esc_isa_check.v` restates section 7 of [11-SEMANTICS](11-SEMANTICS.md), one
+instruction at a time, as a checker on the core's commit. In the commit cycle it reads the
+instruction that commits and its context's state before the commit, and computes from them,
+in its own logic, every field the instruction may change: the four registers, the shift
+register, the loop counter, the timer, Z and C, the PC and link register, the outcome and
+the context's state, the interrupt flag and code, the first-fault record, the event queue's
+entries and count, and the telemetry of section 7.4. In the next cycle it compares each with
+what the core holds, one assertion per field. A field the instruction does not list must be
+unchanged, as the specification says. The checker was written from the specification,
+`isa/isa.yaml` and the commit interface alone, without reading the core's
+execute logic, so that it cannot share a misreading with the RTL. Only the encodings are
+generated (`formal/esc_isa_enc.vh`, from `isa.yaml` by `scripts/gen_isa_enc.py`).
+
+It covers all 55 instructions. For the data and control instructions (7.1, 7.2), the time
+instructions with the four-tick grid on which a waiting instruction is retried (7.3) and
+HALT, that is everything they do. For the event instructions EMIT, EMITR, EMITX, EXPECT,
+SAMPLE and SEND it includes admission in the order of section 6.2, each refusal's fault
+subcode and the exact entry each admitted event puts on the queue. Every illegal word of
+every opcode is checked to fault, and so is a jump outside the context's pages.
+
+The other sixteen hand work to a unit outside the context: the pins (GETP, WAITP), the
+input history and checker (GETI, GETX), the host mailboxes (POP, PUSH, RXREADY, TXREADY),
+the tape and capture unit (LDT, STT, CAPT, GETC), the line unit (LINE, GETL) and the bus
+monitor (MON, GETM). For these the checker covers what section 7 says the instruction
+does: its result, flags, outcome and faults from the unit's state during the commit cycle,
+the mailbox word popped or pushed with the host's access at the same edge, the tape
+address and data, the capture configuration a CAPT sets, and which context owns the line
+unit and the monitor. What a unit then does on its own, the line unit's transmissions,
+the capture unit's records and the monitor's rules, is sections 6.5 to 6.7, and has its
+own proofs and lockstep tests (below). So does the tape itself: that a read returns the
+word last written there is the memory's, outside the core.
+
+The proof is by k-induction (`sby -f esc_core.sby isa`, depth 4). It assumes the design's
+other properties, each proved by its own task, so the induction starts only from states
+those proofs allow. A bug that breaks one of them is caught by that property's proof
+rather than this one, and two of the planted bugs below are scored that way. The retry
+grid spans four ticks, so it has a deeper induction of its own (`isa_grid`, depth 8),
+which assumes the rest of the checker; the `isa` task proves the rest without the grid, so
+nothing is assumed in a circle. A cover task (`isa_cover`) reaches each of the checker's
+253 cases, such as each instruction with each outcome it can have, Z set and clear, and
+every fault subcode, under the same assumptions, so none of them holds vacuously.
+
+The checker takes the word that commits as the instruction executed. That this word is the
+program the context is running is a separate proof in the park task (`park_f*`): the word
+that commits is the program store's word at the committing context's own address, page
+and PC, as it was when fetched, and the word there now unless a live reload wrote that page
+since.
+
+The same checker also runs inside the co-simulation, built without `FORMAL`, on every cycle
+of every random, firmware and directed program, so each commit there is checked three ways:
+the RTL, the simulator and this restatement of the specification. A misreading in the
+checker would show there as a disagreement with the simulator, and it does: with the
+checker's own carry for ADD planted wrong, 20 random programs fail on C at every ADD that
+carries while the simulator and the RTL still agree. Icarus Verilog reports a failed
+assertion without failing the test, so `test/cosim/run_parallel.py` and the mutation
+campaign search the simulator's output for the checker's failures (`test/cosim/isa_fail.py`)
+and count one as a failed run; under Verilator a failed check also stops the simulation. Bound this way, the checker
+adds about a quarter to the co-simulation's time, and in its first full run (191 random
+programs, 19,850 commits, and every directed and firmware case) it agreed with both models
+on every commit.
+
+Seventy-six planted bugs check that the proof can fail (`make formal-teeth`). Each changes
+one instruction's behaviour in the RTL, and each makes the proof fail on the field it
+breaks:
+
+| Area | Planted bugs |
+| --- | --- |
+| Data | the carry of ADD, SUB, SHL and SHR; CMP leaving Z unchanged; MOVHI clearing the low half; AND computing AND-NOT; ADDI and CMPI sign-extending their immediate; LDSH loading the wrong operand; MOV copying the wrong operand; MOVI loading the high half; OR computing XOR, and XOR computing OR; TSTI taking Z from the wrong result; STSH storing the shift register inverted |
+| Control | JMP landing one past its target; JZ testing C; JNZ inverted; JNC inverted; JC testing Z; NOP changing Z; DJNZ's count stopping at zero; LDLC dropping bit 0; CALL linking its own address; RET returning one past the link; IRQ's code from the wrong bits; HALT completing with events queued, with an EXPECT window open or with the line unit engaged, or moving the PC |
+| Faults | an unlisted opcode accepted; a reserved bit ignored; the first-fault record's tick one late |
+| Time | RDTIME one tick ahead; SETT from the wrong operand; ADDT sign-extending its immediate; WAITT waiting a tick too long; ADDTR adding the wrong register; a paired context's HALT retried on the wrong slot |
+| Events | a queue taken as full at three entries; an EXPECT with an empty mask admitted; every SAMPLE refused as an event with an empty mask; a pin the line unit has claimed admitted; the ordering test skipped with one entry queued; EXPECT's overlap test applied before any EXPECT; a past deadline reported with the ordering subcode; EMITX's C inverted and a 1 shifted in; EMITR's level from the wrong byte; an entry's payload bit 0 dropped; EXPECT recording the window's start as its end; SEND setting Z on a drop; the wait-full count not saturating; the minimum lead one too high |
+| Input | GETP dropping a pin; WAITP's Z on a match; GETI not waiting for a queued SAMPLE; GETX's counts swapped |
+| Mailboxes | POP not waiting on an empty mailbox; POP not removing the word; PUSH not waiting on a full one; RXREADY and TXREADY inverted |
+| Tape and capture | LDT and STT one address off; STT writing the wrong register; LDT and STT not waiting for the line unit's port; CAPT configured from the wrong operand; GETC leaving Z unchanged |
+| Line unit and monitor | LINE's illegal ops from 5, not 4; a CONFIG taking another context's line unit; RECV not waiting while the unit is engaged; GETL's Z inverted and its tick one late; GETM reading the monitor, or the line unit's count and CRC, for a context that does not own it; MON giving the monitor to context 0 |
+
+Seventy-four fail the `isa` or `isa_grid` task. HALT completing with events queued breaks H3, and
+EXPECT recording the window's start as its end breaks the latch-bank check that its
+register holds what was written (G5); each is caught where that property is proved,
+bounded from reset. Writing the checker also turned up places where the specification was
+silent, such as the PC after a fault and Z after a shift by zero; in each the RTL and the
+simulator already agreed, and [11-SEMANTICS](11-SEMANTICS.md) now states them (its version
+3.2 adds nothing to the machine). The rest of the checker's choices restate what the
+specification already says, or concern what the checker can see rather than the machine. It
+also found one place where the specification was wrong: it listed no flags for GETM, which
+sets Z in the RTL and in the simulator alike, so the co-simulation could never have noticed.
+The specification now lists Z ([D-78](06-DECISIONS.md)).
+PENDING-CI: the `isa` task's time in CI; locally it proves in 36 minutes, `isa_grid` in 14
+seconds and `isa_cover` in 16 minutes.
 
 ### Values decided a cycle early
 
@@ -325,7 +431,7 @@ uses.
 
 ### Proof tripwires
 
-Twelve of the proved invariants are also watched in silicon. A 12-bit register `tw`
+Twelve of the proved invariants are also watched by the chip itself. A 12-bit register `tw`
 (`esc_core.v`, debug select 27) has one bit per invariant. Bit i sets one clock edge after
 the first edge at which its invariant is seen broken, and holds until reset. The proofs say
 every bit stays 0, so a set bit on a real chip names a broken invariant. The monitors are
@@ -372,12 +478,14 @@ against that.
 **Covers.** A cover task reaches the precondition of every property: capture overflow, a
 full region, a ring wrap, a drain and a push with two records staged, the line unit driving
 its pins and receiving, a CONFIG faulting its owner, a late violation recorded by the bus
-monitor and a saturated count. A property whose precondition can never be reached would
+monitor and a saturated count; the instruction checker's 253 cases and the fetch proof
+have cover tasks of their own. A property whose precondition can never be reached would
 hold vacuously, and its cover would fail.
 
 **Planted bugs.** `formal/teeth.sh` (`make formal-teeth`) plants known bugs, one at a time,
 in a copy of `src/`, and runs the proof that must catch each. A planted bug counts only if
-its edit applied exactly once and the proof fails. In the final run all twenty-three were caught:
+its edit applied exactly once and the proof fails. The ISA proof's seventy-six are listed with
+it [above](#what-each-instruction-does); in the final run all twenty-three others were caught:
 
 | Planted bug | Proof | Caught |
 | --- | --- | --- |
@@ -417,8 +525,8 @@ therefore proved in one task. The output-enable parts of P3 and P5 both rest on 
 example, and together with H3 and H4 they prove in two minutes, while alone P5's part did
 not finish in two hours and P3's ran past the three-hour limit on a CI runner.
 
-In the final CI run, on 4-vCPU runners, the 44 core tasks and the ten other proofs and
-covers pass in one job of 91 minutes. The bounded check from reset, split into 52 tasks
+In the final CI run, on 4-vCPU runners, the 44 core tasks and the PENDING-CI other proofs
+and covers, the instruction proof among them, pass in one job of PENDING-CI minutes. The bounded check from reset, split into 52 tasks
 covering 72 assertion lines to depth 20 (`formal/split_bmc.py`, the boolector solver, three
 at a time), passes in 87 minutes in a second job; as one task it had not finished after
 16.8 hours. A third job runs the tripwire, line unit and non-interference proofs (four
@@ -527,7 +635,9 @@ mutated file, cheapest first, until one fails: the line unit lockstep (for `esc_
 the lockstep co-simulation, the core unit tests, the host interface tests, the bus monitor
 tests, the chip tests and the firmware-through-the-pins tests. The co-simulation runs the
 firmware cases with bus models from the campaign's fixed list; running every firmware case
-for every mutant would triple the campaign's time, past what a CI job allows. The suites
+for every mutant would triple the campaign's time, past what a CI job allows. Its
+instruction checker runs too, and a failed check kills the mutant like a failed comparison;
+the campaign's figures above are from before the checker was bound (PENDING-CI). The suites
 simulate the standard-cell build (`CELLS=yes`), so a mutant of a latch bank's input is
 visible.
 
@@ -715,7 +825,7 @@ harness and the tests as they are today.
 The chip refuses any event it cannot apply on time. The certificate checker, `sw/escert`,
 shows ahead of time that a program will never be refused. It treats the firmware as a
 timed automaton and runs a zone analysis (with difference-bound matrices) over every path,
-covering all five admission subcodes. For each context it returns one of three answers:
+covering all six admission subcodes (MASK, OWNER, PAST, ORDER, OVERLAP and CONFIG). For each context it returns one of three answers:
 
 - **CHECKED**, with a lower bound on the scheduling **lead**, the number of ticks by which
   every event is queued ahead of its deadline;
@@ -755,7 +865,8 @@ A lead of 1 is enough: the event is admitted and applied on its tick. The line u
 programs show 1 for a specific reason. A `SEND` that is late is dropped rather than faulted,
 and where escert cannot rule out such a drop, the lead it proves for an admitted `SEND` is
 only 1 tick. For line unit firmware escert also reports when replies leave: every `usb_hid`
-reply has its deadline exactly 72 ticks after the end of the packet it answers, with a lead
+reply has its deadline exactly 72 ticks after the end tick recorded for the packet it
+answers (75 ticks between the pins), with a lead
 of at least 4 ticks on every path where the host keeps to USB timing ([line unit](19-LINE-UNIT.md)).
 `replay.asm` computes its deadlines from captured data, so instead of a certificate it is
 checked by the replay tests and by the chip's admission rules.
@@ -877,7 +988,7 @@ answer:
   low by a glitch while the host sends; a CEC frame for another device; a DALI query
   answered; a Modbus server whose receiver picks up noise while it replies. A fault in any
   of these would mean escert certified a program that can fault, and fails the run.
-- **A mutant escert could not prove** (POSSIBLE) gets the same random search. If that finds
+- **A mutant escert could not prove** (NOT_PROVEN) gets the same random search. If that finds
   nothing, three more searches follow: the benches; a host that never pauses, over a run
   five times as long on fresh seeds (a deleted WAITT may fault only once frames follow
   each other back to back); an aimed bench too long to give every mutant (a DCF77 word
@@ -1109,12 +1220,13 @@ with a 256-bit salt, was sealed: its SHA-256 was committed before any of the eig
 written. `sealed.txt` and `draw.json`, now published, let anyone check the hash and repeat
 the draw.
 
-The eight were written on 24 November on version 3.1 (`cb47436`), with the chip, assembler
-and simulator as tagged; `src/`, `sw/esciss` and `sw/escasm` are unchanged since. Each went
+The eight were written on 24 November 2026 on version 3.1 (`cb47436`), with the chip,
+assembler and simulator as tagged; `src/`, `sw/esciss` and `sw/escasm` were not changed
+while the round ran. Each went
 through the same steps: the firmware from the specification, with the section of every
-timing number cited; a bus model of the device on the other end, written by a separate,
-fresh session that was given the specification, the model conventions of `sw/escmodels/` and
-the model's interface (its pins, parameters and the checks it makes), and told not to read
+timing number cited; a bus model of the device on the other end, written separately
+from the firmware, from the specification, the model conventions of `sw/escmodels/` and
+the model's interface (its pins, parameters and the checks it makes), and without reading
 the firmware, the tests or the notes ([its brief](../heldout/BRIEFS.md)); simulator tests against it, each with negative controls (25 planted
 variants, all caught); a certificate; the lockstep co-simulation; an outside judge where
 sigrok has a decoder (six of eight); and the FPGA bench, where bring-up ran 94 of 94
@@ -1138,8 +1250,8 @@ chip, which dropped the pair-mode bits of `WRITE_CFG` byte 10 so that paired pro
 unpaired in the bring-up tests. In five of the eight, the first firmware that worked on the
 simulator could not be proved as written, and was reshaped until escert could prove it.
 
-The pool itself was chosen, not drawn, and `pool.txt` has been in the repository since
-5 November while the hardware went on changing (versions 1.7 to 3.1). The round therefore
+The pool itself was chosen, not drawn, and `pool.txt` was fixed on 4 November 2026 and has been in
+the repository since 5 November while the hardware went on changing (versions 1.7 to 3.1). The round therefore
 shows that the chip takes protocols nobody picked to fit it, not that it takes any protocol.
 The seal proves that the eight did not change after the draw. That no hardware change in
 that time aimed at them rests on the drawn list having been kept private, which the seal
@@ -1358,7 +1470,9 @@ Some of the readers have limits that the judges work around, each written in the
 
 The simulations give every pin zero delay: an output reaches the bus model in the tick it is
 driven, and a model's answer reaches the input synchroniser in the tick it changes. A real
-chip adds its pads and the board on the way out and on the way back, about 10 ns each way.
+chip adds its pads and the board on the way out and on the way back; this section assumes
+about 10 ns each way, an estimate, since the pads are not characterised (see the limits
+below).
 A protocol that drives a pin and then samples the answer it causes, such as SPI's MISO after
 an SCK edge, I2C's acknowledge, a 1-Wire read slot or a USB turnaround, loses that round trip
 from its margin. One with no margin left would pass in simulation and fail on a board.
@@ -1388,7 +1502,7 @@ inputs it samples are its buttons.
 
 | Suite | Tests | Result |
 | --- | ---: | --- |
-| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings and receivers generated from their tables, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the DOOM console's load model, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,869 | Pass, 5 skipped by design: the five tests of functions only `modbus_full` has, which are not run against `modbus_rtu` (without `sigrok-cli` the sigrok tests skip as well; CI installs it) |
+| Software (`make sw-test`): assembler, simulator, certificates, models, firmware against bus models, line unit and USB, tape tools, capture export and SUMP bridge, bring-up script, protocols learned from random, specified and real recordings and receivers generated from their tables, firmware and models against real devices, sigrok's decoders as judges, VGA and OLED Pong, the DOOM console's load model, the site's make-it-late audit, the clock-parameterised firmware at 33 to 50 MHz | 1,876 | Pass, 5 skipped by design: the five tests of functions only `modbus_full` has, which are not run against `modbus_rtu` (without `sigrok-cli` the sigrok tests skip as well; CI installs it) |
 | Chip level on the RTL (`make test`) | 12 | Pass |
 | Chip level on the final gate-level netlist (`make gl-test`) | 12 | Pass; with SDF timing at 20 ns at the three corners, 12 each |
 | Co-simulation and line unit lockstep on the RTL with the standard-cell clock gates and latch banks (`CELLS=yes make cosim-parallel line-test`) | all | Pass |
@@ -1414,6 +1528,11 @@ and the SDF-annotated runs replay the chip tests with those delays.
 
 ## Limits
 
+- **The units behind sixteen instructions.** The instruction proof checks what an
+  instruction hands the pins, mailboxes, tape, capture unit, line unit and bus monitor, and
+  what it reads back from them, but not what those units then do on their own. That rests
+  on their own proofs and lockstep tests, and the tape's contents on the memory, outside the
+  core.
 - **Pad timing.** CMOS5L pads are not characterised, so timing claims are made at the
   internal tick, not at the package pins. The pad audit above shows the margin each
   protocol has for them, in ticks, not their delay itself.
@@ -1424,9 +1543,9 @@ and the SDF-annotated runs replay the chip tests with those delays.
   bus) the stretch never outlasted the controller's own low time; its Fast-mode margin is
   measured against our controller model only.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz).
-- **FPGA, not silicon.** The design runs on an FPGA bench (89 of the
-  90 programs matching the model and their certificates; the 14-second `westminster` chime
-  has no bench bundle; two
+- **FPGA, not a fabricated chip.** The design runs on an FPGA bench (all 90
+  programs matching the model and their certificates, the 14-second `westminster` chime in
+  a run of its own; two
   programs `escert` refutes are refused there where it and the model said, with no late or
   unowned edge reaching a pin; [the bench](../fpga/tangprimer25k/README.md)), with
   plain flip-flops for the clock gates and latch banks and block RAM for the SRAM macros;
@@ -1444,8 +1563,8 @@ workflow on master, with its commit and log, failures included.
 
 | Workflow | Runs on | Checks |
 | --- | --- | --- |
-| `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation, the certificates against the RTL's measured leads (`proof_table.py`), the outside judges and the pad audit, firmware through the pins; the co-simulation and the line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
-| `formal` | a change to `src/` or `formal/` | three jobs: the properties and covers with the unbounded core proof as one PDR task per assertion group; the bounded check from reset, one task per assertion group (`make formal-bmc`); the tripwire, line unit and non-interference proofs, then the planted bugs that must make each fail (`make formal-v2 formal-teeth`) |
+| `test` | every push | chip tests on the RTL; software tests, timing certificates, lockstep co-simulation with the instruction checker, the certificates against the RTL's measured leads (`proof_table.py`), the outside judges and the pad audit, firmware through the pins; the co-simulation and the line unit lockstep again on the standard-cell models (Icarus Verilog 13) |
+| `formal` | a change to `src/` or `formal/` | three jobs: the properties and covers, the instruction proof among them, with the unbounded core proof as one PDR task per assertion group; the bounded check from reset, one task per assertion group (`make formal-bmc`); the tripwire, line unit and non-interference proofs, then the planted bugs that must make each fail (`make formal-v2 formal-teeth`) |
 | `mutation` | a change to `src/`, `test/` or the simulator | the whole mutation campaign in 40 shards on the standard-cell models (Icarus Verilog 13), after a baseline of every suite, with the equivalence check of survivors; the shards are dealt by each mutant's time in earlier runs (`test/mutation/costs.json`), the canaries run once beside them, and the summary requires the canaries and exactly one result per mutant |
 | `fw-mutants` | a push to any branch that changes the firmware, `escert`, the simulator, the assembler or the bus models | the firmware mutation campaign (`make fw-mutants`) in 24 shards: every planted timing bug against `escert`, and each certified one attacked on the simulator |
 | `gds` | a change to the RTL or flow | LibreLane layout, then in the same job the Tiny Tapeout precheck, chip tests on the gate-level netlist, and that netlist against the RTL of its commit (`formal/equiv.sh`) |
@@ -1473,8 +1592,9 @@ make judges pad-audit                                            # sigrok's deco
 make pin-test bringup-test                                       # newer firmware through the pins; bring-up script
 make gl-test gl-pin-test                                         # the same chip-level checks on the gate-level netlist
 CELLS=yes make test cosim-parallel                               # the RTL with the real clock-gate and latch cells
-make formal-quick                                                # bounded core check, covers, ahead, never-late, clock gate, latch bank, host, monitor
-make formal JOBS=8                                               # adds the unbounded core proof (72 min on CI's 4-vCPU runners)
+make formal-quick                                                # bounded core check, covers, ahead, never-late, clock gate, latch bank, host, monitor, instructions
+ISA=no make cosim-parallel                                       # the co-simulation without the instruction checker (a quarter faster)
+make formal JOBS=8                                               # adds the unbounded core proof (CI's first formal job)
 make formal-v2 formal-teeth                                      # tripwires, line unit from reset, non-interference; planted bugs
 make formal SKIP=1                                               # while iterating: skip proofs whose inputs match their last PASS (never for a release)
 make equiv                                                       # final netlist equals the RTL (~6 min)

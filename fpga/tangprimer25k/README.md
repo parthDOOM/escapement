@@ -41,6 +41,11 @@ of its clock pins (5,113 on version 3.1) with no measured skew, setup passes at 
 (54.76 MHz possible, 58.00 on version 3.1), and nextpnr's 8 hold flags are all at block RAM
 address pins (below).
 
+On 28 November the same bitstream ran `westminster`, the one library program without a bundle
+until then: it halts after 15.65 s with the model's digest and the smallest lead its
+certificate proves, so all 90 of the library's programs have matched on version 3.2
+([the run](results/2026-11-28-westminster/README.md)).
+
 ## Earlier result, 2026-11-21 (version 3.1, span)
 
 Version 3.1 adds span: a context whose partner is switched off can run one program of up to
@@ -104,7 +109,7 @@ The ten programs on the chip for the first time all match: `flexray_tx`, `j1850_
 `westminster` (a 14-second tune) and `replay` (a template) have no bundle.
 
 `eth_trx`, the ping bench's program (Ethernet, below), is the one bundle stage 5 does not pass.
-Its state matched the model, but escert gives it no certificate (POSSIBLE), and stage 5 passes
+Its state matched the model, but escert gives it no certificate (NOT_PROVEN), and stage 5 passes
 no program without one. Its findings pointed at a real fault in `send`: after waiting on a slow
 host, the program counted its next deadline from before the wait. The bit-banged host link
 takes about 0.7 s to push a large frame, longer than the 0.42 s (2^24 ticks) by which `send`
@@ -226,6 +231,8 @@ input. `chip-pnr.log` is the place-and-route log of that bitstream.
 | `bench.ps1` | Windows helper: build, deploy, load, run (the Dock's USB goes to WSL with usbipd-win) |
 | `hierarchy.sh`, `hierarchy.py` | block-level LUT, flip-flop and bus counts of the FPGA build |
 | `results/2026-11-27/` | version 3.2: the refusal bench (`late.log`) and the learning bench (`learn.log` and `learn/`, as on 24 November), on the bitstream of 26 November (`chip.MANIFEST`) |
+| `results/2026-11-28-westminster/` | version 3.2: `westminster` through bring-up (`westminster.log`), its bundle and the halt-only prediction that made it ([its README](results/2026-11-28-westminster/README.md)) |
+| `results/2026-11-28-sump/` | version 3.2: PulseView's driver (sigrok-cli's `ols`) capturing from the chip through `sump.py` on the Pico W, two `.sr` captures and the scripts that made them ([its README](results/2026-11-28-sump/README.md)) |
 | `results/2026-11-26/` | version 3.2: the bring-up log and telemetry, the bitstream's and bundles' MANIFESTs, the place-and-route log, the clock skew report and the block hierarchy (`hierarchy.json`) |
 | `results/2026-11-24/` | the refusal bench (`late.log`) and the learning bench (`learn.log`, with the playback, the chip's capture, the learned table, both generated programs and the timed marks in `learn/`), after a bring-up of 86 of 86 programs; the bundles' MANIFEST and the bitstream's (built 2026-11-22) |
 | `results/2026-11-22/` | version 3.1 with the reset synchroniser: the bring-up log and telemetry, the bitstream's and bundles' MANIFESTs, the place-and-route log and the block hierarchy (`hierarchy.json`); the Ethernet transmit, receive (at three bias levels), line-check and ping logs (the laptop's MAC address replaced by LAPTOP-MAC); the USB keyboard runs (`usb-keyboard.log`) |
@@ -489,8 +496,8 @@ The same load also answers UDP echo (port 7, RFC 862), and `udpecho.py` sends it
 laptop. The chip's part is the one it plays for a ping, which the bench has shown: `eth_trx`
 receives the frame, hands it to the Pico and sends the reply the Pico gives back. Only the
 Pico's reply code is new, and `test_ethbench.py` checks it end to end on the simulated chip,
-with the reply decoded from TD+ and TD- and checked with its CRC. It has not yet run on the
-bench.
+with the reply decoded from TD+ and TD- and checked with its CRC. It has not been run on
+the bench.
 
 ### The line check
 
@@ -770,7 +777,7 @@ the sources committed as `57db3c3`, the one that passed bring-up with 94 of 94),
 programs were refused again with every value in the table unchanged: the same cause,
 instruction and tick, the same digests, no pin driven and the tripwires at 0. Version 3.2
 changed how a waiting context fetches (the parked fetch, D-73), which is the path a late
-event takes, so this is the run that shows the refusal on the chip being taped out. Log:
+event takes, so this is the run that shows the refusal on the release version. Log:
 `results/2026-11-27/late.log`.
 
 ## Learned on the bench
@@ -826,7 +833,7 @@ playback as the chip captured it; the generated programs differ only in that con
 ## Held-out round on the bench, 2026-11-25
 
 The held-out round ([`heldout/RESULTS.md`](../../heldout/RESULTS.md)) wrote eight protocols
-drawn at random from a sealed list. Here each one runs on the chip with no device on the other
+drawn at random from a public pool by a sealed draw. Here each one runs on the chip with no device on the other
 end of its bus: only the two boards, and a second Pico as a logic analyser (for M-Bus, the
 Pico W also acts as the bus master). All eight passed: seven by their captures, and the 1553B
 terminal, which makes no edge without a bus controller, by bring-up alone.
@@ -920,7 +927,8 @@ chip, and each judge on captures made from the ISS.
 The clock enters on ball L3 (J3 pin 9), a clock-capable pin. nextpnr-0.11.1-47 cannot put the
 neighbouring L4 (GCLKT_4) on the GW5A-25's global clock network: a build with the clock there fell
 back to general routing, with 5.5 ns of clock skew and 191 hold violations. From L3 the clock goes
-through a BUFG to all 5,111 clock pins with 0.000 ns measured skew (`clkskew.py`).
+through a BUFG to all of its clock pins (5,266 on version 3.2) with 0.000 ns measured skew
+(`clkskew.py`).
 
 nextpnr has flagged hold at the block RAM address pins: 40 flags when this was first measured,
 8 in the bitstream of 19 November, none in those of 21 November. A single counter feeding a block

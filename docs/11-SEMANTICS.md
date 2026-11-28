@@ -1,10 +1,12 @@
-# Escapement machine semantics 3.1 (normative)
+# Escapement machine semantics 3.2 (normative)
 
 This document is the normative definition of the machine: what every register holds in
 every cycle, and what every instruction does at its commit edge. The Python
 instruction-set simulator (`sw/esciss`) and the RTL (`src/`) are two independent
 implementations of it, which share only the encoding tables in `isa/isa.yaml`, and the
-lockstep co-simulation checks that they agree. [01-ARCHITECTURE](01-ARCHITECTURE.md)
+lockstep co-simulation checks that they agree. A third restatement of section 7, the
+instruction checker `formal/esc_isa_check.v`, is written from this document alone and
+proved against the RTL at every commit ([04-VERIFICATION](04-VERIFICATION.md)). [01-ARCHITECTURE](01-ARCHITECTURE.md)
 explains the same machine informally and [02-ISA](02-ISA.md) is the instruction
 reference.
 
@@ -24,6 +26,7 @@ before, execution digest included.
 | 2 | Program pages: a 1,024-word store of four pages, one selected per context (§3); proof tripwires (§10) |
 | 3 | The half-tick input sample (§5); the line unit's receive strobes, both-edge decoding and long receive (§6.6); the bus timing monitor, `MON` and `GETM` (§6.7, §7.8) |
 | 3.1 | Span (§3): a context whose partner is not enabled may also fetch from its partner's page, with a 9-bit PC and link, so its program has 512 words; `ctx_span` (§4) |
+| 3.2 | Nothing new in the machine. GETM's Z flag is listed (§7.8; it was always set), and a few cases the text left open are stated as both implementations and the instruction proof have them: the PC after a fault and what a retry fetches (§3), ILLEGAL before PC_RANGE and WAIT (§7), Z after a shift by 0 (§7.1), HALT's outcome (§7.2) and an IRQ meeting the host's clear (§10) |
 
 Notation: all arithmetic on 32-bit values is modulo 2^32 unless stated. `zext` is
 zero extension. `ahead(a, b)` means `1 <= (a - b) mod 2^32 < 2^31` ("a is strictly
@@ -42,7 +45,7 @@ after b within the half-range horizon"). `reached(t, d)` means `(t - d) mod 2^32
 | Protocol pins | 13: bank A, 8 bidirectional (`uio[7:0]`); bank B (v1.2), 5 split pins (out `uo_out[7:3]`, in `ui_in[7:3]`) |
 | Pins per context | 8 logical pins, mapped onto the context's bank (§5) |
 | Host mailboxes | 2 entries × 32 bits per context per direction |
-| Tape (v1.1) | 256 words × 32 bits, single port, shared by all contexts and the capture unit |
+| Tape (v1.1) | 256 words × 32 bits, single port, shared by all contexts, the capture unit, the line unit (v1.4) and the host |
 | Capture staging (v1.1) | 2 records |
 | Line unit (v1.4) | 1, half duplex, owned by one context per run |
 | Bus timing monitor (v3) | 1, four rules of 16-bit intervals, owned by one context per run |
@@ -110,8 +113,9 @@ instruction every 4 ticks, as an unpaired context does, and a waiting HALT every
 cycle t (v2, S-A: the 8-bit PC selects a word in the context's page; branch targets,
 `RET` and every encoding are unchanged). With every `ctx_page` 0, as after reset, this is
 the v1.7 machine on page 0. The memory returns `imem_rdata = IMEM[imem_addr]`
-during cycle t+1 (synchronous read registered at E_t). IMEM is never written during a
-run.
+during cycle t+1 (synchronous read registered at E_t). During a run IMEM is written only
+by the host's live program writes (§9), each in a cycle in which the memory serves no
+fetch.
 
 **Span (3.1).** Context k **spans** in a run when `ctx_span[k]` is set and its partner
 k ^ 2 is not enabled (`ctx_enable[k ^ 2] = 0`); this is fixed at start (§9), as pairing
@@ -140,8 +144,12 @@ Each commit has one **outcome**:
 - **WAIT** (wait-class only): no architectural effect except the telemetry counter
   in §7.4; PC is unchanged, so the same instruction is fetched again in cycle c+1, the
   context's next fetch cycle, and commits again at c+4 (paired: the fetch made in cycle
-  c-1 is discarded at c+2, except after HALT, which it repeats, at c+2).
-- **FAULT**: no architectural effect of the instruction; fault handling (§8) at E_c.
+  c-1 is discarded at c+2, except after HALT, which it repeats, at c+2). What is retried
+  is the word at that PC when it is fetched again, which a program write during the run
+  (§9) may have changed.
+- **FAULT**: no architectural effect of the instruction, so registers, flags, `lc`, `lr`,
+  `sh`, `tmr` and the PC keep their values (the PC stays at the faulting instruction);
+  fault handling (§8) at E_c.
 
 ## 4. Architectural state
 
@@ -151,7 +159,8 @@ checker, telemetry, IRQ pending + code, mailboxes.
 
 Global: `now`, pin registers `val[12:0]` and `oe[12:0]`, input synchronisers, the
 first-fault register, run flag, the tape `T[0..255]` (not reset, not cleared by start;
-written only by STT, the capture unit and the host while stopped), the capture unit
+written only by STT, the capture unit, the line unit's RECV (§6.6) and the host while
+stopped), the capture unit
 (§6.5), the line unit (§6.6), the bus timing monitor (§6.7, v3), the half-tick sample
 registers `h2`, `h3` (§5, v3), the execution digest `dg` (§10.1), and configuration
 (static during a run):
@@ -650,7 +659,8 @@ one **record**: `valid`, `rule`, `late`, `tick` (32 bits) and `interval` (16 bit
 E_t a pin p has a rise if `psync[p] = 1` and `prev[p] = 0` during cycle t, and a fall if
 the reverse. Rule k sees a **from-edge** if `en` and pin `fp` has an edge of kind `fe`, and
 a **to-edge** likewise with `tp` and `te`. Because every pin passes through the same
-synchroniser, the interval between two edges is the interval between them at the pins.
+synchroniser, the interval between two edges is the interval between them at the pins, to
+within the one tick on which each edge is seen.
 
 **Evaluation** at every edge E_t of a run, except the stop edge (§9), with all of rule k's
 values as during cycle t:
@@ -702,7 +712,8 @@ Formats and opcodes are in `isa/isa.yaml`. Unlisted opcodes and nonzero reserved
 meaning. On COMPLETE the next PC is PC+1 unless stated. **PC_RANGE**: an instruction at
 the context's last address (PC = 255, or 511 when it spans) whose outcome would be
 COMPLETE with a sequential next PC (or a CALL there) faults PC_RANGE instead, with no
-effects.
+effects. An illegal word faults ILLEGAL wherever it is, even at the last address, and
+even for a wait-class opcode that would otherwise WAIT.
 
 `R[x]` is register x. Flags are unchanged unless listed.
 
@@ -726,7 +737,7 @@ effects.
 | STSH rd | R[rd] = sh | — |
 
 Z is set from the written or compared result, `Z = (result == 0)`. For TSTI it is as
-listed.
+listed. A shift by n = 0 writes R[rd] unchanged, so Z is set from that value.
 
 ### 7.2 Control
 
@@ -740,7 +751,7 @@ listed.
 | CALL t | lr = PC+1, PC = t (PC_RANGE at the last address, above) |
 | RET | PC = lr |
 | IRQ code | irq_pending = 1, irq_code = code (sticky; cleared by the host) |
-| HALT (wait) | if the FIFO after retirement at E_c is empty, the checker is not active after E_c and (v1.4) the context does not own an engaged line unit during cycle c: state = HALTED at E_c, PC unchanged, pins retained, and an armed receiver of its line unit is cancelled; else WAIT |
+| HALT (wait) | if the FIFO after retirement at E_c is empty, the checker is not active after E_c and (v1.4) the context does not own an engaged line unit during cycle c: the outcome is COMPLETE, state = HALTED at E_c, PC unchanged, pins retained, and an armed receiver of its line unit is cancelled; else WAIT |
 
 ### 7.3 Time and input
 
@@ -838,7 +849,7 @@ during cycle c.
 | Instr | Effect | Flags |
 | --- | --- | --- |
 | MON rd, rs | writes a rule, or clears, from R[rd] and R[rs] at E_c (§6.7) | — |
-| GETM rd, sel | R[rd] = the value below for `sel` = imm[15:0], during cycle c | — |
+| GETM rd, sel | R[rd] = the value below for `sel` = imm[15:0], during cycle c | Z |
 
 MON by a context that is not the owner, when the monitor has one → FAULT ADMIT/OWNER.
 Otherwise COMPLETE, and if the monitor has no owner this context becomes its owner at E_c.
@@ -995,8 +1006,8 @@ start values, §9.)
 
 ### 10.1 Execution digest (v1.1)
 
-A 32-bit signature of the run, so a host can check silicon, gates, RTL and ISS against
-each other with one read. At an edge E_t of a run (not a start or stop edge) the digest
+A 32-bit signature of the run, so a host can check a run of the chip, the netlist, the RTL
+or the ISS against the others with one read. At an edge E_t of a run (not a start or stop edge) the digest
 is updated **if the edge is active**: a commit is observed at E_t, an LDT completed at
 E_(t-1), or the outputs (`uio_out`, `uio_oe`, `ob`) during t differ from the outputs
 during t−1 (outputs during cycle 0 are compared with 0). Otherwise `dg` is unchanged. So
@@ -1032,8 +1043,10 @@ bank B (`ob` stays 0x1F) produces the same digest as on 1.1.0.
   `irq_pending[3:0]` (per-context IRQ pending), `fault_valid` (first-fault register
   valid).
 - IRQ clear (v1.0.1): `irq_clear[3:0]` input. At an edge where `irq_clear[k]` is high,
-  context k's `irq_pending` is cleared, unless an IRQ instruction of context k commits
-  at that same edge; the set wins, and that instruction's code is recorded.
+  context k's `irq_pending` is cleared, unless an IRQ instruction of context k completes
+  at that same edge; the set wins, and that instruction's code is recorded. (An IRQ that
+  faults there sets nothing, so the clear applies.) The clear leaves `irq_code` as it
+  is.
 - Mailboxes (host side), per context k (packed buses, ctx k at its slice):
   `mbx_rx_push[3:0]`, `mbx_rx_data[127:0]`, `mbx_rx_full[3:0]`, `mbx_tx_pop[3:0]`,
   `mbx_tx_data[127:0]` (TX head), `mbx_tx_empty[3:0]`. A push or pop on a host port

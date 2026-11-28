@@ -41,6 +41,9 @@ QUICK = [
     ("esc_mon_cover", "Bus monitor cover"),
     ("esc_core_park", "A parked fetch takes the word the store would return (k-induction)"),
     ("esc_core_park_cover", "Parked fetch cover"),
+    ("esc_core_isa", "Each committed instruction does what the semantics say (k-induction)"),
+    ("esc_core_isa_grid", "A waiting instruction is retried 4 ticks later, a paired HALT 2 (k-induction)"),
+    ("esc_core_isa_cover", "Instruction checker cover"),
 ]
 # every task in formal-props (Makefile) must be listed above, or the results page undercounts it
 # (version 3.2 found six missing)

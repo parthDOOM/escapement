@@ -251,6 +251,15 @@ Every duration is scaled down 20 times (the models take a tick as 800 ns) to kee
 simulation short, as the other infrared tests on the RTL scale theirs. It takes about
 90 seconds in Icarus on the RTL, and 6 minutes on the netlist.
 
+The same loop has run on the FPGA build, at full speed and with a recording of a real
+device instead of a model: a Pico played a PT2262 433 MHz socket remote's frames, from a
+sigrok-dumps recording, into a pin; the chip captured them with its own capture unit;
+esclearn learned the protocol from that capture, and the transmitter and receiver escgen
+built from it ran on the same chip: the receiver took every frame played to it as its own
+word, and the transmitter sent a word the recording never has, which read back correctly (on
+version 3.1 on 24 November 2026 and on version 3.2 on 27 November 2026;
+[the learning bench](../fpga/tangprimer25k/README.md#learned-on-the-bench)).
+
 ## What it will not do
 
 - **Guess.** Random edges, a recording that is too short, and frames with no repeating

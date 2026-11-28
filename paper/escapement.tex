@@ -21,7 +21,7 @@
 
 \title{Escapement: A Programmable Protocol Engine\\ Whose Pin Edges Are Never Late}
 
-\author{\IEEEauthorblockN{parthDOOM}
+\author{\IEEEauthorblockN{parthDOOM, Pranav Jasoliya, Samhita Patil and Gahan Makwana}
 \IEEEauthorblockA{\url{https://github.com/parthDOOM/escapement}}}
 
 \maketitle
@@ -29,28 +29,31 @@
 \begin{abstract}
 A microcontroller that speaks a digital protocol in firmware keeps the protocol's timing
 only while it is fast enough, and when it is not, an edge comes out late and nothing
-notices. I have chased that silent late edge through my own firmware, and this chip is my
-answer to it. Escapement is a protocol engine, fabricated through Tiny Tapeout on IHP's
+notices. We have chased that silent late edge through our own firmware, and this chip is our
+answer to it. Escapement is a protocol engine, built for Tiny Tapeout on IHP's
 130\,nm SG13CMOS5L process. Firmware never
 drives a pin; it queues events with absolute deadlines, and each event is checked when it
 is queued. If its deadline can still be met, it is applied on exactly that clock tick; if
 not, the program stops with a fault that names the reason. A late edge is not a possible
 outcome, and this is proved formally for every program, for all time, on RTL that is in
-turn proved equivalent to the signed-off netlist. Four hardware contexts share a
+turn proved equivalent to the signed-off netlist. Each of its 55 instructions is proved to
+do what the specification says, against a checker written from the specification alone,
+which found one error, in the specification. Four hardware contexts share a
 fixed-slot barrel pipeline, so the timing of each program depends on that program alone,
 and a non-interference proof shows that one program can be replaced while the others run
-without moving any of their edges. A line unit, a capture unit and a bus timing monitor
-supply the per-bit work and the observation that firmware cannot do itself. The design
-occupies $1724\times711\,\mu$m, is signed off at 20\,ns at all three corners with every
-electrical rule met, and draws 1.85\,mW while sending a UART at 25\,MHz. Ninety
-programs, from UART and I2C to a USB keyboard and 10BASE-T Ethernet, run on it; eight of
-them are for protocols drawn at random from a sealed list and written on the tagged design,
-and all eight fit. On an FPGA the same RTL passes 89 of them through the chip's own bring-up
-script, answers a laptop's
-ping over 10BASE-T, enumerates on its USB port as a keyboard, and drives the display and
-sound for DOOM running on its host. There it also refuses a late edge and an unowned pin
-exactly where the certificate checker foretold, and learns a 433\,MHz remote's protocol
-from its own capture.
+without moving any edge of a program that uses none of the shared units. A line unit, a
+capture unit and a bus timing monitor supply the per-bit work and the observation that
+firmware cannot do itself. The design occupies $1724\times711\,\mu$m, is signed off at
+20\,ns at all three corners with every electrical rule met, and in gate-level simulation
+of its signed-off layout draws 2.16\,mW while sending a UART at 25\,MHz. Ninety programs, from UART and I2C to a
+USB keyboard and 10BASE-T Ethernet, are written for it and certified; eight of them are
+for protocols drawn at random from a public pool of 24, the draw sealed by a hash
+committed before any was written, and written on the tagged design, and all eight fit.
+Every hardware result here is from an FPGA bench, where the same RTL passes all 90
+programs through the chip's own bring-up script, answers a laptop's ping over 10BASE-T, enumerates on its USB port as a
+keyboard, and drives the display and sound for DOOM running on its host. There it also
+refuses a late edge and an unowned pin exactly where the certificate checker foretold, and
+learns a 433\,MHz remote's protocol from its own capture of the remote's recorded frames.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -71,7 +74,8 @@ timing that tests rarely reproduce, and is found, if at all, by the device at th
 end.
 
 The Jane Street protocol emulator competition \cite{janestreet} asks for a chip, built
-through Tiny Tapeout \cite{tinytapeout} on IHP's open 130\,nm process \cite{ihppdk}, that
+through Tiny Tapeout \cite{tinytapeout} on IHP's 130\,nm process with its open process
+design kit \cite{ihppdk}, that
 can stand in for the devices a test bench needs: a UART, an I2C target, an SPI device and
 so on. Escapement's answer is to make time the one thing the hardware is exact about and
 to leave everything else to firmware. The chip knows nothing about UART or I2C. It knows
@@ -91,14 +95,16 @@ This paper describes that hardware and how its claims are checked. Its contribut
   timing monitor, that keep the same timebase and admission discipline
   (Section~\ref{sec:units});
 \item a verification structure in which every central claim has a mechanical check: an
-  unbounded proof that no edge is late for any program, a non-interference proof,
+  unbounded proof that no edge is late for any program, a proof of every instruction
+  against the specification, a non-interference proof,
   equivalence of the netlist to the RTL, an independent reference model in lockstep,
-  static timing certificates measured against the chip, and mutation testing
+  static timing certificates checked against the leads measured on the RTL, and mutation
+  testing
   (Section~\ref{sec:verif});
-\item a 130\,nm implementation on an open-source flow, with its measurements, and a
-  hardware bench on which the same RTL runs every program (Section~\ref{sec:impl});
-\item a held-out test of the central claim: eight protocols drawn at random from a sealed
-  list, each written on the tagged design and checked like every other program
+\item a 130\,nm implementation on an open-source flow, with its sign-off results, and an
+  FPGA bench on which the same RTL runs all 90 programs (Section~\ref{sec:impl});
+\item a held-out test of the central claim: eight protocols drawn at random from a public
+  pool by a sealed draw, each written on the tagged design and checked like every other program
   (Section~\ref{sec:apps}).
 \end{itemize}
 
@@ -113,15 +119,16 @@ XMOS processors give each hardware thread timed ports and a deterministic schedu
 \cite{xmos}. In both, a program is on time if its author has made it so; the hardware
 does not know when a program has fallen behind. The precision-timed (PRET) machine
 \cite{pret,pretimpl} makes instruction timing repeatable and adds instructions that act at
-a deadline. Its thread-interleaved pipeline is a descendant of the barrel processors of
-the CDC~6600's peripheral processors \cite{cdc6600}, which Escapement also uses, for the
-same reason: each thread's timing is independent of the others. The time-triggered
+a deadline, and its implementations can raise an exception once a deadline has passed,
+which tells a program it was late after the fact. Its thread-interleaved pipeline
+descends from the barrel in which the CDC~6600's ten peripheral processors shared one
+set of logic \cite{cdc6600}, a structure Escapement also uses, for the same reason: each thread's timing is independent of the others. The time-triggered
 architecture \cite{tta} schedules all communication on a global timebase decided ahead
 of time.
 
 Escapement takes from these the idea that time is an architectural quantity. What it
 adds is a check at the moment a program asks for an edge, against the absolute deadline
-of that edge, with a refusal instead of a late edge when the check fails. The guarantee
+of that edge, with a refusal before the edge instead of a late edge when the check fails. The guarantee
 therefore does not depend on the program having been analysed, and static analysis, in
 the spirit of worst-case execution time tools \cite{wcet}, becomes a way to show that a
 given program is never refused rather than a precondition for its timing to be correct.
@@ -133,16 +140,18 @@ given program is never refused rather than a precondition for its timing to be c
 A program never drives a pin. It prepares an \emph{event}, which says what the pins
 should become and the tick at which that should happen, and hands it to its context's
 event queue of four entries. The deadline is absolute: a value of the chip's 32-bit tick
-counter, not a delay from the present. This is the choice the rest of the design rests
+counter, not a delay from the present. The counter advances by one on every rising clock
+edge, so a tick and a clock cycle are the same length; ticks name deadlines, and cycles
+name pipeline steps. This is the choice the rest of the design rests
 on. An absolute deadline means the same thing however long the program took to compute
 it, so the time a program spends deciding what to do next never leaks into when its edges
 happen. A context keeps a timer register from which it computes deadlines, and the
 instructions that create events take their deadline from it.
 
-There are three kinds of event. A DRIVE sets the value and output enable of the masked
+There are four kinds of event. A DRIVE sets the value and output enable of the masked
 pins. An EXPECT checks that an input holds a level, or reaches it, within a window of up
 to 127 ticks, and counts passes and failures. A SAMPLE shifts one input bit into a
-register at its tick. A fourth kind, SEND, starts a packet on the line unit
+register at its tick. A LINE event, made by SEND, starts a packet on the line unit
 (Section~\ref{sec:units}).
 
 \begin{figure}[t]
@@ -172,15 +181,20 @@ register at its tick. A fourth kind, SEND, starts a packet on the line unit
 one event already queued for tick 112. A deadline of 120 is strictly after both and is
 admitted; it will be applied on the clock edge where the tick counter reads 120. A
 deadline of 108 (before the queue's tail) or 98 (already past) is refused, and the
-context stops with an ADMIT fault whose subcode names the rule.}
+context stops with an ADMIT fault whose subcode names the rule. The \emph{lead} of an
+admitted event is how far ahead of its commit its deadline lies.}
 \label{fig:admission}
 \end{figure}
 
 The check happens at \emph{admission}, when the event enters the queue
 (Fig.~\ref{fig:admission}). An event is admitted only if its deadline is strictly after
-the current tick and strictly after the last event already queued, and only if it
-touches pins its context owns. If any rule fails, the event is not queued, the context
-stops with a fault whose subcode (PAST, ORDER, OWNER, MASK or OVERLAP) names the rule,
+the current tick and strictly after the last event already queued, only if it names at
+least one pin and touches only pins its context owns, and, for an EXPECT, only if it
+comes after the window of the previous EXPECT has closed. ``Strictly after'' is taken
+within half the counter's range: a deadline must lie less than $2^{31}$ ticks ahead,
+43\,s at 50\,MHz, so the comparison stays correct across the 32-bit wrap. If any rule
+fails, the event is not queued, the context stops with a fault whose subcode (PAST,
+ORDER, MASK, OWNER or OVERLAP) names the rule,
 its pins are released, and the other three contexts carry on. A full queue is not a
 fault: the instruction waits and is retried in the context's next slot. At the other end,
 \emph{retirement} applies the head event on the clock edge whose tick equals its
@@ -198,7 +212,8 @@ compare and then drive a pin in one 20\,ns cycle. The chip therefore evaluates e
 a cycle early, for the context that commits next, and keeps the answer in a register.
 This is sound because the compared values (the context's timer, its queue's tail and its
 EXPECT window) change only at that context's own commit, four cycles before they are
-used. The proofs assert, in every cycle that uses one of these registers, that it equals
+used, or two in pair mode (Section~\ref{sec:barrel}), still a cycle before the early test
+reads them. The proofs assert, in every cycle that uses one of these registers, that it equals
 the test evaluated on time. Decoding and operand reads are moved a stage earlier on the
 same argument.
 
@@ -264,9 +279,9 @@ instruction every four ticks whatever the others do. The barrel is there for iso
 rather than speed. A busy context cannot slow a quiet one and a waiting context leaves
 its slot empty, so the instruction timing of a program can be worked out from that
 program alone, and a timing certificate computed for one program still holds when four
-run together. The pipeline is also simple: a context's next instruction is fetched only
-after its previous one has committed, so there are no hazards, no forwarding and no
-stalls.
+run together. The pipeline is also simple: in the plain barrel a context's next instruction is
+fetched only after its previous one has committed, so there are no hazards, no forwarding
+and no stalls. Pair mode, below, is the one exception, and it checks its guess.
 
 \begin{figure}[t]
 \centering
@@ -302,7 +317,7 @@ pages of 256, and each context fetches from the page its configuration names, so
 programs assembled separately can each start at address 0 with no linking step. A program
 too long for one page can \emph{span} its partner's page as well, when that partner is off.
 
-\textbf{Pins.} The 13 protocol pins form two banks. Bank A is the eight bidirectional
+\textbf{Pins.} The 13 protocol pins, 18 signals in all, form two banks. Bank A is the eight bidirectional
 pins of the Tiny Tapeout pinout, each push-pull or open-drain; bank B turns the five
 dedicated inputs and outputs that the host link leaves free into split pins, one input
 and one output each. Instructions refer to eight logical pins and each context sees one
@@ -315,8 +330,9 @@ SDA is never driven high holds by construction.
 \textbf{The instruction set.} Every instruction is one 32-bit word, an 8-bit opcode and a
 24-bit payload whose unused bits must be zero, so erased or uninitialised memory traps
 instead of running. The 55 instructions fall into eight groups
-(Table~\ref{tab:isa}). Instructions that wait, for a time, a pin pattern, a mailbox word
-or a free queue entry, keep their program counter and are tried again in the context's
+(Table~\ref{tab:isa}). Instructions that wait, for a time, a pin pattern, a mailbox word,
+a free queue entry, the result of a queued SAMPLE, or the line unit and its use of the
+tape port, keep their program counter and are tried again in the context's
 next slot.
 
 \begin{table}[t]
@@ -342,8 +358,9 @@ Bus monitor (2) & \ins{MON GETM} \\
 
 \textbf{Live reload.} The host can stop one context, rewrite its program and restart it
 while the others run. A program word written during a run waits for a cycle in which the
-program store has no fetch to serve, and a restarted context resumes at the frame
-boundary of a run started at that point, so its certificate still holds. Whether a
+program store has no fetch to serve, and a restarted context begins at the start of its
+next four-cycle rotation, exactly as a run started on that tick would, so its certificate
+still holds. Whether a
 reload can disturb the neighbours is a question the earlier properties do not answer;
 Section~\ref{sec:verif} answers it with a non-interference proof.
 
@@ -359,11 +376,12 @@ discipline.
 \textbf{The line unit.} At 24\,MHz a low-speed USB bit lasts 16 ticks, four instructions,
 and in that time firmware would have to apply NRZI coding, insert a stuffed bit after six
 ones and update a CRC. The line unit does that work for one owner context while the
-firmware stays in charge of whole packets. A SEND event starts a packet at its deadline,
-so a packet is admitted and retired like any other event. Three words on the tape
-configure it: the pins, the coding, the stuffing rule, the bit period and any CRC up to
+firmware stays in charge of whole packets. The LINE event a SEND makes starts a packet at its deadline,
+so a packet is admitted and retired like any other event. Three words on the tape,
+or five for symbol coding, a clock pattern or a CRC wider than 16 bits, configure it: the pins, the coding, the stuffing rule, the bit period and any CRC up to
 32 bits, so USB, CAN and 10BASE-T frames are configurations of one unit rather than
-three blocks. When receiving, it takes its bit strobe from a recovered clock (for
+three blocks. A configuration that names a pin its owner does not own faults OWNER when
+it is loaded, and one that is invalid faults with a subcode of its own, CONFIG. When receiving, it takes its bit strobe from a recovered clock (for
 UART-like, USB and CAN framing), from a cell decoder for Manchester codes (10BASE-T
 \cite{ieee8023}) or from an external clock pin (to listen to an SPI bus between two other
 devices). It removes stuffed bits, checks the CRC, writes the bits to the tape and
@@ -371,22 +389,29 @@ records the tick on which the packet ended. That end tick makes certified replie
 possible: the firmware sets its deadline to the end of the host's packet plus a constant,
 and the certificate checker proves the constant.
 
-A 10BASE-T bit lasts 100\,ns in two halves, and at 50\,MHz one sample per tick cannot tell
+A 10BASE-T bit lasts 100\,ns as two Manchester halves of 50\,ns, and at 50\,MHz one sample per tick cannot tell
 an edge at a bit boundary from one in its middle once the standard's jitter is added. The
 chip therefore also samples every protocol pin on the falling clock edge, the only place
-it looks at a pin between ticks, and the line unit's decoder places each edge to half a
-tick.
+it looks at a pin between ticks, and the line unit's decoder locates each edge to within half
+a tick.
 
 \textbf{The tape and the capture unit.} A second SRAM, the \emph{tape}, is shared by
-firmware loads and stores, the line unit, the capture unit and the host, and none of
-them makes another wait in a way a program can see. The capture unit writes a record of
+firmware loads and stores, the line unit, the capture unit and the host, by a fixed rule
+rather than by arbitration. A load or store uses the single port in its own commit cycle,
+and only one context commits in a cycle. The line unit uses it only in its owner's slots,
+where the owner's own load or store waits for it, so that wait depends on the owner's
+program alone. The capture unit drains a two-record staging buffer into any cycle without
+a load or store, and the host reads in the cycles left after that. No user of the tape
+can make another context wait. The capture unit writes a record of
 the pin levels and the tick whenever a watched pin changes. The host can read records
 during a run in the cycles the core leaves free, so a capture streams for as long as the
 host keeps up, and a record is never overwritten before it has been read; a host that
 falls behind ends the capture with an overflow flag, never with silently lost data. A
 record has the same shape as a DRIVE event, levels and a tick, so a recorded waveform
-replays tick for tick. On the Tiny Tapeout demo board, PulseView \cite{sigrok} records
-from the chip through its existing logic-analyser driver.
+replays tick for tick. PulseView \cite{sigrok} records from the chip through its
+existing logic-analyser driver: on the FPGA bench that driver captured two test waves from
+the chip at 1\,MHz with every edge on its sample, for as long as the bench's host link
+kept up with them.
 
 \textbf{The bus timing monitor.} EXPECT lets a program check that another device answers
 its own edges in time. The monitor checks traffic between other devices, which the chip
@@ -411,7 +436,9 @@ The properties are written into the RTL and proved with SymbiYosys \cite{sby} on
 \cite{kinduction} and, for one group of properties, the rIC3 model checker \cite{ric3}.
 The program memory is a free input of every proof, so the proofs cover every program
 anyone will load, and the tick counter may start anywhere, so the 32-bit wrap is
-reachable.
+reachable. Every assertion of the core is proved unbounded. Each is also checked from a
+real reset to a depth of 20 cycles, which catches a property stated about states the
+chip never starts from and gives a short counterexample when an edit breaks one.
 
 \textbf{Never late.} ``No queue head is ever past its deadline'' is proved unbounded by an
 assume-guarantee split \cite{assumeguarantee}. A per-context proof shows by induction
@@ -429,27 +456,52 @@ everything a context $j$ can observe, but differs freely in every host command a
 program word aimed at the other contexts. The proof, in the sense of Goguen and Meseguer
 \cite{noninterference}, shows that $j$'s commits, architectural state and pins are equal
 in both copies at every cycle. It is unbounded, by induction over an inductive invariant
-that relates the two copies' state. The claim has a stated scope, which the host
-software enforces: $j$ uses none of the shared units, since another context may own
-them. The proof earned its place during development: when the bus monitor was first
+that relates the two copies' state. The claim has a stated scope: $j$ uses none of the shared units,
+since another context may own them, and no program word is written into a page $j$
+fetches from. The host refuses any reload outside that scope: one beside a context that
+can reach an instruction of a shared unit, and one that writes a page another running
+context fetches from, so a program to be reloaded during a run is given a page of its
+own. The proof earned its place during development: when the bus monitor was first
 added it failed, because any context could read monitor state that every other context
 could shape, and the fix was to give the monitor an owner.
 
 \textbf{The netlist is the design.} The gate-level netlist from the sign-off flow is
-proved sequentially equivalent to the RTL, so the properties hold for what is fabricated
+proved sequentially equivalent to the RTL, so the properties hold for the netlist itself
 and not only for its source. The clock-gated register banks and latch banks, which have
 no direct RTL counterpart, are proved equal to ordinary enabled flip-flops at every
 instant, with a gated clock that cannot glitch.
 
 \textbf{Tripwires.} Twelve of the proved properties, among them never late, open-drain
-pins never driven high and unowned pins never driven, are also built into the silicon
+pins never driven high and unowned pins never driven, are also built into the chip
 as monitors that set a sticky flag the first time their property is seen broken. The
-proofs say no flag can ever set; on real silicon, a manufacturing defect or a wrong
-assumption about the environment would appear as a named, broken property rather than
-as a puzzling failure.
+proofs say no flag can ever set. A manufacturing defect or a wrong assumption about the
+environment that breaks one of these twelve properties therefore shows up as a named flag
+rather than as a puzzling failure; one that breaks none of them is not seen this way.
+
+\textbf{Every instruction does what the specification says.} The properties above say what
+the chip never does; they do not say that ADD adds. Checking a core one retired instruction
+at a time against a model of its instruction set is the method of riscv-formal
+\cite{riscvformal}, whose generated checks are bounded by default. A checker restates each of the 55
+instructions from the specification alone, written by an author who had not read the
+core's execute logic, as the effect it must have on its context's registers, flags, PC,
+event queue and telemetry, and on the unit it hands work to. In the commit cycle it
+computes every field the instruction may change; in the next it compares each with the
+core, and every field the instruction does not list must be unchanged. It is proved by
+k-induction for every program and every reachable state, assuming the design's other
+proved properties, and a separate proof shows that the word committed is the program's
+word at the committing context's own PC. Covers reach each of its 253 cases, and 76
+planted bugs, one or more per instruction, each make it fail. For the sixteen
+instructions that use the pins, mailboxes, tape, capture unit, line unit or monitor
+(GETP, WAITP, GETI, GETX, POP, PUSH, RXREADY, TXREADY, LDT, STT, CAPT, GETC, LINE, GETL,
+MON and GETM), it
+checks what the instruction hands the unit and reads back, not what the unit does next,
+which the unit's own proofs cover. The proof found one error, and it was in the
+specification: GETM sets the Z flag in the RTL and in the simulator, like every other
+read of a unit's state, but the specification listed no flag for it. The co-simulation
+could not see this, because its two models agree.
 
 Every proof runs in continuous integration on each change it depends on, and planted
-faults show that the proofs can fail. In the final run all 116 tasks pass: the 44 unbounded core proofs and 16 more proofs and cover checks in one job, the bounded check from reset as 52 tasks covering 72 assertion lines to depth 20 in a second, and the tripwire, line unit and non-interference proofs in a third; 23 planted bugs each make their proof fail.
+faults show that the proofs can fail. In the final run all PENDING-CI tasks pass: the 44 unbounded core proofs and PENDING-CI more proofs and cover checks in one job, the bounded check from reset as 52 tasks covering 72 assertion lines to depth 20 in a second, and the tripwire, line unit and non-interference proofs in a third; PENDING-CI planted bugs each make their proof fail.
 
 \subsection{Two implementations of one specification}
 
@@ -457,26 +509,37 @@ The machine is defined once, cycle by cycle, in a normative specification, and
 implemented twice: in the RTL, and in a Python instruction-set simulator that shares
 nothing with it but the instruction encodings. The two were first written by separate
 authors who could not read each other's code, so that a misreading of the specification
-shows up as a disagreement rather than as two identical bugs. A co-simulation in
+is far more likely to show up as a disagreement than as two identical bugs. It is not
+certain to, and an error the two models shared is described below. A co-simulation in
 cocotb \cite{cocotb} on Icarus Verilog \cite{iverilog} runs both side by side and
 compares every commit, every register, every pin, the queues and the memories on every
-tick. In the final run it compared 191 random programs (19,850 commits; 9 more were too long for a program page) and 84 firmware cases, each against independent bus models, on both the behavioural RTL and the standard-cell build, and found no difference. The same simulator runs in the project's web page under Pyodide
+tick. In the final run it compared 191 random programs (19,850 commits; 9 more were too long for a program page) and 84 firmware cases, which cover every program but two (VGA Pong is checked through the chip's pins instead, and a 14-second chime only on the simulator), each against independent bus models, on both the behavioural RTL and the standard-cell build, and found no difference. The instruction checker runs inside the co-simulation too, so each commit is held to a third reading of the specification; with the checker's own carry for ADD planted wrong, it fails while the two models still agree. The same simulator runs in the project's web page under Pyodide
 \cite{pyodide}, so what a reader runs in the browser is the model the RTL is held to.
 
 On every clock edge where something happens, the chip folds what happened into a 32-bit
-\emph{execution digest}, which the simulator predicts exactly. After a run on silicon,
-one read over SPI compares the whole run with the model.
+\emph{execution digest}, which the simulator predicts exactly. After a run, the host
+reads the digest over SPI and compares it with the simulator's. Being a 32-bit signature,
+it lets a difference through with odds of about $2^{-32}$, so it complements the lockstep
+comparison rather than replacing it, and it is what a run on a board can be checked with.
 
 \subsection{Certificates, and the chip checking them}
 
-A static analyser, \texttt{escert}, walks every path of a firmware and proves a lower
-bound on how early each event is queued before its deadline. A program whose bound is
-positive can never be refused, for any input. The chip measures the same quantity while
-it runs, the minimum lead of each context, so the certificate and the silicon check each
-other. In the VGA Pong firmware, for example, the certificate proves that every edge of
+A static analyser, \texttt{escert}, proves a lower bound on how early each event is
+queued before its deadline. It treats a firmware as a timed automaton and runs a zone
+analysis, with difference-bound matrices, over every path, against every admission rule;
+it tracks what it knows of each register as an interval, and at a loop head it joins the
+states that return and widens a bound that keeps moving. For each context it answers
+CHECKED, with the bound; REFUTED, with inputs that the simulator replays into the fault;
+or NOT\_PROVEN, which is never counted as safe. A program whose contexts are all CHECKED
+can never be refused at admission, under any of its six rules, for any input and with no
+assumption about the timing of the devices it talks to. The chip measures the same
+quantity while it runs, the minimum lead of each context, so the certificate and the chip
+check each other. In the VGA Pong firmware, for example, the certificate proves that every edge of
 the video signal is queued at least 1{,}597 ticks early in the sync context and 8 ticks
 early in the picture context, and the simulator, the RTL, the gate-level netlist and the
-FPGA all measure exactly 1{,}597 and 8. All 90 programs are certified for every input. Across the 84 co-simulated firmware cases, 84 contexts have a finite bound, and the lead measured on the RTL equals the bound in 64 of them and exceeds it in the other 20; it is never below.
+FPGA all measure exactly 1{,}597 and 8. In the final run all 90 programs are certified
+for every input, by the checker as corrected after the held-out round
+(Section~\ref{sec:apps}). Across the 84 co-simulated firmware cases, 84 contexts have a finite bound, and the lead measured on the RTL equals the bound in 64 of them and exceeds it in the other 20; it is never below.
 
 \subsection{Checking the checks}
 
@@ -485,6 +548,12 @@ module and simulated on the process kit's standard-cell models \cite{mutation}; 
 the tests do not notice is a hole in the tests. Each surviving fault is read against the
 RTL and either closed with a new test, proved to change no output, or excluded with a
 written argument. The final campaign planted 1,033 faults: 919 were caught by a test, 55 were proved to change no output, and 59 are excluded with a written argument, most of them reset or start values that nothing reads before they are reloaded. None survives.
+The certificate checker is tested the same way. Timing bugs of the kinds firmware authors
+make, such as a deleted wait or an inverted branch, were planted one at a time in 87
+programs, 823 in all. \texttt{escert} refuted 196 of these planted variants, could not
+decide 23 and certified 604. Each certified variant was then run with random inputs,
+against its program's own bus models, and on benches aimed at paths those models do not
+reach; none of the 604 faulted.
 
 Models written from datasheets can share a misreading with the firmware they test, so
 recordings of real hardware, many of them from the sigrok-dumps collection \cite{sigrok},
@@ -495,36 +564,41 @@ and the I2C EEPROM firmware, standing in for a 24LC02B, faulted at clocks below 
 the second showed the admission rule doing its job, since the firmware was refused, not
 run with a late edge. A test that judged I2C timing from the waveform itself rather than
 from the model found that the RTL and the simulator both measured monitor intervals one
-tick short, a bug that lockstep comparison cannot see because the two agreed.
+tick short, a bug that lockstep comparison cannot see because the two agreed. All
+three are fixed, and each has a test that fails on the old code.
 
 For every program whose protocol someone else's software can read, that software reads
 the pins of the simulated run and must decode what the test asked for: sigrok's decoders
-\cite{sigrok}, the IRMP infrared library, Wireshark's dissectors, the rtl\_433 receiver and
-rc-switch's receiver code. They agree with 80 of the 90 programs, and each judge has a
-control: the same recording with one pulse inverted must fail it. The same runs are repeated with every pin delayed by up to three
-ticks each way, more than the pads and the board add, and every protocol still works.
+\cite{sigrok}, the IRMP infrared library \cite{irmp}, Wireshark's dissectors
+\cite{wireshark}, the rtl\_433 receiver \cite{rtl433} and rc-switch's receiver code
+\cite{rcswitch}. They agree with all 80 of the 90 programs they can read (the other ten
+have no outside decoder or nothing for one to read), and each judge has a control: the same recording with one pulse inverted must fail it. The same runs are repeated with every pin delayed by up to three
+ticks each way, 60\,ns at 50\,MHz, a margin meant to cover the pads and the board, whose
+delay on this process has not been characterised, and every protocol still works.
 
 \begin{table}[t]
 \centering
 \caption{Verification methods and results. Numbers are from the final
-continuous-integration runs.}
+continuous-integration runs, except the FPGA bench and the held-out round, which were run
+by hand.}
 \label{tab:verif}
 \footnotesize
 \begin{tabular}{@{}p{0.30\columnwidth}p{0.62\columnwidth}@{}}
 \toprule
 Method & Result \\
 \midrule
-Formal properties & 116 of 116 tasks pass, 52 of them bounded to depth 20; 23 planted bugs caught \\
+Formal properties & PENDING-CI of PENDING-CI tasks pass: every assertion unbounded, and 52 tasks checking them from reset to depth 20; PENDING-CI planted bugs caught \\
+Instructions & all 55 proved against the specification; 253 of 253 covers; 76 planted bugs caught; one specification error found \\
 Netlist vs.\ RTL & Sequentially equivalent (337 output bits) \\
-Lockstep co-simulation & 191 random programs, 84 firmware cases, two builds: no difference \\
+Lockstep co-simulation & 191 random programs, 84 firmware cases, two builds: no difference; the instruction checker satisfied on every commit \\
 Timing certificates & 90 of 90 certified; measured lead equals the bound in 64 of 84 contexts, never below \\
 Mutation testing & 1,033 faults: 919 caught, 55 proved harmless, 59 argued, 0 surviving \\
-Outside judges & decoders by others agree with 80 of 90 programs; every control fails \\
+Outside judges & decoders by others agree with 80 of 90 programs, every one they can read; every control fails \\
 Planted firmware bugs & 823 timing bugs: 196 refuted, 23 not proven, 604 certified, 0 certified that fault \\
 Slower pins & every firmware case passes with up to three ticks of delay each way \\
-Test suites & 1,869 software, 12 chip (RTL and netlist), 9 through the pins \\
-Held-out round & 8 of a pool of 24 drawn at random, the draw sealed: all fit; all certified and co-simulated; 6 judged by sigrok; 7 judged on the bench from captures \\
-FPGA bench & 89 of 90 programs match the model and their certificates (version 3.1, 21 to 25 Nov.; version 3.2, 26 Nov.; the 14\,s chime has no bench bundle); on both versions, a late and an unowned edge refused as \texttt{escert} predicted, and a 433\,MHz remote's protocol learned from the chip's own capture, its generated receiver and transmitter run on the chip; on version 3.1, a laptop's ping over 10BASE-T; SWD on a real RP2040, judged by sigrok; a USB keyboard on a laptop; DOOM, with no word lost on the host link \\
+Test suites & 1,876 software, 12 chip (RTL and netlist), 9 through the pins \\
+Held-out round & 8 of a public pool of 24 drawn at random, the draw sealed: all fit; all certified and co-simulated; 6 judged by sigrok; 7 judged on the bench from captures \\
+FPGA bench & 90 of 90 programs match the model and their certificates (version 3.2, 26 and 28 Nov.\ 2026; version 3.1, 21 to 25 Nov., all but the 14\,s chime); on both versions, a late and an unowned edge refused as \texttt{escert} predicted, and a 433\,MHz remote's protocol learned from the chip's capture of its recorded frames, its generated receiver and transmitter run on the chip; on version 3.1, a laptop's ping over 10BASE-T; SWD on a real RP2040, judged by sigrok; a USB keyboard on a laptop; DOOM, with no word lost on the host link \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -537,8 +611,8 @@ FPGA bench & 89 of 90 programs match the model and their certificates (version 3
 
 The design is implemented with LibreLane \cite{librelane}, the successor of OpenLane
 \cite{openlane}, on OpenROAD \cite{openroad}, for Tiny Tapeout's $8\times4$ tile slot on
-IHP SG13CMOS5L \cite{ihppdk}. Table~\ref{tab:silicon} gives the result and
-Fig.~\ref{fig:die} the layout, rendered from the final GDS with KLayout \cite{klayout}.
+IHP SG13CMOS5L \cite{ihppdk}. Table~\ref{tab:silicon} gives the result for version 3.2,
+the repository's \texttt{v3.2} release, and Fig.~\ref{fig:die} the layout, rendered from the final GDS with KLayout \cite{klayout}.
 
 \begin{table}[t]
 \centering
@@ -573,14 +647,14 @@ active area (green), gate poly (red) and Metal1 to Metal4.}
 
 The chip is limited by wiring rather than by cell area. Only four metal layers carry
 signals in a Tiny Tapeout block on this process, each SRAM blocks three of them over its
-footprint, and only one of the four runs horizontally. The first $8\times4$ layouts
-overflowed that layer. The final floorplan puts both memories in one column on the east
+footprint, and only two run horizontally: Metal3, and Metal1, which the cells' own pins
+and power rails already crowd. The first $8\times4$ layouts overflowed them. The final floorplan puts both memories in one column on the east
 side, so the logic is a single rectangle with no macro across its horizontal paths, and
 timing-driven placement keeps the core's commit logic together. Fig.~\ref{fig:blocks}
 shows where each part of the design was placed.
 
 Version 3.0 had been signed off with slew and capacitance violations left in place. Trial
-hardens traced them to the repair step, which took wire capacitance at about half of what
+layouts traced them to the repair step, which took wire capacitance at about half of what
 extraction measured and judged slew only at the fast corner. With wire loads from
 extraction, margins for the detours of detailed routing, a tighter slew limit for repair
 and buffers before the memories' inputs, version 3.1 had no pin outside its library limits
@@ -591,7 +665,9 @@ at any corner, and version 3.2 keeps it so.
 \includegraphics[width=\columnwidth]{fig/blocks.pdf}
 \caption{Where the logic went: each $5\,\mu$m bin coloured by the part of the design with
 the most cell area in it (cell counts in brackets). Synthesis flattens the design, so the
-map is reconstructed from the net names the cells drive.}
+map is reconstructed from the net names the cells drive. Its counts total 39{,}260 of
+the 39{,}588 cells: it leaves out the 63 antenna diodes and 265 cells it cannot assign to
+a block.}
 \label{fig:blocks}
 \end{figure}
 
@@ -626,23 +702,27 @@ OpenSTA's power analysis, showed that a stopped chip drew 93\% of the power of a
 one: every flip-flop saw every clock edge, and both memories read every cycle. The design
 now follows one rule, pay only for work. A register that is not being written does not
 see the clock (128 clock gates stand in front of almost every register), most of the large
-banks are latches, 44\% smaller than flip-flops, each memory is selected only in the cycles
+banks are latches, 44\% smaller in area than flip-flops, each memory is selected only in the cycles
 that read it, and a context waiting on a \texttt{WAIT} reissues its held instruction instead
-of reading the program store. Table~\ref{tab:power} compares the first netlist with the
-signed-off one.
+of reading the program store. Table~\ref{tab:power} compares the first netlist with
+version 3.2, both measured after clock-tree synthesis with the wiring estimated from
+placement, as every version was, and gives version 3.2 on its signed-off layout, with the
+wiring extracted from its routes.
 
 \begin{table}[t]
 \centering
-\caption{Power at 25\,MHz, typical corner, from gate-level simulation}
+\caption{Power at 25\,MHz, typical corner, from gate-level simulation, with the wiring estimated from placement after clock-tree synthesis or extracted from the routes of the signed-off layout}
 \label{tab:power}
 \footnotesize
-\begin{tabular}{@{}lrr@{}}
+\begin{tabular}{@{}lrrr@{}}
 \toprule
-Workload & First netlist & Signed-off \\
+ & \multicolumn{2}{c}{Estimated wiring} & Extracted \\
+\cmidrule(lr){2-3}
+Workload & First netlist & Version 3.2 & Signed off \\
 \midrule
-Sending a UART & 8.61\,mW & 1.85\,mW \\
-Logic analyser capturing & 8.45\,mW & 1.54\,mW \\
-Stopped & 7.99\,mW & 1.27\,mW \\
+Sending a UART & 8.61\,mW & 1.85\,mW & 2.16\,mW \\
+Logic analyser capturing & 8.45\,mW & 1.54\,mW & 1.78\,mW \\
+Stopped & 7.99\,mW & 1.27\,mW & 1.41\,mW \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -660,7 +740,9 @@ wired by 32 jumpers to a Sipeed Tang Primer 25K Dock (right), playing the chip.}
 \label{fig:bench}
 \end{figure}
 
-The chip's RTL runs on an FPGA (Fig.~\ref{fig:bench}). A Sipeed Tang
+The chip's RTL runs on an FPGA (Fig.~\ref{fig:bench}). Every hardware measurement in
+this paper is from this bench; the layout's figures above come from sign-off analysis and
+gate-level simulation. In this section ``the chip'' is the FPGA build. A Sipeed Tang
 Primer 25K (Gowin GW5A-25) plays the chip, built with Yosys and nextpnr \cite{nextpnr} on
 Project Apicula \cite{apicula}, with plain flip-flops in place of the clock gates and latch
 banks and block RAM in place of the memories. A Raspberry Pi Pico W plays the demo board
@@ -669,9 +751,11 @@ tests the link, every memory and every pin, then loads every firmware, runs it, 
 compares the chip's digest, state and measured leads with the model's prediction and the
 certificate.
 
-Version 3.2's RTL, the one hardened for silicon, runs 89 of the 90 programs through the bring-up
-script (all but a 14-second chime, which has no bench bundle), and each matches the model
-and stays within its timing certificate, three programs spanning two pages among them. The
+Version 3.2's RTL, the one hardened for silicon, runs all 90 programs through the bring-up
+script, and each matches the model and stays within its timing certificate, three programs
+spanning two pages among them. The longest, a 14-second chime, runs alone: its bundle keeps
+only the prediction's halt, since the full prediction runs out of memory over its 391
+million ticks. The
 build uses 15{,}251 of 23{,}040 LUTs, 5{,}262 flip-flops and 3 of 56 block RAMs, and routes
 to 54.8\,MHz against the 25\,MHz it runs at, with the clock on the global network to every
 one of its sinks. Earlier builds clocked the half-tick sampler's falling-edge register
@@ -687,7 +771,8 @@ frame check sequence. On the receive side an FPGA pin's input threshold stands i
 line receiver, and the capture unit, recording the line's edges at that pin, showed how to
 bias it. \texttt{eth\_trx} switches the one line unit between the two directions, which
 10BASE-T's half duplex allows, and with the Pico as the IP stack it answered the laptop's
-ARP request and its pings, 99 of 100 in the last run.
+ARP request and its pings: 7 of 10 in the logged run, and, once the link pulse was
+fixed, 99 of 100 in a later run that was checked by hand but not logged.
 
 On the same bench the chip debugged a real RP2040 over Serial Wire Debug. Its debug port
 is multi-drop (SWD protocol version~2): two cores and a rescue port share the wires, start
@@ -698,7 +783,7 @@ recorded the wires, and sigrok's \texttt{swd} decoder read all 15 accesses after
 wake-up exactly as the chip reported them, with every SWCLK phase at the 640\,ns the
 firmware is built for; the control, one SWDIO pulse inverted, fails.
 
-The chip has no USB hardware either. With its two data pins wired to a laptop's USB port
+The design has no USB hardware either. With its two data pins wired to a laptop's USB port
 through two 27\,$\Omega$ resistors, and a 1.5\,k$\Omega$ pull-up that the Pico switches on
 once the firmware runs, \texttt{usb\_hid} enumerated as a low-speed keyboard, Windows read
 its descriptors and product string, and the chip typed the line it was given into a
@@ -727,7 +812,7 @@ never had, which the learned model read back from the Pico's timing of the pin.
 \section{What it does}
 \label{sec:apps}
 
-Ninety programs run on the chip, eight of them from the held-out round at the end of this
+Ninety programs are written for the chip, eight of them from the held-out round at the end of this
 section. Among them are UART, SPI, I2C, CAN, PS/2, WS2812, 1-Wire, JTAG, ARM SWD, DMX512,
 HDMI-CEC, DALI, SENT, DShot, low-speed USB and 10BASE-T Ethernet; none of these protocols
 is in the hardware. The examples below show the reach of the mechanisms, and the held-out
@@ -736,9 +821,10 @@ round tests it.
 \textbf{A USB keyboard.} A 187-instruction firmware enumerates on a real Linux kernel
 through USB/IP \cite{usbip}, with the simulated chip at the other end, and on a laptop's
 USB port with the FPGA build of the chip. The certificate
-checker proves that every reply leaves exactly 72 ticks after the end of the host's
-packet, which is 75 ticks or 4.69 bit times at the pins, inside the 2 to 6.5 bit times USB
-allows \cite{usb20}.
+checker proves that every reply's deadline is exactly 72 ticks after the end tick the line
+unit records for the host's packet. The unit records that tick from its synchronised
+input, so measured between the pins the gap is 75 ticks, 4.69 bit times, inside the 2 to
+6.5 bit times USB allows \cite{usb20}.
 
 \textbf{Record it, speak it.} Pointed at a transmitter it has never seen, such as an
 infrared remote, the chip records the waveform, a host tool works out the protocol's
@@ -751,13 +837,14 @@ included. A recording that fits no model is refused with the reason.
 \centering
 \includegraphics[width=0.48\columnwidth]{fig/vga-pong.png}\hfill
 \includegraphics[width=0.48\columnwidth]{fig/oled-crop.jpg}
-\caption{Left: a frame of VGA Pong, $640\times480$ at 60\,Hz from five bank~B pins.
+\caption{Left: a frame of VGA Pong, $640\times480$ at 60\,Hz, drawn from the five
+bank~B pins of a simulated run.
 Right: the four-context OLED Pong on the FPGA bench, showing its title screen.}
 \label{fig:pong}
 \end{figure}
 
-\textbf{Pong, on two screens.} Two contexts drive a VGA monitor at $640\times480$ and
-60\,Hz from five bank B pins (Fig.~\ref{fig:pong}): one makes the syncs, the other draws a
+\textbf{Pong, on two screens.} Two contexts generate VGA at $640\times480$ and 60\,Hz
+on five bank B pins (Fig.~\ref{fig:pong}, drawn from a simulated run's pins): one makes the syncs, the other draws a
 framebuffer from the tape and runs the game in the vertical blank. Every edge of the
 picture has a deadline fixed in advance and only the colours come from data, so the
 certificate proves that no edge is late. On the FPGA bench the same game runs on an
@@ -786,20 +873,23 @@ lossless by construction: in a three-minute run on the bench, 523{,}797 words we
 and none was lost. Two pieces of firmware were added for it with no hardware change: the
 PWM sound program, with every edge certified, and a stream mode that lets the I2C writer
 send a frame from the mailbox while the host renders the next. A late word only holds SCL
-low, which I2C allows.
+low: the chip is the bus's master, and I2C lets a master pause its clock.
 
-\textbf{Protocols without new hardware.} Version 3's hardware was complete on 14 November.
-Since then the OLED Pong, an I2C burst writer and nine more protocols have been added,
+\textbf{Protocols without new hardware.} Version 3's hardware was complete on 14 November 2026.
+Since then the OLED Pong with its I2C burst writer, the DOOM console's sound player and
+nine more protocols have been added,
 from an XY2-100 laser-scanner link in four cooperating contexts
 to a FlexRay frame with both of its CRCs computed on the chip. Version 3.1's one new
 capability, span, came for a Modbus device with its whole data model, and every earlier
 program runs on it unchanged.
 
 \textbf{Protocols it was not designed for.} Every program above is for a protocol someone
-chose knowing what the chip could do. The held-out round takes that choice away. On 4 November a pool of 24 protocols was fixed, each with a public specification
-and none in the firmware; eight were drawn from it at random, and the SHA-256 of the drawn
-list, with a 256-bit salt, was committed before any was written. The eight were written on
-24 November on version 3.1, with the chip, assembler and simulator as tagged: a
+chose knowing what the chip could do. The held-out round takes that choice away. On 4 November 2026 a pool of 24 protocols was fixed and published, each with a public
+specification and none in the firmware. Eight were drawn from it at random, by Python's
+\texttt{random.sample} with a fresh 128-bit seed, and the SHA-256 of the drawn list, with
+a 256-bit salt, was committed before any was written; the pool was public, and the draw
+was sealed. The eight were written on 24 November on version 3.1, with the chip, assembler
+and simulator as tagged \texttt{v3.1}: a
 MIL-STD-1553B remote terminal, an S/PDIF transmitter, a Microwire EEPROM master, a DHT22
 host, a BiSS C encoder master, a PS/2 host, a SNES pad reader and an M-Bus slave. Each was
 tested against a bus model written by a separate session from the specification and an
@@ -814,9 +904,10 @@ program words, not timing. Two programs span two pages, and where a bit is only 
 instructions the protocol sets a floor on the clock, 40\,MHz for the 1553B terminal. The
 round found no bug in the chip. It found one in \texttt{escert}, which had never checked
 that a line-unit configuration is valid and drives only pins its context owns, and now
-does. The pool itself was chosen, and has been public while the hardware went on changing, so the
+does; every certificate reported here is from the corrected checker. The pool itself was chosen, and has been public while the hardware went on changing, so the
 round shows that the chip takes protocols nobody picked to fit it, not that it takes any
-protocol. The draw, the seal and every result are published with the design.
+protocol. The pool, the seed, the salt, the seal and every result are published with the
+design, so the draw can be repeated and the seal checked.
 
 % =====================================================================================
 \section{How it got here}
@@ -839,7 +930,7 @@ The specification and its two implementations (Section~\ref{sec:verif}) came bef
 layout. By the time the first layout existed, the two
 agreed tick for tick on every firmware and on a thousand random programs, and admission
 had already refused four firmware bugs that a conventional processor would have run with
-a late edge. Each later version added one capability while keeping every older program's
+a late edge. Each later version added capabilities while keeping every older program's
 behaviour, digest included (Table~\ref{tab:history}).
 
 \begin{table}[t]
@@ -883,23 +974,31 @@ round of hardware work turned the chip's exactness outward, with the receive sid
 line unit, the half-tick sampler and the bus timing monitor. Version 3.1 added span for a
 Modbus device that needed more than one page, released the reset through a synchroniser,
 and corrected the layout's repair until every electrical rule was met. Version 3.2 was for
-power alone: its clock gating and parked waits took a stopped chip from 3.36 to 1.27\,mW
-with nothing a program sees changed.
+power alone: its clock gating and parked waits took a stopped chip from version 3.1's
+3.36 to 1.27\,mW with nothing a program sees changed (Table~\ref{tab:power} compares it
+with the first complete netlist instead). Once its layout was settled, the last proof was of
+what each instruction does, against a checker written from the specification alone; it
+found no error in the chip and one in the specification, a flag left out of GETM's row.
 
 % =====================================================================================
 \section{Limits}
 \label{sec:limits}
 
-The guarantee is about the chip's own edges. Its inputs pass through two-flop
-synchronisers, so an input change reaches the logic two ticks after the clock edge that
-samples it, and a pulse shorter than a tick may not be seen at all, as on any synchronous
-design; because every input sees the same delay, intervals between input edges are still
-measured correctly. The non-interference result holds within its stated scope, for a
-context that uses none of the shared units. Certificates cover the programs they were
+The guarantee is about the chip's own edges, at the registers that drive its pins. Its
+inputs pass through two-flop synchronisers, so an input change reaches the logic two ticks
+after the clock edge that first samples it, and a pulse shorter than a tick may not be
+seen at all, as on any synchronous design. Every input sees the same delay and each edge
+is seen on the first tick that samples it, so an interval between two input edges is
+measured to within one tick. Deadlines are exact in ticks; in seconds they are as accurate
+as the clock the board supplies, and its jitter moves each edge by as much. The non-interference result holds within its stated scope, for a
+context that uses none of the shared units. The instruction proof covers what an
+instruction hands a shared unit and reads back from it; what the line unit, capture unit
+and monitor then do rests on their own proofs and lockstep tests, and the tape's contents
+on the memory outside the core. Certificates cover the programs they were
 computed for, and a program without one is still never late, only possibly refused. The
-FPGA bench tests the design, its firmware and its host interface on real pins, not the
-silicon: the hardened netlist, the clock gates and latch banks and the SRAM macros are
-covered by the gate-level suites, the equivalence proofs and timing sign-off instead.
+FPGA bench tests the design, its firmware and its host interface on real pins; the
+hardened netlist, and the clock gates, latch banks and SRAM macros that the FPGA build
+replaces, are covered by the gate-level suites, the equivalence proofs and timing sign-off.
 The Tiny Tapeout multiplexer and pads add delays outside the design, which limit what a
 board can use rather than what the chip guarantees inside its tiles.
 
@@ -909,16 +1008,17 @@ board can use rather than what the chip guarantees inside its tiles.
 In Escapement, every pin change is an
 event with an absolute deadline, checked when it is queued and either applied on its
 tick or refused, and that property is proved for every program on RTL equivalent to the
-netlist sent to fabrication. The fixed-slot barrel makes a program's timing its own, so
+signed-off netlist. The fixed-slot barrel makes a program's timing its own, so
 static certificates compose and the chip can measure the margin they predict. On that
-base, protocols are programs: ninety of them, eight drawn at random from a sealed list,
-run on a 130\,nm design that fits in
-$8\times4$ Tiny Tapeout tiles and uses 1.85\,mW to send a UART. Everything described here,
-RTL, firmware, tools, proofs and the flow configuration, is open source.
+base, protocols are programs: ninety of them, eight drawn at random from a public pool
+by a sealed draw, written for a 130\,nm design that fits in $8\times4$ Tiny Tapeout tiles
+and, in gate-level simulation of its signed-off layout, uses 2.16\,mW to send a UART. Everything described here,
+RTL, firmware, tools, proofs and the flow configuration, is open source, apart from the
+DOOM console's game side, which is kept separately.
 
 \section*{Acknowledgment}
 
-I thank the Tiny Tapeout project and IHP, whose shuttle and open process kit make
+We thank the Tiny Tapeout project and IHP, whose shuttle and open process kit make
 fabrication possible; the developers of LibreLane, OpenROAD and Yosys, whose tools carried
 the design to a layout and through its proofs; and the contributors to sigrok-dumps, whose
 recordings of real hardware let the chip be judged against it.

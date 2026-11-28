@@ -17,6 +17,14 @@
 #   park_bmc : the park properties bounded from reset (depth 24): the induction's base case
 #           is only 6 steps, too short for a write to land while a WAIT is in flight, so
 #           the p-guard tooth (teeth.sh) is scored here
+#   isa   : UNBOUNDED, by k-induction at depth 4: each committed instruction's effect is the
+#           one docs/11-SEMANTICS.md section 7 gives (formal/esc_isa_check.v, its isa_*
+#           assertions but the retry grid's); every other assertion of the design, each
+#           proved by its own task, is assumed
+#   isa_cover : reachability of the ISA checker's cases (isa_cv_*), under the same assumptions
+#   isa_bmc : the isa assertions bounded from reset (depth 20), kept as the fallback had the
+#           induction not closed; not in formal-props (a step past 10 takes over 44 minutes)
+#   isa_grid : UNBOUNDED, by k-induction at depth 8: the retry grid (isa_retry_*), the rest assumed
 [tasks]
 bmc
 cover
@@ -27,6 +35,10 @@ tw
 park
 park_cover
 park_bmc
+isa
+isa_cover
+isa_bmc
+isa_grid
 
 [options]
 bmc: mode bmc
@@ -46,6 +58,14 @@ park_cover: mode cover
 park_cover: depth 40
 park_bmc: mode bmc
 park_bmc: depth 24
+isa: mode prove
+isa: depth 4
+isa_cover: mode cover
+isa_cover: depth 40
+isa_bmc: mode bmc
+isa_bmc: depth 20
+isa_grid: mode prove
+isa_grid: depth 8
 
 [engines]
 bmc: smtbmc yices
@@ -57,6 +77,10 @@ tw: smtbmc yices
 park: smtbmc yices
 park_cover: smtbmc yices
 park_bmc: smtbmc yices
+isa: smtbmc yices
+isa_cover: smtbmc yices
+isa_bmc: smtbmc yices
+isa_grid: smtbmc yices
 
 [script]
 ahead: read -define ESC_AHEAD_CHECK
@@ -64,6 +88,14 @@ tw: read -define ESC_TW_CHECK
 park: read -define ESC_PARK_CHECK
 park_cover: read -define ESC_PARK_CHECK
 park_bmc: read -define ESC_PARK_CHECK
+isa: read -define ESC_ISA_CHECK
+isa_cover: read -define ESC_ISA_CHECK
+isa_bmc: read -define ESC_ISA_CHECK
+isa_grid: read -define ESC_ISA_CHECK
+isa: read -formal esc_isa_check.v
+isa_cover: read -formal esc_isa_check.v
+isa_bmc: read -formal esc_isa_check.v
+isa_grid: read -formal esc_isa_check.v
 ~pdr: read -formal -DFORMAL -DFORMAL_ANYNOW esc_greg.v esc_ctx.v esc_cap.v esc_mon.v esc_line.v esc_core.v
 pdr: read -formal -DFORMAL -DESC_CORE_PDR esc_greg.v esc_ctx.v esc_cap.v esc_mon.v esc_line.v esc_core.v
 prep -top esc_core
@@ -71,6 +103,19 @@ ahead: chformal -assert -remove n:$assert$*
 tw: chformal -assert -remove c:* c:tw_zero %d
 park: chformal -assert -remove c:* c:park_* %d
 park_bmc: chformal -assert -remove c:* c:park_* %d
+# isa: the design's own assertions, each proved unbounded by its own task (pdr, kind,
+# ahead, the module proofs), are assumed rather than removed, so the induction starts
+# only from states those proofs allow
+isa: chformal -assert2assume c:* c:isa_* %d
+isa: chformal -assert -remove c:isa_retry_*
+# isa_grid: the retry grid (isa_retry_*) alone, by a deeper induction: a retry spans four
+# ticks, so it assumes everything else, the checker's other isa_* assertions included (the isa
+# task proves those without the grid, so nothing is assumed in a circle)
+isa_grid: chformal -assert2assume c:* c:isa_retry_* %d
+isa_bmc: chformal -assert -remove c:* c:isa_* %d
+isa_cover: chformal -assert2assume
+# (isa_cover keeps the same assumptions as isa, so a reached cover shows they do not exclude it)
+isa_cover: chformal -cover -remove c:* c:isa_cv* %d
 park_cover: chformal -assert -remove
 park_cover: chformal -cover -remove c:* c:park_cv* %d
 # PDR needs defined initial values: every flop is async-reset and step 0 is assumed to be
@@ -91,3 +136,5 @@ pdr: setundef -init -zero
 ../src/esc_line.v
 ../src/esc_greg.v
 ../src/esc_core.v
+esc_isa_check.v
+esc_isa_enc.vh

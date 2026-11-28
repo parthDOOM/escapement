@@ -129,7 +129,7 @@ small reproducer, and it is not reported upstream.
 The SDF-annotated gate-level runs found five places where the harden's SDF (written by
 OpenSTA) and Icarus 13's `$sdf_annotate` disagree. The first four are changed in copies of
 the netlist and SDF by [`test/sdf_prep.py`](../test/sdf_prep.py), which has a self-test that
-fails if any one step is left out; the fifth leaves out four delays of a few picoseconds.
+fails if any one step is left out; the fifth leaves out five delays of a few picoseconds.
 
 - **Escaped dotted names abort the run.** The flattened netlist keeps the RTL path of each
   hand-placed cell (clock-gate latches, gated-clock buffers, the memories) as one escaped

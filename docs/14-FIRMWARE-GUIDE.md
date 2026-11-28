@@ -15,8 +15,9 @@ are what it generates, and what receivers and two-way buses still need by hand.
 ## The timing model in one paragraph
 
 Each context commits one instruction every 4 ticks (40 ns ticks at 25 MHz), or every 2
-when it is paired (idiom 15). Wait-class instructions repeat on a 4-tick grid. Pins change only through events (DRIVE,
-EXPECT, SAMPLE) with absolute deadlines taken from `tmr`. The chip checks each event at
+when it is paired (idiom 15). Wait-class instructions repeat on a 4-tick grid. Pins change only through events with
+absolute deadlines taken from `tmr`: a DRIVE, or the line unit started by a SEND's LINE event;
+EXPECT and SAMPLE events watch pins without changing them. The chip checks each event at
 enqueue: its deadline must be after the commit tick and after the previous queued
 event, otherwise the context faults (ADMIT) and its pins release. An admitted event
 happens exactly on its tick. Firmware therefore runs **ahead** of real time, by up to
@@ -191,7 +192,10 @@ datasheet's figures as monitor rules instead: a setup time is a rule from a data
 the clock's sampling edge with a MIN, a hold time the reverse, a pulse width a rule from a
 rise to a fall of one pin, a period a rule from one rise to the next, a timeout a rule with
 only a MAX. Write the rules once with MON and poll the record with GETM; clear it with a
-MON whose keep bit is set, so the clear rewrites no rule mid-pulse. Limits are whole ticks,
+MON whose keep bit is set, so the clear rewrites no rule mid-pulse. GETM sets Z from the
+value it reads, as GETP, GETI, GETX and GETC do, so `GETM r0, 0` and a `JZ` skip the report while no rule has
+counted a violation; test the record's `valid` bit (bit 31) rather than the whole word,
+since a cleared record keeps its other fields. Limits are whole ticks,
 so round a minimum down: a bus inside its limits then never reports
 (`i2c_timing`, [22-BUS-MONITOR](22-BUS-MONITOR.md)).
 

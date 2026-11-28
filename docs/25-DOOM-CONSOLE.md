@@ -40,8 +40,9 @@ The game is rp2040-doom, Graham Sanderson's port of Chocolate Doom to the RP2040
 the shareware episode from a compressed copy of its data in the Pico's flash. It normally
 draws VGA with the RP2040's PIO and plays sound over I2S; the console replaces both with one
 backend that sends everything to the chip. The game side (the backend, a PIO driver for the
-chip's SPI link and the input window) is kept in a separate repository, because rp2040-doom
-is GPL-licensed and the game data is id Software's. Everything on the chip's side is here: the
+chip's SPI link and the input window) is kept in a separate, unpublished repository, because
+rp2040-doom is GPL-licensed and the game data is id Software's, so the console cannot be
+rebuilt from this repository alone. Everything on the chip's side is here: the
 two new firmware features, the models, the tests and the load model
 [`sw/tools/console_load.py`](../sw/tools/console_load.py), which assembles the four-page image
 the Pico loads.

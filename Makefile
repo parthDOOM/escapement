@@ -29,7 +29,7 @@ help:
 	@echo "formal     formal-quick, then the unbounded core proof split over JOBS cores (formal-pdr)"
 	@echo "formal-quick  formal-bmc and formal-props"
 	@echo "formal-bmc    the bounded core check from reset, one task per assertion group (BMC_JOBS side by side)"
-	@echo "formal-props  cover, ahead, never-late, clock-gate, latch, configuration, live-write grant, line unit and waiting-fetch (park) proofs"
+	@echo "formal-props  cover, ahead, never-late, clock-gate, latch, configuration, live-write grant, line unit, waiting-fetch (park) and instruction (isa) proofs"
 	@echo "formal-v2  the v2 proofs: tripwires (esc_core tw), the line unit bounded from reset, non-interference (esc_ni_ind kind + base)"
 	@echo "formal-teeth  known bugs planted one at a time (formal/teeth.sh): each proof they stand for must fail"
 	@echo "equiv      the gate-level netlist is sequentially equivalent to the RTL (yosys, ABC; ~6 min)"
@@ -130,7 +130,7 @@ formal-bmc:
 formal-props:
 	cd formal && $(PYTHON) fcache.py $(SKIP_FLAG) esc_core.sby:cover esc_core.sby:ahead esc_ctx.sby:kind \
 	  esc_greg.sby esc_lreg.sby esc_host.sby esc_top.sby esc_line.sby:kind esc_mon.sby:kind esc_mon.sby:cover \
-	  esc_core.sby:park esc_core.sby:park_cover
+	  esc_core.sby:park esc_core.sby:park_cover esc_core.sby:isa esc_core.sby:isa_grid esc_core.sby:isa_cover
 
 # v2: the tripwire proof, the line unit bounded from reset (depth 40), and non-interference
 # for live reload, by induction (kind) and bounded from reset (base). export_widths.sh first:

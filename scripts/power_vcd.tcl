@@ -2,9 +2,10 @@
 #
 #   openroad -exit power_vcd.tcl   with env ODB, SDC, PDK_LIB, MACRO_DIR, SCRIPTS_DIR,
 #                                  _TCL_ENV_IN (a step's _env.tcl), SET_RC, VCD, OUT,
-#                                  POWER_PERIOD (ns, optional)
+#                                  POWER_PERIOD (ns, optional), SPEF (optional)
 #
-# Typical corner. With VCD unset, reports the default static activity estimate instead,
+# Typical corner. Parasitics are estimated from placement, or with SPEF set (the signed-off
+# layout's typical-corner extraction) read from the routed wires. With VCD unset, reports the default static activity estimate instead,
 # which is what LibreLane's own power.rpt shows.
 
 if { [info exists ::env(_TCL_ENV_IN)] } { source $::env(_TCL_ENV_IN) }
@@ -30,8 +31,13 @@ source $::env(SCRIPTS_DIR)/openroad/common/io.tcl
 set ::db [ord::get_db]
 set ::tech [$::db getTech]
 set ::block [[$::db getChip] getBlock]
-source $::env(SET_RC)
-estimate_parasitics -placement
+if { [info exists ::env(SPEF)] && $::env(SPEF) != "" } {
+    # the routed layout: the parasitics extracted from its wires
+    read_spef $::env(SPEF)
+} else {
+    source $::env(SET_RC)
+    estimate_parasitics -placement
+}
 
 if { [info exists ::env(VCD)] && $::env(VCD) != "" } {
     read_vcd -scope tb/user_project $::env(VCD)

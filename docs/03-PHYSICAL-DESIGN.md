@@ -13,8 +13,9 @@ alternatives that were measured and rejected, are in [06-DECISIONS](06-DECISIONS
 
 The die is larger than the design needs: the standard cells and the two memories fill
 64.4% of the core. The limit is wiring, not area. A Tiny Tapeout block in
-this process has four signal layers below the top metal, and only one of them, Metal3,
-runs horizontally at a useful pitch for signals. On a die more than twice as wide as it
+this process has four signal layers below the top metal. Of Metal2 to Metal4 only Metal3
+runs horizontally, and Metal1, the other horizontal layer, is shared with the cells' own
+pins and power rails ([routing](#routing)). On a die more than twice as wide as it
 is tall, nearly all routing congestion is horizontal, so every layout decision in this
 chapter is, in the end, about keeping horizontal wires short. Two measurements show it.
 Moving from 6 × 4 to 8 × 4 tiles did not make routing easier: the first 8 × 4 layouts
@@ -186,7 +187,7 @@ identical netlist.
 | Routing | 2.38 m of wire, 299,493 vias; global-route overflow 0; detailed-route DRC 0 |
 | LVS | Clean (0 errors, 0 net or device differences) |
 | DRC | Clean (KLayout SG13CMOS5L deck in the Tiny Tapeout precheck) |
-| Antenna | 0 violations (30 diodes) |
+| Antenna | 0 violations (63 diodes: 33 inserted after global routing, 30 after detailed routing) |
 | IR drop | 0.25 mV worst, at 20 ns |
 | Power | 2.99 mW (the flow's estimate at 20 ns, typical corner; version 3.1 7.36 mW); workload measurements in [15-POWER](15-POWER.md) |
 | Precheck | The `ttihp27a` shuttle's precheck passes, every row |
@@ -230,14 +231,14 @@ jitters, and a short cycle could fall below the 20 ns the layout is signed off a
 
 These figures cover the design inside its tiles. The Tiny Tapeout multiplexer and the pads
 add delays the flow does not model. They limit what a board can use, not whether the chip
-can be made, and they are not yet characterised for this shuttle
+can be made, and the bring-up checklist says what to measure for them on a board
 ([16-BRING-UP](16-BRING-UP.md)).
 
 ## SRAM integration
 
 The macro views are vendored unmodified from IHP-Open-PDK
 ([`macro/`](../macro/RM_IHPSG13_1P_256x32_c2_bm_bist/README.md)). The integration follows
-the published SG13CMOS5L recipe of the Loom project, adapted to these macros:
+the published SG13CMOS5L recipe of the [Loom project](https://github.com/thomasgilbert481/tt_um_loom/blob/main/docs/tt_cmos5l_facts.md), adapted to these macros:
 
 1. `MACROS` in the flow configuration is keyed by each instance's flattened path, with a
    liberty file per process corner (`*_typ_*`, `*_fast_*`, `*_slow_*`), because the

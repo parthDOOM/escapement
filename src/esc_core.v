@@ -745,10 +745,17 @@ module esc_core #(
   // The bus timing monitor, global like the capture unit; it evaluates at every edge of
   // a run except the stop edge, on the same synchronised pins. It sends GETM one word and
   // a strobe for the record's tick, which is kept here beside now (esc_mon.v, "narrow")
+`ifdef ESC_ISA_CHECK
+  wire [63:0] f_mon_words;             // verification only: the monitor's {record, counts}
+`endif
   esc_mon u_mon (
       .clk(clk), .rst_n(rst_n), .start(start), .run(run & ~stop_q), .psync(s2),
       .mon_we(cm_ok & d_op[I_MON]), .mon_a(opa), .mon_b(opb),
-      .rsel(f_imm16[0]), .rdata(mon_rdata), .rec_load(mon_rec_load), .irq(mon_irq));
+      .rsel(f_imm16[0]), .rdata(mon_rdata), .rec_load(mon_rec_load), .irq(mon_irq)
+`ifdef ESC_ISA_CHECK
+      , .f_words(f_mon_words)
+`endif
+      );
   wire _unused_mon = &{1'b0, mon_irq};
   // v3.2: a clock-gated bank, loaded only when a record is taken (it was an enable flop)
   esc_greg #(32) g_mtk (.clk(clk), .rst_n(rst_n), .en(mon_rec_load), .d(now), .q(mon_tick));
@@ -766,6 +773,11 @@ module esc_core #(
   // per-context fault at this edge: commit fault, LATE_HEAD or a CONFIG of the
   // context's line unit completing invalid (not on start/stop)
   wire [3:0] cm_sel, lu_sel;
+`ifdef ESC_ISA_CHECK
+  wire [927:0] f_ctx_q;                // verification only: each context's FIFO in order (esc_ctx f_q)
+  wire [527:0] f_ctx_mbx;              // ... its mailboxes in order (esc_ctx f_mbx)
+  wire [45:0]  f_lu_aux;               // ... the line unit's {crc, count} (esc_line f_aux)
+`endif
   wire [3:0] fault_k;
   genvar gk;
   generate
@@ -866,6 +878,9 @@ module esc_core #(
       .rel_m(lu_rel), .drv_m(lu_drv), .drv_val(lu_dval), .drv_oe(lu_doe)
 `ifdef ESC_NI
       , .f_el(lu_el)
+`endif
+`ifdef ESC_ISA_CHECK
+      , .f_aux(f_lu_aux)
 `endif
       );
 
@@ -974,6 +989,10 @@ module esc_core #(
           .o_line_ret  (c_lret[gk])
 `ifdef FORMAL
           , .f_owned   (owned_by[8*gk +: 8])
+`endif
+`ifdef ESC_ISA_CHECK
+          , .f_q       (f_ctx_q[232*gk +: 232])
+          , .f_mbx     (f_ctx_mbx[132*gk +: 132])
 `endif
 `ifdef ESC_NI
           , .f_all     (f_ctx_all[868*gk +: 868])
@@ -1781,6 +1800,27 @@ module esc_core #(
     park_d2: assert (!(c_park[2] && paddr(2'd2, c_pc) == f_pa) || c_hold[95:64] == f_pm);
     park_d3: assert (!(c_park[3] && paddr(2'd3, c_pc) == f_pa) || c_hold[127:96] == f_pm);
   end
+  // Fetch, end to end (the ISA proof's premise): the word that commits, insn, the word the
+  // formal/esc_isa_check.v checker takes as the instruction executed, is the store's word at
+  // the committing context's own address {page, PC} as it was when fetched (park_fw), and
+  // the store's word there now unless a program write reached that page since (park_fn).
+  // Each stage's address is its fetch PC's (park_fa1, park_fa2), and a commit's fetch is
+  // stage 3's, made by the same context from the PC it commits at (park_fc): p3ok compared
+  // the fetch PC with the context's PC in X, and only the context's own commit moves it.
+  function [9:0] faddr(input [1:0] k, input [8:0] pc);      // the address k fetches pc from
+    faddr = {pc[8] ? ctx_page[2*(k ^ 2'd2) +: 2] : ctx_page[2*k +: 2], pc[7:0]};
+  endfunction
+  always @(*) if (f_past_valid && rst_n) begin
+    park_fa1: assert (!f_v1 || f_a1 == faddr(p1_fq, p1_spc));
+    park_fa2: assert (!f_v2 || f_a2 == faddr(f_k2, p2_spc));
+    park_fc:  assert (!commit_valid || (f_v3 && f_k3 == cctx && f_a3 == faddr(cctx, cs_pc)));
+    park_fw:  assert (!(commit_valid && faddr(cctx, cs_pc) == f_pa) || insn == f_m3);
+    park_fn:  assert (!(commit_valid && faddr(cctx, cs_pc) == f_pa && !f_x3) || insn == f_pm);
+  end
+  always @(*) if (rst_n && run) begin
+    park_cv5: cover (commit_valid && faddr(cctx, cs_pc) == f_pa && !f_x3);
+    park_cv6: cover (commit_valid && faddr(cctx, cs_pc) == f_pa && f_x3);  // rewritten since
+  end
   always @(*) if (rst_n && run) begin
     park_cv1: cover (p1_hit && f_a1 == f_pa);     // a parked fetch at f_pa
     park_cv2: cover (p1_hit && pair_on != 4'd0);  // ... of a paired context
@@ -1788,6 +1828,57 @@ module esc_core #(
     park_cv4: cover (c_park != 4'd0 && wr_hit == 4'd0 && imem_wr);   // ... into another page
   end
 `endif
+`endif
+
+`ifdef ESC_ISA_CHECK
+  // The ISA checker (formal/esc_isa_check.v): each commit's effect against
+  // docs/11-SEMANTICS.md section 7. It sees the commit and its context's state in the commit
+  // cycle, and the observation ports and the same context's state in the cycle after. The
+  // formal isa tasks build it with FORMAL; the co-simulation builds it without, so every
+  // commit of every co-simulated program is also checked against the same restatement.
+  esc_isa_check u_isa (
+    .clk(clk), .rst_n(rst_n),
+    .cm_valid(commit_valid), .cm_ctx(cctx), .cm_insn(insn), .cm_span(cs_span),
+    .pre_r0(cs_r0), .pre_r1(cs_r1), .pre_r2(cs_r2), .pre_r3(cs_r3), .pre_sh(cs_sh),
+    .pre_lc(cs_lc), .pre_tmr(cs_tmr), .pre_z(cs_z), .pre_c(cs_c), .pre_pc(cs_pc),
+    .pre_lr(cs_lr), .cm_now(now), .pre_irq_p(c_irqp[cctx]), .pre_irq_code(c_irqc[8*cctx +: 8]),
+    .cm_irq_clear(irq_clear[cctx]), .pre_ff_valid(ff_valid),
+    .pre_ff_cause(ff_cause), .pre_ff_sub(ff_sub), .pre_ff_ctx(ff_ctx), .pre_ff_pc(ff_pc),
+    .pre_ff_tick(ff_tick), .cm_paired(pair_on[cctx]),
+    .pre_lu_owned(lu_owned), .pre_lu_owner(lu_owner), .pre_lu_mode(lu_mode),
+    .pre_lu_conf(lu_conf), .pre_lu_claimed(lu_claimed),
+    .cfg_pin_owned(pin_owned), .cfg_pin_owner(pin_owner), .cfg_ctx_bank(ctx_bank),
+    .pre_q_cnt(c_cnt[3*cctx +: 3]), .pre_q(f_ctx_q[232*cctx +: 232]),
+    .pre_lee(c_lee[32*cctx +: 32]), .pre_eseen(c_eseen[cctx]), .pre_min_lead(c_minl[16*cctx +: 16]),
+    .pre_max_occ(c_maxo[3*cctx +: 3]), .pre_wait_full(c_wfull[16*cctx +: 16]),
+    .dbg_commit_valid(dbg_commit_valid), .dbg_commit_ctx(dbg_commit_ctx),
+    .dbg_commit_pc(dbg_commit_pc), .dbg_commit_insn(dbg_commit_insn),
+    .dbg_commit_outcome(dbg_commit_outcome),
+    .post_r0(dbg_post_r0), .post_r1(dbg_post_r1), .post_r2(dbg_post_r2),
+    .post_r3(dbg_post_r3), .post_sh(dbg_post_sh), .post_lc(dbg_post_lc),
+    .post_tmr(dbg_post_tmr), .post_z(dbg_post_z), .post_c(dbg_post_c),
+    .post_pc(dbg_post_pc), .post_lr(c_lr[9*pk_ +: 9]), .post_state(c_state[2*pk_ +: 2]),
+    .post_irq_p(c_irqp[pk_]), .post_irq_code(c_irqc[8*pk_ +: 8]),
+    .post_ff_valid(ff_valid), .post_ff_cause(ff_cause), .post_ff_sub(ff_sub),
+    .post_ff_ctx(ff_ctx), .post_ff_pc(ff_pc), .post_ff_tick(ff_tick),
+    .post_fifo_cnt(c_cnt[3*pk_ +: 3]), .post_chk_active(c_act[pk_]),
+    .post_q_cnt(c_cnt[3*pk_ +: 3]), .post_q(f_ctx_q[232*pk_ +: 232]),
+    .post_lee(c_lee[32*pk_ +: 32]), .post_eseen(c_eseen[pk_]), .post_min_lead(c_minl[16*pk_ +: 16]),
+    .post_max_occ(c_maxo[3*pk_ +: 3]), .post_wait_full(c_wfull[16*pk_ +: 16]),
+    .run_now(run), .start_now(start), .stop_now(stop), .ctx_stop_now(ctx_stop), .state_all(c_state),
+    // tier 4: inputs, mailboxes, tape, capture, line unit, monitor
+    .pre_ish(cs_ish), .post_ish(c_ish[32*pk_ +: 32]),
+    .pre_pass(cs_pass), .pre_fail(cs_fail), .pre_chk_active(cs_act), .pre_failed(cs_failed),
+    .pre_mbx(f_ctx_mbx[132*cctx +: 132]), .post_mbx(f_ctx_mbx[132*pk_ +: 132]),
+    .cm_h_rx_push(mbx_rx_push[cctx]), .cm_h_rx_data(mbx_rx_data[32*cctx +: 32]),
+    .cm_h_tx_pop(mbx_tx_pop[cctx]),
+    .post_lu_owned(lu_owned), .post_lu_owner(lu_owner),
+    .phys_sync(s2),
+    .tape_addr(tape_addr), .tape_re(tape_re), .tape_we(tape_we), .tape_wdata(tape_wdata),
+    .tape_rdata(tape_rdata), .lu_port(lu_port), .tape_ack(tape_ack), .tape_ack_v(tape_ack_v),
+    .cap_status(cap_status), .cap_cfg(cap_cfg), .cap_rptr(cap_rptr),
+    .lu_busy(lu_busy), .lu_status(lu_status), .lu_e(lu_e),
+    .lu_aux(f_lu_aux), .mon_owner(mon_sel), .mon_words(f_mon_words), .mon_tick(mon_tick));
 `endif
 
 endmodule

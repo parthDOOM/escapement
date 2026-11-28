@@ -4,7 +4,7 @@
 tt-template-repo = https://github.com/TinyTapeout/ttihp-verilog-template
 tt-template-branch = main (the ttihp27a shuttle's template)
 tt-template-commit = 4b1204ab387b5ab94db1d57067051d8d89a2f83c
-tt-gds-action-ref = TinyTapeout/tt-gds-action@ttihp27a (tag)
+tt-gds-action-ref = TinyTapeout/tt-gds-action@ttihp27a (tag, as it was when pinned; it moved to df73a1e on 2026-11-24: docs/05-TOOLCHAIN.md)
 tt-gds-action-commit = e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6
 tt-support-tools-branch = main (the action's default tools-ref)
 tt-support-tools-commit = 0922544e6c7f6126047c3fba720b0437fa32a1b8

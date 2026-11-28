@@ -62,7 +62,7 @@ register. A good USB DATA packet, for instance, ends with cause OK, 8 bits per b
 the CRC-16 residual 0x800D. A long receive or a CRC-32 does not fit those fields, which
 is what the two GETM selects are for.
 
-A configuration is three tape words: pins (`d`, `n` for a differential pair, `r` for
+A configuration is three tape words, or five with the extended part ([11-SEMANTICS](11-SEMANTICS.md) §6.6: symbol coding, a clock pattern, a CRC wider than 16 bits): pins (`d`, `n` for a differential pair, `r` for
 receive), NRZI, bit order, stuffing (N equal bits, then a 0 or their complement),
 end-of-packet SE0 length, idle drive, a sync byte, a bit period in ticks and 1/256 tick,
 a sample point, and a CRC polynomial with its start value and inversion. The USB

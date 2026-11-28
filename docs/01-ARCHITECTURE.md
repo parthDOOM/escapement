@@ -100,9 +100,9 @@ slots, a busy context cannot slow down a quiet one, and a waiting context leaves
 empty rather than lending it out. The instruction timing of any one program can therefore
 be worked out from that program alone, and this is what lets a timing certificate be
 computed per program and still hold when four programs run together. A second benefit is
-simplicity: since the next instruction of a context starts only after the previous one
-has committed, there are no hazards between instructions, no forwarding paths and no
-stalls.
+simplicity: in the plain barrel the next instruction of a context starts only after the
+previous one has committed, so there are no hazards between instructions, no forwarding
+paths and no stalls. Pair mode, below, is the one exception, and it checks its guess.
 
 Each context holds four 32-bit general registers `r0`-`r3`; a 32-bit shift register
 `sh` for serialising and deserialising bits; a 16-bit loop counter `lc`; the 32-bit
@@ -171,8 +171,8 @@ and the queue releases each bit on its exact tick.
 
 **Admission** is the moment of decision. When an event instruction commits, the event is
 checked before it enters the queue. It is accepted only if all of the following hold:
-the queue has space (otherwise the instruction waits, which is harmless); a DRIVE names
-at least one pin, and only pins the context owns; the deadline is strictly after the
+the queue has space (otherwise the instruction waits, which is harmless); a DRIVE or an
+EXPECT names at least one pin, and only pins the context owns; the deadline is strictly after the
 current tick and strictly after the last event already in the queue; and, for an EXPECT,
 its window does not overlap the previous one. If any of these fails, the event is not
 queued, nothing changes, and the context stops with an ADMIT fault whose subcode (MASK,
@@ -189,7 +189,7 @@ Both decisions involve comparing 32-bit ticks, and at 50 MHz there is no time to
 such a comparison and then drive a pin within the same cycle. The chip therefore makes
 each comparison one cycle early and keeps the answer in a register. This is safe because
 the values being compared change only at a context's own commit, four cycles before they
-are used, so the early answer is always the same as a late one would be. The proofs check
+are used (two in pair mode), so the early answer is always the same as a late one would be. The proofs check
 this equality in every cycle where the answer is used.
 
 ## Pins
@@ -225,7 +225,8 @@ input therefore passes through a **two-flop synchroniser**, which makes it safe 
 inside the clocked logic at the cost of two ticks of delay. Every feature that reads
 inputs (WAITP, GETP, EXPECT, SAMPLE, the capture unit and the bus monitor) sees the same
 synchronised view. Because they all see it with the same delay, the delay cancels out
-whenever the chip measures one input edge against another.
+whenever the chip measures one input edge against another; each edge is still seen on a
+tick, so an interval between two edges is right to within one tick.
 
 One block needs a finer view. A 10BASE-T Ethernet bit lasts 100 ns and is split into two
 50 ns halves; at 50 MHz, one sample per 20 ns tick is too coarse to tell an edge at the
@@ -237,8 +238,10 @@ only place the chip looks at a pin between ticks, and only the line unit uses it
 
 ## The tape and the capture unit
 
-The **tape** is a second SRAM of 256 words of 32 bits. It has three users, and none of
-them ever makes another wait in a way firmware can see.
+The **tape** is a second SRAM of 256 words of 32 bits. It has four users, firmware, the
+capture unit, the line unit and the host, and they share its one port by a fixed rule. The
+only wait it causes is an owner's own load or store waiting for its line unit, which the
+owner's timing certificate counts; no user makes another context wait.
 
 - **Firmware** reads and writes it with LDT and STT. A context uses the tape only in its
   own commit cycle, and only one context commits per cycle, so two programs never collide
@@ -307,7 +310,9 @@ waits for the packet and then sets `tmr` to its end tick, so a reply's deadline 
 written as "the end of the received packet plus a constant". That deadline is exact to
 the tick, whatever the program did in between, and the certificate checker can prove it.
 [19-LINE-UNIT](19-LINE-UNIT.md) shows this on a USB keyboard whose every reply is proved
-to leave exactly 72 ticks after the host's packet.
+to have its deadline exactly 72 ticks after the end tick recorded for the host's packet
+(75 ticks measured between the pins, because the unit records that tick from its
+synchronised input).
 
 The line unit reads and writes the tape only in its owner's commit cycles, so it changes
 nothing about the other contexts' timing. It sits behind clock gates that stay closed
@@ -365,15 +370,17 @@ failures and keeps the details of its first failure.
 commits, a register is loaded, or a pin changes) the chip folds what happened into a
 32-bit signature. After a run, one read over SPI returns the signature, and the
 instruction-set simulator predicts it exactly from the same programs and inputs. A single
-number therefore compares the whole run on silicon against the model.
+number therefore compares the whole run on the chip, the netlist or the FPGA build against
+the model; two runs that differ anywhere match by chance with a probability of about 2^-32.
 
 **Proof tripwires.** Twelve of the properties proved about the design, including "never
 late", "an open-drain pin is never driven high" and "an unowned pin is never driven", are
 also built into the chip as small monitors. Each sets a sticky flag the first time its
 property is seen broken. The proofs say none can ever set, so on a correct chip they read
-zero for ever. They cost little: the flags are clocked only when a monitor fires. Their
-value is on real silicon, where a manufacturing defect or a wrong assumption about the
-environment would show up as a named, broken property rather than as a puzzling failure.
+zero for ever. They cost little: the flags are clocked only when a monitor fires. On a
+fabricated chip, a manufacturing defect or a wrong assumption about the environment that
+breaks one of these twelve properties would show up as a named flag rather than as a
+puzzling failure; one that breaks none of them is not seen this way.
 
 ## The host link and live reload
 
@@ -401,9 +408,12 @@ contexts fetch, and it shows that j's commits, state and pins are identical in b
 program can be swapped next to a running one without moving a single edge of it. The
 claim has a stated scope: j itself uses none of the shared units (the capture unit, the
 line unit and the monitor), since another context may own or configure those, and the
-global digest and first-fault record are not compared. The host software refuses a reload
-that would step outside this scope, for example one that changes the configuration or
-writes a word another running context can reach.
+global digest and first-fault record are not compared. The proof also assumes that no
+program word is written into a page j fetches from. The host software refuses a reload
+outside this scope: one that changes the configuration, writes a page another running
+context fetches from (its own page, or a spanning context's two), or runs beside a context
+that can reach an instruction of a shared unit. A program to be reloaded during a run is
+therefore given a page of its own.
 
 ## Paying only for work
 
@@ -417,7 +427,7 @@ The design tries to make idle hardware cost as little power as possible
   instruction. A gated bank sees the clock only in a cycle in which it is written. A formal proof shows that each gated bank behaves exactly like an ordinary
   register with an enable, and that its gated clock cannot glitch.
 - **Latches instead of flip-flops.** In most of those banks the storage is a latch, which
-  is about half the area of a flip-flop. Each latch copies a value written at the last
+  is 44% smaller in area than a flip-flop. Each latch copies a value written at the last
   clock edge, so reads see the same thing they would see from a flip-flop.
 - **Memories read only on demand.** The program store is read only when a running context
   fetches, and the tape only when someone uses it. In every other cycle the memory is
@@ -439,7 +449,7 @@ memories whenever the chip is selected again.
 ## How the architecture grew
 
 The first version already had the central idea: four contexts, events with absolute
-deadlines, and admission instead of lateness. Each later version added one capability
+deadlines, and admission instead of lateness. Each later version added capabilities
 while keeping that idea intact. Version 1.1 added the tape, capture and the digest, so
 the chip could record and replay, and check itself in one read. Version 1.2 turned the
 spare dedicated pins into bank B, more than doubling the protocol signals. Version 1.3

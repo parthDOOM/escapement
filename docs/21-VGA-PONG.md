@@ -1,11 +1,11 @@
 # VGA Pong
 
-[`firmware/vga_pong.asm`](../firmware/vga_pong.asm) plays Pong on a VGA monitor,
+[`firmware/vga_pong.asm`](../firmware/vga_pong.asm) plays Pong as a VGA signal,
 640x480 at 60 Hz, from pin bank B. It needs no hardware made for it: two contexts, five
 pins, 251 of the 256 words of one program page and 168 tape words. The chip plays both
 paddles until someone presses a button.
 
-![A frame of VGA Pong as a monitor sees it: borders, a dashed net, the score 3 to 7, two paddles and the ball](img/vga-pong.png)
+![A frame of VGA Pong, drawn from the pins of a simulated run: borders, a dashed net, the score 3 to 7, two paddles and the ball](img/vga-pong.png)
 
 The picture is what the instruction-set simulator's pins show, cut into lines and frames
 by their HSYNC and VSYNC pulses the way a monitor would, and the tests check that
@@ -120,8 +120,10 @@ IRQ, RUN). While the chip runs:
 
 The picture is therefore drawn at a third of full brightness (the low bits), on top of a
 constant offset in red and blue. Monitors that take the black level from the back porch
-remove that offset. Others show a tinted background. The picture is not on silicon yet.
-Silicon is the first hardware this design will run on.
+remove that offset. Others show a tinted background. On the FPGA bench `vga_pong` runs
+through the bring-up script and matches the model's digest and its certificate
+([the bench](../fpga/tangprimer25k/README.md)); there its pins are read by the bench
+rather than drawn on a monitor.
 
 ## Verification
 

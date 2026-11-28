@@ -197,7 +197,7 @@ a run owns the monitor.
 | Op | Instruction | Format | Effect |
 | --- | --- | --- | --- |
 | 3E | `MON rd, rs` | R | write rule rd[30:29] from rd and rs (below), or clear the counts and the record |
-| 3F | `GETM rd, sel` | I16 | rd = monitor or line unit state, chosen by `sel` (below) |
+| 3F | `GETM rd, sel` | I16 | rd = monitor or line unit state, chosen by `sel` (below) (Z) |
 
 The rule written by MON:
 
@@ -262,7 +262,8 @@ Three rules cover almost every timing question a program raises.
 - **Pins and inputs have fixed delays.** A pin driven by a DRIVE with deadline d shows its
   new value from cycle d + 1. An input is seen by the program two ticks after it reaches
   the pin, through the synchroniser. Both delays are constant, so they cancel whenever a
-  program measures one input edge against another.
+  program measures one input edge against another; each edge is still seen on a tick, so
+  such an interval is right to within one tick.
 
 ## Assembly
 

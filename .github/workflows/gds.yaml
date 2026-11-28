@@ -1,7 +1,9 @@
 name: gds
 
 # Pinned to the exact revisions in scripts/versions.txt (docs/05-TOOLCHAIN.md).
-# The ttihp27a shuttle's release (v2.0 on): tt-gds-action tag ttihp27a = e7a50f8, which installs
+# The ttihp27a shuttle's release (v2.0 on): tt-gds-action e7a50f8, its ttihp27a tag when pinned
+# (the tag moved to df73a1e on 2026-11-24, changing only the docs, custom_gds and viewer
+# sub-actions: docs/05-TOOLCHAIN.md), which installs
 # LibreLane 3.1.0.dev4 for ihp-sg13cmos5l (given explicitly below) and whose precheck and GL test
 # use IHP-Open-PDK 89d42ee; tt-support-tools 0922544 (the action's default, main, pinned; v3.0: 9d13ff3).
 # v1.2-v1.6 were signed off on the pre-release pins (action 3412659, tools d66cf17, LibreLane

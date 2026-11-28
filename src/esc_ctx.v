@@ -140,6 +140,14 @@ module esc_ctx (
 `ifdef FORMAL
     , input wire [7:0] f_owned        // formal only: pins this context owns (for H4)
 `endif
+`ifdef ESC_ISA_CHECK
+    // formal only (formal/esc_isa_check.v): the event FIFO in order, the head at [57:0],
+    // each entry {kind, deadline, payload}; entries at and past o_cnt are not in the FIFO
+    , output wire [231:0] f_q
+    // ... and both mailboxes in order: {tx_cnt, tx 2nd, tx head, rx_cnt, rx 2nd, rx head};
+    // words at and past a count are not in the mailbox
+    , output wire [131:0] f_mbx
+`endif
 `ifdef ESC_NI
     // formal only (formal/esc_ni_ind.sby): every flip-flop of this context, for the
     // non-interference miter's inductive invariant
@@ -657,6 +665,16 @@ module esc_ctx (
     if (nonempty) assert (h_q == {f_ent[head][57:56], f_ent[head][23:0]});            // D3
   end
 `endif
+`endif
+
+`ifdef ESC_ISA_CHECK
+  function [57:0] f_slot_of(input [1:0] i, input [57:0] e0, input [57:0] e1, input [57:0] e2,
+                            input [57:0] e3);
+    f_slot_of = (i == 2'd0) ? e0 : (i == 2'd1) ? e1 : (i == 2'd2) ? e2 : e3;
+  endfunction
+  assign f_q = {f_slot_of(head + 2'd3, ent0, ent1, ent2, ent3), f_slot_of(head + 2'd2, ent0, ent1, ent2, ent3),
+                f_slot_of(head + 2'd1, ent0, ent1, ent2, ent3), f_slot_of(head, ent0, ent1, ent2, ent3)};
+  assign f_mbx = {tx_cnt, tx_rp ? tx0 : tx1, o_tx_head, rx_cnt, rx_rp ? rx0 : rx1, o_rx_head};
 `endif
 
 endmodule

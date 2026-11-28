@@ -349,8 +349,10 @@ def test_escert_refuses_bit_8_on_a_context_that_does_not_span():
 
 
 def test_reload_beside_a_spanning_context_checks_its_partner_page():
-    """Context 1 shares page 0 with spanning context 0; a reload of context 1 that changes a
-    word of page 1 that context 0 reaches is refused, one it does not reach is allowed."""
+    """Context 1 shares page 0 with spanning context 0, which also fetches from page 1: a
+    reload of context 1 may write neither page, whether or not context 0 reaches the word
+    (the non-interference proof assumes no write lands in a page the other context fetches
+    from)."""
     from eschost.live import plan_reload
     base = """
 .span 0
@@ -375,12 +377,14 @@ hl: ADDT 1000
 """
     run = assemble(base.format(v="0x02", w="0x01", x="0"))
     new = assemble(base.format(v="0x00", w="0x01", x="0"))
-    assert plan_reload(run, new, 1)                         # page 0, context 1's own word
+    with pytest.raises(ValueError, match="page 0, which context 0 fetches from"):
+        plan_reload(run, new, 1)                            # page 0, context 1's own word
     bad = assemble(base.format(v="0x00", w="0x00", x="0"))
-    with pytest.raises(ValueError, match="context 0 can reach"):
+    with pytest.raises(ValueError, match="context 0 fetches from"):
         plan_reload(run, bad, 1)
-    far = assemble(base.format(v="0x00", w="0x01", x="0x01000000"))
-    assert plan_reload(run, far, 1)                         # word 400: context 0 never reaches it
+    far = assemble(base.format(v="0x02", w="0x01", x="0x01000000"))
+    with pytest.raises(ValueError, match="page 1, which context 0 fetches from"):
+        plan_reload(run, far, 1)                            # word 400: unreached, still its page
 
 
 # ------------------------------------------------------------------ bring-up bundles

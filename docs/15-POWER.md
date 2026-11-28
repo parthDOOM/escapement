@@ -7,16 +7,36 @@ banks, memories read only on demand, and a hold margin that stopped thousands of
 needless delay cells (D-28, D-29 and D-40), and in version 3.2 the same clock gating
 carried to nearly every remaining register, with a waiting context that no longer reads
 the program store (D-73 to D-76). The decisions are in [06-DECISIONS](06-DECISIONS.md). Every number comes from OpenROAD and OpenSTA on the
-project's own layout databases, at the typical corner (1.20 V, 25 °C) and 25 MHz, with
-parasitics estimated from placement; the scripts are in `scripts/` and the runs can be
-repeated.
+project's own layout databases, at the typical corner (1.20 V, 25 °C) and 25 MHz; the
+scripts are in `scripts/` and the runs can be repeated. Version 3.2's own figures are from
+its signed-off layout, with the parasitics extracted from its routed wires. Every
+comparison between versions is from the layout after clock-tree synthesis, with the
+parasitics estimated from placement, because that is how every version was measured.
+Throughout, "measured" means this analysis: the switching activity of a gate-level
+simulation, fed to OpenSTA's power report. None of these figures is from a board.
 
 The measurements in sections 1 to 3 were taken on versions 1.1 to 1.6, on the 6 × 4
 layouts, as each change was made. The current design, version 3.2 at 8 × 4, was measured
-the same way on its signed-off layout (`scripts/power-workload.sh`, the same three workloads
-and the same 8,000-cycle windows), beside version 3.1:
+on its signed-off layout (`scripts/power-workload.sh RUN final`: the final netlist and
+database, and the typical-corner parasitics extracted from the routed wires), with the same
+three workloads and the same 8,000-cycle windows:
 
-| Version 3.2 (3.1) | uart_tx (sending) | logic analyser (capturing) | idle (stopped) | static estimate |
+| Version 3.2, signed off | uart_tx (sending) | logic analyser (capturing) | idle (stopped) | static estimate |
+| --- | ---: | ---: | ---: | ---: |
+| flip-flops and latches | 0.893 mW | 0.746 mW | 0.705 mW | |
+| clock tree | 0.799 mW | 0.707 mW | 0.697 mW | |
+| logic | 0.450 mW | 0.322 mW | 0.005 mW | |
+| SRAM macros (counted edge by edge) | 0.0175 mW | 0.0015 mW | 0 | |
+| **total** | **2.160 mW** | **1.777 mW** | **1.407 mW** | 1.50 mW |
+
+The routed wires weigh more than placement predicts. The flip-flops and latches cost the
+same as in the estimate below, and nearly all of the difference, 11 to 17%, is switching
+power in the clock tree and the logic.
+
+To compare with earlier versions, version 3.2 was also measured the way they were, after
+clock-tree synthesis with the parasitics estimated from placement, beside version 3.1:
+
+| Version 3.2 (3.1), estimated wiring | uart_tx (sending) | logic analyser (capturing) | idle (stopped) | static estimate |
 | --- | ---: | ---: | ---: | ---: |
 | flip-flops and latches | 0.897 mW (2.49) | 0.750 mW (2.45) | 0.707 mW (2.40) | |
 | clock tree | 0.646 mW (0.97) | 0.568 mW (0.97) | 0.559 mW (0.96) | |
@@ -77,7 +97,7 @@ work, was under 7%. Three causes, none of them about the work:
 
 ### D-29a: clock-gated register banks (`src/esc_greg.v`)
 
-`esc_greg` is a register bank with an enable. In silicon the enable stops the bank's
+`esc_greg` is a register bank with an enable. In the layout the enable stops the bank's
 clock, through the textbook latch-based gate: a latch transparent while `clk` is low
 holds `en` through the high phase, so `gclk = clk & en_latched` cannot glitch. The
 PDK's own clock-gate cells are on its LibreLane exclusion lists, so the gate is built
@@ -150,7 +170,7 @@ Post-CTS, typical corner, 25 MHz. The workload columns use switching activity fr
 gate-level simulation of the same netlist. "Static" is OpenSTA's default activity
 estimate, which LibreLane prints in its power report.
 
-| design | cells | utilisation | hold buffers | static | uart_tx | logic analyser | idle |
+| design | cells after CTS | utilisation after CTS | hold buffers | static | uart_tx | logic analyser | idle |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | v1.1 before | 32,299 | 66.1% | 4,514 | 7.55 mW | 8.61 mW | 8.45 mW | 7.99 mW |
 | + D-28 only | 27,025 | 57.5% | 197 | 7.21 mW | n/m | n/m | n/m |
@@ -227,7 +247,7 @@ Four workloads beyond the standard three show the cost of waiting directly. In `
 chip runs with its one context halted, so nothing is fetched. In `wait1` one context sits in a
 long `WAIT`; in `wait4` four contexts do; in `fifo4` four contexts are blocked on full FIFOs:
 
-| mW, 25 MHz | idle | run_halted | wait1 | wait4 | fifo4 | uart_tx | logic analyser |
+| mW, 25 MHz, estimated wiring | idle | run_halted | wait1 | wait4 | fifo4 | uart_tx | logic analyser |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | version 3.1 | 3.36 | 3.92 | 4.30 | 5.23 | 5.36 | 4.42 | 3.96 |
 | after D-73 and D-74 | 2.66 | 2.92 | 2.99 | 3.35 | 3.51 | 3.06 | 2.94 |

@@ -6,10 +6,10 @@ power-on to "every firmware's execution digest matches the simulator". The scrip
 diagnosis, and stops at the first failure. This page says what each stage checks, what a
 failure means, and what to measure next.
 
-Nothing here has run on silicon yet. The script has run against a simulated demo board
-(the simulator behind a model of the host interface, with injected faults), against the
-RTL of the whole chip in simulation, and on the chip's RTL built for an FPGA, with a
-Raspberry Pi Pico W as the board's microcontroller; see [Before silicon](#7-before-silicon).
+The script has been run against a simulated demo board (the simulator behind a model of
+the host interface, with injected faults), against the RTL of the whole chip in
+simulation, and on the chip's RTL built for an FPGA, with a Raspberry Pi Pico W as the
+board's microcontroller; see [Simulated chips and the FPGA bench](#7-simulated-chips-and-the-fpga-bench).
 
 ## 1. Equipment
 
@@ -64,7 +64,9 @@ the generated transmitters `dmx512_tx` and `ws2812_gen` re-anchor every packet,
 bus is idle, `vga_pong` changes its picture every frame, `eth_tx` and `udp_tx` send a link
 pulse every 16 ms, `servo` frames are 22 ms apart, and `sbus_rx`, whose input idles low,
 keeps receiving bad frames from the board's pulled-up pins. `westminster` (a 14 s tune)
-and the `replay` template are not bundled. `make_bundle.py` prints the kind and the predicted digest for each.
+is too long for `make_bundle.py`, whose prediction runs out of memory over its 391 million
+ticks; its bundle comes from the halt branch of that prediction alone
+([the run](../fpga/tangprimer25k/results/2026-11-28-westminster/README.md)). The `replay` template is not bundled. `make_bundle.py` prints the kind and the predicted digest for each.
 Rebuild the bundles whenever a firmware, the assembler or the ISS changes: a stale
 bundle fails stage 5, as it should.
 
@@ -124,7 +126,7 @@ compare.
     ...
     uart_tx.asm            halt   ok    digest 0x63114ed9 model 0x63114ed9; min lead 0:9 (cert 9)
     usb_hid.asm            steady ok    digest 0x0cafaeb5 = model at tick 35926; min lead 0:none (cert 1)
-[5] PASS  90 of 90 firmware match the model and their certificates
+[5] PASS  94 of 94 firmware match the model and their certificates
 [6] UART smoke test (optional) ...
     uart_tx.asm: RP UART received 55 4b 21 0a
 [6] PASS  1 UART smoke test(s) received exactly the model's bytes
@@ -231,8 +233,8 @@ stored fault from an unstable read. The stage ends on page 0.
 | tape read during a run: N of 32 words wrong | The words read correctly while stopped, so the fault is in the v1.3 port arbitration | Compare with a READ_TAPE of the same words after STOP; report the chip |
 | a tape read during a run was not fetched before it was due | The host's fetch request is never granted | Same |
 
-Both macros are the IHP 1P 256×32 SRAM. Their behaviour here has only been simulated with
-the vendor's behavioural model.
+The program store is the IHP 1P 1024×32 SRAM and the tape the 256×32 one; the simulations
+use the vendor's behavioural model of each.
 
 ### Stage 4: pins and clock rate
 
@@ -342,7 +344,7 @@ Garbled bytes point at bit timing or the pad; no bytes at an undriven uio[0].
   behaviour across supply and temperature, MicroPython's actual pin-write timing on each
   board, and that the RP's UART accepts the stage 6 pins.
 
-## 7. Before silicon
+## 7. Simulated chips and the FPGA bench
 
 The same script runs under CPython against two simulated chips:
 
@@ -416,7 +418,7 @@ On 2026-10-17:
   <https://docs.micropython.org/en/latest/reference/mpremote.html>.
 - Tiny Tapeout clock specification: <https://www.tinytapeout.com/specs/clock/>.
 
-Rechecked on 2026-11-22: v3.1.1 is still the latest release, and the one commit on main since
+Rechecked on 2026-11-28: v3.1.1 is still the latest release, and the one commit on main since
 (`15ba5ce`, 2026-11-12) adds three shuttles to the release workflow and changes no source.
 That workflow's `TT_RUNS_SUPPORTED` lists the shuttles whose index a release carries, and
 `ttihp27a` is not yet among them, so stage 0 needs a release made after this shuttle's index

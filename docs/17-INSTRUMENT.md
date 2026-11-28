@@ -14,7 +14,7 @@ checks that bus's timing against a datasheet (below).
 | --- | --- | --- | --- |
 | Stopped capture | Arm, run, STOP, read the tape | Up to 256 records | Any host |
 | Streaming capture | The host reads and acknowledges records during the run | As long as the host keeps up | Any host |
-| Live in PulseView | The demo board answers PulseView's Openbench Logic Sniffer driver | Up to 4 Mi samples per capture | The demo board |
+| Live in PulseView | The board answers PulseView's Openbench Logic Sniffer driver | Up to 4 Mi samples per capture, while the host link keeps up | The demo board, or the FPGA bench's Pico |
 
 All three run [`firmware/logic_analyzer.asm`](../firmware/logic_analyzer.asm): four
 instructions that arm the capture unit and halt, so the capture costs no instruction
@@ -46,14 +46,25 @@ capture is placed around it at PulseView's pre-trigger ratio. `sw/tests/test_sum
 runs sigrok-cli 0.7.2 (libsigrok 0.5.2) against the bridge on the simulated board,
 through a pseudo-terminal, and checks the waveform it writes, edge for edge.
 
+On the FPGA bench (`sump.serve(io=barepico.open_io())` on its Pico W, 28 November 2026)
+sigrok-cli with the same driver captured 2 ms at 1 MHz of two square waves the Pico's PIO
+fed into uio[2] and uio[3], 10 kHz and 1 kHz: every interval was exactly 50 and 500
+samples. A 20 ms window of the same lines stopped after 2.9 ms. The two waves make 22,000
+edges a second, more than the bench's host link, bit-banged by MicroPython, reads, so the
+ring filled and the chip ended the capture with its overflow tick, as it is built to. SUMP
+cannot tell PulseView this: the bridge's log has it, and the samples after it repeat the
+last level. A capture lasts as long as the host link keeps up with the line's edges
+([the run](../fpga/tangprimer25k/results/2026-11-28-sump/README.md)).
+
 ## Files
 
 A capture file (`.json`) keeps the record words as the chip wrote them, with the clock
 they were taken at and the pin names. On the demo board that clock is the one the board
 is running: 25 MHz by default, or a `clock_frequency` in the `[tt_um_escapement]`
 section of the board's `config.ini`, up to the rated 50 MHz (D-5; use exactly
-50000000 or 33000000). `stream()` and the SUMP bridge read it back from the board, and the PC tools
-rescale a capture taken at another clock (`esclearn` learns in 25 MHz ticks). The host tools write it; on a PC
+25000000 or 50000000, or 33000000 for rebuilt firmware). `stream()` and the SUMP bridge read it back from the board, and the PC tools
+rescale a capture taken at another clock (`esclearn` learns in 25 MHz ticks). The host
+tools write it, and on a PC it converts for other viewers:
 
 ```
 python -m esctape export capture.json -o capture.vcd        # GTKWave, PulseView
@@ -111,8 +122,8 @@ by edge, decoded and checked for timing at once.
   is absorbed by the ring (up to its size minus one) and the two-record staging buffer;
   the sustained rate is what the host link can read. On the demo board the RP2040/RP2350
   bit-bangs SPI from MicroPython; the board model used by the tests (1 µs per pin-byte
-  call, about 4 µs per SPI bit) reads about 7,000 records per second. It has not yet been
-  measured on a board.
+  call, about 4 µs per SPI bit) reads about 7,000 records per second. That figure is
+  the model's; a board's own rate depends on its MicroPython build's pin-write timing.
 - **Stopped capture** holds at most 256 records, and the ring mode keeps only the newest.
 - **Replay** covers one 2^24-tick epoch (0.67 s at 25 MHz, 0.34 s at 50 MHz), at most 256 records, and
   needs about 40 ticks between records.

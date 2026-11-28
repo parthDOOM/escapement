@@ -127,6 +127,13 @@
   howpublished = {\url{https://steveicarus.github.io/iverilog/}}
 }
 
+@misc{riscvformal,
+  author       = {Claire Wolf},
+  title        = {{riscv-formal}: {RISC-V} Formal Verification Framework},
+  howpublished = {\url{https://github.com/YosysHQ/riscv-formal}},
+  year         = {2017}
+}
+
 @misc{cocotb,
   title        = {cocotb: Coroutine-Based Cosimulation Library for Writing {VHDL} and {Verilog} Testbenches in {Python}},
   howpublished = {\url{https://www.cocotb.org}}
@@ -197,7 +204,7 @@
 @manual{rp2040,
   title        = {{RP2040} Datasheet},
   organization = {Raspberry Pi Ltd},
-  note         = {Chapter 3, Programmable I/O (PIO)}
+  note         = {Chapter 3, Programmable I/O (PIO); \url{https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf}}
 }
 
 @book{cdc6600,
@@ -240,13 +247,39 @@
 }
 
 @manual{ieee8023,
-  title        = {{IEEE} Standard for {Ethernet} ({IEEE} Std 802.3)},
+  title        = {{IEEE} Standard for {Ethernet} ({IEEE} Std 802.3-2022)},
   organization = {IEEE},
-  note         = {Clause 14, 10BASE-T}
+  note         = {Clause 14, 10BASE-T},
+  year         = {2022}
 }
 
 @misc{rp2040doom,
   author       = {Graham Sanderson},
   title        = {{rp2040-doom}: {DOOM} for the {Raspberry Pi} {RP2040}, based on {Chocolate Doom}},
   howpublished = {\url{https://github.com/kilograham/rp2040-doom}}
+}
+
+@misc{irmp,
+  author       = {Frank Meyer},
+  title        = {{IRMP}: Infrared Multi Protocol Decoder},
+  howpublished = {\url{https://www.mikrocontroller.net/articles/IRMP}},
+  note         = {Run through libsigrokdecode's \texttt{ir\_irmp} decoder}
+}
+
+@misc{wireshark,
+  author       = {{Wireshark Foundation}},
+  title        = {Wireshark Network Protocol Analyzer},
+  howpublished = {\url{https://www.wireshark.org}},
+  note         = {Its dissectors run through \texttt{tshark}}
+}
+
+@misc{rtl433,
+  title        = {{rtl\_433}: Generic Data Receiver for {ISM} Band Devices},
+  howpublished = {\url{https://github.com/merbanan/rtl_433}}
+}
+
+@misc{rcswitch,
+  author       = {Suat {\"O}zg{\"u}r},
+  title        = {{rc-switch}: {Arduino} Library to Operate 315/433\,{MHz} Remote Control Devices},
+  howpublished = {\url{https://github.com/sui77/rc-switch}}
 }

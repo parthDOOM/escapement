@@ -1,7 +1,7 @@
 # FPGA build
 
 The same RTL that is hardened for the chip, built for an FPGA so that firmware can be run
-against real devices before there is silicon. Two substitutions turn the chip's design into
+against real devices on real pins. Two substitutions turn the chip's design into
 an FPGA design, and both keep the chip's behaviour:
 
 - `ESC_NO_CG` builds plain flip-flops in place of the clock gates and latch banks (D-29a,
@@ -85,9 +85,11 @@ MOSI, and reads MISO, IRQ and RUN. Every pin is 3.3 V; connect the grounds.
 
 [`tangprimer25k/`](tangprimer25k/README.md) is a working bench: a Raspberry Pi Pico W runs
 the repository's bring-up script against the chip on a Sipeed Tang Primer 25K Dock (Gowin
-GW5A-25). On 2026-11-22 the version 3.1 RTL, whose Verilog is the one hardened for
-silicon, passed every stage, and all 85 programs with a bench bundle, 80 from the library
-and 5 written for the bench, matched the model and their timing certificates. The bitstream
+GW5A-25). On 2026-11-26 the version 3.2 RTL, whose Verilog is the one hardened for
+the chip, passed every stage, and all 94 programs with a bench bundle, 89 from the library
+and 5 written for the bench, matched the model and their timing certificates, and on 2026-11-28 so did `westminster`,
+the library's ninetieth; version 3.1
+had passed with 85 on 2026-11-22, and with 94 once the held-out programs were added. The bitstream
 builds unaided: the half-tick sampler's falling-edge registers map to the FPGA's own
 falling-edge flip-flops, and the clock reaches every sink on the global network. The same
 bench ran 10BASE-T Ethernet with a laptop in both directions and answered its ping, debugged

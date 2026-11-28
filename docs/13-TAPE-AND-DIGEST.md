@@ -18,7 +18,7 @@ flip-flops, add routing congestion, and still be too small to be useful.
 ## One timestamped memory
 
 The tape is a second single-port SRAM macro of 256 words of 32 bits, 49,488 µm², about 4%
-of the core. Firmware, the capture unit and the host share it:
+of the core. Firmware, the line unit, the capture unit and the host share it:
 
 | User | Access | When |
 | --- | --- | --- |
@@ -48,8 +48,9 @@ One memory then serves four jobs:
 
 ## Why sharing costs no determinism
 
-Four users share one port, and none of them ever makes another wait in a way that changes
-a program's timing:
+Four users share one port by a fixed rule. The only wait it causes is an owner's own load
+or store waiting for its line unit, which that owner's certificate counts, so no user makes
+another context wait:
 
 - **Firmware uses the port only in its own commit cycle**, and one context commits per
   cycle, so loads and stores never conflict. STT writes at the commit edge. LDT reads at
@@ -93,14 +94,14 @@ multiple-input signature register using the CRC-32 polynomial. The exact rule is
 
 The digest is useful in three ways:
 
-- **Silicon against the model in one read.** Both the simulator and the RTL are exact to
+- **A run against the model in one read.** Both the simulator and the RTL are exact to
   the tick, so after a run the host reads one word (`READ_DBG` select 16), and the
   simulator predicts the same word from the same image and inputs. Equal words mean the
   chip executed the same commits, outcomes, register values and pin states as the
   reference, with a chance of about 2^−32 that a difference goes unnoticed.
 - **Inputs come from the tape.** For a program whose behaviour depends on its inputs, the
   capture records those inputs. Capture, the simulator and the digest together therefore
-  make a silicon run fully observable without a debug port: replay the captured inputs in
+  make a run of the chip fully observable without a debug port: replay the captured inputs in
   the simulator, and the digest confirms the replay matches what the chip did.
 - **It is cheap**: 48 flip-flops, 32 for the signature and 16 for the previous outputs.
 

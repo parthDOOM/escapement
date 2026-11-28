@@ -44,6 +44,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import generate  # noqa: E402
+sys.path.insert(0, str(REPO / "test" / "cosim"))
+from isa_fail import failures as isa_failures  # noqa: E402
 
 # Curated mutants: name -> (file, original text, mutated text, what it breaks)
 MUTANTS = {
@@ -673,6 +675,10 @@ def run_suite(suite: str, src: Path, work: Path, seeds: int, limit: float | None
         # simulation crashed or aborted after it started (a kill)
         started = "Running on" in out or "running " in out.lower() and "test_" in out
         return "fail" if started else "compile-error"
+    # the co-simulation's instruction checker reports to the simulator's output, not to
+    # cocotb (test/cosim/isa_fail.py): a failed check there is a kill like a failed test
+    if suite == "cosim" and isa_failures(out):
+        return "fail"
     return "pass" if "FAIL=0" in out else "fail"
 
 

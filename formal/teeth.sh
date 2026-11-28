@@ -24,6 +24,18 @@
 #   e-stage      D-74: the held X select loaded from the wrong stage (p2v)   esc_core.sby ahead
 #   c-cm .. c-fi D-75: a gated context bank's enable misses a term            esc_ctx.sby kind
 #   d-x, d-f     D-76: a pipeline bank loads on the wrong stage's valid bit   esc_core.sby ahead
+#   i-add-c .. i-ret-pc  ISA: one wrong result per spike instruction (ADD's C, SHR's C one
+#                bit off, DJNZ's lc saturating, JZ on C, CALL's lr, RET to lr+1)  esc_core.sby isa
+#   i-sub-c .. i-ff-tick  ISA tier 1: SUB's borrow, CMP leaving Z, MOVHI's low half, AND, the
+#                immediates sign-extended, SHL's C, LDSH's source, JNC, LDLC, IRQ's code, an
+#                unlisted opcode legal, a reserved R bit ignored, the fault record's tick  esc_core.sby isa
+#   i-rdtime .. i-grid  ISA tier 2: RDTIME's tick, SETT's source, ADDT sign-extended, WAITT not
+#                done at tmr, HALT ignoring each of its three conditions, HALT's PC, the paired
+#                HALT's 2-tick retry  esc_core.sby isa
+#   i-full .. i-minlead  ISA tier 3: the full test off by one, EXPECT's zero mask, a claimed pin
+#                driven, ORDER skipped for a single entry, OVERLAP before any EXPECT, PAST's
+#                subcode, EMITX's C and shift, EMITR's byte, a DRIVE's oe bit 0, last_expect_end
+#                without the window, a dropped SEND's Z, wait_full and min_lead  esc_core.sby isa
 # Prints one line per tooth; exit status 1 if any tooth did not bite.
 set -u
 cd "$(dirname "$0")/.."
@@ -187,6 +199,180 @@ if [ -z "$SEL" ] || [[ " $SEL " == *" m-own-read "* ]]; then
     fi
   fi
 fi
+
+# The ISA checker's teeth (esc_core.sby isa): each plants a wrong result for one instruction in the
+# execute stage. The induction's base case (4 steps) ends before the first commit, so, as for
+# m-own-read, a tooth bites when the proof does not pass and induction fails on an assertion
+# whose label matches WANT, an extended regular expression for the field the bug breaks (with
+# or without the instruction in the label: isa_<instr>_<field> or isa_<field>). The unmutated
+# design passes the same task. A wrong branch may show first as a fault rather than a wrong PC
+# (at the last address, a branch that wrongly falls through faults PC_RANGE), so the branch
+# teeth accept the outcome and state as well.
+# isa_tooth NAME SED PLANTED_REGEX WANT [TASK, default isa] [FILE, default esc_core.v]
+isa_tooth() {
+  local name=$1 expr=$2 pat=$3 want=$4 task=${5:-isa} f=${6:-esc_core.v} d="$W/$1"
+  if [ -n "$SEL" ] && ! [[ " $SEL " == *" $name "* ]]; then return; fi
+  mkdir -p "$d"; cp -r "$REPO/src" "$REPO/formal" "$d/"
+  local before after
+  before=$(grep -c -- "$pat" "$d/src/$f")
+  sed -i "$expr" "$d/src/$f"
+  after=$(grep -c -- "$pat" "$d/src/$f")
+  if [ $((after - before)) -ne 1 ]; then
+    printf "NO-BITE %-10s the edit applied %d times (expected once): %s\n" "$name" $((after - before)) "$expr"
+    fail=1; return
+  fi
+  local s; s=$(date +%s)
+  (cd "$d/formal" && timeout 3600 sby -f esc_core.sby "$task") > "$d/sby.log" 2>&1
+  local done; done=$(grep -E 'DONE \(' "$d/sby.log" | tail -1 | sed 's/.*DONE/DONE/')
+  local got; got=$(grep -oE 'failed assertion esc_core\.u_isa\.isa_[a-z0-9_]+' "$d/sby.log" | sed 's/.*u_isa\.//' | sort -u)
+  if [[ "$done" != "DONE (PASS"* ]] && printf '%s\n' "$got" | grep -qxE "$want"; then
+    printf "BITES   %-10s %s in %ss: induction fails on %s\n" "$name" "$done" $(( $(date +%s) - s )) "$(echo $got)"
+  else
+    printf "NO-BITE %-10s %s in %ss (failed: %s; wanted %s)\n" "$name" "${done:-no verdict}" \
+      $(( $(date +%s) - s )) "$(echo ${got:-none})" "$want"
+    tail -5 "$d/sby.log"; fail=1
+  fi
+}
+# the spike: ADD, SHR, DJNZ, JZ, CALL, RET
+isa_tooth i-add-c   "s/w_c = sum\[32\];/w_c = 1'b0;/" "w_c = 1'b0;" 'isa_(add_)?c'
+isa_tooth i-shr-c   "s/w_c_we  = 1'b1; w_c = shl_t\[32\];/w_c_we  = 1'b1; w_c = is_shr ? shl_t[31] : shl_t[32];/" 'is_shr ? shl_t\[31\] : shl_t\[32\]' 'isa_(shr_)?c'
+isa_tooth i-djnz-lc "s/wire \[15:0\] lc_dec  = cs_lc - 16'd1;/wire [15:0] lc_dec  = (cs_lc == 16'd0) ? 16'd0 : cs_lc - 16'd1;/" "(cs_lc == 16'd0) ? 16'd0" 'isa_(djnz_)?(lc|pc|out|state)'
+isa_tooth i-jz-cond "s/d_op\[I_JZ\]:  if (cs_z)  begin/d_op[I_JZ]:  if (cs_c)  begin/" 'I_JZ\]:  if (cs_c)' 'isa_(jz_)?(pc|out|state)'
+isa_tooth i-call-lr "s/w_pc = f_tgt; w_lr_we = 1'b1; w_lr = pc_inc;/w_pc = f_tgt; w_lr_we = 1'b1; w_lr = cs_pc;/" 'w_lr = cs_pc;' 'isa_(call_)?lr'
+isa_tooth i-ret-pc  "s/          w_pc = cs_lr;/          w_pc = cs_lr + 9'd1;/" "w_pc = cs_lr + 9'd1;" 'isa_(ret_)?(pc|out|state)'
+# tier 1: the rest of 7.1 and 7.2, ILLEGAL and the first-fault record
+isa_tooth i-sub-c   "/d_op\[I_SUB\]: begin/,/end/s/w_c = ~sum\[32\];/w_c = sum[32];/" 'w_c = sum\[32\];' 'isa_(sub_)?c'
+# (CMP's Z from the written data would be no bug: w_rd_data defaults to the adder's sum)
+isa_tooth i-cmp-z   "s/z_src  = 3'd2;/z_src  = 3'd0;/" "z_src  = 3'd0;" 'isa_(cmp_)?z'
+isa_tooth i-movhi   "s/w_rd_data = {f_imm16, opa\[15:0\]};/w_rd_data = {f_imm16, 16'd0};/" "w_rd_data = {f_imm16, 16'd0};" 'isa_(movhi_)?(rd|r[0-3]|z)'
+isa_tooth i-and     "s/w_rd_data = opa & opb;/w_rd_data = opa \& ~opb;/" 'w_rd_data = opa & ~opb;' 'isa_(and_)?(rd|r[0-3]|z)'
+isa_tooth i-imm     "s/alu_b   = is_immb ? {16'd0, f_imm16} : opb;/alu_b   = is_immb ? {{16{f_imm16[15]}}, f_imm16} : opb;/" '{{16{f_imm16\[15\]}}, f_imm16}' 'isa_(addi_|cmpi_)?(rd|r[0-3]|c|z)'
+isa_tooth i-shl-c   "s/w_c_we  = 1'b1; w_c = shl_t\[32\];/w_c_we  = 1'b1; w_c = is_shr ? shl_t[32] : shl_t[31];/" 'is_shr ? shl_t\[32\] : shl_t\[31\]' 'isa_(shl_)?c'
+isa_tooth i-ldsh    "s/d_op\[I_LDSH\]: begin w_sh_we = 1'b1; w_sh = opb; end/d_op[I_LDSH]: begin w_sh_we = 1'b1; w_sh = opa; end/" 'w_sh = opa; end' 'isa_(ldsh_)?sh'
+isa_tooth i-jnc     "s/d_op\[I_JNC\]: if (!cs_c)/d_op[I_JNC]: if (cs_c)/" 'd_op\[I_JNC\]: if (cs_c)' 'isa_(jnc_)?(pc|out|state)'
+isa_tooth i-ldlc    "s/d_op\[I_LDLC\]: begin w_lc_we = 1'b1; w_lc = f_imm16; end/d_op[I_LDLC]: begin w_lc_we = 1'b1; w_lc = {f_imm16[15:1], 1'b0}; end/" 'w_lc = {f_imm16\[15:1\], 1.b0}' 'isa_(ldlc_)?lc'
+isa_tooth i-irq     "s/\.w_irq_code  (insn\[7:0\])/.w_irq_code  (insn[8:1])/" '\.w_irq_code  (insn\[8:1\])' 'isa_[a-z0-9_]*irq[a-z0-9_]*'
+isa_tooth i-unlisted "s/illegal_of = ~(|onehot(w\[31:24\]))/illegal_of = (~(|onehot(w[31:24])) \& (w[31:24] != 8'h05))/" "w\[31:24\] != 8'h05" 'isa_[a-z0-9_]*(out|state|ff[a-z0-9_]*)'
+isa_tooth i-rsv     "s/RSV_R = 24'h0FFFFF,/RSV_R = 24'h0FFFFE,/" "RSV_R = 24'h0FFFFE," 'isa_[a-z0-9_]*(out|state|ff[a-z0-9_]*)'
+isa_tooth i-ff-tick "s/ff_cm   ? {f_cause, f_sub, cctx, cs_pc, now} :/ff_cm   ? {f_cause, f_sub, cctx, cs_pc, now + 32'd1} :/" 'cs_pc, now + 32.d1}' 'isa_[a-z0-9_]*(ff|tick)[a-z0-9_]*'
+
+# tier 2: time, HALT, WAIT and the retry grid. reached() itself is registered and pinned by
+# the ahead lemma B2, which the isa task assumes, so a bug there would contradict an
+# assumption rather than show; the teeth sit at the commit, after it.
+isa_tooth i-rdtime  "s/d_op\[I_RDTIME\]: begin w_rd_we = 1'b1; w_rd_data = now; end/d_op[I_RDTIME]: begin w_rd_we = 1'b1; w_rd_data = now + 32'd1; end/" 'w_rd_data = now + 32.d1; end' 'isa_(rdtime_)?(rd|r[0-3])'
+isa_tooth i-sett    "s/d_op\[I_SETT\]:   begin w_tmr_we = 1'b1; w_tmr = opb; end/d_op[I_SETT]:   begin w_tmr_we = 1'b1; w_tmr = opa; end/" 'w_tmr = opa; end' 'isa_(sett_)?tmr'
+isa_tooth i-addt    "s/t_add  = d_op\[I_ADDT\]  ? {8'd0, f_imm24} :/t_add  = d_op[I_ADDT]  ? {{8{f_imm24[23]}}, f_imm24} :/" '{{8{f_imm24\[23\]}}, f_imm24}' 'isa_(addt_)?tmr'
+isa_tooth i-waitt   "s/d_op\[I_WAITT\]:  if (!rch_tmr) outcome = OC_W;/d_op[I_WAITT]:  if (!rch_tmr || cs_tmr == now) outcome = OC_W;/" 'if (!rch_tmr || cs_tmr == now)' 'isa_(waitt_)?(out|pc|state)'
+# i-halt-q: HALT halts with events still queued. The isa task cannot see it, by design: it
+# assumes the design's proved invariants, and this bug breaks one, H3 (esc_ctx.v: a context
+# that is not RUNNING has an empty FIFO), so it is scored where H3 is proved, the faulted
+# group, bounded from reset (split_bmc.py at depth 12). A bug that breaks an assumed invariant
+# must bite that invariant's own proof; the isa pass then covers everything else.
+if [ -z "$SEL" ] || [[ " $SEL " == *" i-halt-q "* ]]; then
+  d="$W/i-halt-q"; mkdir -p "$d"; cp -r "$REPO/src" "$REPO/formal" "$d/"
+  sed -i "s/if (cs_cnta == 3'd0 \&\& !cs_acta \&\& !(lu_mine \&\& lu_engaged)) w_halt = 1'b1;/if (!cs_acta \&\& !(lu_mine \&\& lu_engaged)) w_halt = 1'b1;/" "$d/src/esc_core.v"
+  n=$(grep -c 'if (!cs_acta && !(lu_mine && lu_engaged)) w_halt' "$d/src/esc_core.v")
+  l=$(grep -n 'if (o_state != ST_RUN) assert (o_cnt == 3.d0);' "$d/src/esc_ctx.v" | cut -d: -f1)
+  if [ "$n" != 1 ] || [ -z "$l" ]; then
+    echo "NO-BITE i-halt-q   the edit applied $n times (expected once), H3 line '$l'"; fail=1
+  else
+    s=$(date +%s)
+    (cd "$d/formal" && timeout 3600 python3 split_bmc.py --depth 12 faulted) > "$d/split.log" 2>&1
+    if grep -qE "^FAIL .*FAILED esc_ctx.v:$l\." "$d/split.log"; then
+      printf "BITES   %-10s FAIL in %ss: H3 fails (%s)\n" i-halt-q $(( $(date +%s) - s )) \
+        "$(grep -E '^FAIL' "$d/split.log" | sed -E 's/ +/ /g; s/^FAIL [0-9]+ s //' | cut -c1-60)"
+    else
+      printf "NO-BITE %-10s esc_ctx.v:%s (H3) did not fail\n" i-halt-q "$l"; cat "$d/split.log"; fail=1
+    fi
+  fi
+fi
+isa_tooth i-halt-ck "s/if (cs_cnta == 3'd0 \&\& !cs_acta \&\& !(lu_mine \&\& lu_engaged)) w_halt = 1'b1;/if (cs_cnta == 3'd0 \&\& !(lu_mine \&\& lu_engaged)) w_halt = 1'b1;/" "if (cs_cnta == 3'd0 && !(lu_mine" 'isa_(halt_)?(out|state|pc)'
+isa_tooth i-halt-lu "s/if (cs_cnta == 3'd0 \&\& !cs_acta \&\& !(lu_mine \&\& lu_engaged)) w_halt = 1'b1;/if (cs_cnta == 3'd0 \&\& !cs_acta) w_halt = 1'b1;/" "if (cs_cnta == 3'd0 && !cs_acta) w_halt" 'isa_(halt_)?(out|state|pc)'
+isa_tooth i-halt-pc "s/          w_pc = cs_pc;/          w_pc = pc_inc;/" '          w_pc = pc_inc;' 'isa_(halt_)?pc'
+# the grid: a paired context's next fetch after HALT is PC+1 instead of the HALT, so a waiting
+# paired HALT is retried at c+4, not c+2
+isa_tooth i-grid    "s/wire        x_stay  = d_op_n\[I_HALT\];/wire        x_stay  = 1'b0;/" "x_stay  = 1'b0;" 'isa_retry_(at|gap|cnt)[0-3]' isa_grid
+
+# tier 3: the event instructions, admission (6.2), the FIFO across the edge and telemetry (7.4).
+# The admission tests ahd_now, ahd_tail and ahd_lee are registered and pinned by the ahead
+# lemmas, which the isa task assumes, so these teeth sit where the commit uses them.
+isa_tooth i-full    "/d_op\[I_EMIT\], d_op\[I_EMITR\]/,/end else if/s/if (cs_cnta == 3'd4) begin/if (cs_cnta >= 3'd3) begin/" "if (cs_cnta >= 3'd3) begin" 'isa_(out|state|pc|q_cnt|q[0-3]|ff_[a-z]+|lee|eseen|tel_[a-z_]+)'
+isa_tooth i-mask    "s/ev_kind != K_SAMPLE \&\& f_mask == 8'd0/ev_kind == K_DRIVE \&\& f_mask == 8'd0/" "ev_kind == K_DRIVE && f_mask == 8'd0" 'isa_(out|state|pc|q_cnt|q[0-3]|ff_[a-z]+|lee|eseen|tel_[a-z_]+)'
+isa_tooth i-claimed "s/(f_mask \& ~(owned_c \& ~claimed_c))/(f_mask \& ~owned_c)/" '(f_mask & ~owned_c)' 'isa_(out|state|pc|q_cnt|q[0-3]|ff_[a-z]+|lee|eseen|tel_[a-z_]+)'
+isa_tooth i-order   "/d_op\[I_EMIT\], d_op\[I_EMITR\]/,/w_push      = 1'b1;/s/end else if (cs_cnta != 3'd0 \&\& !ahd_tail) begin/end else if (cs_cnta > 3'd1 \&\& !ahd_tail) begin/" "cs_cnta > 3'd1 && !ahd_tail" 'isa_(out|state|pc|q_cnt|q[0-3]|ff_[a-z]+|lee|eseen|tel_[a-z_]+)'
+isa_tooth i-overlap "s/ev_kind == K_EXPECT \&\& cs_eseen \&\& !ahd_lee/ev_kind == K_EXPECT \&\& !ahd_lee/" "ev_kind == K_EXPECT && !ahd_lee) begin" 'isa_(out|state|pc|q_cnt|q[0-3]|ff_[a-z]+|lee|eseen|tel_[a-z_]+)'
+isa_tooth i-psub    "s/f_sub = AS_PAST;/f_sub = AS_ORDER;/" "f_sub = AS_ORDER;" 'isa_ff_sub'
+isa_tooth i-emitx-c "s/w_c     = x_bit;/w_c     = ~x_bit;/" "w_c     = ~x_bit;" 'isa_c'
+isa_tooth i-emitx-sh "s/w_sh    = f_dir ? {cs_sh\[30:0\], 1'b0} : {1'b0, cs_sh\[31:1\]};/w_sh    = f_dir ? {cs_sh[30:0], 1'b1} : {1'b0, cs_sh[31:1]};/" "{cs_sh\[30:0\], 1'b1}" 'isa_sh'
+isa_tooth i-emitr   "s/d_op\[I_EMITR\] ? opb\[7:0\] :/d_op[I_EMITR] ? opb[15:8] :/" 'd_op\[I_EMITR\] ? opb\[15:8\] :' 'isa_q[0-3]'
+isa_tooth i-entry   "s/{ev_kind, cs_tmr, f_mask, ev_val, insn\[7:0\]}/{ev_kind, cs_tmr, f_mask, ev_val, insn[7:1], 1'b0}/" "insn\[7:1\], 1'b0}" 'isa_q[0-3]'
+# i-lee: an admitted EXPECT records lee = d instead of d + window. lee shares tmr's write
+# register (D-40), and esc_ctx.v asserts that the register holds what lee takes; the isa task
+# assumes that check, which with this bug can hold only when the window is 0, where d and
+# d + window agree. So, like i-halt-q, it is scored where that check is proved: its own group,
+# bounded from reset (split_bmc.py at depth 12). Measured 11-27: fails at step 7 in 4 s; the
+# isa task with the bug passed in 2572 s, as expected.
+if [ -z "$SEL" ] || [[ " $SEL " == *" i-lee "* ]]; then
+  d="$W/i-lee"; mkdir -p "$d"; cp -r "$REPO/src" "$REPO/formal" "$d/"
+  sed -i "s/\.w_lee       (t_sum)/.w_lee       (cs_tmr)/" "$d/src/esc_core.v"
+  n=$(grep -c '\.w_lee       (cs_tmr)' "$d/src/esc_core.v")
+  l=$(grep -n 'if ($past(en_lee)) assert (q_tmr == $past(d_lee));' "$d/src/esc_ctx.v" | cut -d: -f1)
+  if [ "$n" != 1 ] || [ -z "$l" ]; then
+    echo "NO-BITE i-lee      the edit applied $n times (expected once), D-40 line '$l'"; fail=1
+  else
+    s=$(date +%s)
+    (cd "$d/formal" && timeout 3600 python3 split_bmc.py --depth 12 "esc_ctx_$l") > "$d/split.log" 2>&1
+    if grep -qE "^FAIL .*FAILED esc_ctx.v:$l\." "$d/split.log"; then
+      printf "BITES   %-10s FAIL in %ss: D-40 lee check fails (%s)\n" i-lee $(( $(date +%s) - s )) \
+        "$(grep -E '^FAIL' "$d/split.log" | sed -E 's/ +/ /g; s/^FAIL [0-9]+ s //' | cut -c1-60)"
+    else
+      printf "NO-BITE %-10s esc_ctx.v:%s (D-40 lee) did not fail\n" i-lee "$l"; cat "$d/split.log"; fail=1
+    fi
+  fi
+fi
+isa_tooth i-send-z  "/d_op\[I_SEND\]: begin/,/w_push = 1'b1;/s/z_src = 3'd4; w_z = 1'b0;/z_src = 3'd4; w_z = 1'b1;/" "w_z = 1'b1;" 'isa_z'
+isa_tooth i-wfull   "s/else if (cm_waitfull \&\& o_wait_full != 16'hFFFF) o_wait_full <= o_wait_full + 16'd1;/else if (cm_waitfull) o_wait_full <= o_wait_full + 16'd1;/" "else if (cm_waitfull) o_wait_full" 'isa_tel_wait_full' isa esc_ctx.v
+isa_tooth i-minlead "s/if (w_lead16 < o_min_lead) o_min_lead <= w_lead16;/if (w_lead16 < o_min_lead) o_min_lead <= w_lead16 + 16'd1;/" "o_min_lead <= w_lead16 + 16'd1;" 'isa_tel_min_lead' isa esc_ctx.v
+
+# tier 4: input (7.3), mailboxes (7.5), tape and capture (7.6), line unit (7.7), monitor (7.8):
+# each instruction's effect on the context and its hand-off to the unit it uses
+isa_tooth i-getp     "s/w_rd_data = {24'd0, sync}; z_src/w_rd_data = {24'd0, sync[7:1], 1'b0}; z_src/" "sync\[7:1\], 1'b0}" 'isa_(rd|r[0-3]|z)'
+isa_tooth i-waitp    "s/if (p_match)      begin z_src = 3'd4; w_z = 1'b1; end/if (p_match)      begin z_src = 3'd4; w_z = 1'b0; end/" "if (p_match)      begin z_src = 3'd4; w_z = 1'b0;" 'isa_z'
+isa_tooth i-geti     "s/if (cs_hsmp) outcome = OC_W;/if (1'b0) outcome = OC_W;/" "if (1'b0) outcome = OC_W;" 'isa_(out|state|pc|rd|r[0-3]|z|ish)'
+isa_tooth i-getx     "s/w_rd_data = {cs_fail, cs_pass, 14'd0, cs_act, cs_failed};/w_rd_data = {cs_pass, cs_fail, 14'd0, cs_act, cs_failed};/" "{cs_pass, cs_fail, 14'd0" 'isa_(rd|r[0-3])'
+isa_tooth i-pop-wait "s/if (cs_rxe) outcome = OC_W;/if (1'b0) outcome = OC_W;/" "if (1'b0) outcome = OC_W;" 'isa_(out|state|pc|rd|r[0-3]|z|mbx_[a-z0-9_]+)'
+isa_tooth i-pop-keep "s/w_rd_data = cs_rxh; w_rx_pop = 1'b1;/w_rd_data = cs_rxh; w_rx_pop = 1'b0;/" "w_rd_data = cs_rxh; w_rx_pop = 1'b0;" 'isa_mbx_[a-z0-9_]+'
+isa_tooth i-push     "s/if (cs_txf) outcome = OC_W;/if (1'b0) outcome = OC_W;/" "if (1'b0) outcome = OC_W;" 'isa_(out|state|pc|mbx_[a-z0-9_]+)'
+isa_tooth i-rxready  "s/w_z = cs_rxe; end/w_z = ~cs_rxe; end/" "w_z = ~cs_rxe;" 'isa_z'
+isa_tooth i-txready  "s/w_z = cs_txf; end/w_z = ~cs_txf; end/" "w_z = ~cs_txf;" 'isa_z'
+isa_tooth i-tape-a   "s/tp_busy ? (opb\[7:0\] + f_imm16\[7:0\])/tp_busy ? (opb[7:0] + f_imm16[7:0] + 8'd1)/" "f_imm16\[7:0\] + 8'd1)" 'isa_tape_[a-z]+'
+isa_tooth i-stt-d    "s/tp_busy ? opa : cap_head;/tp_busy ? opb : cap_head;/" "tp_busy ? opb : cap_head;" 'isa_tape_[a-z]+'
+isa_tooth i-tape-w   "s/d_op\[I_LDT\], d_op\[I_STT\]: if (lu_port) outcome = OC_W;/d_op[I_LDT], d_op[I_STT]: if (1'b0) outcome = OC_W;/" "d_op\[I_STT\]: if (1'b0)" 'isa_(out|state|pc|rd|r[0-3]|tape_[a-z]+)'
+isa_tooth i-capt     "s/\.capt_v(opb)/.capt_v(opa)/" "\.capt_v(opa)" 'isa_capt_[a-z0-9_]+'
+isa_tooth i-getc     "s/w_rd_data = cap_status; z_src = 3'd1;/w_rd_data = cap_status; z_src = 3'd0;/" "cap_status; z_src = 3'd0;" 'isa_z'
+isa_tooth i-line-ill "s/if (l_op > 4'd3) begin/if (l_op > 4'd4) begin/" "if (l_op > 4'd4) begin" 'isa_(out|state|pc|ff_[a-z]+)'
+isa_tooth i-line-own "s/(l_op == 4'd3) ? (lu_owned \&\& !lu_mine)/(l_op == 4'd3) ? 1'b0/" "(l_op == 4'd3) ? 1'b0" 'isa_(out|state|pc|ff_[a-z]+|lu_owne[rd])'
+isa_tooth i-line-w   "s/end else if (l_op != 4'd0 \&\& lu_engaged) begin/end else if (l_op > 4'd1 \&\& lu_engaged) begin/" "l_op > 4'd1 && lu_engaged" 'isa_(out|state|pc)'
+isa_tooth i-getl-z   "s/z_src = 3'd4; w_z = ~lu_busy;/z_src = 3'd4; w_z = lu_busy;/" "w_z = lu_busy;" 'isa_z'
+isa_tooth i-getl-t   "s/w_tmr_we = 1'b1; w_tmr = lu_e; end/w_tmr_we = 1'b1; w_tmr = lu_e + 32'd1; end/" "w_tmr = lu_e + 32'd1" 'isa_tmr'
+isa_tooth i-getm-own "s/(f_imm16\[15:1\] == 15'd0 \&\& mon_sel\[cctx\]) ? lu_getm/(f_imm16[15:1] == 15'd0) ? lu_getm/" "(f_imm16\[15:1\] == 15'd0) ? lu_getm" 'isa_(rd|r[0-3]|z)'
+isa_tooth i-getm-lu  "s/\&\& lu_owned \&\& lu_owner == cctx)/\&\& lu_owned)/" "f_imm16 == 16'd4) && lu_owned)" 'isa_(rd|r[0-3]|z)'
+isa_tooth i-mon-own  "s/mon_sel <= 4'd1 << cctx;/mon_sel <= 4'd1;/" "mon_sel <= 4'd1;" 'isa_(mon_owner|out|state|pc|ff_[a-z]+)'
+
+# and one for each instruction the teeth above leave without one of its own, so every one
+# of the 55 has a planted bug its proof must catch
+isa_tooth i-mov      "s/d_op\[I_MOV\]:   begin w_rd_we = 1'b1; w_rd_data = opb;/d_op[I_MOV]:   begin w_rd_we = 1'b1; w_rd_data = opa;/" "d_op\[I_MOV\]:   begin w_rd_we = 1'b1; w_rd_data = opa;" 'isa_(rd|r[0-3]|z)'
+isa_tooth i-movi     "s/w_rd_data = {16'd0, f_imm16};/w_rd_data = {f_imm16, 16'd0};/" "w_rd_data = {f_imm16, 16'd0};" 'isa_(rd|r[0-3]|z)'
+isa_tooth i-or       "s/w_rd_data = opa | opb; z_src/w_rd_data = opa ^ opb; z_src/" "d_op\[I_OR\]:  begin w_rd_we = 1'b1; w_rd_data = opa ^ opb;" 'isa_(rd|r[0-3]|z)'
+isa_tooth i-xor      "s/d_op\[I_XOR\]: begin w_rd_we = 1'b1; w_rd_data = opa ^ opb;/d_op[I_XOR]: begin w_rd_we = 1'b1; w_rd_data = opa | opb;/" "d_op\[I_XOR\]: begin w_rd_we = 1'b1; w_rd_data = opa | opb;" 'isa_(rd|r[0-3]|z)'
+isa_tooth i-tsti     "s/d_op\[I_TSTI\]: z_src = 3'd3;/d_op[I_TSTI]: z_src = 3'd2;/" "d_op\[I_TSTI\]: z_src = 3'd2;" 'isa_z'
+isa_tooth i-stsh     "s/d_op\[I_STSH\]: begin w_rd_we = 1'b1; w_rd_data = cs_sh; end/d_op[I_STSH]: begin w_rd_we = 1'b1; w_rd_data = ~cs_sh; end/" "w_rd_data = ~cs_sh; end" 'isa_(rd|r[0-3])'
+isa_tooth i-nop      "s/d_op\[I_NOP\]: ;/d_op[I_NOP]: begin z_src = 3'd4; w_z = 1'b1; end/" "d_op\[I_NOP\]: begin z_src = 3'd4; w_z = 1'b1; end" 'isa_z'
+isa_tooth i-jmp      "s/d_op\[I_JMP\]: begin seq = 1'b0; w_pc = f_tgt; end/d_op[I_JMP]: begin seq = 1'b0; w_pc = f_tgt + 9'd1; end/" "w_pc = f_tgt + 9'd1; end" 'isa_(pc|out|state)'
+isa_tooth i-jnz      "s/d_op\[I_JNZ\]: if (!cs_z) begin/d_op[I_JNZ]: if (cs_z) begin/" "d_op\[I_JNZ\]: if (cs_z) begin" 'isa_(pc|out|state)'
+isa_tooth i-jc       "s/d_op\[I_JC\]:  if (cs_c)  begin/d_op[I_JC]:  if (cs_z)  begin/" "d_op\[I_JC\]:  if (cs_z)  begin" 'isa_(pc|out|state)'
+isa_tooth i-addtr    "s/d_op\[I_ADDTR\] ? opb : {25'd0, f_win};/d_op[I_ADDTR] ? opa : {25'd0, f_win};/" "d_op\[I_ADDTR\] ? opa :" 'isa_tmr'
+isa_tooth i-sample   "s/end else if (ev_kind != K_SAMPLE \&\& f_mask == 8'd0) begin/end else if (f_mask == 8'd0) begin/" "end else if (f_mask == 8'd0) begin" 'isa_(out|state|pc|q_cnt|q[0-3]|ff_[a-z]+|tel_[a-z_]+)'
 
 [ $fail = 0 ] && echo "every tooth bites" || echo "a tooth did not bite: the proof it stands for cannot be trusted"
 exit $fail

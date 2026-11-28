@@ -6,7 +6,7 @@ import { asset } from "../lib/util";
 
 const Slice3D = lazy(() => import("../components/Slice3D"));
 const REPO = "https://github.com/parthDOOM/escapement";
-const SECTIONS = [["transistors", "Transistors"], ["history", "Eight layouts"]] as const;
+const SECTIONS = [["transistors", "Transistors"], ["history", "Ten layouts"]] as const;
 
 class Guard extends Component<{ children: React.ReactNode }, { err: string | null }> {
   state = { err: null as string | null };
@@ -72,7 +72,7 @@ export default function SiliconApp() {
           <div className="wrap">
             <div className="sec-head">
               <p className="eyebrow">History</p>
-              <h2>Nine layouts, one story</h2>
+              <h2>Ten layouts, one story</h2>
             </div>
             <History />
             <p className="more"><a href={`${REPO}/blob/master/docs/03-PHYSICAL-DESIGN.md`}>Physical design in full:

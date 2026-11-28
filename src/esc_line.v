@@ -91,6 +91,9 @@ module esc_line (
 `ifdef ESC_NI
     , output wire [11:0] f_el           // formal only (esc_ni_ind.sby): the tick counter
 `endif
+`ifdef ESC_ISA_CHECK
+    , output wire [45:0] f_aux          // verification only (esc_isa_check.v): {crc, count}
+`endif
 );
   localparam [2:0] IDLE = 3'd0, CFG = 3'd1, PEND = 3'd2, TX = 3'd3, ARM = 3'd4, RX = 3'd5,
                    CRCM = 3'd6;
@@ -795,6 +798,9 @@ module esc_line (
     end
   always @(*) if (rst_n && cfg_done) assert (flt_owner == (cfg_done & own_bad)
       && flt_config == (cfg_done & ~own_bad & ~n_valid));  // lemma-group: cfg_pre
+`endif
+`ifdef ESC_ISA_CHECK
+  assign f_aux = {crc, count};
 `endif
 endmodule
 

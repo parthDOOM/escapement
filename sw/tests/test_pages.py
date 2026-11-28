@@ -157,7 +157,7 @@ def test_reload_inside_a_page_ignores_other_pages_code():
         assert addr // 256 == (addr + len(words) - 1) // 256      # a run stays in one page
     running.ctx_page = [1, 1, 0, 0]
     new.ctx_page = [1, 1, 0, 0]
-    with pytest.raises(ValueError, match="context 0 can reach"):
+    with pytest.raises(ValueError, match="context 0 fetches from"):
         plan_reload(running, new, 1)
 
 

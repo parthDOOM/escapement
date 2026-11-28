@@ -1,5 +1,5 @@
 """A simulated Tiny Tapeout demo board with an Escapement chip on it, for running
-sw/rp2350/bringup.py under CPython before silicon exists.
+sw/rp2350/bringup.py under CPython, with faults that can be injected on purpose.
 
 The board side imitates the parts of tt-micropython-firmware (v3.1.1) that bringup.py
 uses: the DemoBoard object (`tt`), ttboard.util.platform's byte functions, MicroPython's

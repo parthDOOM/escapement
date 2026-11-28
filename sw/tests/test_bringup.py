@@ -1,4 +1,4 @@
-"""sw/rp2350/bringup.py before silicon: every stage on a simulated demo board.
+"""sw/rp2350/bringup.py under CPython: every stage on a simulated demo board.
 
 The board is demoboard_mock.MockBoard (tt-micropython-firmware's API surface, with RP
 time) and the chip is demoboard_mock.SimChip: the host interface modelled cycle by cycle

@@ -38,22 +38,24 @@ work that four instructions per bit cannot do (D-33).
 
 **D-5 Clock: up to 50 MHz, 25 MHz by default.** Frequencies are quoted at the slow corner
 (1.08 V, 125 °C), not the typical one. Since version 1.6 the layout is signed off at 20 ns,
-so the chip is rated for clocks up to 50 MHz; it meets timing up to 50.8 MHz at the slow
-corner and 80.6 MHz at the typical one (v1.5, rated 33 MHz: 38.6 and 61.3 MHz; v1.4, rated
-25 MHz: 28.6 and 45 MHz) ([physical design](03-PHYSICAL-DESIGN.md#sign-off-results)). The
-margin at the slow corner is small (1.5%), and the 25 MHz default keeps half the period
+so the chip is rated for clocks up to 50 MHz; version 3.2 meets timing up to 58.8 MHz at
+the slow corner and 93.5 MHz at the typical one (v1.6, the first signed off at 20 ns: 50.8
+and 80.6 MHz; v1.5, rated 33 MHz: 38.6 and 61.3 MHz; v1.4, rated 25 MHz: 28.6 and 45 MHz)
+([physical design](03-PHYSICAL-DESIGN.md#sign-off-results)). The slow corner keeps 3.0 ns,
+15% of the period, in hand at 50 MHz, and the 25 MHz default keeps more than half the period
 spare. The shipped firmware is timed for 25 MHz, the clock `info.yaml` asks the Tiny
 Tapeout board for: VGA Pong uses the core clock as its pixel clock, the USB firmware runs at
 24 MHz (D-37) and the 10BASE-T firmware at 40 MHz. The programs whose timing derives from
-`CLK_KHZ` (14 in version 1.5, 39 since 1.6) rebuild for another clock: at 33, 33.333, 40 and
-50 MHz each certifies (`test_escert.py`), and at 33 and 50 MHz 36 of them drive their bus
-models, the models timing every edge in the rated tick (`test_rated_clock.py`). The other
-three are the two combined images, whose modules run there on their own, and
-`westminster`, a tune with no bus model. On the Tiny Tapeout demo board use exactly 50 MHz (its
-firmware runs the RP2040 at 100 MHz and divides by 2) or 33 MHz (132 MHz by 4): both give 50%
-duty and no jitter. A request for a clock that no even divisor of an RP2040 clock up to its
-default 133 MHz makes, such as 33.333 MHz, falls back to a fractional divider and jitters, with
-some cycles shorter than the request.
+`CLK_KHZ` (14 in version 1.5, 39 in 1.6, 74 of the 90 now) rebuild for another clock: at 33,
+33.333, 40 and 50 MHz each certifies (`test_escert.py`), and at 33 and 50 MHz those with bus
+models drive them, the models timing every edge in the rated tick (`test_rated_clock.py`).
+The rest are tied to one clock by their protocol, need a whole number of ticks per bit, or
+count in ticks ([verification](04-VERIFICATION.md)). On the Tiny Tapeout demo board use exactly 25 MHz, the default the shipped
+firmware is timed for, or 50 MHz: its microcontroller (an RP2350 on the current ttDBv3, an
+RP2040 on earlier boards) makes both by dividing 100 MHz by 4 or by 2, with 50% duty and no
+jitter, and 33 MHz (132 MHz by 4) works the same way for rebuilt firmware. A request for a
+clock that no even divisor makes, such as 33.333 MHz, falls back to a fractional divider and
+jitters, with some cycles shorter than the request.
 
 **D-9 Event model.** Per-context FIFOs of DRIVE, EXPECT and SAMPLE entries with absolute
 deadlines, strict ordering within half the counter range, and visible rejection. An
@@ -94,7 +96,7 @@ moved to 8 × 4 tiles, 1724.16 × 710.64 µm (D-49 to D-51).
 data-dependent SDA needs no inversion code.
 
 **D-15 Telemetry.** Per context: minimum enqueue lead, maximum occupancy and the count
-of waits on a full FIFO. These cross-check the certificates on RTL, gates and silicon.
+of waits on a full FIFO. These cross-check the certificates on the RTL, the netlist and the FPGA build, and on a fabricated chip.
 
 **D-16 Protocol coverage.** UART (115,200 baud tested; the rate is one constant), SPI
 modes 0 to 3, I2C controller (Fast mode) and target (Standard and Fast mode), plus protocols the
@@ -107,9 +109,9 @@ host-clocked bus, JTAG by a long synchronous shift. By version 1.4 there are 31 
 DALI, SENT, DShot600 and a USB keyboard ([verification](04-VERIFICATION.md#protocol-coverage)).
 
 **D-18 Reference host.** The RP2350 on the Tiny Tapeout demo board, running MicroPython.
-External parts such as I2C pull-ups go on a Pmod. The demo board is the hardware every
-chip of the shuttle arrives on, and its firmware is MicroPython, so the bring-up script
-runs where the chip will be with nothing else to buy, and the same script drives the FPGA
+External parts such as I2C pull-ups go on a Pmod. The demo board is the board every
+chip of the shuttle is mounted on, and its firmware is MicroPython, so the bring-up script
+runs on the chip's own board with nothing else to buy, and the same script drives the FPGA
 bench through a small shim.
 
 ## Version 1.1: the tape, the digest and GETI
@@ -122,7 +124,7 @@ flip-flop capture buffer of similar cost would hold 16. Rationale:
 
 **D-25 Execution digest.** A 32-bit MISR over every commit, register write and output
 change, folded only on edges where something happens, so it is final once the program
-stops. One read checks silicon against the simulator. Cost: 48 flops.
+stops. One read checks a run of the chip, the netlist or the FPGA build against the simulator. Cost: 48 flops.
 
 **D-20 / D-26 GETI waits for in-flight SAMPLEs.** Previously, a `GETI` committing on the
 edge where the last `SAMPLE` retired returned the word without that bit. GETI is now
@@ -373,7 +375,11 @@ command aimed at the other contexts and in the words only they fetch, give j the
 commits, state and pins (j's program uses neither the capture unit nor the line unit, one
 shared instance each that another context may own or configure; the digest and the
 first-fault register are global and not compared). The host software refuses a reload that changes the configuration,
-touches a word another enabled context can reach, or is not certified by escert.
+writes a page another enabled context fetches from, runs beside a context that can reach an
+instruction of a shared unit, or is not certified by escert. Until version 3.2 it refused
+only words another context could reach; the version 3.2 proof assumes a write never lands
+in a page j fetches from, because a write into a page clears the park of every context
+waiting in it (D-73), so the host now keeps to the page.
 
 ## Power and timing margin
 
@@ -436,9 +442,10 @@ proof (D-48), program pages (four pages in one 1,024-word store) and proof tripw
 frozen on 2026-11-12 and verified twice from that commit. The larger die paid for the
 pages and the tripwires. The pages give each context a full 256-word program of its own,
 assembled on its own at address 0, where the four had shared one 256-word store and had to
-be linked together. The tripwires build twelve of the proved properties into the silicon
-as sticky flags, so a defect or a wrong assumption about the board shows on a real chip as
-a named, broken property rather than as an unexplained failure. The edge-anchored wait and the
+be linked together. The tripwires build twelve of the proved properties into the chip
+as sticky flags, so a defect or a wrong assumption about the board that breaks one of them
+shows as a named flag rather than as an unexplained failure; one that breaks none of them
+is not seen this way. The edge-anchored wait and the
 symmetric receiver come after this release is done end to end: a feature waits, a check
 never does.
 
@@ -755,7 +762,7 @@ simulator's code.
 
 **D-72 The layout build retries OpenROAD's placement crash.** The crash of timing-driven
 global placement ([tool bugs](24-TOOL-BUGS.md#timing-driven-global-placement-crashes-openroad-11977))
-used to mean a manual rerun of the gds job. On 25 November the commit that brought the
+used to mean a manual rerun of the gds job. On 25 November 2026 the commit that brought the
 held-out round to master crashed there twice in a row, on RTL, settings, tools and runner
 image identical to a run that had passed on its branch the day before. Both runs entered
 placement in the same state and agreed to the last printed digit up to the first repair,
@@ -900,6 +907,22 @@ layout met with 9.4 ns to spare. The flow now turns off rebuffering in that one 
 and the repair after global routing still rebuffers. The same design then met 20 ns with no
 chain, and its slow-corner limit is 17.0 ns, 3.0 ns of margin at the rated clock.
 
+## The instruction-set proof
+
+**D-78 GETM sets Z (3.2).** Section 7.8 of the specification listed no flags for GETM, so by
+its rule that flags are unchanged unless listed, GETM would leave Z alone. The simulator and
+the core have set Z from the value read since GETM was added in version 3, as GETP, GETI,
+GETX and GETC do. (GETL also sets Z, but to say whether its job ended, and LDT sets no
+flag.)
+The checker of the instruction-set proof, written from the specification alone, found the
+difference on its first run over these instructions, with a GETM of an unused selector that
+read 0 and set Z. The co-simulation could not have found it, because both of its models
+agree. The specification was the one in error: its GETM row was written after both
+implementations, Z on a status read matches the instructions beside it, and it lets a
+program test a reading with one branch (`GETM r0, 0` then `JZ`: no rule has counted a
+violation). The specification and the
+instruction-set guide now list Z for GETM; neither the design nor the simulator changed.
+
 ## The DOOM console
 
 **D-66 The game on the host, the chip as its input/output processor.** DOOM needs far more
@@ -969,7 +992,9 @@ the link and none was lost.
 - **One clock gate per byte instead of per bank.** Clock wire fell from 118 mm to only
   93 mm while cells rose to 24,791; reverted.
 - **Gating the remaining free-running flops** (time base, pipeline, host link,
-  telemetry). They must run anyway, and each further gate saves less.
+  telemetry), before version 3.2. They must run anyway, and each further gate saves less.
+  Version 3.2 later found how to gate the pipeline, the host interface and the telemetry
+  after all (D-74 to D-76); the time base still runs on every edge.
 - **Global-route layer derates.** Loosening Metal2 (0.25) made the first detailed-route
   pass take 48% longer. Tightening it (0.45) pushed wiring onto Metal3, where overflow
   rose from 264 to 711 and detailed routing stopped converging. Every layer keeps the

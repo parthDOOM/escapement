@@ -390,10 +390,12 @@ async def test_live_reload_over_spi(dut):
     the program store: context 1 is stopped, given new timing and restarted while context 0
     keeps toggling its pin every 40 ticks. Not one of context 0's edges moves, and context 1
     comes back with the new pattern (ADDT 56 before the rise, 12 before the fall: low 56 and
-    high 12 ticks instead of 24 and 24; the ISS gives the same)."""
-    from eschost.live import plan_reload
+    high 12 ticks instead of 24 and 24; the ISS gives the same). Both contexts share one page
+    here, a layout the host's plan_reload refuses (the non-interference proof assumes no write
+    lands in a page another running context fetches from), so the words are written directly:
+    the test shows what the chip itself does with such a write."""
     old, new = assemble(RELOAD.format(up=24, down=24)), assemble(RELOAD.format(up=56, down=12))
-    runs = plan_reload(old, new, 1)
+    runs = [(a, [new.words[a]]) for a in range(256) if old.words[a] != new.words[a]]
     pins = PinLog()
     host = await bring_up(dut, pins)
     await host.load(old)

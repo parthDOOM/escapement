@@ -59,9 +59,15 @@ module esc_mon #(
     output wire          rec_load,               // the record is taken at this edge (the core
                                                  // keeps its tick: GETM sel 2)
     output wire          irq                     // a violation at this edge
+`ifdef ESC_ISA_CHECK
+    , output wire [63:0] f_words                 // verification only (esc_isa_check.v): {rec, counts}
+`endif
 );
   wire [31:0] counts, rec;
   assign rdata = rsel ? rec : counts;
+`ifdef ESC_ISA_CHECK
+  assign f_words = {rec, counts};
+`endif
   reg  [12:0] prev;
   wire [15:0] rise = {3'd0, psync & ~prev};
   wire [15:0] fall = {3'd0, ~psync & prev};

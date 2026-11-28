@@ -182,12 +182,14 @@ class Bridge:
                            ", record memory full" if full else ""))
 
 
-def serve(bundle_file="bundles/logic_analyzer_stream.json"):
+def serve(bundle_file="bundles/logic_analyzer_stream.json", io=None):
     """Run the bridge on the board's USB serial port until it is closed. While it runs,
-    the REPL is off the port (Ctrl-C included); press the board's reset to get it back."""
+    the REPL is off the port (Ctrl-C included); press the board's reset to get it back.
+    io: the board's bringup.DemoBoardIO (default: the demo board's own; the FPGA bench
+    passes barepico.open_io())."""
     import sys
     import micropython
-    b = bringup.Bringup(bringup.DemoBoardIO.open())
+    b = bringup.Bringup(io or bringup.DemoBoardIO.open())
     b.stage0()
     b.connect()
     if b.host.status()["version"] != bringup.VERSION:

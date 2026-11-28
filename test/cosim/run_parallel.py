@@ -20,6 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from isa_fail import failures as isa_failures  # noqa: E402  (the instruction checker's failures)
 # One job per fixed test: cocotb puts the filter into a shell command unquoted, so a
 # regex alternation ("a|b") would become a pipe. The bus-model test runs one job per
 # firmware (COSIM_FIRMWARE), since it is the longest.
@@ -53,7 +55,11 @@ def firmware_cases() -> list[str]:
 
 
 SIM = os.environ.get("SIM", "icarus")
-BUILD = f"sim_build/shared_{SIM}" + ("_cells" if os.environ.get("CELLS") == "yes" else "")
+# ISA=no (as in the Makefile) builds without the ISA checker; its own build directory, since
+# a define alone does not make cocotb recompile
+ISA = os.environ.get("ISA", "yes") == "yes"
+BUILD = (f"sim_build/shared_{SIM}" + ("_cells" if os.environ.get("CELLS") == "yes" else "")
+         + ("" if ISA else "_noisa"))
 # The simulator's build product in BUILD (cocotb's Makefile.<sim> target): compiled
 # once, then every job runs from it. Verilator's C++ build takes longer than most jobs.
 BUILD_TARGET = {"verilator": "Vtop", "icarus": "sim.vvp"}.get(SIM)
@@ -81,9 +87,15 @@ def run(job: str, test_filter: str, seed0: int, seeds: int,
     m = re.search(r"TESTS=(\d+) PASS=(\d+) FAIL=(\d+)", out)
     s = re.search(r"random: (\d+) programs, (\d+) commits, (\d+) cycles, (\d+) skipped", out)
     summary = s.group(0) if s else ""
+    isa = isa_failures(out)
     if not m:
         return job, 0, 1, out[-3000:], summary
-    return job, int(m.group(2)), int(m.group(3)), out[-3000:] if int(m.group(3)) else "", summary
+    fails = int(m.group(3)) + (1 if isa else 0)
+    tail = out[-3000:]
+    if isa:
+        tail = (f"ISA checker: {len(isa)} failed checks; the first:\n" + "\n".join(isa[:10])
+                + "\n" + tail)
+    return job, int(m.group(2)), fails, tail if fails else "", summary
 
 
 def main() -> int:
@@ -121,8 +133,8 @@ def main() -> int:
             print(tail)
     print(f"\nrandom test: {total[0]} programs, {total[1]} commits, {total[2]} cycles, "
           f"{total[3]} skipped (longer than the 256-word program memory)")
-    print(f"{args.seeds} random programs in {n} jobs + directed and firmware tests: "
-          f"{'PASS' if not failed else 'FAIL'}")
+    print(f"{args.seeds} random programs in {n} jobs + directed and firmware tests, ISA checker "
+          f"{'on' if ISA else 'off'}: {'PASS' if not failed else 'FAIL'}")
     return 1 if failed else 0
 
 

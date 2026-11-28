@@ -10,7 +10,7 @@ tools that produced it.
 | Component | Revision |
 | --- | --- |
 | Tiny Tapeout template | `ttihp-verilog-template` branch `main` @ `4b1204a` (the ttihp27a shuttle's) |
-| GDS action | `TinyTapeout/tt-gds-action` @ `e7a50f8` (tag `ttihp27a`) |
+| GDS action | `TinyTapeout/tt-gds-action` @ `e7a50f8` (the `ttihp27a` tag when the flow was pinned; the tag has since moved, below) |
 | Support tools and precheck | `TinyTapeout/tt-support-tools` @ `0922544` (`main`, the action's default) |
 | PDK | `IHP-GmbH/IHP-Open-PDK` @ `89d42ee` (SG13CMOS5L), installed by ciel |
 | LibreLane | 3.1.0.dev4, container `ghcr.io/librelane/librelane:3.1.0.dev4` (digest in `versions.txt`) |
@@ -26,8 +26,15 @@ version 2 was. Versions 1.2 to 1.6 were signed off on the flow that came before 
 `FLOW=pre` in the local scripts still reproduces that flow.
 Version 3.0 was signed off on tools `9d13ff3`; the 15 commits up to `0922544` add a
 datasheet generator and a sky130-only precheck rule and leave the cmos5l harden, precheck and
-`info.yaml` checks as they were. The action stays at its `ttihp27a` tag: the two commits on
-its `main` after it make the docs check read the PDK from an input that defaults to sky130A. The cell models and liberty
+`info.yaml` checks as they were. The action stays at `e7a50f8`, the commit its `ttihp27a`
+tag named when the flow was pinned. On 24 November 2026 the tag moved three commits on, to
+`df73a1e`: two make the docs check and the custom-GDS render read the PDK from an input that
+defaults to sky130A, and one fixes the GDS viewer, which this repository does not use. None
+touches the harden, the precheck or the gate-level test; moving to it would need
+`pdk: ihp-sg13cmos5l` in `docs.yaml`. Of the eight commits on the support tools' `main` after
+`0922544` (checked 28 November), seven add the new micro tile size and one tightens the
+precheck's cell-name rule to `A-Z a-z 0-9 _ $ -`, which every one of version 3.2's 339 cells
+already meets. Version 3.2 is signed off on this same flow. The cell models and liberty
 files that ciel installs at `89d42ee` are byte-identical to the IHP-Open-PDK tree at that
 commit, which the simulation and equivalence jobs check out directly.
 

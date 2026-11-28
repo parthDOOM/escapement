@@ -6,7 +6,7 @@
 | --- | --- |
 | [Jane Street: protocol emulator ASIC competition](https://blog.janestreet.com/protocol-emulator-asic-competition/) | Brief: IHP 130 nm CMOS5L via Tiny Tapeout, tile allocation, protocol targets |
 | [Tiny Tapeout IHP template, `main` @ 4b1204a](https://github.com/TinyTapeout/ttihp-verilog-template/tree/4b1204ab387b5ab94db1d57067051d8d89a2f83c) (v1.2-v1.6: `cmos5l` @ b86a2a7) | Repository layout, workflows, base flow configuration |
-| [tt-gds-action, tag `ttihp27a` @ e7a50f8](https://github.com/TinyTapeout/tt-gds-action/tree/ttihp27a) (v1.2-v1.6: `ihp-cmos5l` @ 3412659) | CI harden, precheck and gate-level test actions |
+| [tt-gds-action @ e7a50f8](https://github.com/TinyTapeout/tt-gds-action/tree/e7a50f8f46f9f8df4b2c9935bfeb1cbc6b6ae4f6), the `ttihp27a` tag when pinned (it moved to `df73a1e` on 24 November 2026) (v1.2-v1.6: `ihp-cmos5l` @ 3412659) | CI harden, precheck and gate-level test actions |
 | [tt-support-tools, `main` @ 0922544](https://github.com/TinyTapeout/tt-support-tools/tree/0922544e6c7f6126047c3fba720b0437fa32a1b8) (v1.2-v1.6: `ihp-sg13cmos5l` @ d66cf17) | Tile sizes (`tech/ihp-sg13cmos5l/tile_sizes.yaml`) and the precheck |
 | [LibreLane](https://github.com/librelane/librelane) and its [configuration reference](https://librelane.readthedocs.io/en/latest/reference/configuration.html) | RTL-to-GDS flow, version 3.1.0.dev4 (v1.2-v1.6: 3.1.0.dev3) |
 | [LibreLane issue #1039](https://github.com/librelane/librelane/issues/1039) | `-threads None` in 3.1.0.dev3 (D-23) |
@@ -47,3 +47,17 @@
 | [rp2040-doom](https://github.com/kilograham/rp2040-doom), Graham Sanderson's port of Chocolate Doom to the RP2040 | The game the DOOM console runs on its host, a Pico W ([25-DOOM-CONSOLE](25-DOOM-CONSOLE.md)) |
 | [sigrok-dumps](https://github.com/sigrokproject/sigrok-dumps) | Logic-analyser recordings of real devices that `esclearn` learns protocols from ([20-LEARN](20-LEARN.md)) |
 | [RP2040 datasheet, chapter 3 (PIO)](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf) | Prior art in deterministic I/O processors |
+| David May, *The XMOS XS1 Architecture*, XMOS Ltd., 2009 | Prior art: hardware threads with timed ports |
+| S. A. Edwards and E. A. Lee, "The Case for the Precision Timed (PRET) Machine", DAC 2007; I. Liu et al., "A PRET Microarchitecture Implementation with Repeatable Timing and Competitive Performance", ICCD 2012 | Prior art: repeatable instruction timing, deadline instructions and the thread-interleaved pipeline |
+| [riscv-formal](https://github.com/YosysHQ/riscv-formal) | The shape of the instruction-set proof: a checker per instruction, held against the core at every commit ([04-VERIFICATION](04-VERIFICATION.md)) |
+
+## Outside judges
+
+| Source | Used for |
+| --- | --- |
+| [sigrok](https://sigrok.org): sigrok-cli 0.7.2 with its release's decoders and libsigrokdecode's current ones (commit 71f4514), and PulseView | The protocol decoders that judge the simulated pins, and the capture viewer ([04-VERIFICATION](04-VERIFICATION.md), [17-INSTRUMENT](17-INSTRUMENT.md)) |
+| [IRMP](https://www.mikrocontroller.net/articles/IRMP), Frank Meyer's infrared decoder, through libsigrokdecode's `ir_irmp` | The infrared judge |
+| [Wireshark](https://www.wireshark.org) and its `tshark` dissectors | The judge for 10BASE-T and UDP |
+| [rtl_433](https://github.com/merbanan/rtl_433) | A 433 MHz judge |
+| [rc-switch](https://github.com/sui77/rc-switch) | A 433 MHz judge, from its receiver code |
+| [gusmanb's LogicAnalyzer](https://github.com/gusmanb/logicanalyzer) | The firmware of the second Pico that records the FPGA bench as an outside logic analyser |

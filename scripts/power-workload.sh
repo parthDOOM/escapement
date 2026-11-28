@@ -5,7 +5,8 @@
 #
 # RUN_DIR   a LibreLane run (runs/<tag>) whose netlist and database are measured
 # STEP_DIR  step whose .nl.v/.odb to use (default: the post-CTS resizer step, so runs
-#           stopped with --to OpenROAD.ResizerTimingPostCTS can be compared)
+#           stopped with --to OpenROAD.ResizerTimingPostCTS can be compared), or `final`
+#           for the signed-off layout with its extracted parasitics
 # WORKLOAD  uart_tx | logic_analyzer | idle (default: all three)
 #
 # For each workload: a gate-level cocotb simulation of the netlist (test/power.py) records
@@ -22,6 +23,21 @@ RUN=$(realpath "$1"); shift
 STEP=""
 if [[ $# -gt 0 && -d "$RUN/$1" ]]; then STEP="$1"; shift; fi
 [[ -z "$STEP" ]] && STEP=$(basename "$(ls -d "$RUN"/*-openroad-resizertimingpostcts | tail -n 1)")
+# STEP final: the signed-off layout (final/: its netlist, database and constraints, and the
+# typical-corner parasitics extracted from its routed wires); the flow settings from the
+# last step that wrote them
+if [[ "$STEP" == final ]]; then
+  NL="$RUN/final/nl/tt_um_escapement.nl.v"; ODB="$RUN/final/odb/tt_um_escapement.odb"
+  SDC="$RUN/final/sdc/tt_um_escapement.sdc"
+  SPEF="$RUN/final/spef/nom/tt_um_escapement.nom.spef"
+  ENV_TCL=$(ls "$RUN"/*/_env.tcl | sort -V | tail -n 1)
+else
+  NL="$RUN/$STEP/tt_um_escapement.nl.v"; ODB="$RUN/$STEP/tt_um_escapement.odb"
+  SDC="$RUN/$STEP/tt_um_escapement.sdc"; SPEF=""; ENV_TCL="$RUN/$STEP/_env.tcl"
+fi
+for f in "$NL" "$ODB" "$SDC" "$ENV_TCL" ${SPEF:+"$SPEF"}; do
+  [[ -f "$f" ]] || { echo "missing $f" >&2; exit 2; }
+done
 WORKLOADS=("$@")
 [[ ${#WORKLOADS[@]} -eq 0 ]] && WORKLOADS=(uart_tx logic_analyzer idle)
 
@@ -48,14 +64,14 @@ SIM=$(mktemp -d)
 cp -r "$REPO/test" "$SIM/test"
 ln -s "$REPO/src" "$SIM/src"; ln -s "$REPO/macro" "$SIM/macro"
 ln -s "$REPO/sw" "$SIM/sw"; ln -s "$REPO/firmware" "$SIM/firmware"
-cp "$RUN/$STEP/tt_um_escapement.nl.v" "$SIM/test/gate_level_netlist.v"
+cp "$NL" "$SIM/test/gate_level_netlist.v"
 
 pw() {   # $1 = VCD path or "" ; $2 = report
   docker run --rm -v "$HOME:$HOME" -v /tmp:/tmp -v "$REPO:$REPO" -v "$PDK_ROOT:$PDK_ROOT" \
-    -e SCRIPTS_DIR="$LL" -e _TCL_ENV_IN="$RUN/$STEP/_env.tcl" \
+    -e SCRIPTS_DIR="$LL" -e _TCL_ENV_IN="$ENV_TCL" \
     -e PDK_LIB="$PDK_ROOT/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib" \
-    -e MACRO_DIR="$REPO/macro" -e ODB="$RUN/$STEP/tt_um_escapement.odb" \
-    -e SDC="$RUN/$STEP/tt_um_escapement.sdc" -e SET_RC="$LL/openroad/common/set_rc.tcl" \
+    -e MACRO_DIR="$REPO/macro" -e ODB="$ODB" -e SPEF="$SPEF" \
+    -e SDC="$SDC" -e SET_RC="$LL/openroad/common/set_rc.tcl" \
     -e VCD="$1" -e OUT="$2" -e POWER_PERIOD="${POWER_PERIOD:-40}" "$IMAGE" \
     openroad -exit -no_splash "$REPO/scripts/power_vcd.tcl" > "$2.log" 2>&1
 }

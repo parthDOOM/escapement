@@ -30,8 +30,10 @@ FILES = ["esc_core.v", "esc_ctx.v", "esc_cap.v", "esc_mon.v", "esc_line.v", "esc
          "escapement_sram.v", "escapement_sram_big.v", "escapement_pstore.v", "project.v"]
 RATE = 0.30            # fraction of all sites taken; about 400 mutants on v1.3
 SALT = "escapement-mutation-1"
-# macros only formal/*.sby define: code under `ifdef of one of them is never synthesised
-VERIFY_ONLY = {"FORMAL", "FORMAL_ANYNOW", "ESC_LINE_CHECK", "ESC_AHEAD_CHECK", "ESC_CORE_PDR", "ESC_LREG_FORMAL"}
+# macros only verification builds define (formal/*.sby; ESC_ISA_CHECK also the co-simulation):
+# code under `ifdef of one of them is never synthesised
+VERIFY_ONLY = {"FORMAL", "FORMAL_ANYNOW", "ESC_LINE_CHECK", "ESC_AHEAD_CHECK", "ESC_CORE_PDR", "ESC_LREG_FORMAL",
+               "ESC_ISA_CHECK"}
 
 SKIP_LINE = re.compile(r"^\s*(module|endmodule|input|output|inout|parameter|localparam|`|function|endfunction|"
                        r"task|endtask|genvar|integer|initial|always|\$|\);|\)\s*;)|\bfor\s*\(|_unused|"

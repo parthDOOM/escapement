@@ -391,7 +391,7 @@ export default function Playground() {
             <h4>Execution digest</h4>
             <p className="digest mono">{run.digest}</p>
             <p className="dim small">Every commit, register write and pin change of the run folded into one
-              32-bit word. After a run on silicon, one SPI read compares the chip with this prediction.</p>
+              32-bit word. After a run, one SPI read compares the chip with this prediction.</p>
           </div>
         </div>
       )}

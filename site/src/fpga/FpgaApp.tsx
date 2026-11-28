@@ -310,7 +310,7 @@ function Page({ d }: { d: Fpga }) {
           <div className="facts" style={{ marginBottom: "2rem" }}>
             <div><b>20 of 20</b><span>test frames from <code>eth_tx</code> arrived intact</span></div>
             <div><b>20 of 20</b><span>of the laptop's own frames into <code>eth_rx</code>, each with a good FCS</span></div>
-            <div><b>99 of 100</b><span>pings answered by <code>eth_trx</code>, with the Pico as the IP stack</span></div>
+            <div><b>Ping</b><span>answered by <code>eth_trx</code>, with the Pico as the IP stack: 7 of 10 in the logged run, 99 of 100 in a later run checked by hand</span></div>
             <div><b>0.9 ms</b><span>to push a frame over the bit-banged link</span></div>
           </div>
           <figure className="panel">
@@ -677,7 +677,7 @@ function Page({ d }: { d: Fpga }) {
           <div className="sec-head">
             <p className="eyebrow">Held-out round · 2026-11-25</p>
             <h2>Eight protocols drawn at random, on the same chip</h2>
-            <p className="lede">The held-out round wrote eight protocols drawn at random from a sealed list, on
+            <p className="lede">The held-out round wrote eight protocols drawn at random from a public pool by a sealed draw, on
               version 3.1 as tagged. Here each runs on the chip with no device on the other end of its bus: only the two boards, and a
               second Pico as a two-channel logic analyser, which for M-Bus the Pico W joins as the bus master.</p>
           </div>
@@ -712,7 +712,7 @@ function Page({ d }: { d: Fpga }) {
             <p className="eyebrow">Limits</p>
             <h2>What an FPGA run cannot show</h2>
             <p className="lede">This bench tests the design: its RTL, its firmware and its host interface on real
-              pins at the real clock. It does not test the silicon.</p>
+              pins at the real clock. It does not test a fabricated chip.</p>
           </div>
           <div className="cols">
             <ul className="limits">
